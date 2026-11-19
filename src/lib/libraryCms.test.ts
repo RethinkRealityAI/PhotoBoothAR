@@ -28,13 +28,27 @@ const items: CmsItem[] = [
   item({ id: 'b1', source: 'builtin', name: 'Elf Hat', state: null, categoryId: 'x', categorySuggested: true }),
 ];
 
-const q = (over: Partial<CmsQuery> = {}): CmsQuery => ({ ...defaultCmsQuery(), ...over });
+// Filter/sort tests run inside one source; the 'all' view has its own tests.
+const q = (over: Partial<CmsQuery> = {}): CmsQuery => ({ ...defaultCmsQuery(), source: 'library', ...over });
 const ids = (list: CmsItem[]) => list.map((i) => i.id);
 
 describe('queryCms', () => {
   it('shows one source at a time, newest first by default', () => {
     expect(ids(queryCms(items, q(), cats))).toEqual(['frame', 'santa', 'crown']);
     expect(ids(queryCms(items, q({ source: 'builtin' }), cats))).toEqual(['b1']);
+  });
+
+  it('opens on everything: library, built-in and event pieces together', () => {
+    expect(defaultCmsQuery().source).toBe('all');
+    const withEvents = [
+      ...items,
+      item({ id: 'e1', source: 'event', name: 'Party Hat', createdAt: '2026-11-11T00:00:00Z' }),
+      // Already copied into the library: its library row stands for it.
+      item({ id: 'e2', source: 'event', name: 'Copied Hat', inLibrary: true }),
+    ];
+    expect(ids(queryCms(withEvents, { ...defaultCmsQuery() }, cats))).toEqual(['frame', 'e1', 'santa', 'crown', 'b1']);
+    expect(ids(queryCms(withEvents, { ...defaultCmsQuery(), source: 'event' }, cats))).toEqual(['e1', 'e2']);
+    expect(cmsCounts(withEvents, defaultCmsQuery(), cats).bySource).toEqual({ all: 5, library: 3, builtin: 1, event: 2 });
   });
 
   it('a top-level category includes its subcategories; none = uncategorised', () => {
@@ -62,7 +76,7 @@ describe('queryCms', () => {
 describe('cmsCounts', () => {
   it('counts each source, each shelf with its children, types and keywords', () => {
     const c = cmsCounts(items, q(), cats);
-    expect(c.bySource).toEqual({ library: 3, builtin: 1, event: 0 });
+    expect(c.bySource).toEqual({ all: 4, library: 3, builtin: 1, event: 0 });
     expect(c.byCategory).toMatchObject({ all: 3, none: 1, h: 1, x: 1, g: 1 });
     expect(c.byType).toMatchObject({ '3d': 1, scene: 1, frame: 1 });
     expect(c.keywords).toEqual([{ keyword: 'gold', count: 1 }, { keyword: 'santa', count: 1 }]);

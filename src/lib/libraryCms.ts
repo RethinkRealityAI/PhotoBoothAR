@@ -17,6 +17,8 @@ import { LIBRARY_KIND_LABEL, type LibraryState, type LibraryTags } from './libra
 import { categoryScope, keywordLabel, type LibraryCategory } from './libraryTaxonomy';
 
 export type CmsSource = 'library' | 'builtin' | 'event';
+/** The source filter: one home, or 'all' (every home in one view). */
+export type CmsSourceFilter = CmsSource | 'all';
 export type CmsType = 'frame' | 'sticker' | 'filter' | '3d' | 'scene';
 
 export const CMS_TYPES: readonly CmsType[] = ['3d', 'scene', 'frame', 'sticker', 'filter'];
@@ -27,7 +29,8 @@ export const CMS_TYPE_LABEL: Record<CmsType, string> = {
   sticker: 'Stickers',
   filter: 'Filters',
 };
-export const CMS_SOURCE_LABEL: Record<CmsSource, string> = {
+export const CMS_SOURCE_LABEL: Record<CmsSourceFilter, string> = {
+  all: 'Everything',
   library: 'Library',
   builtin: 'Built into the app',
   event: 'From events',
@@ -96,7 +99,7 @@ export const CMS_SORT_LABEL: Record<CmsSort, string> = {
 export type CmsCategoryFilter = 'all' | 'none' | string;
 
 export interface CmsQuery {
-  source: CmsSource;
+  source: CmsSourceFilter;
   text: string;
   types: readonly CmsType[];
   category: CmsCategoryFilter;
@@ -106,7 +109,17 @@ export interface CmsQuery {
 }
 
 export function defaultCmsQuery(): CmsQuery {
-  return { source: 'library', text: '', types: [], category: 'all', states: [], keyword: null, sort: 'newest' };
+  return { source: 'all', text: '', types: [], category: 'all', states: [], keyword: null, sort: 'newest' };
+}
+
+/**
+ * Is the item in the chosen source? 'all' shows every home together, except an
+ * event piece that has already been copied into the library: its library copy
+ * stands for it there, so it is not listed twice.
+ */
+export function inSourceFilter(item: CmsItem, source: CmsSourceFilter): boolean {
+  if (source === 'all') return !(item.source === 'event' && item.inLibrary);
+  return item.source === source;
 }
 
 function categoryName(id: string | null, categories: readonly LibraryCategory[]): string {
@@ -160,7 +173,7 @@ function time(s: string | null): number {
  */
 export function queryCms(items: readonly CmsItem[], q: CmsQuery, categories: readonly LibraryCategory[]): CmsItem[] {
   const out = items.filter((i) =>
-    i.source === q.source &&
+    inSourceFilter(i, q.source) &&
     (q.types.length === 0 || q.types.includes(i.type)) &&
     (q.states.length === 0 || (i.state !== null && q.states.includes(i.state))) &&
     (q.keyword === null || i.keywords.includes(q.keyword)) &&
@@ -178,7 +191,7 @@ export function queryCms(items: readonly CmsItem[], q: CmsQuery, categories: rea
 }
 
 export interface CmsCounts {
-  bySource: Record<CmsSource, number>;
+  bySource: Record<CmsSourceFilter, number>;
   /** Per category id INCLUDING its subcategories' items, plus 'all' and 'none'. */
   byCategory: Record<string, number>;
   byType: Record<CmsType, number>;
@@ -193,10 +206,13 @@ export interface CmsCounts {
  * you would see if you clicked this".
  */
 export function cmsCounts(items: readonly CmsItem[], q: CmsQuery, categories: readonly LibraryCategory[]): CmsCounts {
-  const bySource: Record<CmsSource, number> = { library: 0, builtin: 0, event: 0 };
-  for (const i of items) bySource[i.source] += 1;
+  const bySource: Record<CmsSourceFilter, number> = { all: 0, library: 0, builtin: 0, event: 0 };
+  for (const i of items) {
+    bySource[i.source] += 1;
+    if (inSourceFilter(i, 'all')) bySource.all += 1;
+  }
 
-  const inSource = items.filter((i) => i.source === q.source);
+  const inSource = items.filter((i) => inSourceFilter(i, q.source));
   const base = inSource.filter((i) =>
     (q.states.length === 0 || (i.state !== null && q.states.includes(i.state))) && matchesText(i, q.text, categories),
   );

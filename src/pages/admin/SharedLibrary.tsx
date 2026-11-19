@@ -6,16 +6,18 @@
  * props from, run as a small CMS. Named SharedLibrary so it never collides with
  * the HOST picker, src/components/admin/Library.tsx.
  *
- * Three sources, one screen (pure view model: lib/libraryCms.ts):
+ * Everything in one view by default; the source tabs narrow it (pure view
+ * model: lib/libraryCms.ts):
  *  - Library: shared-library rows. Rename, re-file (category), keywords, tags,
  *    order (metadata only — what a guest sees never changes here), and the
  *    lifecycle listed → retired → withdrawn → deleted, each behind a
  *    ConfirmModal that says the consequence in plain words.
- *  - Built into the app: props shipped in code. Read-only; filed by name.
+ *  - Built into the app: props shipped as files or drawn by code. Read-only;
+ *    filed by name.
  *  - From events: 3D props and scenes made inside events. "Add to library"
  *    COPIES one in (its files too), hidden from hosts until it is listed.
  * Organising (lib/libraryTaxonomy.ts): one category from a two-level tree, plus
- * free keywords; the fixed occasion/colour/style tags still drive the host
+ * free tags (stored as keywords); the fixed occasion/colour/style set still drives the host
  * picker's matching. Every write goes through admin-api, which re-checks
  * platform-admin and audits it.
  */
@@ -69,7 +71,7 @@ import {
   type CmsItem,
   type CmsQuery,
   type CmsSort,
-  type CmsSource,
+  type CmsSourceFilter,
 } from '../../lib/libraryCms';
 import {
   KEYWORDS_PER_ITEM_MAX,
@@ -93,6 +95,8 @@ import { useToast } from '../../components/ui/Toast';
 import CategoryManager from '../../components/admin/library/CategoryManager';
 import ModelViewerModal, { type ViewerTarget } from '../../components/admin/library/ModelViewerModal';
 import CategorySelect from '../../components/admin/library/CategorySelect';
+import { useHeldModel, useRenderedPictures } from '../../components/admin/library/useRenderedPictures';
+import { ModelPreview } from '../../components/studio/DirectorCards';
 
 /* ── Shared styles ───────────────────────────────────────────────────── */
 
@@ -199,7 +203,7 @@ function KeywordChips({ keywords, onRemove, max = 99 }: { keywords: readonly str
         <span key={k} className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] pl-2.5 pr-1 py-0.5 text-[11px] text-brand-fg/80">
           {keywordLabel(k)}
           {onRemove ? (
-            <button type="button" onClick={() => onRemove(k)} className="p-1 rounded-full hover:bg-white/10" aria-label={`Remove keyword ${keywordLabel(k)}`}>
+            <button type="button" onClick={() => onRemove(k)} className="p-1 rounded-full hover:bg-white/10" aria-label={`Remove tag ${keywordLabel(k)}`}>
               <X className="w-3 h-3" />
             </button>
           ) : <span className="w-1" />}
@@ -210,7 +214,7 @@ function KeywordChips({ keywords, onRemove, max = 99 }: { keywords: readonly str
   );
 }
 
-function KeywordAdder({ onAdd, disabled = false, placeholder = 'Add keywords, comma separated' }: {
+function KeywordAdder({ onAdd, disabled = false, placeholder = 'Add tags, comma separated' }: {
   onAdd: (k: string[]) => void; disabled?: boolean; placeholder?: string;
 }) {
   const [text, setText] = useState('');
@@ -227,7 +231,7 @@ function KeywordAdder({ onAdd, disabled = false, placeholder = 'Add keywords, co
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
         placeholder={placeholder}
-        aria-label="Keywords"
+        aria-label="Tags"
         className={FIELD}
       />
       <button type="button" onClick={commit} disabled={disabled || text.trim() === ''} className={SOFT_BTN}>Add</button>
@@ -330,6 +334,8 @@ interface DetailProps {
   onEditInStudio: (item: CmsItem) => void;
   /** The id being opened in the Studio ('new' for a blank one), else null. */
   opening: string | null;
+  /** Height of the live 3D view, in px (the side panel and the phone sheet differ). */
+  previewHeight: number;
   onClose?: () => void;
 }
 
@@ -355,19 +361,34 @@ function DetailPanel(p: DetailProps) {
   );
   const pic = p.eventRow ? pictureSourceFor(p.eventRow) : null;
   const needsUpload = item.source === 'event' && !item.thumb && pic?.kind === 'none';
+  // The live view shares the model cache: keep the background picture renderer
+  // from freeing the model while it is on screen.
+  useHeldModel(item.modelUrl);
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="relative rounded-2xl bg-[#05060B] border border-white/10 aspect-square overflow-hidden">
-        <Thumb item={item} className="w-full h-full p-4" />
+      <div className="relative rounded-2xl bg-[#05060B] border border-white/10 overflow-hidden">
+        {item.modelUrl ? (
+          // Live straight away: drag to spin, pinch or scroll to zoom.
+          <ModelPreview url={item.modelUrl} height={p.previewHeight} />
+        ) : (
+          <div className="aspect-square"><Thumb item={item} className="w-full h-full p-4" /></div>
+        )}
         <button
           type="button"
           onClick={() => p.onView(item)}
-          className="absolute bottom-2 right-2 inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full bg-black/60 hover:bg-black/75 backdrop-blur text-[11px] text-brand-fg"
+          aria-label={item.modelUrl ? `Open ${item.name} in a larger 3D view` : `View ${item.name} larger`}
+          className="absolute top-2 right-2 inline-flex items-center gap-1.5 min-h-11 px-3 rounded-full bg-black/60 hover:bg-black/75 backdrop-blur text-[11px] text-brand-fg"
         >
-          <Maximize2 className="w-3.5 h-3.5" aria-hidden /> {item.modelUrl ? 'Spin in 3D' : 'View larger'}
+          <Maximize2 className="w-3.5 h-3.5" aria-hidden /> Larger
         </button>
       </div>
+      {item.modelUrl && (
+        <p className="-mt-2 font-sans text-[11px] text-brand-muted/55">
+          Drag to spin. Pinch or scroll to zoom.
+          {item.type === 'scene' ? ' Shows the scene’s 3D piece on its own.' : ''}
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-brand-muted/70">
         <span className="px-2 py-0.5 rounded-full bg-white/[0.06] text-brand-fg/80">{kindLabel(item.kind)}</span>
@@ -427,7 +448,7 @@ function DetailPanel(p: DetailProps) {
 
           {item.source === 'library' && p.taxonomyReady && (
             <div>
-              <span className={LABEL}>Keywords</span>
+              <span className={LABEL}>Tags</span>
               <div className="mt-1 flex flex-col gap-2">
                 <KeywordChips keywords={keywords} onRemove={(k) => setKeywords((ks) => ks.filter((x) => x !== k))} />
                 <KeywordAdder
@@ -442,13 +463,13 @@ function DetailPanel(p: DetailProps) {
             <div>
               <button type="button" onClick={() => setShowTags((s) => !s)} className="flex items-center gap-1.5 min-h-11 text-left" aria-expanded={showTags}>
                 {showTags ? <ChevronDown className="w-3.5 h-3.5 text-brand-muted/60" /> : <ChevronRight className="w-3.5 h-3.5 text-brand-muted/60" />}
-                <span className={LABEL}>Matching tags</span>
+                <span className={LABEL}>Occasion, colour, style</span>
                 <span className="font-sans text-[11px] text-brand-muted/50">
                   {[...tags.occasions, ...tags.colors, ...tags.styles].length || 'none'}
                 </span>
               </button>
               <p className="font-sans text-[11px] text-brand-muted/50 leading-snug">
-                Occasion, colour and style. These decide which hosts see it suggested first.
+                A fixed set that decides which hosts see it suggested first.
               </p>
               {showTags && <div className="mt-3"><LibraryTagPicker value={tags} onChange={setTags} disabled={p.busy} /></div>}
             </div>
@@ -470,7 +491,7 @@ function DetailPanel(p: DetailProps) {
           {item.source === 'event' && (
             item.inLibrary ? (
               <p className="rounded-xl bg-emerald-500/10 border border-emerald-400/20 px-3 py-2.5 font-sans text-xs text-emerald-100/90">
-                Already copied into the library. Find it under the Library tab.
+                Already copied into the library, where it shows under Everything and Library.
               </p>
             ) : (
               <div className="flex flex-col gap-2">
@@ -596,12 +617,14 @@ export default function SharedLibrary() {
         key: `builtin:${m.id}`, id: m.id, source: 'builtin', name: m.name, kind: '3d_attachment', type: '3d',
         thumb: m.thumb, swatch: m.swatch, state: null, categoryId: s?.categoryId ?? null, categorySuggested: s !== null,
         keywords: [], tags: emptyLibraryTags(), createdAt: null, linkCount: 0,
-        origin: m.source === 'prop' ? `Ready-made prop · ${m.sitsOn}` : `Customisable · ${m.sitsOn}`,
+        origin: `${m.source === 'prop' ? 'Ready-made prop' : m.source === 'customisable' ? 'Customisable' : 'Built from code'} · ${m.sitsOn}`,
         version: null, modelUrl: m.url, inLibrary: true,
       });
     }
     for (const e of eventRows) {
-      const s = suggestCategory({ name: e.name, extra: e.prompt }, categories);
+      // Filed from what the event knows: the piece's name first, then the AI
+      // prompt it was made from and the event's own name.
+      const s = suggestCategory({ name: e.name, extra: [e.prompt, e.eventName].filter(Boolean).join(' · ') }, categories);
       const pic = pictureSourceFor(e);
       out.push({
         key: `event:${e.id}`, id: e.id, source: 'event', name: e.name, kind: e.kind, type: cmsTypeOfKind(e.kind),
@@ -614,7 +637,18 @@ export default function SharedLibrary() {
     return out;
   }, [libRows, eventRows, categories]);
 
-  const visible = useMemo(() => queryCms(items, query, categories), [items, query, categories]);
+  const matched = useMemo(() => queryCms(items, query, categories), [items, query, categories]);
+  // Tiles with no picture but a model get one drawn in this browser, on-screen
+  // ones first. Display only: adding a piece to the library stores its own.
+  const wantPictures = useMemo(
+    () => [...new Set(matched.filter((i) => !i.thumb && i.modelUrl).map((i) => i.modelUrl as string))],
+    [matched],
+  );
+  const rendered = useRenderedPictures(wantPictures);
+  const visible = useMemo(
+    () => matched.map((i) => (i.thumb || !i.modelUrl || !rendered.has(i.modelUrl) ? i : { ...i, thumb: rendered.get(i.modelUrl) ?? null })),
+    [matched, rendered],
+  );
   const counts = useMemo(() => cmsCounts(items, query, categories), [items, query, categories]);
   const active = useMemo(() => items.find((i) => i.key === activeKey) ?? null, [items, activeKey]);
   const selectedItems = useMemo(() => items.filter((i) => selected.has(i.key)), [items, selected]);
@@ -635,8 +669,14 @@ export default function SharedLibrary() {
   const eventsWaiting = eventRows.filter((e) => !e.inLibrary).length;
 
   const patchQuery = (p: Partial<CmsQuery>) => setQuery((q) => ({ ...q, ...p }));
-  const switchSource = (source: CmsSource) => {
-    setQuery((q) => ({ ...q, source, states: source === 'library' ? q.states : [], keyword: null }));
+  const switchSource = (source: CmsSourceFilter) => {
+    const keepsLibraryFilters = source === 'library' || source === 'all';
+    setQuery((q) => ({
+      ...q, source,
+      states: keepsLibraryFilters ? q.states : [],
+      keyword: keepsLibraryFilters ? q.keyword : null,
+      sort: !keepsLibraryFilters && q.sort === 'most-used' ? 'newest' : q.sort,
+    }));
     setSelected(new Set());
     setActiveKey(null);
   };
@@ -684,7 +724,7 @@ export default function SharedLibrary() {
       ...r, name, tags: patch.tags,
       ...(taxo.error === null ? { categoryId: patch.categoryId, keywords: patch.keywords } : {}),
     }));
-    if (taxo.error !== null) { push(`Name and tags saved, but the category or keywords were not: ${libraryErrorText(taxo.error)}`, 'error'); return false; }
+    if (taxo.error !== null) { push(`Name saved, but the category or tags were not: ${libraryErrorText(taxo.error)}`, 'error'); return false; }
     push(`Saved “${name}”.`, 'success');
     return true;
   };
@@ -760,9 +800,12 @@ export default function SharedLibrary() {
     await load();
   };
 
-  const addSelectedEvents = async () => {
-    const list = selectedItems.filter((i) => i.source === 'event' && !i.inLibrary);
-    if (list.length === 0) return;
+  const addSelectedEvents = () => addEvents(selectedItems.filter((i) => i.source === 'event' && !i.inLibrary));
+  const addAllEvents = () => addEvents(items.filter((i) => i.source === 'event' && !i.inLibrary));
+
+  /** Copy event pieces in, one at a time, each filed by its suggestion. */
+  const addEvents = async (list: CmsItem[]) => {
+    if (list.length === 0 || busy) return;
     setBusy(true);
     let ok = 0;
     const needPicture: string[] = [];
@@ -780,7 +823,7 @@ export default function SharedLibrary() {
     setSelected(new Set());
     await load();
     const parts = [`Added ${ok} of ${list.length}`];
-    if (needPicture.length > 0) parts.push(`${needPicture.length} need a picture first (open each one)`);
+    if (needPicture.length > 0) parts.push(`${needPicture.length} drawn by code need a picture first (open each one)`);
     if (failed.length > 0) parts.push(`${failed.length} failed`);
     push(`${parts.join('. ')}.`, failed.length > 0 || needPicture.length > 0 ? 'error' : 'success');
     if (failed.length > 0) console.warn('[library] add failures', failed);
@@ -842,8 +885,9 @@ export default function SharedLibrary() {
   const unionKeywords = [...new Set(librarySelected.flatMap((i) => i.keywords))].sort();
   const autoSortable = uncategorised.filter((u) => u.suggestion !== null);
 
-  const detail = active && (
+  const detail = (previewHeight: number) => active && (
     <DetailPanel
+      previewHeight={previewHeight}
       item={active}
       categories={categories}
       taxonomyReady={taxonomyReady}
@@ -904,7 +948,7 @@ export default function SharedLibrary() {
         <>
           {/* Source tabs */}
           <div role="tablist" aria-label="Where it lives" className="flex gap-1 overflow-x-auto -mx-1 px-1 pb-1 mb-4">
-            {(['library', 'builtin', 'event'] as const).map((s) => {
+            {(['all', 'library', 'builtin', 'event'] as const).map((s) => {
               const on = query.source === s;
               return (
                 <button
@@ -927,14 +971,27 @@ export default function SharedLibrary() {
           {/* Attention strip: only what needs a decision, one line each */}
           {(() => {
             const rows: Array<{ key: string; text: string; action: ReactNode }> = [];
-            if (query.source === 'library' && draftCount > 0) {
+            const libraryView = query.source === 'library' || query.source === 'all';
+            if (libraryView && draftCount > 0) {
               rows.push({ key: 'drafts', text: `${draftCount} uploaded model${draftCount === 1 ? '' : 's'} waiting for review`, action: <Link to="/admin/library/import" className={SOFT_BTN}>Review</Link> });
             }
-            if (query.source === 'library' && taxonomyReady && autoSortable.length > 0) {
+            if (libraryView && taxonomyReady && autoSortable.length > 0) {
               rows.push({ key: 'sort', text: `${uncategorised.length} with no category. ${autoSortable.length} can be filed from their names`, action: <button type="button" onClick={() => setAutoSort(true)} className={SOFT_BTN}><Wand2 className="w-3.5 h-3.5" aria-hidden /> File them</button> });
             }
-            if (query.source === 'library' && eventsWaiting > 0) {
-              rows.push({ key: 'events', text: `${eventsWaiting} piece${eventsWaiting === 1 ? '' : 's'} made in events not in the library yet`, action: <button type="button" onClick={() => switchSource('event')} className={SOFT_BTN}>See them</button> });
+            if (query.source !== 'builtin' && taxonomyReady && eventsWaiting > 0) {
+              rows.push({
+                key: 'events',
+                text: `${eventsWaiting} piece${eventsWaiting === 1 ? '' : 's'} made in events ${eventsWaiting === 1 ? 'is' : 'are'} not in the library yet. Adding copies each one in with a picture, filed by what the event knows about it, hidden from hosts until you show it`,
+                action: (
+                  <span className="flex gap-1.5">
+                    {query.source !== 'event' && <button type="button" onClick={() => switchSource('event')} className={`${SOFT_BTN} hidden sm:inline-flex`}>See them</button>}
+                    <button type="button" disabled={busy} onClick={() => void addAllEvents()} className={PRIMARY_BTN}>
+                      {busy && progress ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> : <Upload className="w-3.5 h-3.5" aria-hidden />}
+                      Add all {eventsWaiting}
+                    </button>
+                  </span>
+                ),
+              });
             }
             return (
               <div className="flex flex-col gap-2 mb-4">
@@ -977,7 +1034,7 @@ export default function SharedLibrary() {
                   type="search"
                   value={query.text}
                   onChange={(e) => patchQuery({ text: e.target.value })}
-                  placeholder="Search names, keywords, categories, tags"
+                  placeholder="Search names, tags, categories"
                   aria-label="Search the library"
                   className={`${FIELD} pl-9`}
                 />
@@ -1002,7 +1059,7 @@ export default function SharedLibrary() {
                 </div>
               )}
               <select aria-label="Sort" value={query.sort} onChange={(e) => patchQuery({ sort: e.target.value as CmsSort })} className={`${FIELD_BASE} shrink-0`}>
-                {(Object.keys(CMS_SORT_LABEL) as CmsSort[]).filter((s) => query.source === 'library' || s !== 'most-used').map((s) => (
+                {(Object.keys(CMS_SORT_LABEL) as CmsSort[]).filter((s) => query.source === 'library' || query.source === 'all' || s !== 'most-used').map((s) => (
                   <option key={s} value={s}>{CMS_SORT_LABEL[s]}</option>
                 ))}
               </select>
@@ -1032,7 +1089,7 @@ export default function SharedLibrary() {
                   </button>
                 );
               })}
-              {query.source === 'library' && (
+              {(query.source === 'library' || query.source === 'all') && (
                 <>
                   <span className="w-px bg-white/10 mx-1 shrink-0" aria-hidden />
                   {STATE_FILTERS.map((s) => {
@@ -1053,7 +1110,7 @@ export default function SharedLibrary() {
               )}
             </div>
 
-            {query.source === 'library' && counts.keywords.length > 0 && (
+            {(query.source === 'library' || query.source === 'all') && counts.keywords.length > 0 && (
               <div className="flex items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-1">
                 <Tag className="w-3.5 h-3.5 shrink-0 text-brand-muted/50" aria-hidden />
                 {counts.keywords.slice(0, 24).map(({ keyword, count }) => {
@@ -1119,7 +1176,7 @@ export default function SharedLibrary() {
                   <BookImage className="w-7 h-7 mx-auto mb-3 text-[color:var(--color-accent)]" aria-hidden />
                   <p className="font-sans text-sm text-brand-fg/85">
                     {counts.bySource[query.source] === 0
-                      ? query.source === 'library'
+                      ? query.source === 'library' || query.source === 'all'
                         ? 'Nothing in the library yet. Upload 3D models, add pieces from events, or publish from the Studio.'
                         : 'Nothing here.'
                       : 'Nothing matches these filters.'}
@@ -1144,8 +1201,13 @@ export default function SharedLibrary() {
                             isActive ? 'border-[color:var(--color-accent)] bg-white/[0.06]' : on ? 'border-white/30 bg-white/[0.05]' : 'border-white/[0.08] bg-white/[0.025] hover:border-white/20'
                           }`}
                         >
-                          <div className="aspect-square bg-[#05060B]">
+                          <div className="relative aspect-square bg-[#05060B]">
                             <Thumb item={i} className="w-full h-full p-3" />
+                            {query.source === 'all' && i.source !== 'library' && (
+                              <span className="absolute left-2 bottom-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur text-[10px] text-brand-fg/85">
+                                {i.source === 'builtin' ? 'Built in' : 'From an event'}
+                              </span>
+                            )}
                           </div>
                           <div className="px-3 py-2.5">
                             <p className="font-sans text-[13px] text-brand-fg truncate">{i.name}</p>
@@ -1183,6 +1245,7 @@ export default function SharedLibrary() {
                         {i.source === 'event' && i.inLibrary && (
                           <span className="absolute top-3 right-12 px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-100 text-[10px]">In library</span>
                         )}
+
                       </li>
                     );
                   })}
@@ -1225,11 +1288,11 @@ export default function SharedLibrary() {
 
             <aside className="hidden lg:block" aria-label="Details">
               <div className="sticky top-4 liquid-glass rounded-2xl p-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
-                {detail ?? (
+                {detail(288) || (
                   <div className="py-16 text-center">
                     <Sparkles className="w-6 h-6 mx-auto mb-3 text-brand-muted/40" aria-hidden />
                     <p className="font-sans text-sm text-brand-fg/80">Pick something to see it here</p>
-                    <p className="mt-1 font-sans text-xs text-brand-muted/55 leading-relaxed">Double-click a card to spin it in 3D. Tick cards to edit many at once.</p>
+                    <p className="mt-1 font-sans text-xs text-brand-muted/55 leading-relaxed">It opens here live in 3D. Tick cards to edit many at once.</p>
                   </div>
                 )}
               </div>
@@ -1257,20 +1320,20 @@ export default function SharedLibrary() {
                   className="w-full sm:w-52"
                   onChange={(id) => { if (id) void runBulk({ categoryId: id }, `Moved to ${categoryPath(id, categories)}`); }}
                 />
-                <div className="w-full sm:w-64"><KeywordAdder disabled={busy} placeholder="Add keywords to all" onAdd={(ks) => void runBulk({ addKeywords: ks }, 'Keywords added')} /></div>
+                <div className="w-full sm:w-64"><KeywordAdder disabled={busy} placeholder="Add tags to all" onAdd={(ks) => void runBulk({ addKeywords: ks }, 'Tags added')} /></div>
                 {unionKeywords.length > 0 && (
                   <select
-                    aria-label="Remove a keyword from the selected items"
+                    aria-label="Remove a tag from the selected items"
                     value=""
                     disabled={busy}
-                    onChange={(e) => { if (e.target.value) void runBulk({ removeKeywords: [e.target.value] }, 'Keyword removed'); }}
+                    onChange={(e) => { if (e.target.value) void runBulk({ removeKeywords: [e.target.value] }, 'Tag removed'); }}
                     className={`${FIELD} w-full sm:w-44`}
                   >
-                    <option value="">Remove keyword…</option>
+                    <option value="">Remove tag…</option>
                     {unionKeywords.map((k) => <option key={k} value={k}>{keywordLabel(k)}</option>)}
                   </select>
                 )}
-                <button type="button" disabled={busy} onClick={() => setBulkTags('add')} className={SOFT_BTN}>Tags…</button>
+                <button type="button" disabled={busy} onClick={() => setBulkTags('add')} className={SOFT_BTN}>Occasion, colour, style…</button>
                 <button type="button" disabled={busy} onClick={() => void runBulk({ categoryId: null }, 'Category cleared')} className={SOFT_BTN}>No category</button>
               </>
             )}
@@ -1287,7 +1350,7 @@ export default function SharedLibrary() {
 
       {/* Mobile detail */}
       {mobileDetail && active && (
-        <Modal title={active.name} onClose={() => setMobileDetail(false)} maxWidthClass="max-w-lg">{detail}</Modal>
+        <Modal title={active.name} onClose={() => setMobileDetail(false)} maxWidthClass="max-w-lg">{detail(320)}</Modal>
       )}
 
       {viewer && <ModelViewerModal target={viewer} onClose={() => setViewer(null)} />}
@@ -1412,7 +1475,7 @@ function BulkTagsModal({
   const [tags, setTags] = useState<LibraryTags>(emptyLibraryTags);
   const n = tags.occasions.length + tags.colors.length + tags.styles.length;
   return (
-    <Modal title={`Matching tags for ${count} item${count === 1 ? '' : 's'}`} onClose={onClose} maxWidthClass="max-w-lg" dismissOnScrim={!busy && n === 0}>
+    <Modal title={`Occasion, colour and style for ${count} item${count === 1 ? '' : 's'}`} onClose={onClose} maxWidthClass="max-w-lg" dismissOnScrim={!busy && n === 0}>
       <div className="flex rounded-xl bg-white/[0.04] p-0.5 mb-4" role="group" aria-label="Add or remove">
         {(['add', 'remove'] as const).map((m) => (
           <button key={m} type="button" onClick={() => onMode(m)} aria-pressed={mode === m} className={`flex-1 min-h-10 rounded-lg font-sans text-sm ${mode === m ? 'bg-white/[0.12] text-brand-fg' : 'text-brand-muted/65'}`}>
@@ -1423,7 +1486,7 @@ function BulkTagsModal({
       <LibraryTagPicker value={tags} onChange={setTags} disabled={busy} />
       <div className="flex gap-2 mt-5">
         <button type="button" disabled={busy || n === 0} onClick={() => void onApply(tags)} className={`${PRIMARY_BTN} flex-1`}>
-          {busy ? 'Saving…' : `${mode === 'add' ? 'Add' : 'Remove'} ${n} tag${n === 1 ? '' : 's'}`}
+          {busy ? 'Saving…' : `${mode === 'add' ? 'Add' : 'Remove'} ${n}`}
         </button>
         <button type="button" disabled={busy} onClick={onClose} className={`${SOFT_BTN} flex-1`}>Cancel</button>
       </div>

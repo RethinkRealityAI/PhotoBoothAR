@@ -54,6 +54,7 @@ import { prepareModel, uploadOptimizedModel, uploadPreparedModel } from '../../l
 import { OPTIMIZE_PRESETS, formatSaving, type OptimizeStats } from '../../lib/glbOptimizePlan';
 import OptimizeCompare from '../../components/admin/library/OptimizeCompare';
 import { ModelPreview } from '../../components/studio/DirectorCards';
+import { useRenderedPictures } from '../../components/admin/library/useRenderedPictures';
 import LibraryTagPicker from '../../components/library/LibraryTagPicker';
 import LoadError from '../../components/ui/LoadError';
 import Modal from '../../components/ui/Modal';
@@ -83,8 +84,30 @@ interface QueueItem {
 /** What the 3D preview modal shows — a draft or any model already on the platform. */
 interface PreviewTarget {
   title: string;
-  url: string;
+  /** null for a piece drawn by code: the picture is shown instead. */
+  url: string | null;
+  picture?: string | null;
   note: string;
+}
+
+type PlatformSource = 'library' | 'builtin' | 'event';
+type PlatformFilter = PlatformSource | 'all';
+const PLATFORM_FILTER_LABEL: Record<PlatformFilter, string> = {
+  all: 'Everything', library: 'Library', builtin: 'Built in', event: 'From events',
+};
+
+/** One tile of "Already on the platform", whatever its home. */
+interface PlatformEntry {
+  key: string;
+  source: PlatformSource;
+  name: string;
+  thumb: string | null;
+  swatch: [string, string] | null;
+  lines: string[];
+  modelUrl: string | null;
+  note: string;
+  /** An event piece already copied in: its library row stands for it under Everything. */
+  duplicate: boolean;
 }
 
 /** Built-in models never change at runtime. */
@@ -440,14 +463,55 @@ export default function LibraryImport() {
   );
   const duplicateOf = (d: LibraryDraftRow): string | null =>
     existingModelNamed(d.name, [...platformNames, ...drafts.filter((x) => x.id !== d.id).map((x) => x.name)]);
-  const openBuiltIn = (m: PlatformModel) =>
-    setPreview({
-      title: m.name,
-      url: m.url,
-      note: m.source === 'customisable'
-        ? 'Built into the app. Hosts recolour it and can add a name to it in the Studio.'
-        : 'Built into the app and ready on every host’s shelf.',
-    });
+  const builtInNote = (m: PlatformModel) =>
+    m.source === 'customisable'
+      ? 'Built into the app. Hosts recolour it and can add a name to it in the Studio.'
+      : m.source === 'code'
+        ? 'Built into the app’s code (no model file), and ready on every host’s shelf.'
+        : 'Built into the app and ready on every host’s shelf.';
+
+  /* "Already on the platform": every home in one grid, filtered by chips. */
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilter>('all');
+  const platformEntries = useMemo<PlatformEntry[]>(() => {
+    const out: PlatformEntry[] = [];
+    for (const i of libraryItems ?? []) {
+      out.push({
+        key: `library:${i.id}`, source: 'library', name: i.name, thumb: i.thumbnailUrl, swatch: null,
+        lines: [`${i.kind === 'composite' ? 'Scene' : 'Prop'} · ${LIBRARY_STATE_LABEL[i.state]}`],
+        modelUrl: i.kind === '3d_attachment' ? i.assetUrl : null,
+        note: 'In the shared library. Retire or withdraw it from the Library page.', duplicate: false,
+      });
+    }
+    for (const m of BUILT_IN) {
+      out.push({
+        key: `builtin:${m.id}`, source: 'builtin', name: m.name, thumb: m.thumb, swatch: m.swatch,
+        lines: [`${m.source === 'customisable' ? 'Customisable' : m.source === 'code' ? 'Built from code' : m.collection === 'christmas' ? 'Christmas' : 'Prop'} · ${m.sitsOn}`],
+        modelUrl: m.url, note: builtInNote(m), duplicate: false,
+      });
+    }
+    for (const e of eventModels ?? []) {
+      const pic = pictureSourceFor(e);
+      out.push({
+        key: `event:${e.id}`, source: 'event', name: e.name,
+        thumb: e.thumbnailUrl || (pic.kind === 'image' ? pic.url : null), swatch: null,
+        lines: [`${e.kind === 'composite' ? 'Scene' : 'Prop'} · ${e.eventName}`, ...(e.inLibrary ? ['In the library'] : [])],
+        modelUrl: pic.kind === 'glb' ? pic.url : null, note: `Made in ${e.eventName}.`, duplicate: e.inLibrary,
+      });
+    }
+    return out;
+  }, [libraryItems, eventModels]);
+  const platformCounts: Record<PlatformFilter, number> = {
+    all: platformEntries.filter((x) => !x.duplicate).length,
+    library: platformEntries.filter((x) => x.source === 'library').length,
+    builtin: platformEntries.filter((x) => x.source === 'builtin').length,
+    event: platformEntries.filter((x) => x.source === 'event').length,
+  };
+  const platformShown = platformEntries.filter((x) =>
+    platformFilter === 'all' ? !x.duplicate : x.source === platformFilter);
+  // Models with no picture get one drawn in this browser (display only).
+  const platformPictures = useRenderedPictures(
+    platformShown.filter((x) => !x.thumb && x.modelUrl !== null).map((x) => x.modelUrl as string),
+  );
 
   const runBatches = async <T,>(ids: string[], fn: (batch: string[]) => Promise<T>): Promise<T[]> => {
     const out: T[] = [];
@@ -910,77 +974,60 @@ export default function LibraryImport() {
           {eventModels?.length ?? 0} made inside events. A new upload whose name matches any of them is flagged above.
         </p>
 
-        <h3 className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-2">
-          Shared library{libraryItems ? ` · ${libraryItems.length}` : ''}
-        </h3>
-        {libraryError !== null ? (
-          <LoadError what="the shared library" code={libraryError} onRetry={() => void load()} />
-        ) : libraryItems === null ? (
-          <p className="text-sm text-brand-muted/60 py-3">Loading…</p>
-        ) : libraryItems.length === 0 ? (
-          <p className="text-sm text-brand-muted/60 py-3">Nothing published yet. Models you publish above appear here.</p>
-        ) : (
-          <ul className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-6">
-            {libraryItems.map((i) => (
-              <ExistingTile
-                key={i.id}
-                name={i.name}
-                thumb={i.thumbnailUrl}
-                swatch={null}
-                lines={[`${i.kind === 'composite' ? 'Scene' : 'Prop'} · ${LIBRARY_STATE_LABEL[i.state]}`]}
-                {...(i.kind === '3d_attachment' && i.assetUrl
-                  ? { onPreview: () => setPreview({ title: i.name, url: i.assetUrl as string, note: 'In the shared library. Retire or withdraw it from the Library page.' }) }
-                  : { href: '/admin/library' })}
-              />
-            ))}
-          </ul>
-        )}
-
-        <h3 className="mt-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-2">
-          Built into the app · {BUILT_IN.length}
-        </h3>
-        <p className="text-[11px] text-brand-muted/50 mb-2">These ship with the app itself, so they are changed in code rather than here.</p>
-        <ul className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-6">
-          {BUILT_IN.map((m) => (
-            <ExistingTile
-              key={m.id}
-              name={m.name}
-              thumb={m.thumb}
-              swatch={m.swatch}
-              lines={[
-                `${m.source === 'customisable' ? 'Customisable' : m.collection === 'christmas' ? 'Christmas' : 'Prop'} · ${m.sitsOn}`,
-              ]}
-              onPreview={() => openBuiltIn(m)}
-            />
+        <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1 pb-1 mb-3" role="group" aria-label="Show">
+          {(['all', 'library', 'builtin', 'event'] as const).map((f) => (
+            <button
+              key={f}
+              type="button"
+              aria-pressed={platformFilter === f}
+              onClick={() => setPlatformFilter(f)}
+              className={`pressable shrink-0 inline-flex items-center gap-1.5 min-h-11 px-3.5 rounded-full text-xs transition-colors ${
+                platformFilter === f ? 'bg-[color:var(--color-accent)] text-[color:var(--on-accent)]' : 'bg-white/[0.05] hover:bg-white/[0.1] text-brand-fg/80'
+              }`}
+            >
+              {PLATFORM_FILTER_LABEL[f]} <span className="tabular-nums opacity-70">{platformCounts[f]}</span>
+            </button>
           ))}
-        </ul>
-
-        <h3 className="mt-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-2">
-          Made in events{eventModels ? ` · ${eventModels.length}` : ''}
-        </h3>
-        <p className="text-[11px] text-brand-muted/50 mb-2">
-          Props and scenes made inside events (all yours so far). Copy any of them into the library from the Library page,
-          under From events.
-        </p>
-        {eventError !== null ? (
-          eventError === 'unknown_action'
-            ? <p className="text-sm text-brand-muted/60 py-3">These appear once the library server update is live.</p>
-            : <LoadError what="the event models" code={eventError} onRetry={() => void load()} />
-        ) : eventModels === null ? (
+        </div>
+        {libraryError !== null && (platformFilter === 'all' || platformFilter === 'library') && (
+          <LoadError what="the shared library" code={libraryError} onRetry={() => void load()} />
+        )}
+        {eventError !== null && eventError !== 'unknown_action' && (platformFilter === 'all' || platformFilter === 'event') && (
+          <LoadError what="the event models" code={eventError} onRetry={() => void load()} />
+        )}
+        {platformFilter === 'event' && eventError === 'unknown_action' && (
+          <p className="text-sm text-brand-muted/60 py-3">These appear once the library server update is live.</p>
+        )}
+        {platformFilter === 'builtin' && (
+          <p className="text-[11px] text-brand-muted/50 mb-2">These ship with the app itself, so they are changed in code rather than here.</p>
+        )}
+        {platformFilter === 'event' && (
+          <p className="text-[11px] text-brand-muted/50 mb-2">
+            Props and scenes made inside events. Copy them into the library from the Library page (one click adds them all).
+          </p>
+        )}
+        {(libraryItems === null && libraryError === null) || (eventModels === null && eventError === null) ? (
           <p className="text-sm text-brand-muted/60 py-3">Loading…</p>
+        ) : platformShown.length === 0 ? (
+          <p className="text-sm text-brand-muted/60 py-3">
+            {platformFilter === 'library' ? 'Nothing published yet. Models you publish above appear here.' : 'Nothing here yet.'}
+          </p>
         ) : (
           <ul className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-6">
-            {eventModels.map((e) => {
-              const pic = pictureSourceFor(e);
+            {platformShown.map((x) => {
+              const thumb = x.thumb ?? (x.modelUrl !== null ? platformPictures.get(x.modelUrl) ?? null : null);
+              const lines = platformFilter === 'all' && x.source !== 'library'
+                ? [...x.lines, x.source === 'builtin' ? 'Built in' : 'From an event']
+                : x.lines;
               return (
                 <ExistingTile
-                  key={e.id}
-                  name={e.name}
-                  thumb={e.thumbnailUrl || (pic.kind === 'image' ? pic.url : null)}
-                  swatch={null}
-                  lines={[`${e.kind === 'composite' ? 'Scene' : 'Prop'} · ${e.eventName}`, ...(e.inLibrary ? ['In the library'] : [])]}
-                  {...(pic.kind === 'glb'
-                    ? { onPreview: () => setPreview({ title: e.name, url: pic.url, note: `Made in ${e.eventName}.` }) }
+                  key={x.key}
+                  name={x.name}
+                  thumb={thumb}
+                  swatch={x.swatch}
+                  lines={lines}
+                  {...(x.modelUrl !== null || x.thumb !== null
+                    ? { onPreview: () => setPreview({ title: x.name, url: x.modelUrl, picture: thumb, note: x.note }) }
                     : { href: '/admin/library' })}
                 />
               );
@@ -991,7 +1038,13 @@ export default function LibraryImport() {
 
       {preview && (
         <Modal title={preview.title} onClose={() => setPreview(null)} maxWidthClass="max-w-lg">
-          <ModelPreview url={preview.url} height={360} />
+          {preview.url !== null ? (
+            <ModelPreview url={preview.url} height={360} />
+          ) : preview.picture ? (
+            <div className="rounded-lg border border-white/10 bg-[#05060B] flex items-center justify-center p-4">
+              <img src={preview.picture} alt="" className="max-h-[360px] w-auto object-contain" />
+            </div>
+          ) : null}
           <p className="mt-3 text-xs text-brand-muted/70">{preview.note}</p>
         </Modal>
       )}

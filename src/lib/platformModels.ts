@@ -20,16 +20,32 @@
  */
 import { BUNDLED_PROPS } from './studio/bundledProps';
 import { assetTemplateOf, libraryAssets } from './studio/assetLibrary';
+import { HEAD_PIECES } from './headPieces';
 
-export type PlatformModelSource = 'prop' | 'customisable';
+export type PlatformModelSource = 'prop' | 'customisable' | 'code';
+
+/**
+ * Pictures for the built-ins that ship without one: the customisable models
+ * and the code-built head pieces. Rendered headlessly from the app's own
+ * renderers (glbThumb.captureGlbThumbnail for a GLB, the R3F HeadPiece for
+ * a code piece) at 512px, cropped to the model and saved as 256px WebP under
+ * public/models/thumbs/. Re-render them when a piece's look changes.
+ */
+const BUILT_IN_THUMBS: Record<string, string> = {
+  'baseball-cap': '/models/thumbs/baseball-cap.webp',
+  'cyclops-visor': '/models/thumbs/cyclops-visor.webp',
+  'wizard-wand': '/models/thumbs/wizard-wand.webp',
+  'power-gauntlet': '/models/thumbs/power-gauntlet.webp',
+};
 
 export interface PlatformModel {
   id: string;
   name: string;
   source: PlatformModelSource;
-  /** App-absolute .glb path, for the 3D preview. */
-  url: string;
-  /** Square preview image, or null (customisable models have none). */
+  /** App-absolute .glb path, for the 3D preview. null for a code-built piece
+   *  (it is drawn by a React component, not loaded from a file). */
+  url: string | null;
+  /** Square preview image, or null when none ships for it. */
   thumb: string | null;
   /** Two-colour fallback tile when there is no thumbnail. */
   swatch: [string, string] | null;
@@ -60,7 +76,7 @@ export function sitsOnLabel(anchor: string | undefined, handAnchor?: string): st
   return (anchor && HEAD_SLOTS[anchor]) || 'Top of head';
 }
 
-/** The props and customisable models built into the app, props first. */
+/** The props, customisable models and code-built pieces in the app, props first. */
 export function builtInModels(): PlatformModel[] {
   const props: PlatformModel[] = BUNDLED_PROPS.map((p) => ({
     id: p.id,
@@ -81,12 +97,23 @@ export function builtInModels(): PlatformModel[] {
       name: a.name,
       source: 'customisable',
       url: t.glbUrl,
-      thumb: null,
+      thumb: BUILT_IN_THUMBS[a.id] ?? null,
       swatch: a.swatch,
       sitsOn: sitsOnLabel(a.anchor, a.handAnchor),
     });
   }
-  return [...props, ...custom];
+  // The procedural pieces (components/ar/HeadPieces.tsx). Their ids can match a
+  // customisable model's (cyclops-visor), so they are prefixed.
+  const code: PlatformModel[] = HEAD_PIECES.map((p) => ({
+    id: `code-${p.id}`,
+    name: p.name,
+    source: 'code',
+    url: null,
+    thumb: `/models/thumbs/code-${p.id}.webp`,
+    swatch: null,
+    sitsOn: sitsOnLabel(p.anchor),
+  }));
+  return [...props, ...custom, ...code];
 }
 
 /** Library kinds that carry a 3D model: a lone prop, or a scene of layers. */
