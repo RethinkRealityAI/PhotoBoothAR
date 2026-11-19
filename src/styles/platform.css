@@ -426,3 +426,185 @@
     animation: none;
   }
 }
+
+/* ── Event scenes (lib/sceneThemes · theme/SceneBackdrop) ─────────────
+   Everything below is scoped to attributes only scene-aware components
+   render (`data-scene-backdrop`, `data-scene-ui`, `data-scene-flip`), so no
+   page without a scene — and no coded legacy event — can match it.
+   Unlayered on purpose: it must beat the layered `.glass`/`.bg-foil`
+   utilities above when a light scene flips a page's ink. */
+
+/* Ornament: soft diagonal light shafts. */
+[data-scene-backdrop] .scene-beams span {
+  position: absolute;
+  top: -30%;
+  width: 22%;
+  height: 160%;
+  background: linear-gradient(180deg, transparent 0%, var(--scene-glow) 45%, transparent 100%);
+  filter: blur(28px);
+  opacity: 0.55;
+  transform: rotate(24deg);
+  animation: scene-beam-drift 18s ease-in-out infinite alternate;
+}
+[data-scene-backdrop] .scene-beams span:nth-child(1) { left: 6%; }
+[data-scene-backdrop] .scene-beams span:nth-child(2) { left: 42%; width: 12%; opacity: 0.35; animation-duration: 23s; animation-delay: -6s; }
+[data-scene-backdrop] .scene-beams span:nth-child(3) { left: 74%; width: 18%; opacity: 0.42; animation-duration: 27s; animation-delay: -12s; }
+@keyframes scene-beam-drift {
+  from { transform: translateX(-4%) rotate(24deg); }
+  to { transform: translateX(6%) rotate(20deg); }
+}
+
+/* Ornament: slow floating glow. */
+[data-scene-backdrop] .scene-orbs span {
+  position: absolute;
+  width: 46vmax;
+  height: 46vmax;
+  border-radius: 9999px;
+  background: radial-gradient(closest-side, var(--scene-glow), transparent 72%);
+  opacity: 0.6;
+  animation: scene-orb-float 22s ease-in-out infinite alternate;
+}
+[data-scene-backdrop] .scene-orbs span:nth-child(1) { left: -12%; top: -10%; }
+[data-scene-backdrop] .scene-orbs span:nth-child(2) { right: -16%; top: 30%; width: 38vmax; height: 38vmax; opacity: 0.45; animation-duration: 28s; animation-delay: -9s; }
+[data-scene-backdrop] .scene-orbs span:nth-child(3) { left: 24%; bottom: -22%; width: 34vmax; height: 34vmax; opacity: 0.38; animation-duration: 31s; animation-delay: -15s; }
+@keyframes scene-orb-float {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(4%, -6%, 0) scale(1.08); }
+}
+
+/* Thumbnails (the host's look picker) hold still and stay small. */
+[data-scene-backdrop][data-compact] .scene-beams span,
+[data-scene-backdrop][data-compact] .scene-orbs span { animation: none; filter: blur(10px); }
+[data-scene-backdrop][data-compact] .scene-orbs span { width: 80%; height: 80%; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-scene-backdrop] .scene-beams span,
+  [data-scene-backdrop] .scene-orbs span { animation: none; }
+}
+
+/* Scene-aware page chrome: ink, glass and the primary pill per tone. */
+[data-scene-ui] {
+  --sc-ink: #FFFFFF;
+  --sc-muted: rgba(255, 255, 255, 0.84);
+  --sc-faint: rgba(255, 255, 255, 0.66);
+  --sc-glass: rgba(34, 32, 104, 0.34);
+  --sc-glass-strong: rgba(26, 24, 80, 0.66);
+  --sc-hair: rgba(255, 255, 255, 0.16);
+  --sc-rim: rgba(255, 255, 255, 0.40);
+  --sc-cta-bg: rgba(236, 235, 255, 0.95);
+  --sc-cta-ink: #1A1740;
+  --sc-cta-glow: rgba(170, 166, 255, 0.70);
+  --sc-scrim: rgba(10, 9, 34, 0.58);
+  --sc-shadow: rgba(10, 8, 40, 0.45);
+  color: var(--sc-ink);
+}
+[data-scene-ui="light"],
+:has(> [data-scene-backdrop][data-scene-flip="light"]) {
+  --sc-ink: #1A1740;
+  --sc-muted: rgba(26, 23, 64, 0.80);
+  --sc-faint: rgba(26, 23, 64, 0.66);
+  --sc-glass: rgba(255, 255, 255, 0.52);
+  --sc-glass-strong: rgba(255, 255, 255, 0.84);
+  --sc-hair: rgba(26, 23, 64, 0.12);
+  --sc-rim: rgba(255, 255, 255, 0.90);
+  --sc-cta-bg: #2B2A8C;
+  --sc-cta-ink: #FFFFFF;
+  --sc-cta-glow: rgba(43, 42, 140, 0.40);
+  --sc-scrim: rgba(40, 36, 90, 0.32);
+  --sc-shadow: rgba(40, 36, 100, 0.22);
+  /* The semantic tokens every other utility reads, so text-ivory,
+     text-champagne and friends turn to ink inside a light page too. */
+  --color-brand-fg: #1A1740;
+  --color-brand-muted: rgba(26, 23, 64, 0.78);
+  --color-ivory: #1A1740;
+  --color-champagne: rgba(26, 23, 64, 0.78);
+  --color-accent: #3E3AA6;
+  --color-accent-2: #4B47B8;
+  --color-accent-3: #2B2A8C;
+  --accent-rgb: 62, 58, 166;
+  --color-gold-200: #4B47B8;
+  --color-gold-300: #3E3AA6;
+  --color-gold-400: #3E3AA6;
+  --on-accent: #FFFFFF;
+  color-scheme: light;
+}
+:is([data-scene-ui="light"], :has(> [data-scene-backdrop][data-scene-flip="light"])) :is(.glass, .liquid-glass, .liquid-glass-raised) {
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(26, 23, 64, 0.10), 0 18px 36px -24px rgba(40, 36, 100, 0.35);
+}
+:is([data-scene-ui="light"], :has(> [data-scene-backdrop][data-scene-flip="light"])) .glass-strong {
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: inset 0 1px 0 #FFFFFF, inset 0 0 0 1px rgba(26, 23, 64, 0.10), 0 24px 60px -30px rgba(40, 36, 100, 0.40);
+}
+:is([data-scene-ui="light"], :has(> [data-scene-backdrop][data-scene-flip="light"])) .bg-foil {
+  background-image: none;
+  background-color: #2B2A8C;
+  color: #FFFFFF;
+  box-shadow: 0 10px 26px -12px rgba(43, 42, 140, 0.55);
+}
+
+[data-scene-ui] .sc-glass,
+[data-scene-ui] .sc-glass-strong {
+  position: relative;
+  -webkit-backdrop-filter: blur(20px) saturate(135%);
+  backdrop-filter: blur(20px) saturate(135%);
+  box-shadow:
+    inset 0 1px 0 var(--sc-rim),
+    inset 0 0 0 1px var(--sc-hair),
+    0 22px 48px -28px var(--sc-shadow);
+}
+[data-scene-ui] .sc-glass { background: var(--sc-glass); }
+[data-scene-ui] .sc-glass-strong {
+  background: var(--sc-glass-strong);
+  -webkit-backdrop-filter: blur(30px) saturate(125%);
+  backdrop-filter: blur(30px) saturate(125%);
+}
+[data-scene-ui] .sc-cta {
+  background: var(--sc-cta-bg);
+  color: var(--sc-cta-ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 14px 34px -12px var(--sc-cta-glow),
+    0 0 28px -10px var(--sc-cta-glow);
+  transition: transform 180ms var(--bw-ease), box-shadow 180ms var(--bw-ease), background-color 180ms var(--bw-ease);
+}
+[data-scene-ui] .sc-cta:hover { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.32), 0 18px 40px -12px var(--sc-cta-glow), 0 0 36px -8px var(--sc-cta-glow); }
+[data-scene-ui] .sc-cta:active { transform: scale(0.985); }
+[data-scene-ui] :is(.sc-cta, .sc-chip, .sc-card):focus-visible {
+  outline: 2px solid var(--sc-ink);
+  outline-offset: 3px;
+}
+[data-scene-ui] .sc-chip {
+  color: var(--sc-ink);
+  background: var(--sc-glass);
+  box-shadow: inset 0 0 0 1px var(--sc-hair);
+  transition: background-color 160ms ease;
+}
+[data-scene-ui] .sc-chip:hover { background: var(--sc-glass-strong); }
+[data-scene-ui] .sc-card { transition: transform 200ms var(--bw-ease), background-color 200ms ease; }
+@media (hover: hover) {
+  [data-scene-ui] .sc-card:hover { transform: translateY(-2px); background: var(--sc-glass-strong); }
+}
+[data-scene-ui] .sc-ink { color: var(--sc-ink); }
+[data-scene-ui] .sc-muted { color: var(--sc-muted); }
+[data-scene-ui] .sc-faint { color: var(--sc-faint); }
+[data-scene-ui] .sc-display {
+  font-family: var(--font-serif);
+  letter-spacing: -0.03em;
+  font-style: normal;
+}
+/* Live dot on the wall strip. */
+[data-scene-ui] .sc-live-dot { animation: sc-live 2.4s ease-in-out infinite; }
+@keyframes sc-live { 50% { opacity: 0.35; } }
+/* The onboarding illustrations' gentle motion. */
+[data-scene-ui] .sc-float { animation: sc-float 5s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: center; }
+[data-scene-ui] .sc-pulse { animation: sc-pulse 2.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+[data-scene-ui] .sc-spin { animation: sc-spin 14s linear infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes sc-float { to { transform: translateY(-5px); } }
+@keyframes sc-pulse { 50% { opacity: 0.4; transform: scale(0.92); } }
+@keyframes sc-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  [data-scene-ui] :is(.sc-live-dot, .sc-float, .sc-pulse, .sc-spin) { animation: none; }
+  [data-scene-ui] .sc-card:hover { transform: none; }
+}

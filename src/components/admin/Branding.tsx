@@ -21,6 +21,7 @@ import { getBranding, setBranding, uploadAsset } from '../../lib/db';
 import { updateEventConfig } from '../../lib/host';
 import { mergeBrief, type BriefPatch, type EventBrief } from '../../lib/eventBrief';
 import { BACKGROUND_TEMPLATES, DEFAULT_BACKGROUND_ID } from '../theme/backgrounds';
+import ScenePicker from '../theme/ScenePicker';
 import { useStore } from '../../store';
 import type { BrandingColors, BrandingOverrides } from '../../types';
 import type { OnboardingStep } from '../../events/types';
@@ -609,6 +610,10 @@ export default function Branding() {
           </div>
         </section>
         </Advanced>
+
+        {/* Event page look — the guest welcome page + booth splash scene
+            (runtime DB events only; events.config.scene). */}
+        {isDbEvent && <ScenePicker />}
 
         {/* Background template (runtime DB events only) */}
         {isDbEvent && (
