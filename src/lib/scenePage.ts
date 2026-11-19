@@ -16,8 +16,10 @@ import {
   paletteById,
   resolveSceneImageUrl,
   sceneTemplateById,
+  SCENE_TEMPLATES,
   toneForColor,
   type EventScene,
+  type ScenePageBorder,
   type SceneTone,
 } from './sceneThemes';
 
@@ -111,6 +113,21 @@ export function sceneToSave(draft: EventScene | undefined): EventScene | null {
   return normalizeScene(draft) ?? null;
 }
 
+/**
+ * A draft with the page border set. 'none' removes the field (it is never
+ * stored); a border chosen before any look starts from the first template,
+ * so "just add a border" is one click.
+ */
+export function withPageBorder(scene: EventScene | undefined, border: ScenePageBorder): EventScene | undefined {
+  if (border === 'none') {
+    if (!scene || scene.border === undefined) return scene;
+    const { border: _drop, ...rest } = scene;
+    void _drop;
+    return rest as EventScene;
+  }
+  return { ...(scene ?? { kind: 'template', id: SCENE_TEMPLATES[0].id }), border };
+}
+
 /** The tone a scene draft implies, for the live preview's ink. */
 export function draftTone(scene: EventScene | undefined, fallback: SceneTone = 'dark'): SceneTone {
   if (!scene) return fallback;
@@ -141,4 +158,120 @@ export function recentWallPhotos(posts: readonly Post[], limit: number): Post[] 
     .slice()
     .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
     .slice(0, limit);
+}
+
+/* ── The welcome page's living wall (round 2) ──────────────────────── */
+
+export interface WallFieldSize {
+  cols: number;
+  rows: number;
+  tiles: number;
+}
+
+/**
+ * How many glass tiles the tilted background wall gets for a viewport. The
+ * grid is drawn larger than the screen (it is tilted and scaled), so it
+ * over-fills; the clamps keep a phone at 24 tiles and a 1440 desktop at
+ * 63 (9×7 is the ceiling) — a DOM budget. Only the photo and beat tiles
+ * animate; the rest are still glass.
+ */
+export function wallFieldSize(width: number, height: number): WallFieldSize {
+  const w = Number.isFinite(width) && width > 0 ? width : 390;
+  const h = Number.isFinite(height) && height > 0 ? height : 844;
+  const cols = Math.min(9, Math.max(4, Math.round(w / 165)));
+  const rows = Math.min(7, Math.max(5, Math.ceil(h / 175) + 1));
+  return { cols, rows, tiles: cols * rows };
+}
+
+/** At most this many photos live on the background wall at once. */
+export const WALL_FIELD_MAX_PHOTOS = 12;
+
+/** A small deterministic integer hash (no Math.random: stable across renders). */
+function mix(n: number, seed: number): number {
+  let x = (Math.imul(n + 1, 2654435761) ^ Math.imul(seed + 1, 40503)) >>> 0;
+  x ^= x >>> 15;
+  x = Math.imul(x, 2246822519) >>> 0;
+  x ^= x >>> 13;
+  return x >>> 0;
+}
+
+/**
+ * A fixed, scattered visiting order over `tiles` tile indices. The wall
+ * fills tiles in this order, so photo k always lands on the same tile and a
+ * new arrival never shuffles the ones already up.
+ */
+export function tileOrder(tiles: number, seed = 7): number[] {
+  if (!(tiles > 0)) return [];
+  return Array.from({ length: tiles }, (_, i) => i).sort((a, b) => mix(a, seed) - mix(b, seed) || a - b);
+}
+
+/**
+ * Where on screen the centre of tile `t` lands, as fractions of the
+ * viewport. Mirrors platform.css `.wf-plane` (138%×128% at 50%/48%,
+ * rotateX(24deg) then rotateZ(-9deg)), ignoring perspective — good to a
+ * tile, which is all the ranking below needs.
+ */
+export function wallFieldTileCentre(t: number, cols: number, rows: number, w: number, h: number): { x: number; y: number } {
+  const u = ((t % cols) + 0.5) / cols - 0.5;
+  const v = (Math.floor(t / cols) + 0.5) / rows - 0.5;
+  const dx = u * 1.38 * w;
+  const dy = v * 1.28 * h * Math.cos((24 * Math.PI) / 180);
+  const a = (-9 * Math.PI) / 180;
+  return {
+    x: (w / 2 + dx * Math.cos(a) - dy * Math.sin(a)) / w,
+    y: (h * 0.48 + dx * Math.sin(a) + dy * Math.cos(a)) / h,
+  };
+}
+
+/**
+ * The tile order photos and beams fill, best first: tiles a guest can
+ * actually see (on screen, not under the words or the booth preview), then
+ * tiles under the page's calm pool, then tiles off screen. Within a band the
+ * order is tileOrder's scatter, so the wall never fills in rows.
+ * The "busy" boxes mirror GuestWelcome's layout per breakpoint.
+ */
+export function wallFieldSlots(cols: number, rows: number, w: number, h: number, seed = 7): number[] {
+  const tiles = cols * rows;
+  const scatter = tileOrder(tiles, seed);
+  const rank = new Map(scatter.map((t, i) => [t, i]));
+  const desk = w >= 1024;
+  // [x0, x1, y0, y1] as viewport fractions.
+  const busy: Array<[number, number, number, number]> = desk
+    ? [[0.1, 0.52, 0.12, 0.86], [0.57, 0.85, 0.1, 0.98], [0.08, 0.3, 0, 0.12], [0.76, 0.92, 0, 0.12]]
+    : [[0.06, 0.94, 0.1, 0.38], [0.1, 0.9, 0.38, 1], [0, 1, 0, 0.1]];
+  const band = (t: number): number => {
+    const { x, y } = wallFieldTileCentre(t, cols, rows, w, h);
+    if (x < 0.02 || x > 0.98 || y < 0.02 || y > 0.98) return 2;
+    return busy.some(([x0, x1, y0, y1]) => x > x0 && x < x1 && y > y0 && y < y1) ? 1 : 0;
+  };
+  return Array.from({ length: tiles }, (_, t) => t).sort(
+    (a, b) => band(a) - band(b) || (rank.get(a) ?? 0) - (rank.get(b) ?? 0),
+  );
+}
+
+/**
+ * Photos for the wall, OLDEST first among the newest `max` — so the k-th
+ * photo keeps tile order[k] as newer ones arrive behind it.
+ */
+export function wallFieldPhotos(posts: readonly Post[], max = WALL_FIELD_MAX_PHOTOS): Post[] {
+  return recentWallPhotos(posts, max).reverse();
+}
+
+/**
+ * The art that frames the welcome page's booth preview: the booth's opening
+ * look when that is a frame (what a guest really sees on entry), otherwise
+ * the first frame the host added themselves, otherwise none. A built-in
+ * (`data:` SVG) frame is only used when it IS the opening look: the shared
+ * built-in set carries other events' artwork, and the booth opens on no
+ * frame at all unless one is chosen. Used as an <img src> only (never CSS);
+ * anything that is not an image data URL, an https URL or a root-relative
+ * path is refused.
+ */
+export function heroFrameUrl(catalog: readonly Experience[], openingId: string | null): string | undefined {
+  const ok = (u: unknown): u is string =>
+    typeof u === 'string' && (u.startsWith('data:image/') || u.startsWith('https://') || /^\/(?!\/)/.test(u));
+  const frames = catalog.filter((e) => e.kind === 'border' && ok(e.asset_url));
+  const opening = openingId === null ? undefined : frames.find((e) => e.id === openingId);
+  const own = frames.find((e) => !String(e.asset_url).startsWith('data:'));
+  return (opening ?? own)?.asset_url ?? undefined;
 }

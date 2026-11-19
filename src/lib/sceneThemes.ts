@@ -141,7 +141,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  *  line-art look — available, never the default. */
 export type SceneOrnament = 'none' | 'beams' | 'orbs' | 'grain' | 'gilded';
 
-export type EventScene =
+export type EventScene = (
   /** A curated template: palette + ornament, picked as one look. */
   | { kind: 'template'; id: string }
   /** A subtle gradient from the shared palettes. */
@@ -151,7 +151,29 @@ export type EventScene =
   /** A full-bleed photo, dimmed for legibility (0 = none … 0.8). */
   | { kind: 'image'; url: string; dim: number; tone: SceneTone }
   /** A frame artwork shown as the page backdrop over a palette. */
-  | { kind: 'frame'; url: string; paletteId: string };
+  | { kind: 'frame'; url: string; paletteId: string }
+) & {
+  /** Optional decorative border around the whole guest page (additive,
+   *  2026-11-19 round 2). Absent = no border; 'none' is never stored. */
+  border?: ScenePageBorder;
+};
+
+/** A decorative frame around the whole guest welcome page. 'gilded' is the
+ *  gold line-art look — opt-in, like the Gilded template. */
+export type ScenePageBorder = 'none' | 'glow' | 'glass' | 'filmstrip' | 'gilded';
+export const SCENE_PAGE_BORDERS: readonly ScenePageBorder[] = ['none', 'glow', 'glass', 'filmstrip', 'gilded'];
+export const SCENE_PAGE_BORDER_META: Readonly<Record<ScenePageBorder, { label: string; blurb: string }>> = {
+  none: { label: 'None', blurb: 'Edge to edge, no border.' },
+  glow: { label: 'Glow', blurb: 'A thin rim of light that slowly travels round.' },
+  glass: { label: 'Glass', blurb: 'A frosted glass frame with soft rounded corners.' },
+  filmstrip: { label: 'Film strip', blurb: 'Sprocket rails down both sides, like a photo strip.' },
+  gilded: { label: 'Gilded', blurb: 'Fine gold lines with corner flourishes.' },
+};
+
+/** Total coercion of a stored border; anything unknown is 'none'. */
+export function normalizePageBorder(raw: unknown): ScenePageBorder {
+  return SCENE_PAGE_BORDERS.includes(raw as ScenePageBorder) ? (raw as ScenePageBorder) : 'none';
+}
 
 export interface SceneTemplate {
   id: string;
@@ -184,6 +206,16 @@ export function sceneTemplateById(id: unknown): SceneTemplate | undefined {
  * throws; an unsafe image URL drops the whole scene rather than half-render.
  */
 export function normalizeScene(raw: unknown): EventScene | undefined {
+  const scene = normalizeSceneKind(raw);
+  if (!scene || !isRecord(raw)) return scene;
+  // The page border rides on the scene object; only a real choice is kept,
+  // so a scene saved without one normalizes exactly as before.
+  const border = normalizePageBorder(raw.border);
+  return border === 'none' ? scene : { ...scene, border };
+}
+
+/** The scene itself, by kind (normalizeScene adds the optional border). */
+function normalizeSceneKind(raw: unknown): EventScene | undefined {
   if (!isRecord(raw)) return undefined;
   switch (raw.kind) {
     case 'template':
