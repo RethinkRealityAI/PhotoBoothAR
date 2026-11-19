@@ -681,3 +681,40 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
       the media — so the video files are the handoff, and the import wiring
       belongs to whoever owns that file. Always `git status` before assuming a
       change or a commit is yours.
+
+- 2026-11-19: **First brand-v2 feature film** — `hyperframes/studio/virtual/`
+  (22.0 s "Virtual celebrations": hook card + fly-ins / share one link / add a
+  video, photo or note / it all lands on one card / send it on the big day /
+  2.4 s bumper) → `src/assets/landing/virtual-feature.mp4` + poster (14.6 s).
+  1. **The brand-v2 films branch (`claude/project-thread-dky2bx`, booth-v2 +
+     `assets/brand2/beamy-rig.js`) did not exist on origin when asked for** —
+     `git ls-remote origin | grep dky2bx` was empty. The v2 look was rebuilt
+     straight from `src/styles/brand.css` `[data-brand="2"]` tokens instead
+     (periwinkle `#4840C6` field + the radial stops, drifting `.bw-hue`
+     glows, `.bw-glass` recipe with the `inset 0 0 0 2000px` frost, white
+     pill with `#1A1740` ink). If the rig lands later, S1/S6 are the slots
+     for it.
+  2. v2 fonts are variable woff2 in `public/fonts/` — copy
+     `bricolage-grotesque-var-latin.woff2` + `geist-var-latin.woff2` into the
+     composition's own `fonts/` and declare `font-weight: 200 800` /
+     `100 900` ranges; the 760/300 mixed-weight headline renders correctly.
+  3. **Glass costs nothing to encode on a smooth field**: this film is 22 s at
+     363 kb/s / 999 KB (crf 27, 1280×720) despite `backdrop-filter` panels on
+     every scene — within the 686 KB–1.25 MB range of the other four. Grain
+     (brand `--bw-grain-opacity`) was deliberately left OUT: a static noise
+     layer over moving content becomes per-frame residual and inflates
+     bitrate.
+  4. Render was fast here: 660 frames in 1m52s at `--workers 4` (mostly
+     vector + a handful of photo tiles), and the discovered duration matched
+     the GSAP pin EXACTLY (22.0, 660 frames) — the usual +1.6 s overrun did
+     not happen when the last tween is a `tl.set` on an always-present root
+     child (`#vc-flash`). Still `-t <END>` at encode as a belt-and-braces.
+  5. **Accuracy gates for card films**: card delivery is host-triggered
+     (`card-publish` action `send_email`, nothing scheduled) → copy says
+     "Send it on the big day" with a visible "Send to Maya" tap, never an
+     automatic send. Card contributions use `CaptureSurface` (plain camera /
+     upload / "Note only"), NOT the AR booth stack → phones show a plain
+     camera, no filters/props. Re-grep both before reusing this copy.
+  6. Match the face to the copy: `cards-r1c1.jpg` (woman with cake) reads ~60,
+     so the card says "Happy 60th" — a "40th" over that photo looked wrong in
+     the first contact sheet.
