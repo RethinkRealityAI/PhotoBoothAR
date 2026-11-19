@@ -370,3 +370,59 @@ export function wallTone(look: WallLook, eventSceneTone: SceneTone = 'dark'): Sc
 export function gridCellCount(size: WallGridSize): number {
   return size * size;
 }
+
+/* ── Wall look: shared copy + comparisons (host editor AND the wall) ──── */
+
+/** Names and one-line descriptions for each layout — the wall's view tabs
+ *  and the host's Wall design picker read the same words. */
+export const WALL_LAYOUT_META: Readonly<Record<WallLayout, { label: string; blurb: string }>> = {
+  grid: { label: 'Grid', blurb: 'An edge-to-edge wall of live tiles that turn over one at a time.' },
+  masonry: { label: 'Gallery', blurb: 'Every photo in a flowing masonry wall, newest first.' },
+  marquee: { label: 'Scrolling', blurb: 'Rows of photos gliding past in opposite directions.' },
+  carousel: { label: 'Carousel', blurb: 'A slow turning ring of photos in 3D.' },
+  slideshow: { label: 'Slideshow', blurb: 'One photo at a time, full screen, with a gentle drift.' },
+};
+
+export const WALL_TRANSITION_META: Readonly<Record<WallTransition, { label: string }>> = {
+  flip: { label: 'Flip' },
+  fade: { label: 'Fade' },
+  zoom: { label: 'Zoom' },
+};
+
+/** True when two looks put the SAME arrangement on screen (layout + grid
+ *  size). The wall drops a device's own tab choice when the host changes
+ *  this, and only this — a colour change must not yank a projector's view. */
+export function sameWallArrangement(a: WallLook, b: WallLook): boolean {
+  return a.layout === b.layout && a.gridSize === b.gridSize;
+}
+
+/** Structural equality of two normalized looks (the editor's dirty check). */
+export function wallLookEquals(a: WallLook, b: WallLook): boolean {
+  if (a.layout !== b.layout || a.gridSize !== b.gridSize || a.transition !== b.transition || a.tone !== b.tone) {
+    return false;
+  }
+  const x = a.backdrop;
+  const y = b.backdrop;
+  if (x.kind === 'event' && y.kind === 'event') return true;
+  if (x.kind === 'gradient' && y.kind === 'gradient') return x.paletteId === y.paletteId;
+  if (x.kind === 'color' && y.kind === 'color') return x.color.toLowerCase() === y.color.toLowerCase();
+  if (x.kind === 'image' && y.kind === 'image') return x.url === y.url && x.dim === y.dim;
+  return false;
+}
+
+/** A short human summary for the host ("Grid 4×4 · Aurora · Dark"). */
+export function describeWallLook(look: WallLook): string {
+  const layout = look.layout === 'grid'
+    ? `Grid ${look.gridSize}×${look.gridSize}`
+    : WALL_LAYOUT_META[look.layout].label;
+  const b = look.backdrop;
+  const backdrop = b.kind === 'event'
+    ? 'Event theme'
+    : b.kind === 'gradient'
+      ? paletteById(b.paletteId)?.name ?? 'Gradient'
+      : b.kind === 'color'
+        ? 'Solid colour'
+        : 'Your image';
+  const tone = look.tone === 'auto' ? 'Auto' : look.tone === 'dark' ? 'Dark' : 'Light';
+  return `${layout} · ${backdrop} · ${tone}`;
+}
