@@ -45,10 +45,21 @@ import {
   sceneToSave,
   sceneUploadError,
   SCENE_UPLOAD_TYPES,
+  heroFrameUrl,
+  wallFieldPhotos,
   withPageBorder,
   type SceneKind,
 } from '../../lib/scenePage';
+import { buildCatalog } from '../../lib/catalog';
+import { effectiveOpeningLookId } from '../../lib/openingLook';
+import type { Post } from '../../types';
 import PageBorder from './PageBorder';
+import LiveWallField from './LiveWallField';
+import BoothViewfinder from './BoothViewfinder';
+import { samplePosts } from '../wall/WallPreview';
+
+/** Photos on the preview's wall (a phone shows about this many). */
+const PREVIEW_PHOTOS = 6;
 
 const TABS: Array<{ kind: SceneKind; label: string; icon: typeof Palette }> = [
   { kind: 'template', label: 'Templates', icon: LayoutTemplate },
@@ -93,6 +104,26 @@ function ScenePickerBody() {
     if (!experiencesLoaded) void fetchExperiences();
   }, [experiencesLoaded, fetchExperiences]);
   const frames = useMemo(() => sceneFrameChoices([...experiences, ...linkedGlobals]), [experiences, linkedGlobals]);
+
+  // The preview shows what guests get: the event's own photos when it has
+  // some (sample ones, said so, when it has none), and the same frame the
+  // welcome page puts over its booth preview.
+  const posts = useStore((s) => s.posts);
+  const presetOverrides = useStore((s) => s.presetOverrides);
+  const wallDefaultId = useStore((s) => s.wallSettings.defaultExperienceId);
+  const ownPhotos = useMemo(() => wallFieldPhotos(posts, PREVIEW_PHOTOS), [posts]);
+  const previewIsSample = ownPhotos.length === 0;
+  const previewPhotos = useMemo(
+    () => (previewIsSample ? wallFieldPhotos(samplePosts(PREVIEW_PHOTOS), PREVIEW_PHOTOS) : ownPhotos),
+    [ownPhotos, previewIsSample],
+  );
+  const previewFrame = useMemo(
+    () => heroFrameUrl(
+      buildCatalog(config.arContent, experiencesLoaded ? experiences : [], presetOverrides, experiencesLoaded ? linkedGlobals : [], true),
+      effectiveOpeningLookId(wallDefaultId, config.defaultExperienceId),
+    ),
+    [config.arContent, config.defaultExperienceId, experiences, experiencesLoaded, linkedGlobals, presetOverrides, wallDefaultId],
+  );
 
   const saved = config.scene;
   const [draft, setDraft] = useState<EventScene | undefined>(saved);
@@ -468,8 +499,10 @@ function ScenePickerBody() {
 
         {/* Live preview of the guest welcome page (phone). */}
         <div className="md:sticky md:top-4 md:self-start">
-          <p className="mb-2 font-sans text-[12px] text-brand-muted/70">Guest page preview</p>
-          <ScenePreview scene={draft} name={config.copy.fullName} />
+          <p className="mb-2 font-sans text-[12px] text-brand-muted/70">
+            Guest page preview{previewIsSample ? ', with sample photos' : ''}
+          </p>
+          <ScenePreview scene={draft} name={config.copy.fullName} photos={previewPhotos} frameUrl={previewFrame} />
         </div>
       </div>
 
@@ -518,33 +551,56 @@ function Swatch({ palette, on, onPick, compact = false }: { palette: ScenePalett
   );
 }
 
-/** A phone-sized copy of the welcome page's hero on the drafted scene. */
-function ScenePreview({ scene, name }: { scene: EventScene | undefined; name: string }) {
+const NO_FRESH: ReadonlySet<string> = new Set();
+
+/**
+ * A miniature of the guest welcome page on the drafted scene, built from the
+ * page's own pieces (LiveWallField, BoothViewfinder, PageBorder) drawn at
+ * rest, so the host previews what guests get rather than a sketch of it.
+ */
+function ScenePreview({ scene, name, photos, frameUrl }: {
+  scene: EventScene | undefined;
+  name: string;
+  /** Oldest first, as the page passes them. */
+  photos: readonly Post[];
+  frameUrl: string | undefined;
+}) {
   const resolved = resolveScene(scene);
   const tone = draftTone(scene);
   const vars = { '--sc-accent': resolved.accent } as CSSProperties;
+  const newest = photos[photos.length - 1];
   return (
     <div
       data-scene-ui={tone}
       style={vars}
-      className="relative mx-auto aspect-[9/16] w-full max-w-[200px] overflow-hidden rounded-[22px] ring-1 ring-white/20 shadow-[0_20px_40px_-20px_rgba(0,0,0,0.6)]"
+      className="relative mx-auto aspect-[9/16] w-full max-w-[240px] overflow-hidden rounded-[24px] ring-1 ring-white/20 shadow-[0_20px_40px_-20px_rgba(0,0,0,0.6)]"
     >
       <SceneBackdrop scene={resolved} compact />
+      <LiveWallField photos={photos} fresh={NO_FRESH} still />
       {scene?.border && <PageBorder border={scene.border} contained />}
-      <div className="relative flex h-full flex-col px-3.5 pb-3.5 pt-4">
+      <div className="relative flex h-full flex-col px-3.5 pb-3 pt-3.5">
         <div className="flex items-center gap-1.5">
-          <Emblem size={16} />
+          <Emblem size={28} />
           <span className="truncate font-sans text-[12px] sc-muted">{name}</span>
         </div>
+        <span className="sc-chip relative mt-2.5 inline-flex w-max max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 font-sans text-[12px] font-semibold">
+          <span className="sc-rim" aria-hidden><span /></span>
+          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'var(--sc-accent)' }} />
+          <span className="truncate">{photos.length > 0 ? 'Guests are snapping' : 'Time to fill the wall'}</span>
+        </span>
+        <p className="sc-display mt-2 line-clamp-2 text-[22px] font-semibold leading-[1.02] sc-ink">{name}</p>
+        {/* Scan to join, right under the name (a QR glyph: the real code is the guest page's). */}
+        <div className="sc-glass relative mt-2 flex items-center gap-2 rounded-[12px] p-1.5 pr-2.5">
+          <span className="sc-rim" aria-hidden><span /></span>
+          <span className="shrink-0 rounded-[6px] bg-white p-1" aria-hidden>
+            <svg viewBox="0 0 21 21" className="h-7 w-7" fill="#1A1740">
+              <path d="M0 0h7v7H0zM2 2v3h3V2zM14 0h7v7h-7zm2 2v3h3V2zM0 14h7v7H0zm2 2v3h3v-3zM9 0h2v2H9zm0 4h3v2H9zm-1 4h2v3H8zm4 0h2v2h-2zm4 1h2v2h-2zm2 3h3v2h-3zm-6 2h2v3h-2zm3 2h3v2h-3zm-4 3h2v2H9zm6 0h2v3h-2zm4-2h2v2h-2zm0 4h2v2h-2z" />
+            </svg>
+          </span>
+          <span className="truncate font-sans text-[12px] font-semibold sc-ink">Scan to join</span>
+        </div>
         <div className="mt-auto">
-          <p className="font-sans text-[12px] sc-faint">Welcome to</p>
-          <p className="sc-display mt-0.5 line-clamp-2 text-[22px] font-semibold leading-[1.02] sc-ink">{name}</p>
-          <div className="sc-cta mt-3 flex min-h-9 items-center justify-center rounded-full font-sans text-[12px] font-semibold">
-            Step into the booth
-          </div>
-          <div className="mt-2.5 grid grid-cols-3 gap-1.5">
-            {[0, 1, 2].map((i) => <div key={i} className="sc-glass aspect-[3/4] rounded-lg" />)}
-          </div>
+          <BoothViewfinder to="" compact previewUrl={newest?.image_url} frameUrl={frameUrl} />
         </div>
       </div>
     </div>

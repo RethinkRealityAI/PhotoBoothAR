@@ -5,7 +5,7 @@
  * The hero sits inside an ornate card with an animated accent sheen border that
  * slowly sweeps light around the frame — a premium, magical first impression.
  */
-import type { CSSProperties } from 'react';
+import { useEffect, useMemo, type CSSProperties } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Camera, Images } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -16,6 +16,13 @@ import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 import { resolveScene } from '../../lib/sceneThemes';
 import SceneBackdrop from '../theme/SceneBackdrop';
+import LiveWallField from '../theme/LiveWallField';
+import BoothViewfinder from '../theme/BoothViewfinder';
+import PageBorder from '../theme/PageBorder';
+import { useBoothShot, useHeroFrameUrl } from '../theme/useBoothShot';
+import EventBackground from '../ui/EventBackground';
+import PostImage from '../ui/PostImage';
+import { recentWallPhotos, wallFieldPhotos } from '../../lib/scenePage';
 
 /** Platform legal routes (/privacy, /terms) only exist in runtime multi-tenant
  *  builds — legacy single-event builds (VITE_EVENT set) keep their microcopy
@@ -30,123 +37,193 @@ export default function Welcome(props: { onStart: () => void }) {
 }
 
 /**
- * The booth's front door on a platform event: the event's scene shows
- * through (Booth's EventBackground paints it), one clear glass card on top —
- * no gold line-art unless the host chose the Gilded look, which the
- * backdrop itself draws.
+ * The booth's front door on a platform event: ONE full-bleed composition,
+ * never a card inside the booth's dark camera box. It paints its own
+ * opaque backdrop (the host's scene, or the event's background) with the
+ * event's living photo wall over it, framed by the host's page border or,
+ * when none is set, a glow rim with corner brackets. The booth preview's
+ * shutter is the "Step inside" button. Everything follows the Event page
+ * look from Branding; there are no splash-only settings.
  */
 function SceneWelcome({ onStart }: { onStart: () => void }) {
   const reduced = useReducedMotion() ?? false;
   const { basePath, config } = useEvent();
   const eventName = useStore((s) => s.copy.eventName);
+  const posts = useStore((s) => s.posts);
+  const postsLoaded = useStore((s) => s.postsLoaded);
+  const fetchPosts = useStore((s) => s.fetchPosts);
+  useEffect(() => {
+    if (!postsLoaded) void fetchPosts();
+  }, [postsLoaded, fetchPosts]);
   const scene = config.scene ? resolveScene(config.scene) : null;
   const tone = scene?.tone ?? 'dark';
   const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
+  const wallPhotos = useMemo(() => wallFieldPhotos(posts), [posts]);
+  const latest = useMemo(() => recentWallPhotos(posts, 4), [posts]);
+  const shot = useBoothShot(wallPhotos);
+  const frameUrl = useHeroFrameUrl();
+  const moments = posts.length;
   const at = (delay: number) =>
     reduced ? { delay: 0, duration: 0.2 } : { delay, duration: 0.5, ease: [0.16, 1, 0.3, 1] as const };
   return (
     <motion.div
       data-scene-ui={tone}
       style={vars}
-      className="absolute inset-0 z-40 flex flex-col items-center overflow-y-auto px-4 pt-safe-top pb-safe-bottom [--safe-top:1.5rem] [--safe-bottom:1.5rem]"
+      className="absolute inset-0 z-40 overflow-hidden bg-noir-900"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
-      {/* With a scene, the splash paints it full-bleed itself: the booth's
-          stage box (dark, camera-sized) would otherwise sit between the card
-          and the host's chosen look until the camera starts. Without one the
-          booth's own background shows, with a soft pool of light so the card
-          never floats on a flat field. */}
-      {scene ? <SceneBackdrop scene={scene} /> : (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{ background: 'radial-gradient(70% 55% at 50% 42%, rgba(var(--accent-rgb), 0.16), transparent 65%)' }}
-        />
-      )}
-      <motion.div
-        className="sc-glass-strong relative my-auto w-full max-w-[420px] rounded-[32px] px-6 pb-6 pt-9 text-center sm:px-9 sm:pt-11"
-        initial={reduced ? { opacity: 0 } : { y: 18, opacity: 0, scale: 0.97 }}
-        animate={{ y: 0, opacity: 1, scale: 1 }}
-        transition={{ duration: reduced ? 0.2 : 0.55, ease: [0.16, 1, 0.3, 1] }}
-      >
-        {/* The lens: the event's emblem inside a slowly turning aperture. */}
-        <motion.div
-          className="relative mx-auto flex h-24 w-24 items-center justify-center"
-          initial={{ opacity: 0, scale: reduced ? 1 : 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={at(0.06)}
-        >
-          <svg viewBox="0 0 96 96" className="absolute inset-0 h-full w-full" aria-hidden fill="none">
-            <circle cx="48" cy="48" r="46" stroke="currentColor" strokeOpacity="0.18" strokeWidth="1.5" />
-            <circle cx="48" cy="48" r="46" style={{ stroke: 'var(--sc-accent)' }} strokeWidth="2" strokeDasharray="70 220" strokeLinecap="round" className="sc-spin" />
-            <circle cx="48" cy="48" r="36" stroke="currentColor" strokeOpacity="0.12" strokeWidth="1" />
-          </svg>
-          <Emblem size={46} />
-        </motion.div>
+      {/* Opaque and full-bleed, so the booth's stage box never shows through. */}
+      {scene ? <SceneBackdrop scene={scene} /> : <EventBackground density={44} sparkle={0.7} />}
+      <LiveWallField photos={wallPhotos} fresh={NO_FRESH} />
+      {config.scene?.border ? <PageBorder border={config.scene.border} /> : <SplashFrame />}
 
-        <motion.p className="mt-6 font-sans text-[13px] font-medium sc-faint" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.12)}>
-          {eventName}
-        </motion.p>
-        <motion.h1
-          className="sc-display mt-1.5 text-[clamp(30px,8vw,38px)] font-semibold leading-[1.05] sc-ink"
-          initial={{ opacity: 0, y: reduced ? 0 : 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={at(0.16)}
-        >
-          Your photo booth is ready
-        </motion.h1>
-        <motion.p className="mx-auto mt-3 max-w-[30ch] font-sans text-[15px] leading-relaxed sc-muted" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.22)}>
-          Step into the booth and capture a moment to remember.
-        </motion.p>
+      <div className="relative z-40 h-full overflow-y-auto overflow-x-hidden">
+        <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-center gap-x-14 gap-y-5 px-7 pt-safe-top pb-safe-bottom [--safe-top:2rem] [--safe-bottom:1.75rem] sm:px-12 lg:flex-row">
+          {/* ── The name and the room's pulse ── */}
+          <div className="flex min-w-0 flex-col items-center text-center lg:flex-1 lg:items-start lg:text-left">
+            <motion.div className="flex items-center gap-2.5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.04)}>
+              <Emblem size={30} className="shrink-0" />
+              <span className="font-sans text-[13px] font-medium sc-faint">Photo booth</span>
+            </motion.div>
+            <motion.h1
+              className="sc-display mt-3 max-w-[13ch] break-words text-[clamp(38px,10vw,84px)] font-semibold leading-[0.98] sc-ink"
+              initial={{ opacity: 0, y: reduced ? 0 : 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={at(0.1)}
+            >
+              {eventName}
+            </motion.h1>
+            <motion.p
+              className="sc-chip relative mt-4 inline-flex min-h-10 items-center gap-2.5 rounded-full px-4 font-sans text-[14px] font-semibold"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={at(0.16)}
+            >
+              <span className="sc-rim" aria-hidden><span /></span>
+              <span aria-hidden className="sc-live-dot h-2.5 w-2.5 rounded-full" style={{ background: 'var(--sc-accent)', boxShadow: '0 0 12px var(--sc-accent)' }} />
+              {moments > 0 ? `${moments} ${moments === 1 ? 'moment' : 'moments'} on the wall` : 'Be the first on the wall'}
+            </motion.p>
 
-        <motion.button
-          type="button"
-          onClick={onStart}
-          whileTap={{ scale: 0.97 }}
-          className="sc-cta pressable mt-8 inline-flex min-h-[58px] w-full items-center justify-center gap-3 rounded-full px-8 font-sans text-[17px] font-semibold"
-          initial={{ opacity: 0, y: reduced ? 0 : 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={at(0.28)}
-        >
-          <Camera className="h-5 w-5" aria-hidden />
-          Step inside
-        </motion.button>
+            {latest.length > 0 && (
+              <motion.ul
+                aria-label="Latest photos on the wall"
+                className="mt-5 hidden gap-2 lg:flex"
+                initial={{ opacity: 0, y: reduced ? 0 : 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={at(0.22)}
+              >
+                {latest.map((p) => (
+                  <li key={p.id} className="sc-glass relative w-[58px] overflow-hidden rounded-[12px] p-[3px]">
+                    <PostImage src={p.image_url} alt="" displayWidth={58} className="aspect-[9/16] w-full rounded-[9px] object-cover" />
+                  </li>
+                ))}
+              </motion.ul>
+            )}
 
-        {/* Ways out before the camera, so this gate is never a dead end. */}
-        <motion.div className="mt-3 flex items-center justify-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.34)}>
-          <Link
-            to={`${basePath}/wall`}
-            className="pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
+            <motion.div className="mt-5 hidden items-center gap-2 lg:flex" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.28)}>
+              <SplashLinks basePath={basePath} />
+            </motion.div>
+            <motion.div className="mt-4 hidden lg:block" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.32)}>
+              <PrivacyLine />
+            </motion.div>
+          </div>
+
+          {/* ── The booth itself: its shutter is the way in ── */}
+          <motion.div
+            className="flex shrink-0 flex-col items-center"
+            initial={{ opacity: 0, y: reduced ? 0 : 14, scale: reduced ? 1 : 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={at(0.14)}
           >
-            <Images className="h-4 w-4" aria-hidden />
-            See the live wall
-          </Link>
-          <Link
-            to={`${basePath}/me`}
-            className="pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
-          >
-            <MediaStackIcon size={16} />
-            My photos
-          </Link>
-        </motion.div>
+            <BoothViewfinder
+              to=""
+              onShutter={onStart}
+              shutterLabel="Step inside"
+              frameUrl={frameUrl}
+              previewUrl={shot.post?.image_url}
+              previewCrop={shot.crop}
+              widthClass="w-[min(58vw,calc(44svh*0.5625),300px)] lg:w-[min(24vw,calc(62vh*0.5625),330px)]"
+            />
+          </motion.div>
 
-        {/* The pre-camera disclosure — same promise as the original card. */}
-        <motion.p className="mx-auto mt-4 max-w-[34ch] font-sans text-[12px] leading-relaxed sc-faint" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.4)}>
-          The camera runs on your device. Your photo only leaves it when you send it to the wall.
-          {!IS_LEGACY_BUILD && (
-            <>
-              {' '}By continuing you agree to our{' '}
-              <Link to="/privacy" className="underline underline-offset-2 sc-muted">
-                privacy policy
-              </Link>
-              .
-            </>
-          )}
-        </motion.p>
-      </motion.div>
+          {/* Phones: the latest row, the ways out and the promise sit under the booth. */}
+          <motion.div className="flex flex-col items-center lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.26)}>
+            {latest.length > 0 && (
+              <ul aria-label="Latest photos on the wall" className="flex gap-1.5">
+                {latest.map((p) => (
+                  <li key={p.id} className="sc-glass relative w-[40px] overflow-hidden rounded-[9px] p-[2px]">
+                    <PostImage src={p.image_url} alt="" displayWidth={40} className="aspect-[9/16] w-full rounded-[7px] object-cover" />
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-2 flex items-center justify-center gap-1">
+              <SplashLinks basePath={basePath} />
+            </div>
+            <div className="mt-1 text-center">
+              <PrivacyLine />
+            </div>
+          </motion.div>
+        </div>
+      </div>
     </motion.div>
+  );
+}
+
+const NO_FRESH: ReadonlySet<string> = new Set();
+
+/** The splash's own frame when the host set no page border: a glow rim
+ *  that travels round the screen, plus camera-style corner brackets. */
+function SplashFrame() {
+  return (
+    <>
+      <PageBorder border="glow" />
+      <div aria-hidden className="splash-corners pointer-events-none fixed inset-0 z-30">
+        <span /><span /><span /><span />
+      </div>
+    </>
+  );
+}
+
+/** Ways out before the camera, so this gate is never a dead end. */
+function SplashLinks({ basePath }: { basePath: string }) {
+  return (
+    <>
+      <Link
+        to={`${basePath}/wall`}
+        className="pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
+      >
+        <Images className="h-4 w-4" aria-hidden />
+        See the live wall
+      </Link>
+      <Link
+        to={`${basePath}/me`}
+        className="pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
+      >
+        <MediaStackIcon size={16} />
+        My photos
+      </Link>
+    </>
+  );
+}
+
+/** The pre-camera disclosure — same promise as the original card. */
+function PrivacyLine() {
+  return (
+    <p className="max-w-[40ch] font-sans text-[12px] leading-relaxed sc-faint">
+      The camera runs on your device. Your photo only leaves it when you send it to the wall.
+      {!IS_LEGACY_BUILD && (
+        <>
+          {' '}By continuing you agree to our{' '}
+          <Link to="/privacy" className="underline underline-offset-2 sc-muted">
+            privacy policy
+          </Link>
+          .
+        </>
+      )}
+    </p>
   );
 }
 

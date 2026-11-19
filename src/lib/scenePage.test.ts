@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Experience, Post } from '../types';
+import { stripLayout } from './photoStrip';
 import {
   draftTone,
   heroFrameUrl,
@@ -9,6 +10,12 @@ import {
   tileOrder,
   wallFieldPhotos,
   wallFieldSize,
+  wallFieldColumns,
+  wallFieldFill,
+  stripShots,
+  stripPanelCrop,
+  STRIP_SAMPLE_W,
+  STRIP_SAMPLE_H,
   recentWallPhotos,
   rgbTriplet,
   sceneEquals,
@@ -225,5 +232,86 @@ describe('heroFrameUrl', () => {
     expect(heroFrameUrl([a], null)).toBeUndefined();
     expect(heroFrameUrl([f, bad], null)).toBeUndefined();
     expect(heroFrameUrl([exp({ id: 'p', kind: 'border', asset_url: '//evil.com/a.png' })], null)).toBeUndefined();
+  });
+});
+
+describe('wallFieldColumns', () => {
+  it('a phone gets 4 columns, a desktop 11, each tall enough to loop', () => {
+    expect(wallFieldColumns(390, 844).cols).toBe(4);
+    expect(wallFieldColumns(1440, 900).cols).toBe(11);
+    for (const [w, h] of [[390, 844], [1440, 900], [1024, 768], [2560, 1440]]) {
+      const { cols, perCol } = wallFieldColumns(w, h);
+      const tileH = ((1.38 * w) / cols) * (16 / 9);
+      expect(perCol * tileH).toBeGreaterThanOrEqual(1.28 * h);
+      expect(cols * perCol).toBeLessThanOrEqual(99);
+    }
+    expect(wallFieldColumns(NaN, -1)).toEqual(wallFieldColumns(390, 844));
+  });
+});
+
+describe('wallFieldFill', () => {
+  it('fills every tile from a few photos, never repeating a neighbour', () => {
+    for (const n of [3, 5, 10, 12]) {
+      const g = wallFieldFill(n, 11, 5);
+      expect(g).toHaveLength(11);
+      expect(new Set(g.flat())).toEqual(new Set(Array.from({ length: n }, (_, i) => i)));
+      g.forEach((col, c) => col.forEach((v, r) => {
+        expect(v).toBeGreaterThanOrEqual(0);
+        if (r > 0) expect(v).not.toBe(col[r - 1]);
+        if (c > 0) expect(v).not.toBe(g[c - 1][r]);
+      }));
+      // The column loops: its last tile meets its first.
+      g.forEach((col) => expect(col[col.length - 1]).not.toBe(col[0]));
+      expect(wallFieldFill(n, 11, 5)).toEqual(g);
+    }
+  });
+  it('two photos alternate down a column; one photo fills everything; none is glass', () => {
+    const two = wallFieldFill(2, 4, 6);
+    two.forEach((col) => col.forEach((v, r) => { if (r > 0) expect(v).not.toBe(col[r - 1]); }));
+    expect(wallFieldFill(1, 3, 4).flat().every((v) => v === 0)).toBe(true);
+    expect(wallFieldFill(0, 3, 4)).toEqual([[-1, -1, -1, -1], [-1, -1, -1, -1], [-1, -1, -1, -1]]);
+  });
+});
+
+describe('stripShots', () => {
+  const W = STRIP_SAMPLE_W;
+  const H = STRIP_SAMPLE_H;
+  /** Deterministic noise in 0-255, like a busy photo. */
+  const noise = (x: number, y: number) => ((Math.imul(x * 73856093 ^ y * 19349663, 2654435761) >>> 0) % 200) + 20;
+  const strip = (shots: 2 | 3) => {
+    const L = stripLayout(1080, 1920, shots);
+    const lum = new Float32Array(W * H);
+    for (let y = 0; y < H; y += 1) {
+      for (let x = 0; x < W; x += 1) {
+        const px = ((x + 0.5) / W) * 1080;
+        const py = ((y + 0.5) / H) * 1920;
+        const inPanel = L.panels.some((p) => px >= p.x && px < p.x + p.w && py >= p.y && py < p.y + p.h);
+        lum[y * W + x] = inPanel ? noise(x, y) : 30 + y * 0.25;
+      }
+    }
+    return lum;
+  };
+  it('recognises 3- and 2-panel strips', () => {
+    expect(stripShots(strip(3), W, H)).toBe(3);
+    expect(stripShots(strip(2), W, H)).toBe(2);
+  });
+  it('a busy single shot, a centred subject on a plain wall and a flat image are single shots', () => {
+    const busyShot = Float32Array.from({ length: W * H }, (_, i) => noise(i % W, Math.floor(i / W)));
+    expect(stripShots(busyShot, W, H)).toBe(0);
+    const subject = Float32Array.from({ length: W * H }, (_, i) => {
+      const x = i % W;
+      return x > W * 0.25 && x < W * 0.75 ? noise(x, Math.floor(i / W)) : 120;
+    });
+    expect(stripShots(subject, W, H)).toBe(0);
+    expect(stripShots(new Float32Array(W * H).fill(128), W, H)).toBe(0);
+    expect(stripShots([], W, H)).toBe(0);
+  });
+  it('crops to the first panel, cover-fit', () => {
+    const c = stripPanelCrop(3);
+    const p = stripLayout(1080, 1920, 3).panels[0];
+    expect(c.cx).toBeCloseTo(0.5, 2);
+    expect(c.cy).toBeCloseTo((p.y + p.h / 2) / 1920, 5);
+    expect(Math.min(p.w / 1080, p.h / 1920) * c.scale).toBeCloseTo(1, 5);
+    expect(stripPanelCrop(2).scale).toBeGreaterThan(1);
   });
 });

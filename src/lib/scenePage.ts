@@ -10,6 +10,7 @@
  * answers the questions the UI asks about it.
  */
 import type { Experience, Post } from '../types';
+import { stripLayout } from './photoStrip';
 import {
   isHex,
   normalizeScene,
@@ -255,6 +256,135 @@ export function wallFieldSlots(cols: number, rows: number, w: number, h: number,
  */
 export function wallFieldPhotos(posts: readonly Post[], max = WALL_FIELD_MAX_PHOTOS): Post[] {
   return recentWallPhotos(posts, max).reverse();
+}
+
+/* ── The welcome page's living wall (round 3: dense drifting columns) ── */
+
+export interface WallFieldColumns {
+  cols: number;
+  /** Distinct tiles per column; the column is drawn twice for a seamless loop. */
+  perCol: number;
+}
+
+/**
+ * Columns of tall 9:16 tiles that over-fill the tilted plane (platform.css
+ * `.wf-plane`, 138%×128% of the viewport). Clamped as a DOM budget: a phone
+ * gets 4 columns, a 1440 desktop 11; every column holds enough tiles to
+ * cover the plane's height plus one, so the drift never shows a gap.
+ */
+export function wallFieldColumns(width: number, height: number): WallFieldColumns {
+  const w = Number.isFinite(width) && width > 0 ? width : 390;
+  const h = Number.isFinite(height) && height > 0 ? height : 844;
+  const cols = Math.min(11, Math.max(4, Math.round(w / 135)));
+  const tileH = ((1.38 * w) / cols) * (16 / 9);
+  const perCol = Math.min(9, Math.max(3, Math.ceil((1.28 * h) / tileH) + 1));
+  return { cols, perCol };
+}
+
+/**
+ * Which photo (index into `n` photos) fills each tile, column by column, so
+ * a handful of photos still fills every tile without looking repeated: the
+ * photos cycle in a fixed scattered order, a tile never repeats the one
+ * above it (nor, with 3+ photos, the one beside it), and a column's last
+ * tile never repeats its first — the column loops, so those two meet.
+ * No photos = every cell is -1 (glass).
+ */
+export function wallFieldFill(n: number, cols: number, perCol: number, seed = 7): number[][] {
+  const count = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  const c = Math.max(0, Math.floor(cols));
+  const r = Math.max(0, Math.floor(perCol));
+  if (count === 0) return Array.from({ length: c }, () => Array.from({ length: r }, () => -1));
+  const perm = tileOrder(count, seed);
+  const grid: number[][] = [];
+  let ptr = 0;
+  for (let ci = 0; ci < c; ci += 1) {
+    const col: number[] = [];
+    ptr = (ptr + ci * 3) % count;
+    for (let ri = 0; ri < r; ri += 1) {
+      const banned = new Set<number>();
+      if (ri > 0) banned.add(col[ri - 1]);
+      if (ri === r - 1 && r > 1) banned.add(col[0]);
+      if (ci > 0 && count >= 3) banned.add(grid[ci - 1][ri]);
+      let pick = -1;
+      for (let k = 0; k < count; k += 1) {
+        const cand = perm[(ptr + k) % count];
+        if (!banned.has(cand)) { pick = cand; ptr = (ptr + k + 1) % count; break; }
+      }
+      if (pick === -1) {
+        // Too few photos to honour every rule: keep only "not the one above".
+        const above = ri > 0 ? col[ri - 1] : -1;
+        pick = perm[ptr % count] === above && count > 1 ? perm[(ptr + 1) % count] : perm[ptr % count];
+        ptr = (ptr + 1) % count;
+      }
+      col.push(pick);
+    }
+    grid.push(col);
+  }
+  return grid;
+}
+
+/* ── Photo strips on the booth preview ─────────────────────────────── */
+
+/** Size the booth preview samples a photo at to tell a strip from a shot. */
+export const STRIP_SAMPLE_W = 90;
+export const STRIP_SAMPLE_H = 160;
+
+/**
+ * Is this image a photo strip (photoStrip.composeStrip: 2 or 3 panels
+ * stacked on one 9:16 card) rather than a single shot? Posts carry no
+ * marker, so the booth preview looks: a strip's side margins are smooth
+ * card background all the way down, the gutter between panels is smooth
+ * across, and the panels themselves are busy. Returns the panel count, or
+ * 0 for a single shot. `lum` is row-major luminance (0-255), w×h.
+ * A false "strip" only means an older photo is previewed instead, so the
+ * test leans towards saying strip.
+ */
+export function stripShots(lum: ArrayLike<number>, w: number, h: number): 0 | 2 | 3 {
+  if (!(w >= 20 && h >= 40) || lum.length < w * h) return 0;
+  const at = (x: number, y: number) => lum[y * w + x];
+  /** Mean neighbour difference inside a rect given as fractions. */
+  const busy = (fx0: number, fx1: number, fy0: number, fy1: number, vertical = true): number => {
+    const x0 = Math.max(0, Math.floor(fx0 * w));
+    const x1 = Math.min(w - 2, Math.ceil(fx1 * w));
+    const y0 = Math.max(0, Math.floor(fy0 * h));
+    const y1 = Math.min(h - 2, Math.ceil(fy1 * h));
+    let sum = 0;
+    let k = 0;
+    for (let y = y0; y <= y1; y += 1) {
+      for (let x = x0; x <= x1; x += 1) {
+        sum += Math.abs(at(x + 1, y) - at(x, y));
+        if (vertical) sum += Math.abs(at(x, y + 1) - at(x, y));
+        k += 1;
+      }
+    }
+    return k === 0 ? 0 : sum / k;
+  };
+  const sides = Math.max(busy(0.05, 0.13, 0.04, 0.88), busy(0.87, 0.95, 0.04, 0.88));
+  if (sides > 3.5) return 0;
+  for (const shots of [3, 2] as const) {
+    const L = stripLayout(1080, 1920, shots);
+    const p0 = L.panels[0];
+    const p1 = L.panels[1];
+    const px0 = (p0.x + p0.w * 0.12) / 1080;
+    const px1 = (p0.x + p0.w * 0.88) / 1080;
+    const gy = Math.floor(((p0.y + p0.h + p1.y) / 2 / 1920) * h);
+    const gutter = busy(px0, px1, gy / h, gy / h, false);
+    const panel = busy(0.3, 0.7, (p0.y + p0.h * 0.2) / 1920, (p0.y + p0.h * 0.8) / 1920);
+    if (gutter <= 3.5 && panel > sides * 2 + 2) return shots;
+  }
+  return 0;
+}
+
+/**
+ * How to show only a strip's first panel in a 9:16 preview: scale the image
+ * by `scale` about the panel's centre (cx, cy as fractions), then move that
+ * centre to the middle of the box. Cover-fit: the panel fills the box.
+ */
+export function stripPanelCrop(shots: 2 | 3): { cx: number; cy: number; scale: number } {
+  const p = stripLayout(1080, 1920, shots).panels[0];
+  const wf = p.w / 1080;
+  const hf = p.h / 1920;
+  return { cx: (p.x + p.w / 2) / 1080, cy: (p.y + p.h / 2) / 1920, scale: 1 / Math.min(wf, hf) };
 }
 
 /**

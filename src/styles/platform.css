@@ -586,6 +586,54 @@
 @media (hover: hover) {
   [data-scene-ui] .sc-card:hover { transform: translateY(-2px); background: var(--sc-glass-strong); }
 }
+/* Glimmer rim: a band of light that keeps travelling round a glass card,
+   chip or the booth preview, on top of a faint accent rim. Transform-only:
+   an oversized conic turns under a ring mask. Under reduced motion it
+   holds still (the lit arc stays where it is). */
+[data-scene-ui] .sc-rim {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--sc-accent) 14%, transparent);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+[data-scene-ui] .sc-rim > span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 260%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  background: conic-gradient(
+    transparent 0deg 245deg,
+    color-mix(in srgb, var(--sc-accent) 70%, transparent) 290deg,
+    #fff 312deg,
+    #fff 334deg,
+    color-mix(in srgb, var(--sc-accent) 70%, transparent) 342deg,
+    transparent 356deg 360deg
+  );
+  animation: wf-rim 5.5s linear infinite;
+  animation-delay: var(--rim-d, 0s);
+}
+[data-scene-ui] .vf-device .sc-rim { padding: 2.5px; }
+[data-scene-ui="light"] .sc-rim > span {
+  background: conic-gradient(
+    transparent 0deg 245deg,
+    color-mix(in srgb, var(--sc-accent) 60%, transparent) 290deg,
+    var(--sc-accent) 312deg,
+    var(--sc-accent) 334deg,
+    color-mix(in srgb, var(--sc-accent) 60%, transparent) 342deg,
+    transparent 356deg 360deg
+  );
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-scene-ui] .sc-rim > span { animation: none; transform: rotate(var(--rim-rest, 40deg)); }
+}
 [data-scene-ui] .sc-ink { color: var(--sc-ink); }
 [data-scene-ui] .sc-muted { color: var(--sc-muted); }
 [data-scene-ui] .sc-faint { color: var(--sc-faint); }
@@ -614,35 +662,75 @@
    transform or opacity only; the rim "travels" by rotating an oversized
    conic child under a ring mask, never by repainting a gradient. */
 [data-wall-field] {
-  --wf-pool: rgba(10, 9, 34, 0.74);
-  --wf-pool-edge: rgba(10, 9, 34, 0.18);
+  --wf-pool: rgba(10, 9, 34, 0.84);
+  --wf-pool-edge: rgba(10, 9, 34, 0.34);
   perspective: 1500px;
   perspective-origin: 50% 35%;
 }
 [data-scene-ui="light"] [data-wall-field] {
-  --wf-pool: rgba(255, 255, 255, 0.78);
-  --wf-pool-edge: rgba(255, 255, 255, 0.12);
+  --wf-pool: rgba(255, 255, 255, 0.84);
+  --wf-pool-edge: rgba(255, 255, 255, 0.3);
 }
 [data-wall-field] .wf-plane {
+  --wf-gap: clamp(6px, 0.6vw, 9px);
   position: absolute;
   left: 50%;
   top: 48%;
   width: 138%;
   height: 128%;
-  display: grid;
-  gap: clamp(8px, 1.3vw, 18px);
-  transform: translate(-50%, -50%) rotateX(24deg) rotateZ(-9deg);
+  display: flex;
+  gap: var(--wf-gap);
+  transform: translate(-50%, -50%) rotateX(20deg) rotateZ(-8deg);
   transform-style: preserve-3d;
+}
+/* Dense columns of tall 9:16 tiles. Each track holds its tiles twice and
+   drifts by exactly half its height, so the loop has no seam; alternate
+   columns run the other way. */
+[data-wall-field] .wf-col {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  transform: translateY(calc(var(--k, 0) * -9%));
+  transform-style: preserve-3d;
+}
+[data-wall-field] .wf-track {
+  display: flex;
+  flex-direction: column;
+  transform-style: preserve-3d;
+  animation: wf-drift var(--dur, 60s) linear infinite;
+  animation-delay: var(--off, 0s);
+  will-change: transform;
+}
+[data-wall-field] .wf-col[data-dir='down'] .wf-track { animation-direction: reverse; }
+@keyframes wf-drift {
+  from { transform: translateY(0); }
+  to { transform: translateY(-50%); }
 }
 [data-wall-field] .wf-tile {
   position: relative;
-  border-radius: clamp(10px, 1.1vw, 16px);
+  flex: none;
+  aspect-ratio: 9 / 16;
+  margin-bottom: var(--wf-gap);
+  border-radius: clamp(8px, 0.8vw, 12px);
   background: var(--sc-glass);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--sc-accent) 26%, var(--sc-hair)),
     inset 0 1px 0 var(--sc-rim);
   transform-style: preserve-3d;
 }
+/* Empty glass tiles breathe: an inner glow that comes and goes (opacity only). */
+[data-wall-field] .wf-glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(120% 70% at 50% 100%, color-mix(in srgb, var(--sc-accent) 42%, transparent), transparent 72%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sc-accent) 70%, transparent), 0 0 18px -4px color-mix(in srgb, var(--sc-accent) 55%, transparent);
+  opacity: 0.2;
+  animation: wf-breathe 5.4s ease-in-out infinite;
+  animation-delay: var(--d, 0s);
+}
+@keyframes wf-breathe { 50% { opacity: 1; } }
 /* One soft band of light drifts across the whole plane: the grid "breathes". */
 [data-wall-field] .wf-sweep {
   position: absolute;
@@ -747,7 +835,7 @@
 }
 
 /* With photos: each one beams in once — the streak lands, the tile turns over. */
-[data-wall-field] .wf-photo .wf-streak {
+[data-wall-field] .wf-fresh .wf-streak {
   animation: wf-streak-once 1.1s var(--bw-ease) both;
   animation-delay: var(--d, 0s);
 }
@@ -791,24 +879,49 @@
 /* Legibility: the page's words sit on a calm pool, the wall shows round it. */
 [data-wall-field] .wf-scrim {
   background:
-    radial-gradient(ellipse 78% 46% at 50% 34%, var(--wf-pool) 0%, var(--wf-pool-edge) 72%, transparent 100%),
-    linear-gradient(to bottom, transparent 55%, var(--wf-pool-edge));
+    radial-gradient(ellipse 100% 52% at 50% 30%, var(--wf-pool) 0%, var(--wf-pool) 34%, var(--wf-pool-edge) 78%, transparent 100%),
+    linear-gradient(to bottom, var(--wf-pool-edge), transparent 28%, transparent 48%, var(--wf-pool) 94%);
 }
 @media (min-width: 1024px) {
   [data-wall-field] .wf-scrim {
     background:
-      radial-gradient(ellipse 52% 72% at 28% 52%, var(--wf-pool) 0%, var(--wf-pool) 38%, var(--wf-pool-edge) 78%, transparent 100%),
-      radial-gradient(ellipse 26% 50% at 72% 50%, var(--wf-pool-edge), transparent 100%);
+      radial-gradient(ellipse 50% 82% at 27% 52%, var(--wf-pool) 0%, var(--wf-pool) 44%, var(--wf-pool-edge) 80%, transparent 100%),
+      radial-gradient(ellipse 26% 50% at 72% 50%, var(--wf-pool-edge), transparent 100%),
+      linear-gradient(var(--wf-pool-edge), var(--wf-pool-edge));
   }
 }
 /* Photos are the wall, not the page: a touch quieter than the words. */
-[data-wall-field] .wf-face img { opacity: 0.86; }
+[data-wall-field] .wf-face img { opacity: 0.8; }
+/* After the first reveal, a tile that changes photo just fades; only a live
+   arrival (.wf-fresh) beams in and turns over. */
+[data-wall-field][data-settled] .wf-photo:not(.wf-fresh) .wf-face {
+  transform: none;
+  animation: wf-fade 0.7s ease-out both;
+  animation-delay: 0s;
+}
+[data-wall-field] .wf-fresh { z-index: 1; }
 /* A hidden tab costs nothing. */
 [data-wall-field][data-paused] *,
 [data-wall-field][data-paused] *::before,
 [data-wall-field][data-paused] *::after {
   animation-play-state: paused !important;
 }
+
+/* The host picker's miniature: the same wall, at rest. Photos are already
+   up, the empty state's beat tiles are held mid-lift, nothing drifts. */
+[data-wall-field][data-still] { perspective: 520px; }
+[data-wall-field][data-still] .wf-plane { --wf-gap: 3px; }
+[data-wall-field][data-still] .wf-tile { border-radius: 4px; }
+[data-wall-field][data-still] *,
+[data-wall-field][data-still] *::before,
+[data-wall-field][data-still] *::after { animation: none !important; }
+[data-wall-field][data-still] .wf-face { transform: none; opacity: 1; }
+[data-wall-field][data-still] .wf-face::after,
+[data-wall-field][data-still] .wf-streak,
+[data-wall-field][data-still] .wf-sweep { opacity: 0; }
+[data-wall-field][data-still] .wf-beat { transform: translateZ(18px); }
+[data-wall-field][data-still] .wf-beat::before { opacity: 0.8; }
+[data-wall-field][data-still] .wf-glass::after { opacity: 0.35; }
 
 /* ── The booth preview (BoothViewfinder) ───────────────────────────────── */
 [data-scene-ui] .vf-device {
@@ -857,6 +970,10 @@
   0% { transform: scale(1); opacity: 0.85; }
   100% { transform: scale(1.5); opacity: 0; }
 }
+[data-scene-ui] .vf-device[data-compact] { filter: drop-shadow(0 12px 22px var(--sc-shadow)); }
+[data-scene-ui] .vf-device[data-compact] :is(.vf-drift, .vf-shimmer, .vf-ring, .vf-brackets > span, .sc-rim > span) { animation: none; }
+[data-scene-ui] .vf-device[data-compact] .vf-ring { opacity: 0; }
+[data-scene-ui] .vf-device[data-compact] .vf-brackets > span { width: 9px; height: 9px; }
 [data-scene-ui] .vf-shutter { border-radius: 24px; outline: none; }
 [data-scene-ui] .vf-shutter:focus-visible { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--sc-accent); }
 
@@ -950,6 +1067,21 @@
   outline-offset: -6px;
 }
 [data-page-border][data-contained] svg { width: 22px; height: 22px; }
+/* The booth splash's default frame (no page border chosen): camera corner
+   brackets just inside the glow rim. */
+[data-scene-ui] .splash-corners { --sp-in: 22px; }
+@media (min-width: 640px) { [data-scene-ui] .splash-corners { --sp-in: 30px; } }
+[data-scene-ui] .splash-corners > span {
+  position: absolute;
+  width: clamp(28px, 4vw, 44px);
+  height: clamp(28px, 4vw, 44px);
+  border: 0 solid color-mix(in srgb, var(--sc-accent) 55%, #fff);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--sc-accent) 70%, transparent));
+}
+[data-scene-ui] .splash-corners > span:nth-child(1) { left: var(--sp-in); top: var(--sp-in); border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 12px; }
+[data-scene-ui] .splash-corners > span:nth-child(2) { right: var(--sp-in); top: var(--sp-in); border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 12px; }
+[data-scene-ui] .splash-corners > span:nth-child(3) { right: var(--sp-in); bottom: var(--sp-in); border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 12px; }
+[data-scene-ui] .splash-corners > span:nth-child(4) { left: var(--sp-in); bottom: var(--sp-in); border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 12px; }
 
 @media (prefers-reduced-motion: reduce) {
   [data-wall-field] *,

@@ -11,7 +11,7 @@
  */
 import { Link, useLocation } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { Album, Camera, ChevronRight, Images, Trophy, UploadCloud } from 'lucide-react';
+import { Album, Camera, Check, ChevronRight, Images, Link2, Trophy, UploadCloud } from 'lucide-react';
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
@@ -19,13 +19,12 @@ import ReportIssueButton from './support/ReportIssueButton';
 import LiveWallField from './theme/LiveWallField';
 import BoothViewfinder from './theme/BoothViewfinder';
 import PageBorder from './theme/PageBorder';
+import { useBoothShot, useHeroFrameUrl } from './theme/useBoothShot';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import { useEntitlements } from '../lib/entitlements';
 import { resolveScene } from '../lib/sceneThemes';
-import { heroFrameUrl, wallFieldPhotos } from '../lib/scenePage';
-import { buildCatalog } from '../lib/catalog';
-import { effectiveOpeningLookId } from '../lib/openingLook';
+import { wallFieldPhotos } from '../lib/scenePage';
 import { subscribeToPosts } from '../lib/db';
 import type { Post } from '../types';
 
@@ -50,8 +49,7 @@ function SceneGuestWelcome() {
     wallSettings, fetchWallSettings,
     posts, fetchPosts, prependPost, updatePost, removePost,
     challenges, challengesLoaded, fetchChallenges,
-    experiences, linkedGlobals, experiencesLoaded, fetchExperiences,
-    presetOverrides, fetchPresetOverrides,
+    experiencesLoaded, fetchExperiences, fetchPresetOverrides,
   } = useStore();
   useEffect(() => {
     fetchWallSettings();
@@ -97,17 +95,10 @@ function SceneGuestWelcome() {
   const tone = scene?.tone ?? 'dark';
   const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
   const wallPhotos = useMemo(() => wallFieldPhotos(posts), [posts]);
-  const newest = wallPhotos[wallPhotos.length - 1];
-  const frameUrl = useMemo(() => {
-    const catalog = buildCatalog(
-      config.arContent,
-      experiencesLoaded ? experiences : [],
-      presetOverrides,
-      experiencesLoaded ? linkedGlobals : [],
-      true,
-    );
-    return heroFrameUrl(catalog, effectiveOpeningLookId(wallSettings.defaultExperienceId, config.defaultExperienceId));
-  }, [config.arContent, config.defaultExperienceId, experiences, experiencesLoaded, linkedGlobals, presetOverrides, wallSettings.defaultExperienceId]);
+  // One booth screen: the newest single shot (a strip shows its first panel).
+  const shot = useBoothShot(wallPhotos);
+  const newest = shot.post;
+  const frameUrl = useHeroFrameUrl();
   const intro =
     typeof config.copy.welcomeIntro === 'string' && config.copy.welcomeIntro.trim() !== ''
       ? config.copy.welcomeIntro
@@ -144,6 +135,21 @@ function SceneGuestWelcome() {
 
   const moments = posts.length;
 
+  // The QR's companion: copy the page link. navigator.clipboard is undefined
+  // outside a secure context and writeText rejects when the page is not
+  // focused, so a failure shows the link itself to copy by hand.
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  useEffect(() => {
+    if (copyState !== 'copied') return;
+    const t = setTimeout(() => setCopyState('idle'), 2200);
+    return () => clearTimeout(t);
+  }, [copyState]);
+  const copyLink = () => {
+    const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+    if (!clip?.writeText) { setCopyState('failed'); return; }
+    clip.writeText(eventUrl).then(() => setCopyState('copied'), () => setCopyState('failed'));
+  };
+
   return (
     <div
       data-scene-ui={tone}
@@ -166,8 +172,9 @@ function SceneGuestWelcome() {
           </div>
           <Link
             to={`${basePath}/wall`}
-            className="sc-chip pressable inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full px-4 font-sans text-[13px] font-medium"
+            className="sc-chip pressable relative inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full px-4 font-sans text-[13px] font-medium"
           >
+            <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: '-2.1s' }}><span /></span>
             <span aria-hidden className="sc-live-dot h-2 w-2 rounded-full" style={{ background: 'var(--sc-accent)' }} />
             Live wall
           </Link>
@@ -179,21 +186,23 @@ function SceneGuestWelcome() {
           </p>
         )}
 
-        <main className="grid flex-1 grid-cols-[minmax(0,1fr)] items-start gap-x-16 gap-y-8 py-8 sm:py-12 [grid-template-areas:'head'_'vf'_'rest'_'qr'] lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:grid-rows-[auto_1fr_auto] lg:[grid-template-areas:'head_vf'_'rest_vf'_'rest_qr']">
+        <main className="grid flex-1 grid-cols-[minmax(0,1fr)] items-start gap-x-16 gap-y-8 py-8 sm:py-12 [grid-template-areas:'head'_'vf'_'rest'] lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:grid-rows-[auto_1fr] lg:[grid-template-areas:'head_vf'_'rest_vf']">
           {/* ── Hero: the room's pulse, then the name ── */}
           <section className="flex min-w-0 flex-col items-start animate-rise-in [grid-area:head] lg:pt-6">
             {moments > 0 ? (
               <Link
                 to={`${basePath}/wall`}
                 aria-live="polite"
-                className="sc-chip pressable inline-flex min-h-11 items-center gap-2.5 rounded-full px-4 font-sans text-[14px] font-semibold"
+                className="sc-chip pressable relative inline-flex min-h-11 items-center gap-2.5 rounded-full px-4 font-sans text-[14px] font-semibold"
               >
+                <span className="sc-rim" aria-hidden><span /></span>
                 <span aria-hidden className="sc-live-dot h-2.5 w-2.5 rounded-full" style={{ background: 'var(--sc-accent)', boxShadow: '0 0 12px var(--sc-accent)' }} />
                 Guests are snapping
                 <span className="sc-faint font-medium">· {moments} {moments === 1 ? 'moment' : 'moments'}</span>
               </Link>
             ) : (
               <div className="sc-glass flex items-center gap-3 rounded-2xl py-3 pl-3 pr-5">
+                <span className="sc-rim" aria-hidden><span /></span>
                 <span
                   aria-hidden
                   className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
@@ -215,6 +224,30 @@ function SceneGuestWelcome() {
             {config.copy.tagline && (
               <p className="mt-4 max-w-xl font-sans text-[clamp(17px,2.2vw,22px)] leading-snug sc-muted">{config.copy.tagline}</p>
             )}
+
+            {/* Scan to join: right under the name, so a friend can join in one look. */}
+            <div className="sc-glass mt-6 flex w-full max-w-[440px] items-center gap-4 rounded-[24px] p-3 pr-4">
+              <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: '-3.4s' }}><span /></span>
+              <div className="shrink-0 rounded-[16px] bg-white p-2">
+                <QRCodeSVG value={eventUrl} size={84} bgColor="#FFFFFF" fgColor="#1A1740" level="M" title="QR code for this event page" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-sans text-[16px] font-semibold sc-ink">Scan to join</p>
+                <p className="mt-0.5 font-sans text-[13px] leading-snug sc-faint">Point a phone camera here to open this page.</p>
+                <button
+                  type="button"
+                  onClick={copyLink}
+                  className="sc-chip pressable mt-2 inline-flex min-h-11 items-center gap-2 rounded-full px-3.5 font-sans text-[13px] font-medium"
+                >
+                  {copyState === 'copied' ? <Check className="h-4 w-4" aria-hidden /> : <Link2 className="h-4 w-4" aria-hidden />}
+                  {copyState === 'copied' ? 'Link copied' : 'Copy link'}
+                </button>
+                <span className="sr-only" aria-live="polite">{copyState === 'copied' ? 'Link copied' : ''}</span>
+                {copyState === 'failed' && (
+                  <p className="mt-2 select-all break-all font-sans text-[12px] leading-snug sc-muted">{eventUrl}</p>
+                )}
+              </div>
+            </div>
           </section>
 
           {/* ── The booth, previewed: its shutter is the way in ── */}
@@ -223,6 +256,7 @@ function SceneGuestWelcome() {
               to={`${basePath}/booth`}
               frameUrl={frameUrl}
               previewUrl={newest?.image_url}
+              previewCrop={shot.crop}
               previewAlt={newest ? (newest.guest_name ? `The newest photo, by ${newest.guest_name}` : 'The newest guest photo') : undefined}
             />
           </div>
@@ -238,12 +272,13 @@ function SceneGuestWelcome() {
             </p>
 
             <nav aria-label="More to do here" className="mt-7 grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
-              {actions.map((a) => (
+              {actions.map((a, i) => (
                 <Link
                   key={a.to}
                   to={a.to}
                   className="sc-glass sc-card group flex min-h-[76px] items-center gap-4 rounded-2xl p-4"
                 >
+                  <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: `-${(i * 1.7).toFixed(1)}s` }}><span /></span>
                   <span
                     className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
                     style={{ background: 'color-mix(in srgb, var(--sc-accent) 18%, transparent)', color: 'var(--sc-accent)' }}
@@ -260,20 +295,6 @@ function SceneGuestWelcome() {
             </nav>
           </section>
 
-          {/* ── Bring a friend ── */}
-          <aside className="flex min-w-0 flex-col animate-rise-in [grid-area:qr] lg:ml-auto lg:w-full lg:max-w-[420px]">
-            <div className="sc-glass flex items-center gap-4 rounded-[28px] p-4 sm:p-5">
-              <div className="shrink-0 rounded-2xl bg-white p-2.5">
-                <QRCodeSVG value={eventUrl} size={96} bgColor="#FFFFFF" fgColor="#1A1740" level="M" />
-              </div>
-              <div className="min-w-0">
-                <p className="font-sans text-[15px] font-semibold sc-ink">Bring a friend in</p>
-                <p className="mt-1 font-sans text-[13px] leading-relaxed sc-faint">
-                  Have them point their camera at this code. It opens this page on their phone.
-                </p>
-              </div>
-            </div>
-          </aside>
         </main>
 
         {slug !== null && (
