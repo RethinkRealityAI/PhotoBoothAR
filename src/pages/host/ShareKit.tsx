@@ -27,7 +27,7 @@ import { goLive } from '../../lib/host';
 import { useSession } from '../../lib/auth';
 import { fetchPostsResult } from '../../lib/db';
 import { uploadAsset } from '../../lib/db';
-import { sendKeepsakePreview, sendKeepsakes } from '../../lib/keepsakeContacts';
+import { fetchKeepsakeAutoSend, sendKeepsakePreview, sendKeepsakes, setKeepsakeAutoSend } from '../../lib/keepsakeContacts';
 import {
   keepsakePreviewMessage,
   keepsakeSendMessage,
@@ -300,6 +300,35 @@ function KeepsakePanel({
   const myEmail = session?.user.email ?? '';
   const email = previewEmail !== '' ? previewEmail : myEmail;
 
+  // The next-day send (migration 045). null = not read yet, or unreadable —
+  // the switch is hidden then rather than showing a guess.
+  const [autoSend, setAutoSend] = useState<boolean | null>(null);
+  const [savingAuto, setSavingAuto] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void fetchKeepsakeAutoSend(eventUuid).then((v) => {
+      if (alive) setAutoSend(v);
+    });
+    return () => { alive = false; };
+  }, [eventUuid]);
+
+  async function toggleAuto() {
+    if (autoSend === null || savingAuto) return;
+    const next = !autoSend;
+    setSavingAuto(true);
+    const ok = await setKeepsakeAutoSend(eventUuid, next);
+    setSavingAuto(false);
+    if (ok) setAutoSend(next);
+    push(
+      ok
+        ? next
+          ? 'Next-day keepsakes are on. Guests get them the morning after your event.'
+          : 'Next-day keepsakes are off. You can still send them yourself.'
+        : 'Couldn’t save that. Check your connection and try again.',
+      ok ? 'success' : 'error',
+    );
+  }
+
   const art = useMemo(
     () => ({ background: COLLAGE_BASE, accent: accentHexes[0] ?? '#E8C766', palette: accentHexes }),
     [accentHexes],
@@ -375,10 +404,43 @@ function KeepsakePanel({
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/80">Keepsake email</h2>
         </div>
         <p className="font-sans text-xs text-brand-muted/60 leading-relaxed max-w-xl">
-          Guests who left an address at the booth get the album in their inbox — one email each,
-          with an unsubscribe link at the bottom. Nothing is sent until you press the button.
+          Guests who left an address at the booth get the album in their inbox the morning after
+          your event, automatically. On paid plans it comes with a short film of the night, made from
+          the booth photos. One email each, with an unsubscribe link at the bottom.
         </p>
       </header>
+
+      {autoSend !== null && (
+        <div className="flex items-center justify-between gap-4 rounded-2xl glass px-4 py-3">
+          <div className="flex flex-col gap-0.5">
+            <span id="keepsake-auto-label" className="font-sans text-sm text-brand-fg">Send automatically the next day</span>
+            <span className="font-sans text-[11px] leading-relaxed text-brand-muted/55">
+              {autoSend
+                ? 'Goes out around 10 AM the day after your event date, or 12 hours after you end it.'
+                : 'Off. Nothing goes out unless you press Send keepsakes below.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoSend}
+            aria-labelledby="keepsake-auto-label"
+            onClick={() => void toggleAuto()}
+            disabled={savingAuto}
+            className="flex min-h-11 min-w-14 shrink-0 items-center justify-center disabled:opacity-50"
+          >
+            {/* The visible track is 28px; the button around it is the 44px target. */}
+            <span
+              aria-hidden
+              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${autoSend ? 'bg-accent' : 'bg-white/15'}`}
+            >
+              <span
+                className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${autoSend ? 'translate-x-6' : 'translate-x-1'}`}
+              />
+            </span>
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <label htmlFor="keepsake-preview-email" className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
@@ -416,13 +478,13 @@ function KeepsakePanel({
           className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)] transition active:scale-[0.98] disabled:opacity-40"
         >
           {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-          {sending ? 'Sending…' : 'Send keepsakes'}
+          {sending ? 'Sending…' : 'Send keepsakes now'}
         </button>
         {!isOver && (
           <p className="font-sans text-[11px] text-brand-muted/45 leading-relaxed">
             {isDraft
               ? 'Available once this event has run and you have ended it.'
-              : 'Available once you end the event — guests should get the album after the night, not during it.'}
+              : 'Available once you end the event. Guests should get the album after the night, not during it.'}
           </p>
         )}
       </div>

@@ -323,3 +323,38 @@ export async function sendKeepsakePreview(
     return { ok: false, sent: 0, emailConfigured: false, error: 'network' };
   }
 }
+
+/* ── The next-day autopilot switch (config.keepsakes.autoSend) ─────────
+ * On unless a host turned it off — send-keepsakes/autopilot.ts
+ * autoSendEnabled() is the reader, and only an explicit false means off. */
+
+/** The host's switch for this event; null when it could not be read (the
+ *  panel then shows no toggle rather than a guess). */
+export async function fetchKeepsakeAutoSend(eventUuid: string): Promise<boolean | null> {
+  try {
+    const { supabase } = await import('./supabase');
+    const { data, error } = await supabase.from('events').select('config').eq('id', eventUuid).maybeSingle();
+    if (error || !data) return null;
+    const k = (data.config as { keepsakes?: { autoSend?: unknown } } | null)?.keepsakes;
+    return k?.autoSend !== false;
+  } catch (e) {
+    console.error('[keepsakeContacts] fetchKeepsakeAutoSend', e);
+    return null;
+  }
+}
+
+/** Turn the next-day send on or off. Merges into config.keepsakes so a
+ *  future key there survives. Returns whether the write landed. */
+export async function setKeepsakeAutoSend(eventUuid: string, on: boolean): Promise<boolean> {
+  try {
+    const { supabase } = await import('./supabase');
+    const { data, error } = await supabase.from('events').select('config').eq('id', eventUuid).maybeSingle();
+    if (error || !data) return false;
+    const { updateEventConfig } = await import('./host');
+    const prev = (data.config as { keepsakes?: Record<string, unknown> } | null)?.keepsakes;
+    return await updateEventConfig(eventUuid, { keepsakes: { ...(prev ?? {}), autoSend: on } });
+  } catch (e) {
+    console.error('[keepsakeContacts] setKeepsakeAutoSend', e);
+    return false;
+  }
+}

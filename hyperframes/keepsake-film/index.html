@@ -254,6 +254,24 @@
         object-fit: cover;
         will-change: transform;
       }
+      /* fit: "contain" (event films: portrait booth shots). The whole photo
+         stays in frame over a blurred, dimmed copy of itself, so a 9:16 shot
+         in a 16:9 film is never cropped to a mouth. Cards keep "cover". */
+      .kf-photo-bg {
+        position: absolute;
+        inset: -10%;
+        width: 120%;
+        height: 120%;
+        object-fit: cover;
+        filter: blur(48px) brightness(0.42) saturate(1.15);
+      }
+      .kf-photo.kf-photo--contain {
+        inset: 4% 0;
+        width: 100%;
+        height: 92%;
+        object-fit: contain;
+        filter: drop-shadow(0 24px 60px rgba(0, 0, 0, 0.55));
+      }
       .kf-media-scrim {
         position: absolute;
         inset: 0;
@@ -491,10 +509,13 @@
           }
 
           var count = contributions.length;
-          var countLabel =
-            count === 0
+          // Optional overrides (the event film sends them; cards never do, so a
+          // card film reads exactly as before).
+          function str(v) { return typeof v === "string" && v.trim() ? v.trim() : null; }
+          var countLabel = str(card.countLabel) ||
+            (count === 0
               ? "A keepsake film"
-              : count + (count === 1 ? " message, gathered with love" : " messages, gathered with love");
+              : count + (count === 1 ? " message, gathered with love" : " messages, gathered with love"));
 
           function buildTitle(scene, idx) {
             var s = el("section", "kf-scene");
@@ -516,9 +537,9 @@
             var s = el("section", "kf-scene");
             s.id = "kf-scene-" + idx;
             var inner = el("div", "kf-inner");
-            inner.appendChild(txt("p", "kf-eyebrow", "With love"));
+            inner.appendChild(txt("p", "kf-eyebrow", str(card.closingEyebrow) || "With love"));
             inner.appendChild(
-              txt("h1", "kf-title", card.recipientName ? "For " + card.recipientName : "Thank you")
+              txt("h1", "kf-title", str(card.closingTitle) || (card.recipientName ? "For " + card.recipientName : "Thank you"))
             );
             inner.appendChild(el("div", "kf-rule"));
             inner.appendChild(txt("p", "kf-count", "Made with Beamwall"));
@@ -545,7 +566,15 @@
             var s = el("section", "kf-scene");
             s.id = "kf-scene-" + idx;
             var frame = el("div", "kf-media-frame");
-            var img = el("img", "kf-photo", "kf-photo-" + idx);
+            var contain = c.fit === "contain";
+            if (contain) {
+              var bg = el("img", "kf-photo-bg");
+              bg.setAttribute("crossorigin", "anonymous");
+              bg.setAttribute("alt", "");
+              bg.src = c.url;
+              frame.appendChild(bg);
+            }
+            var img = el("img", contain ? "kf-photo kf-photo--contain" : "kf-photo", "kf-photo-" + idx);
             img.setAttribute("crossorigin", "anonymous");
             img.setAttribute("alt", "");
             img.src = c.url;

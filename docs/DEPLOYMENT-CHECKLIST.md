@@ -288,6 +288,32 @@ the concierge-ui work; server-first, order matters).** Live before this wave:
       is always written first — only the notification is skipped.
       Uses the same `RESEND_API_KEY` + `PUBLIC_SITE_URL` as §4.
 
+## 4d. Next-day keepsake autopilot — album email + event film (added 2026-11-19)
+
+The morning after an event (10 AM local the day after `starts_at`, or 12h after
+the host ends it; nothing older than 7 days), every guest who opted in gets the
+album email automatically; paid events (`watermark = false` in the resolver)
+also get a ~40s film of the night that plays on `/r/<slug>#film`. Pieces:
+migration `045_keepsake_autopilot` (`events.ended_at` + trigger, `keepsake_runs`),
+`send-keepsakes` ops `due`/`finish` (deploys as TWO files: `index.ts` +
+`autopilot.ts`, plus `deno.json`; verify_jwt stays OFF), the worker
+`scripts/keepsake-worker.mjs`, run hourly by `.github/workflows/keepsake-films.yml`
+on free public-repo runners (renders with the runner's Chrome; ~3.5 min per film).
+
+- [ ] Generate one random secret (≥32 chars), e.g. `openssl rand -hex 32`.
+- [ ] Supabase → Edge Functions → Secrets: `KEEPSAKE_WORKER_SECRET` = that value.
+- [ ] GitHub → repo Settings → Secrets and variables → Actions → New repository
+      secret: `KEEPSAKE_WORKER_SECRET` = the SAME value.
+- [ ] `RESEND_API_KEY` (§4) — without it `due` answers 503 before claiming
+      anything, so no event loses its one next-day send to a missing key.
+- [ ] (Optional) `KEEPSAKES_FROM_EMAIL` — verified Resend sender
+      (default `Beamwall <photos@beamwall.app>`).
+- [ ] Verify: Actions → Keepsake films → Run workflow. With nothing due the log
+      says `0 event(s) due`. Logs are PUBLIC: the worker prints counts only.
+- Turn off per event: Share & Print → "Send automatically the next day"
+  (`config.keepsakes.autoSend = false`).
+- Inspect runs (service role): `select * from keepsake_runs order by claimed_at desc`.
+
 ## 5. Keepsake MP4 film — HeyGen HyperFrames (Deluxe add-on)
 
 Ships **disabled** by default (`card-render` returns `render_not_configured`,

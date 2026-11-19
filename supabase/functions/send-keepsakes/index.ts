@@ -45,9 +45,50 @@
  * 404 → { error: 'event_not_found' }     405 → { error: 'method_not_allowed' }
  * 409 → { error: 'event_still_live' }    429 → { error: 'recently_sent' | 'preview_rate_limited' }
  * 500 → { error: 'internal' }            503 → { error: 'email_not_configured' }
+ *
+ * ── THE NEXT-DAY AUTOPILOT (migration 045) ──────────────────────────────────
+ * Two more POST ops, called ONLY by the keepsake worker (scripts/keepsake-
+ * worker.mjs, run on a schedule by .github/workflows/keepsake-films.yml). They
+ * authorize on a shared secret in the `x-keepsake-worker` header, compared in
+ * constant time against KEEPSAKE_WORKER_SECRET, BEFORE their dispatch — the
+ * same structural guard as the user ops. The worker holds no Supabase key:
+ * it can ask what is due, upload to the two signed URLs it is handed, and
+ * report back. Everything else (who to mail, what to write, the entitlement)
+ * stays here.
+ *
+ *   POST { op: 'due' }
+ *     → { items: [{ eventUuid, slug, film: { payload, upload } | null }] }
+ *     Claims up to MAX_DUE_PER_RUN events whose next-morning time has come
+ *     (autopilot.ts has the rule) by inserting their keepsake_runs row — the
+ *     primary key is the lock. `film` is null when the event is on a free
+ *     plan or has too few photos; the worker then finishes it straight away.
+ *     Refuses with 503 BEFORE claiming anything when email is not configured,
+ *     so a missing key can never burn an event's one claim.
+ *   POST { op: 'finish', eventUuid, result: 'ready' | 'failed' | 'skipped', error? }
+ *     → { sent, skipped, failed, film: 'ready' | 'failed' | 'skipped' }
+ *     Verifies a 'ready' film really is in storage, then mails every opted-in
+ *     guest who has not had the keepsake yet — WITH the film when there is
+ *     one, and always with the album. A film that failed never holds the
+ *     email back: the guest gets the photos either way.
+ *   401 → { error: 'unauthorized' }  409 → { error: 'not_claimed' }
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
+import {
+  FILM_MIN_PHOTOS,
+  MAX_DUE_PER_RUN,
+  NEXT_MORNING_OFFSET_MS,
+  AFTER_END_DELAY_MS,
+  MAX_LATE_MS,
+  buildEventFilmPayload,
+  reclaimMode,
+  filmEntitled,
+  filmPaths,
+  isKeepsakeDue,
+  pickFilmPhotos,
+  workerAuthorized,
+  type FilmPost,
+} from './autopilot.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -158,21 +199,40 @@ function keepsakeEmailHtml(opts: {
   heroUrl: string | null;
   unsubUrl: string | null;
   intro: string | null;
+  /** The film's poster frame. Present only when the event has a ready film —
+   *  the hero then IS the film's thumbnail and both it and the button open the
+   *  album at the film. */
+  filmPosterUrl?: string | null;
 }): string {
   const name = escapeHtml(opts.eventName);
-  const recap = escapeHtml(opts.recapUrl);
-  const hero = opts.heroUrl ? escapeHtml(opts.heroUrl) : null;
+  const film = opts.filmPosterUrl ? escapeHtml(opts.filmPosterUrl) : null;
+  const recap = escapeHtml(film ? `${opts.recapUrl}#film` : opts.recapUrl);
+  const hero = film ?? (opts.heroUrl ? escapeHtml(opts.heroUrl) : null);
   const unsub = opts.unsubUrl ? escapeHtml(opts.unsubUrl) : null;
   const introHtml = opts.intro
     ? escapeHtml(opts.intro)
-    : `The night in pictures — every photo from ${name}, in one place.<br />
+    : film
+      ? `We made a short film of ${name}, from the photos taken at the booth.<br />
+                      It's waiting for you with every photo from the night. Yours are in there.`
+      : `The night in pictures — every photo from ${name}, in one place.<br />
                       Yours are in there. Have a look, and take home the ones you love.`;
+  const ctaLabel = film ? 'Watch the film' : 'See the photos';
 
-  const heroRow = hero
+  // A poster gets a play badge laid over it, made of a table cell rather than
+  // an image or a background (both are stripped by some clients), so it reads
+  // as "this is a video" everywhere.
+  const heroRow = film
     ? `<tr><td style="padding:0 0 28px;">
+             <a href="${recap}" style="display:block;text-decoration:none;">
+               <img src="${film}" alt="Play the film of ${name}" width="480" style="display:block;width:100%;max-width:480px;height:auto;border:0;border-radius:12px;" />
+             </a>
+             <p style="margin:10px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#9a9284;">&#9654;&nbsp; Your film of the night</p>
+           </td></tr>`
+    : hero
+      ? `<tr><td style="padding:0 0 28px;">
              <img src="${hero}" alt="" width="480" style="display:block;width:100%;max-width:480px;height:auto;border:0;border-radius:12px;" />
            </td></tr>`
-    : '';
+      : '';
 
   const footerRow = unsub
     ? `<a href="${unsub}" style="color:#8a8378;text-decoration:underline;">Unsubscribe</a> from event emails.`
@@ -207,7 +267,7 @@ function keepsakeEmailHtml(opts: {
                   <tr>
                     <td align="center" style="padding:0 0 6px;">
                       <a href="${recap}" style="display:inline-block;background:#1d1a15;color:#ffffff;text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;letter-spacing:0.14em;text-transform:uppercase;padding:16px 34px;border-radius:999px;">
-                        See the photos
+                        ${ctaLabel}
                       </a>
                     </td>
                   </tr>
@@ -338,6 +398,18 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    /* ── The autopilot's worker ops: shared-secret auth, BEFORE their dispatch ──
+     * Never reachable with a user JWT, and the user ops below are never
+     * reachable with the worker secret: the two credentials open disjoint
+     * doors. */
+    if (body.op === 'due' || body.op === 'finish') {
+      if (!workerAuthorized(req.headers.get('x-keepsake-worker'), Deno.env.get('KEEPSAKE_WORKER_SECRET'))) {
+        return json(401, { error: 'unauthorized' });
+      }
+      const sb = serviceClient();
+      return body.op === 'due' ? await handleDue(sb) : await handleFinish(sb, body);
+    }
+
     /* ── Authorization, BEFORE the dispatch switch (admin-api's shape) ──
      * Both POST ops need the same three facts — a real user, a real event, and
      * membership between them — so they are established once, up front, and no
@@ -460,68 +532,328 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const { data: contacts, error: contactsErr } = await sb
-      .from('guest_contacts')
-      .select('id, email, unsubscribe_token, last_sent_at')
-      .eq('event_id', event.slug as string)
-      .is('unsubscribed_at', null)
-      .order('created_at', { ascending: true })
-      .limit(MAX_RECIPIENTS);
-    if (contactsErr) throw contactsErr;
-
-    const subject = `Your photos from ${eventName}`;
-    let sent = 0;
-    let skipped = 0;
-    let failed = 0;
-
-    for (const c of contacts ?? []) {
-      // Already mailed for this event: skipped unless the caller explicitly
-      // asked to send again. This is what makes the whole op re-runnable after
-      // a partial failure without spamming the guests it already reached.
-      if (!resend && c.last_sent_at !== null && c.last_sent_at !== undefined) {
-        skipped += 1;
-        continue;
-      }
-      try {
-        const ok = await sendOne(
-          resendKey,
-          c.email as string,
-          subject,
-          keepsakeEmailHtml({
-            eventName,
-            recapUrl,
-            heroUrl,
-            unsubUrl: unsubUrlFor(c.unsubscribe_token as string),
-            intro,
-          }),
-        );
-        if (!ok) {
-          failed += 1;
-          continue;
-        }
-        // Stamped per contact, immediately — not batched at the end. If this
-        // isolate dies mid-run, everyone already reached stays stamped and the
-        // re-run skips them; a batched stamp would re-send to all of them.
-        const { error: stampErr } = await sb
-          .from('guest_contacts')
-          .update({ last_sent_at: new Date().toISOString() })
-          .eq('id', c.id as string);
-        if (stampErr) {
-          // The mail is gone; the stamp is not. Count it as sent (it was) and
-          // log loudly — reporting a failure here would invite a re-run that
-          // duplicates a delivered email.
-          console.error('[send-keepsakes] stamp failed after send', c.id, stampErr);
-        }
-        sent += 1;
-      } catch (e) {
-        console.error('[send-keepsakes] contact failed', c.id, e);
-        failed += 1;
-      }
-    }
-
-    return json(200, { sent, skipped, failed, emailConfigured: true });
+    const result = await sendToContacts(sb, resendKey, {
+      slug: event.slug as string,
+      subject: `Your photos from ${eventName}`,
+      resend,
+      build: (unsubUrl) => keepsakeEmailHtml({ eventName, recapUrl, heroUrl, unsubUrl, intro }),
+    });
+    return json(200, { ...result, emailConfigured: true });
   } catch (err) {
     console.error('[send-keepsakes] internal error', err);
     return json(500, { error: 'internal' });
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* The send loop — shared by the host's button and the autopilot       */
+/* ------------------------------------------------------------------ */
+
+type Service = ReturnType<typeof serviceClient>;
+
+async function sendToContacts(
+  sb: Service,
+  resendKey: string,
+  opts: { slug: string; subject: string; resend: boolean; build: (unsubUrl: string) => string },
+): Promise<{ sent: number; skipped: number; failed: number }> {
+  const { data: contacts, error: contactsErr } = await sb
+    .from('guest_contacts')
+    .select('id, email, unsubscribe_token, last_sent_at')
+    .eq('event_id', opts.slug)
+    .is('unsubscribed_at', null)
+    .order('created_at', { ascending: true })
+    .limit(MAX_RECIPIENTS);
+  if (contactsErr) throw contactsErr;
+
+  let sent = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const c of contacts ?? []) {
+    // Already mailed for this event: skipped unless the caller explicitly
+    // asked to send again. This is what makes the whole op re-runnable after
+    // a partial failure without spamming the guests it already reached — and
+    // it is why the autopilot never re-mails a guest the host already reached
+    // with the button.
+    if (!opts.resend && c.last_sent_at !== null && c.last_sent_at !== undefined) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      const ok = await sendOne(
+        resendKey,
+        c.email as string,
+        opts.subject,
+        opts.build(unsubUrlFor(c.unsubscribe_token as string)),
+      );
+      if (!ok) {
+        failed += 1;
+        continue;
+      }
+      // Stamped per contact, immediately — not batched at the end. If this
+      // isolate dies mid-run, everyone already reached stays stamped and the
+      // re-run skips them; a batched stamp would re-send to all of them.
+      const { error: stampErr } = await sb
+        .from('guest_contacts')
+        .update({ last_sent_at: new Date().toISOString() })
+        .eq('id', c.id as string);
+      if (stampErr) {
+        // The mail is gone; the stamp is not. Count it as sent (it was) and
+        // log loudly — reporting a failure here would invite a re-run that
+        // duplicates a delivered email.
+        console.error('[send-keepsakes] stamp failed after send', c.id, stampErr);
+      }
+      sent += 1;
+    } catch (e) {
+      console.error('[send-keepsakes] contact failed', c.id, e);
+      failed += 1;
+    }
+  }
+
+  return { sent, skipped, failed };
+}
+
+/* ------------------------------------------------------------------ */
+/* The next-day autopilot — worker ops (see the header)                */
+/* ------------------------------------------------------------------ */
+
+const POSTS_BUCKET = 'posts';
+
+interface DueEvent {
+  id: string;
+  org_id: string | null;
+  slug: string;
+  name: string | null;
+  status: string | null;
+  starts_at: string | null;
+  ended_at: string | null;
+  config: unknown;
+}
+
+function accentOf(config: unknown): string | null {
+  const hexes = (config as { accentHexes?: unknown } | null)?.accentHexes;
+  return Array.isArray(hexes) && typeof hexes[0] === 'string' ? hexes[0] : null;
+}
+
+function introOf(config: unknown): string | null {
+  const raw = (config as { copy?: { keepsakeIntro?: unknown } } | null)?.copy?.keepsakeIntro;
+  return typeof raw === 'string' && raw.trim() !== '' && raw.length <= 160 ? raw.trim() : null;
+}
+
+/**
+ * The film job for one claimed event, or null when it gets no film: a free
+ * plan, an unreachable entitlement answer (closed — the email still goes), or
+ * fewer than FILM_MIN_PHOTOS stills. The worker receives the photos' PUBLIC
+ * urls (the posts bucket is public — the wall shows them to anyone) and two
+ * signed upload urls scoped to exactly this event's film and poster paths.
+ */
+async function prepareFilm(sb: Service, ev: DueEvent) {
+  const { data: features, error: featErr } = await sb.rpc('resolve_features_raw', {
+    p_org: ev.org_id,
+    p_event: ev.id,
+  });
+  if (featErr) {
+    console.error('[send-keepsakes] autopilot: resolve_features_raw failed', ev.slug, featErr);
+    return null;
+  }
+  if (!filmEntitled(features)) return null;
+
+  const { data: rows, error: postsErr } = await sb
+    .from('posts')
+    .select('id, image_url, media_type, guest_name, message, created_at')
+    .eq('event_id', ev.slug)
+    .eq('approved', true)
+    .eq('hidden', false)
+    .order('created_at', { ascending: true })
+    .limit(1000);
+  if (postsErr) throw postsErr;
+  const stills = pickFilmPhotos((rows ?? []) as FilmPost[], Number.MAX_SAFE_INTEGER);
+  if (stills.length < FILM_MIN_PHOTOS) return null;
+
+  const payload = buildEventFilmPayload({
+    eventName: (ev.name ?? '').trim() || 'Our event',
+    accent: accentOf(ev.config),
+    photos: pickFilmPhotos(stills),
+    totalPhotos: stills.length,
+  });
+
+  const paths = filmPaths(ev.slug);
+  const bucket = sb.storage.from(POSTS_BUCKET);
+  const [film, poster] = await Promise.all([
+    bucket.createSignedUploadUrl(paths.film, { upsert: true }),
+    bucket.createSignedUploadUrl(paths.poster, { upsert: true }),
+  ]);
+  if (film.error || poster.error || !film.data || !poster.data) {
+    throw film.error ?? poster.error ?? new Error('signed_upload_failed');
+  }
+  return {
+    payload,
+    upload: {
+      film: { path: paths.film, signedUrl: film.data.signedUrl },
+      poster: { path: paths.poster, signedUrl: poster.data.signedUrl },
+    },
+  };
+}
+
+async function handleDue(sb: Service): Promise<Response> {
+  // Checked BEFORE any claim: a claim is an event's one shot at its next-day
+  // email, and a missing key would spend it on nothing.
+  if (!Deno.env.get('RESEND_API_KEY')) return json(503, { error: 'email_not_configured' });
+
+  const now = Date.now();
+  const sinceDate = new Date(now - NEXT_MORNING_OFFSET_MS - MAX_LATE_MS).toISOString();
+  const sinceEnd = new Date(now - AFTER_END_DELAY_MS - MAX_LATE_MS).toISOString();
+  const { data: events, error: evErr } = await sb
+    .from('events')
+    .select('id, org_id, slug, name, status, starts_at, ended_at, config')
+    .in('status', ['live', 'ended', 'archived'])
+    .or(`starts_at.gte.${sinceDate},ended_at.gte.${sinceEnd}`)
+    .limit(500);
+  if (evErr) throw evErr;
+
+  const due = ((events ?? []) as DueEvent[]).filter((e) => isKeepsakeDue(e, now));
+  if (due.length === 0) return json(200, { items: [] });
+
+  const { data: runs, error: runsErr } = await sb
+    .from('keepsake_runs')
+    .select('event_id, status, attempts, claimed_at')
+    .in('event_id', due.map((e) => e.slug));
+  if (runsErr) throw runsErr;
+  const runBy = new Map((runs ?? []).map((r) => [r.event_id as string, r]));
+
+  const items: Array<{ eventUuid: string; slug: string; film: Awaited<ReturnType<typeof prepareFilm>> }> = [];
+  for (const ev of due) {
+    if (items.length >= MAX_DUE_PER_RUN) break;
+    const existing = runBy.get(ev.slug);
+    let mode: 'film' | 'email_only' | null = null;
+
+    if (!existing) {
+      // The primary key is the lock: of two overlapping runs, exactly one
+      // insert returns a row.
+      const { data, error } = await sb
+        .from('keepsake_runs')
+        .upsert({ event_id: ev.slug }, { onConflict: 'event_id', ignoreDuplicates: true })
+        .select('event_id');
+      if (error) {
+        console.error('[send-keepsakes] autopilot: claim failed', ev.slug, error);
+        continue;
+      }
+      if ((data ?? []).length === 1) mode = 'film';
+    } else {
+      const want = reclaimMode(
+        { status: existing.status as string, attempts: existing.attempts as number, claimed_at: existing.claimed_at as string },
+        now,
+      );
+      if (want !== null) {
+        // Optimistic: only the run that still sees the same attempt count wins.
+        const { data, error } = await sb
+          .from('keepsake_runs')
+          .update({
+            attempts: (existing.attempts as number) + 1,
+            claimed_at: new Date(now).toISOString(),
+            film_status: 'pending',
+            error: null,
+          })
+          .eq('event_id', ev.slug)
+          .eq('status', 'claimed')
+          .eq('attempts', existing.attempts as number)
+          .select('event_id');
+        if (!error && (data ?? []).length === 1) mode = want;
+      }
+    }
+    if (mode === null) continue;
+
+    let film: Awaited<ReturnType<typeof prepareFilm>> = null;
+    if (mode === 'film') {
+      try {
+        film = await prepareFilm(sb, ev);
+      } catch (e) {
+        // No film is a smaller loss than no email: the item still goes out.
+        console.error('[send-keepsakes] autopilot: prepareFilm failed', ev.slug, e);
+        film = null;
+      }
+    }
+    items.push({ eventUuid: ev.id, slug: ev.slug, film });
+  }
+
+  return json(200, { items });
+}
+
+async function handleFinish(sb: Service, body: Record<string, unknown>): Promise<Response> {
+  const eventUuid = body.eventUuid;
+  const result = body.result;
+  if (typeof eventUuid !== 'string' || !UUID_RE.test(eventUuid)) return json(400, { error: 'invalid_body' });
+  if (result !== 'ready' && result !== 'failed' && result !== 'skipped') return json(400, { error: 'invalid_body' });
+  const reported = typeof body.error === 'string' ? body.error.slice(0, 500) : null;
+
+  const { data: event, error: evErr } = await sb
+    .from('events')
+    .select('id, slug, name, config')
+    .eq('id', eventUuid)
+    .maybeSingle();
+  if (evErr) throw evErr;
+  if (!event) return json(404, { error: 'event_not_found' });
+  const slug = event.slug as string;
+
+  const { data: run, error: runErr } = await sb
+    .from('keepsake_runs')
+    .select('status')
+    .eq('event_id', slug)
+    .maybeSingle();
+  if (runErr) throw runErr;
+  // Only an open claim can be finished — a replayed or late finish must not
+  // mail anyone twice (the per-contact stamps would skip them anyway; this
+  // also keeps the run's numbers honest).
+  if (!run || run.status !== 'claimed') return json(409, { error: 'not_claimed' });
+
+  const resendKey = Deno.env.get('RESEND_API_KEY');
+  if (!resendKey) return json(503, { error: 'email_not_configured' });
+
+  // A 'ready' claim is checked, not believed: both files must be in storage.
+  const paths = filmPaths(slug);
+  let filmStatus: 'ready' | 'failed' | 'skipped' = result;
+  let error: string | null = result === 'failed' ? (reported ?? 'render_failed') : null;
+  if (result === 'ready') {
+    const { data: files, error: listErr } = await sb.storage.from(POSTS_BUCKET).list(`${slug}/_film`);
+    const names = new Set((files ?? []).map((f) => f.name));
+    if (listErr || !names.has('keepsake.mp4') || !names.has('poster.jpg')) {
+      filmStatus = 'failed';
+      error = 'film_missing_after_upload';
+    }
+  }
+  const posterUrl =
+    filmStatus === 'ready' ? sb.storage.from(POSTS_BUCKET).getPublicUrl(paths.poster).data.publicUrl : null;
+
+  const { error: markErr } = await sb
+    .from('keepsake_runs')
+    .update({
+      film_status: filmStatus,
+      film_path: filmStatus === 'ready' ? paths.film : null,
+      poster_path: filmStatus === 'ready' ? paths.poster : null,
+      error,
+    })
+    .eq('event_id', slug);
+  if (markErr) throw markErr;
+
+  const eventName = ((event.name as string | null) ?? '').trim() || 'our event';
+  const recapUrl = `${siteBase()}/r/${slug}`;
+  const intro = introOf(event.config);
+  // If this throws, the run stays 'claimed': a later run reclaims it once it
+  // goes stale and the per-contact stamps make that re-send skip everyone
+  // already reached.
+  const counts = await sendToContacts(sb, resendKey, {
+    slug,
+    subject: posterUrl ? `Your film from ${eventName} is ready` : `Your photos from ${eventName}`,
+    resend: false,
+    build: (unsubUrl) =>
+      keepsakeEmailHtml({ eventName, recapUrl, heroUrl: null, unsubUrl, intro, filmPosterUrl: posterUrl }),
+  });
+
+  const { error: doneErr } = await sb
+    .from('keepsake_runs')
+    .update({ status: 'done', finished_at: new Date().toISOString(), sent: counts.sent, failed: counts.failed })
+    .eq('event_id', slug);
+  if (doneErr) console.error('[send-keepsakes] autopilot: done stamp failed', slug, doneErr);
+
+  return json(200, { ...counts, film: filmStatus });
+}

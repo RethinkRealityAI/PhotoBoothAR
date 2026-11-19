@@ -31,7 +31,7 @@ import gsap from 'gsap';
 import { ArrowRight } from 'lucide-react';
 import type { Post } from '../../types';
 import { loadEventConfig, type EventLoad, type RuntimeEvent } from '../../events/runtime';
-import { fetchPostsResult } from '../../lib/db';
+import { fetchEventFilm, fetchPostsResult } from '../../lib/db';
 import { getSavedPhotos } from '../../lib/session';
 import { recapAccess, recapCountLine, recapCounts } from '../../lib/eventRecap';
 import FetchFailed from '../../components/ui/FetchFailed';
@@ -98,7 +98,14 @@ type LoadState =
   /** The event exists but has no night to look back on (draft, or a status we
    *  do not recognise — an unknown status must never publish an album). */
   | { phase: 'closed'; event: RuntimeEvent }
-  | { phase: 'ready'; event: RuntimeEvent; posts: Post[]; postsFailed: boolean };
+  | {
+      phase: 'ready';
+      event: RuntimeEvent;
+      posts: Post[];
+      postsFailed: boolean;
+      /** The next-day keepsake film (migration 045); null = none, for any reason. */
+      film: { filmUrl: string; posterUrl: string } | null;
+    };
 
 function CenterScreen({
   eyebrow,
@@ -184,11 +191,16 @@ export default function EventRecap() {
         // The album's own read. It is allowed to fail on its own — the event
         // resolved, so the page can still name itself and say what went wrong
         // rather than pretending the night had no photos in it.
-        const posts = await fetchPostsResult(event.eventId).catch(() => ({ rows: [], failed: true }));
+        // The film is read beside the album and can only ever add a block:
+        // a failed read is the same as no film.
+        const [posts, film] = await Promise.all([
+          fetchPostsResult(event.eventId).catch(() => ({ rows: [], failed: true })),
+          fetchEventFilm(event.eventId).catch(() => null),
+        ]);
         if (!alive) return;
         settled = true;
         clearTimeout(deadline);
-        setState({ phase: 'ready', event, posts: posts.rows, postsFailed: posts.failed });
+        setState({ phase: 'ready', event, posts: posts.rows, postsFailed: posts.failed, film });
       });
 
     return () => { alive = false; clearTimeout(deadline); };
@@ -226,6 +238,16 @@ export default function EventRecap() {
   }, [ready, reducedMotion]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
+
+  // The keepsake email links to /r/<slug>#film. The block only exists once
+  // the async read lands — after the browser has already looked for the
+  // anchor — so the jump is made here.
+  const filmRef = useRef<HTMLElement>(null);
+  const hasFilm = ready?.film != null;
+  useEffect(() => {
+    if (!hasFilm || window.location.hash !== '#film') return;
+    filmRef.current?.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
+  }, [hasFilm, reducedMotion]);
 
   if (state.phase === 'loading') {
     return <CenterScreen eyebrow="Event album" title="Opening the album…" />;
@@ -292,6 +314,37 @@ export default function EventRecap() {
           photos={posts}
           reducedMotion={reducedMotion}
         />
+
+        {state.film !== null && (
+          <section
+            ref={filmRef}
+            id="film"
+            data-reveal
+            aria-labelledby="recap-film-title"
+            className="scroll-mt-6 flex flex-col gap-3"
+          >
+            <h2 id="recap-film-title" className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
+              Your film of the night
+            </h2>
+            <video
+              src={state.film.filmUrl}
+              poster={state.film.posterUrl}
+              controls
+              playsInline
+              preload="metadata"
+              className="w-full rounded-2xl border border-white/10 bg-black aspect-video"
+            />
+            <a
+              // Cross-origin, so the `download` attribute alone is ignored;
+              // Storage's ?download= sets the attachment header instead.
+              href={`${state.film.filmUrl}?download=${encodeURIComponent(`${copy.filePrefix}-film.mp4`)}`}
+              download
+              className="self-start inline-flex min-h-11 items-center gap-2 rounded-full glass px-5 font-label uppercase tracking-luxe text-[10px] text-brand-muted/80 transition-colors hover:text-accent"
+            >
+              Save the film
+            </a>
+          </section>
+        )}
 
         {state.postsFailed ? (
           <div data-reveal>

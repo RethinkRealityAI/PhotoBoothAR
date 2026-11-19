@@ -243,6 +243,27 @@ export async function fetchPostsResult(
   return { rows: (data as Post[]) ?? [], failed: false };
 }
 
+/** The event's next-day keepsake film (migration 045), once it is ready.
+ *  null = no film (not made yet, not on this plan, or the read failed) — the
+ *  album page simply shows no film block, which is true in every one of
+ *  those cases, so a failure needs no separate state. */
+export async function fetchEventFilm(eventId: string): Promise<{ filmUrl: string; posterUrl: string } | null> {
+  const { data, error } = await supabase
+    .from('keepsake_runs')
+    .select('film_path, poster_path')
+    .eq('event_id', eventId)
+    .eq('film_status', 'ready')
+    .maybeSingle();
+  if (error) {
+    console.error('[db] fetchEventFilm', error);
+    return null;
+  }
+  const film = data?.film_path as string | null | undefined;
+  const poster = data?.poster_path as string | null | undefined;
+  if (typeof film !== 'string' || typeof poster !== 'string') return null;
+  return { filmUrl: publicUrl(POSTS_BUCKET, film), posterUrl: publicUrl(POSTS_BUCKET, poster) };
+}
+
 /** Posts, or [] on failure. Use fetchPostsResult when the caller renders an
  *  empty state the guest could mistake for the truth. */
 export async function fetchPosts(eventId: string, opts?: { includeHidden?: boolean; limit?: number }): Promise<Post[]> {
