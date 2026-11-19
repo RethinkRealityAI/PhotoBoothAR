@@ -11,6 +11,7 @@ import { adminApi, type AdminResult } from './admin';
 import type { LibraryState, LibraryTags, StateChangeTarget } from './libraryPublish';
 import type { ExperienceKind } from '../types';
 import type { Classification, ImportMeta } from './libraryImport';
+import type { LibraryCategory } from './libraryTaxonomy';
 
 export interface LibraryItemRow {
   id: string;
@@ -26,6 +27,14 @@ export interface LibraryItemRow {
   publishedAt: string;
   sortOrder: number;
   linkCount: number;
+  /** Migration 045. Absent from an admin-api older than the CMS -> treated as none. */
+  categoryId?: string | null;
+  keywords?: string[];
+  /** config.library.collection, e.g. 'christmas'. */
+  collection?: string | null;
+  createdAt?: string;
+  /** A .glb the viewer can open (a prop's own, or a scene's first 3D layer). */
+  modelUrl?: string | null;
 }
 
 export interface LibraryList {
@@ -53,6 +62,11 @@ export function publishLibraryItem(args: {
   name: string;
   tags: LibraryTags;
   listed?: boolean;
+  /** Omitted = the previous version's shelf (or none). null = uncategorised. */
+  categoryId?: string | null;
+  keywords?: string[];
+  /** A picture staged under _platform/library/_pictures/ for a piece that has none. */
+  thumbnailUrl?: string;
 }): Promise<AdminResult<PublishResult>> {
   return adminApi<PublishResult>('publish_library_item', { ...args });
 }
@@ -84,6 +98,8 @@ export interface LibraryDraftRow {
   tags: LibraryTags;
   importMeta: ImportMeta;
   createdAt: string;
+  categoryId?: string | null;
+  keywords?: string[];
 }
 
 export function fetchLibraryDrafts(): Promise<AdminResult<{ drafts: LibraryDraftRow[]; total: number }>> {
@@ -132,6 +148,61 @@ export function discardLibraryDrafts(ids: string[]): Promise<AdminResult<{ disca
   return adminApi('discard_library_drafts', { ids });
 }
 
+/* ── Taxonomy: categories + keywords (migration 045) ──────────────────── */
+
+export function fetchLibraryCategories(): Promise<AdminResult<{ categories: LibraryCategory[] }>> {
+  return adminApi('list_library_categories');
+}
+
+export function saveLibraryCategory(args: {
+  id?: string;
+  name: string;
+  description?: string;
+  parentId?: string | null;
+  sortOrder?: number;
+}): Promise<AdminResult<{ category: LibraryCategory }>> {
+  return adminApi('save_library_category', { ...args });
+}
+
+export function deleteLibraryCategory(id: string): Promise<AdminResult<{ id: string; movedTo: string | null; moved: number }>> {
+  return adminApi('delete_library_category', { id });
+}
+
+export interface BulkLibraryEdit {
+  /** Omitted = keep; null = uncategorised. */
+  categoryId?: string | null;
+  addKeywords?: string[];
+  removeKeywords?: string[];
+  addTags?: Partial<LibraryTags>;
+  removeTags?: Partial<LibraryTags>;
+}
+
+export function bulkUpdateLibraryItems(
+  ids: string[], edit: BulkLibraryEdit,
+): Promise<AdminResult<{ updated: string[]; failed: BatchFailure[] }>> {
+  return adminApi('bulk_update_library_items', { ids, ...edit });
+}
+
+export interface EventModelRow {
+  id: string;
+  name: string;
+  kind: ExperienceKind;
+  assetUrl: string | null;
+  thumbnailUrl: string | null;
+  /** Only `layers[{kind, asset_url}]` — enough for the picture fallback. */
+  config: { layers: Array<{ kind: string; asset_url: string | null }> };
+  prompt: string | null;
+  eventSlug: string;
+  eventName: string;
+  eventArchived: boolean;
+  createdAt: string;
+  inLibrary: boolean;
+}
+
+export function fetchEventModels(): Promise<AdminResult<{ models: EventModelRow[]; total: number }>> {
+  return adminApi('list_event_models');
+}
+
 /** Operator-facing copy for the codes these actions return. */
 export function libraryErrorText(code: string): string {
   switch (code) {
@@ -145,7 +216,7 @@ export function libraryErrorText(code: string): string {
     case 'same_state': return 'It is already in that state.';
     case 'has_links': return 'Events still use it, so it cannot be deleted. Retire or withdraw it instead.';
     case 'unlist_first': return 'Retire or withdraw it before deleting.';
-    case 'unknown_action': return 'The server does not have bulk import yet — the admin-api update still needs deploying.';
+    case 'unknown_action': return 'The server does not have this yet — the admin-api update still needs deploying.';
     case 'is_draft': return 'That item is still a draft. Publish or discard it from Bulk import.';
     case 'invalid_asset': return 'The uploaded file is not where the import expected it. Try importing it again.';
     case 'invalid_config': return 'The model’s placement data was rejected. Try importing it again.';
@@ -156,6 +227,14 @@ export function libraryErrorText(code: string): string {
     case 'ai_key_invalid': return 'The Gemini key was rejected. Label these by hand, or fix the key.';
     case 'ai_quota': return 'The AI is rate-limited right now. Wait a minute and try again.';
     case 'ai_unavailable': return 'The AI did not answer for this one. Try again, or label it by hand.';
+    case 'invalid_category': return 'That category no longer exists. Refresh and pick another.';
+    case 'invalid_keywords': return 'Keywords are letters and numbers, up to 32 characters each and 24 per item.';
+    case 'invalid_thumbnail': return 'The picture was not uploaded where the library expected it. Try again.';
+    case 'category_too_deep': return 'Categories go two levels deep: a subcategory cannot have its own subcategories.';
+    case 'category_has_children': return 'It has subcategories. Move or delete those first.';
+    case 'slug_taken': return 'A category with that name already exists.';
+    case 'slug_immutable': return 'A category’s web name cannot change after it is made.';
+    case 'too_many_categories': return 'That is the most categories the library holds (300).';
     case 'forbidden': return 'This account is not a platform admin.';
     case 'unauthorized': return 'Your session has expired. Sign in again.';
     // A dropped connection says nothing about whether the server finished, so

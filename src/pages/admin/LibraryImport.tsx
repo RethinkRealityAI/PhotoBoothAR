@@ -20,8 +20,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type 
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, Box, Check, Loader2, RefreshCw, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import {
+  bulkUpdateLibraryItems,
   classifyLibraryDrafts,
   createLibraryDrafts,
+  fetchLibraryCategories,
+  fetchEventModels,
+  type EventModelRow,
   discardLibraryDrafts,
   fetchLibraryDrafts,
   fetchLibraryItems,
@@ -53,6 +57,9 @@ import LoadError from '../../components/ui/LoadError';
 import Modal from '../../components/ui/Modal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import { useToast } from '../../components/ui/Toast';
+import CategorySelect from '../../components/admin/library/CategorySelect';
+import { parseKeywordInput, suggestCategory, type LibraryCategory } from '../../lib/libraryTaxonomy';
+import { pictureSourceFor, tidyEventName } from '../../lib/libraryCms';
 
 const BTN =
   'pressable inline-flex items-center justify-center gap-1.5 rounded-full px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] transition-colors disabled:opacity-40';
@@ -195,6 +202,14 @@ export default function LibraryImport() {
   const [dragDepth, setDragDepth] = useState(0);
   /** In-progress name edits, saved on blur (the row keeps its saved name). */
   const [nameEdits, setNameEdits] = useState<Record<string, string>>({});
+  // Library shelves (migration 045). Absent on an older admin-api: the import
+  // still works, the drafts just land with no category.
+  const [categories, setCategories] = useState<LibraryCategory[]>([]);
+  const [taxonomyReady, setTaxonomyReady] = useState(false);
+  const [batchCategory, setBatchCategory] = useState<string | null>(null);
+  const [batchKeywords, setBatchKeywords] = useState('');
+  const [eventModels, setEventModels] = useState<EventModelRow[] | null>(null);
+  const [eventError, setEventError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // The latest drafts, for async work that must not act on a stale render.
   const draftsRef = useRef<LibraryDraftRow[]>([]);
@@ -206,8 +221,14 @@ export default function LibraryImport() {
     setLibraryError(null);
     // The library list is separate on purpose: if it fails, the drafts (the
     // work in progress) must still load, and the reverse.
-    const [drafted, listed] = await Promise.all([fetchLibraryDrafts(), fetchLibraryItems()]);
+    const [drafted, listed, cats, events] = await Promise.all([
+      fetchLibraryDrafts(), fetchLibraryItems(), fetchLibraryCategories(), fetchEventModels(),
+    ]);
     setLoading(false);
+    setEventModels(events.data?.models ?? null);
+    setEventError(events.error);
+    setTaxonomyReady(cats.error === null && cats.data !== null);
+    setCategories(cats.data?.categories ?? []);
     if (listed.error !== null || listed.data === null) setLibraryError(listed.error ?? 'internal');
     else setLibraryItems(listed.data.items.filter((i) => isLibrary3dKind(i.kind)));
     if (drafted.error !== null || drafted.data === null) { setError(drafted.error ?? 'internal'); return; }
@@ -275,12 +296,53 @@ export default function LibraryImport() {
     }
   }, [push]);
 
+  /**
+   * File freshly imported drafts on a library shelf: the category chosen for
+   * the batch, else one read from each draft's (AI-improved) name. Drafts that
+   * already have a category are left alone. Keywords for the batch are added
+   * to all of them. Never blocks the import: a failure is a toast.
+   */
+  const fileDrafts = async (ids: string[], chosen: string | null, keywords: string[]) => {
+    if (!taxonomyReady || ids.length === 0) return;
+    const groups = new Map<string | null, string[]>();
+    for (const id of ids) {
+      const d = draftsRef.current.find((x) => x.id === id);
+      if (!d) continue;
+      const categoryId = d.categoryId ?? chosen ?? suggestCategory({ name: d.name, keywords: d.keywords }, categories)?.categoryId ?? null;
+      groups.set(categoryId, [...(groups.get(categoryId) ?? []), id]);
+    }
+    let failed = 0;
+    for (const [categoryId, group] of groups) {
+      if (categoryId === null && keywords.length === 0) continue;
+      const { data, error: err } = await bulkUpdateLibraryItems(group, {
+        ...(categoryId !== null ? { categoryId } : {}),
+        ...(keywords.length > 0 ? { addKeywords: keywords } : {}),
+      });
+      if (err !== null || data === null) { failed += group.length; continue; }
+      failed += data.failed.length;
+      setDrafts((rows) => rows.map((r) => (data.updated.includes(r.id)
+        ? { ...r, categoryId: categoryId ?? r.categoryId ?? null, keywords: [...new Set([...(r.keywords ?? []), ...keywords])] }
+        : r)));
+    }
+    if (failed > 0) push(`${failed} draft${failed === 1 ? '' : 's'} could not be filed in a category. Set it on the card.`, 'error');
+  };
+
+  const setDraftCategory = async (d: LibraryDraftRow, categoryId: string | null) => {
+    const before = d.categoryId ?? null;
+    patchDraft(d.id, { categoryId });
+    const { error: err } = await bulkUpdateLibraryItems([d.id], { categoryId });
+    if (err !== null) { patchDraft(d.id, { categoryId: before }); push(`${d.name}: ${libraryErrorText(err)}`, 'error'); }
+  };
+
   /* ── Import pipeline: one file at a time (one WebGL context at a time) ── */
   const importFiles = async (files: File[]) => {
     if (files.length === 0 || importing) return;
     const items: QueueItem[] = files.map((f, i) => ({ key: `${Date.now()}-${i}-${f.name}`, fileName: f.name, status: 'checking' }));
     setQueue((q) => [...items, ...q.filter((x) => x.status === 'failed')]);
     setImporting(true);
+    // The shelf and keywords as they were when this batch was dropped.
+    const chosenCategory = batchCategory;
+    const chosenKeywords = parseKeywordInput(batchKeywords);
     const setStatus = (key: string, status: QueueStatus, reason?: string) =>
       setQueue((q) => q.map((x) => (x.key === key ? { ...x, status, reason } : x)));
     const created: string[] = [];
@@ -331,6 +393,8 @@ export default function LibraryImport() {
     if (created.length > 0) {
       push(`Imported ${created.length} model${created.length === 1 ? '' : 's'} as drafts. Labelling them now…`, 'success');
       await classify(created);
+      // After the AI pass, so a shelf is read from its new name, not "model_final2".
+      await fileDrafts(created, chosenCategory, chosenKeywords);
     }
   };
 
@@ -353,8 +417,12 @@ export default function LibraryImport() {
   const allVisibleSelected = visible.length > 0 && visible.every((d) => selected.has(d.id));
   /** Names already taken on the platform, for the "already exists" hint on a draft. */
   const platformNames = useMemo(
-    () => [...BUILT_IN.map((m) => m.name), ...(libraryItems ?? []).map((i) => i.name)],
-    [libraryItems],
+    () => [
+      ...BUILT_IN.map((m) => m.name),
+      ...(libraryItems ?? []).map((i) => i.name),
+      ...(eventModels ?? []).map((e) => tidyEventName(e.name)),
+    ],
+    [libraryItems, eventModels],
   );
   const duplicateOf = (d: LibraryDraftRow): string | null =>
     existingModelNamed(d.name, [...platformNames, ...drafts.filter((x) => x.id !== d.id).map((x) => x.name)]);
@@ -444,6 +512,31 @@ export default function LibraryImport() {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </header>
+
+      {taxonomyReady && (
+        <div className="mb-3 grid gap-2 sm:grid-cols-2">
+          <label className="block">
+            <span className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">File new uploads under</span>
+            <CategorySelect
+              value={batchCategory}
+              onChange={setBatchCategory}
+              categories={categories}
+              noneLabel="Decide from each name"
+              label="File new uploads under"
+              className="mt-1"
+            />
+          </label>
+          <label className="block">
+            <span className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">Keywords for this batch (optional)</span>
+            <input
+              value={batchKeywords}
+              onChange={(e) => setBatchKeywords(e.target.value)}
+              placeholder="e.g. gold, wedding, 2026 drop"
+              className={`${FIELD} mt-1`}
+            />
+          </label>
+        </div>
+      )}
 
       {/* Drop zone */}
       <button
@@ -656,6 +749,22 @@ export default function LibraryImport() {
                     <span className="block mt-1 text-[11px] text-brand-muted/50">{cat.hint}</span>
                   </label>
 
+                  {taxonomyReady && (
+                    <label className="block">
+                      <span className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">Library category</span>
+                      <CategorySelect
+                        value={d.categoryId ?? null}
+                        onChange={(id) => void setDraftCategory(d, id)}
+                        categories={categories}
+                        label={`Library category for ${d.name}`}
+                        className="mt-1"
+                      />
+                      {(d.keywords ?? []).length > 0 && (
+                        <span className="block mt-1 text-[11px] text-brand-muted/50">Keywords: {(d.keywords ?? []).join(', ').replace(/-/g, ' ')}</span>
+                      )}
+                    </label>
+                  )}
+
                   <div className="flex items-start justify-between gap-2">
                     <TagChips tags={d.tags} />
                     <button
@@ -704,8 +813,8 @@ export default function LibraryImport() {
       <section className="mt-10" aria-labelledby="existing-heading">
         <h2 id="existing-heading" className="font-serif text-xl text-brand-fg">Already on the platform</h2>
         <p className="text-xs text-brand-muted/60 mb-4">
-          {BUILT_IN.length + (libraryItems?.length ?? 0)} 3D models hosts can use today. Models a host makes for their own
-          event stay private to them and are not listed here.
+          {BUILT_IN.length + (libraryItems?.length ?? 0)} 3D models hosts can use today, plus{' '}
+          {eventModels?.length ?? 0} made inside events. A new upload whose name matches any of them is flagged above.
         </p>
 
         <h3 className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-2">
@@ -752,6 +861,39 @@ export default function LibraryImport() {
             />
           ))}
         </ul>
+
+        <h3 className="mt-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-2">
+          Made in events{eventModels ? ` · ${eventModels.length}` : ''}
+        </h3>
+        <p className="text-[11px] text-brand-muted/50 mb-2">
+          Props and scenes made inside events (all yours so far). Copy any of them into the library from the Library page,
+          under From events.
+        </p>
+        {eventError !== null ? (
+          eventError === 'unknown_action'
+            ? <p className="text-sm text-brand-muted/60 py-3">These appear once the library server update is live.</p>
+            : <LoadError what="the event models" code={eventError} onRetry={() => void load()} />
+        ) : eventModels === null ? (
+          <p className="text-sm text-brand-muted/60 py-3">Loading…</p>
+        ) : (
+          <ul className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-6">
+            {eventModels.map((e) => {
+              const pic = pictureSourceFor(e);
+              return (
+                <ExistingTile
+                  key={e.id}
+                  name={e.name}
+                  thumb={e.thumbnailUrl || (pic.kind === 'image' ? pic.url : null)}
+                  swatch={null}
+                  lines={[`${e.kind === 'composite' ? 'Scene' : 'Prop'} · ${e.eventName}`, ...(e.inLibrary ? ['In the library'] : [])]}
+                  {...(pic.kind === 'glb'
+                    ? { onPreview: () => setPreview({ title: e.name, url: pic.url, note: `Made in ${e.eventName}.` }) }
+                    : { href: '/admin/library' })}
+                />
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       {preview && (

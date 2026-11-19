@@ -83,11 +83,12 @@
  *   publish_library_drafts   → { data: { published: [id], failed: [{ id, error }] } } (args: { ids ≤25 }) — audited
  *   discard_library_drafts   → { data: { discarded: [id], filesFailed: [id] } } (args: { ids ≤25 }) — audited
  *
- * DEPLOYS AS FOUR FILES: index.ts, library.ts, libraryImport.ts, deno.json.
+ * DEPLOYS AS FIVE FILES: index.ts, library.ts, libraryImport.ts, taxonomy.ts, deno.json.
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
 import {
+  assetKey,
   buildLibraryRow,
   collectAssetKeys,
   libraryStateOf,
@@ -118,6 +119,13 @@ import {
   patchDraftConfig,
   publishedDraftConfig,
 } from './libraryImport.ts';
+import {
+  CATEGORY_DESC_MAX,
+  editKeywords,
+  normalizeCategoryName,
+  normalizeKeywords,
+  slugifyCategory,
+} from './taxonomy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1340,7 +1348,7 @@ const LIBRARY_MAX_FILES = 40;
 const LINK_PAGE = 1000;
 /** Stop counting links past this many rows and say so, rather than scan forever. */
 const LINK_SCAN_MAX = 100_000;
-const LIBRARY_COLUMNS = 'id, name, kind, asset_url, thumbnail_url, config, is_published, sort_order, source, created_at';
+const LIBRARY_COLUMNS = 'id, name, kind, asset_url, thumbnail_url, config, is_published, sort_order, source, created_at, library_category_id, library_keywords';
 
 async function libraryLinkCounts(
   sb: Client, ids: string[],
@@ -1376,6 +1384,20 @@ async function libraryLinkCount(sb: Client, id: string): Promise<number> {
   return count ?? 0;
 }
 
+/** The .glb a viewer can open for a library item: a lone prop's own model, or
+ *  a scene's first 3D layer. null for flat frames / filters. */
+function previewModelUrl(kind: string, assetUrl: string | null, config: unknown): string | null {
+  if (kind === '3d_attachment') return typeof assetUrl === 'string' && assetUrl !== '' ? assetUrl : null;
+  const layers = (config as Record<string, unknown> | null)?.layers;
+  if (!Array.isArray(layers)) return null;
+  for (const l of layers) {
+    const o = (l && typeof l === 'object' ? l : {}) as Record<string, unknown>;
+    const u = typeof o.asset_url === 'string' ? o.asset_url : null;
+    if (u && (/\.(glb|gltf)(\?|#|$)/i.test(u) || o.kind === '3d_attachment')) return u;
+  }
+  return null;
+}
+
 async function listLibraryItems(sb: Client): Promise<Response> {
   const { data, error, count } = await sb
     .from('experiences')
@@ -1406,6 +1428,13 @@ async function listLibraryItems(sb: Client): Promise<Response> {
       publishedAt: meta?.publishedAt || r.created_at,
       sortOrder: r.sort_order,
       linkCount: counts.get(r.id as string) ?? 0,
+      categoryId: (r.library_category_id as string | null) ?? null,
+      keywords: Array.isArray(r.library_keywords) ? r.library_keywords : [],
+      collection: typeof (r.config as Record<string, unknown> | null)?.library === 'object'
+        ? (((r.config as Record<string, unknown>).library as Record<string, unknown>).collection ?? null)
+        : null,
+      createdAt: r.created_at,
+      modelUrl: previewModelUrl(r.kind as string, r.asset_url as string | null, r.config),
     };
   });
   return json(200, { data: { items, total: count ?? items.length, linkCountsCapped: capped } });
@@ -1422,6 +1451,25 @@ async function publishLibraryItem(
   if (invalid.length > 0) return json(400, { error: 'invalid_tags', invalid });
   if (args.listed !== undefined && typeof args.listed !== 'boolean') return json(400, { error: 'invalid_args' });
   const listed = args.listed !== false;
+  const cat = await readCategoryArg(sb, args.categoryId);
+  if (!cat.ok) return json(400, { error: cat.error });
+  let keywords: string[] | undefined;
+  if (args.keywords !== undefined) {
+    const k = normalizeKeywords(args.keywords);
+    if (k.invalid.length > 0 || k.tooMany) return json(400, { error: 'invalid_keywords', invalid: k.invalid });
+    keywords = k.keywords;
+  }
+  // A picture the admin's browser rendered for a piece that has none. Only a
+  // file under the platform's own staging prefix is accepted; it is copied into
+  // the new item's folder like every other file.
+  let pictureUrl: string | null = null;
+  if (args.thumbnailUrl !== undefined) {
+    const o = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/+$/, '');
+    const key = typeof args.thumbnailUrl === 'string'
+      ? assetKey(args.thumbnailUrl, o) : null;
+    if (key === null || !key.startsWith(PICTURE_STAGING_PREFIX)) return json(400, { error: 'invalid_thumbnail' });
+    pictureUrl = args.thumbnailUrl as string;
+  }
 
   // The source must be a host's own scene — never another library row.
   const { data: src, error: srcErr } = await sb
@@ -1432,7 +1480,7 @@ async function publishLibraryItem(
   if (srcErr) throw srcErr;
   if (!src) return json(404, { error: 'not_found' });
   if (src.is_global === true || src.event_id === null) return json(400, { error: 'not_event_owned' });
-  const thumb = src.thumbnail_url as string | null;
+  const thumb = pictureUrl ?? (src.thumbnail_url as string | null);
   if (needsThumbnail({ kind: src.kind as string, config: src.config }) && !(typeof thumb === 'string' && thumb !== '')) {
     return json(400, { error: 'thumbnail_required' });
   }
@@ -1443,12 +1491,18 @@ async function publishLibraryItem(
   // Earlier versions published from this same scene → this one is version N+1.
   const { data: prior, error: priorErr } = await sb
     .from('experiences')
-    .select('id, config, is_published')
+    .select('id, config, is_published, created_at, library_category_id, library_keywords')
     .eq('is_global', true)
     .eq('config->library->>sourceExperienceId', experienceId)
+    .order('created_at', { ascending: false })
     .limit(REGISTRY_CAP);
   if (priorErr) throw priorErr;
   const version = nextLibraryVersion((prior ?? []).map((p) => p.config));
+  // A new version stays on the shelf the previous one was filed on unless the
+  // caller says otherwise.
+  const latest = (prior ?? [])[0];
+  const categoryId = cat.given ? cat.id : ((latest?.library_category_id as string | null) ?? null);
+  const itemKeywords = keywords ?? (Array.isArray(latest?.library_keywords) ? latest.library_keywords as string[] : []);
 
   const srcRow = {
     kind: src.kind as string,
@@ -1496,7 +1550,11 @@ async function publishLibraryItem(
       origin,
       mapping: new Map(plan.map((p) => [p.from, p.to] as [string, string])),
     });
-    const { error: insErr } = await sb.from('experiences').insert(row);
+    const { error: insErr } = await sb.from('experiences').insert({
+      ...row,
+      library_category_id: categoryId,
+      library_keywords: itemKeywords,
+    });
     if (insErr) throw insErr;
   } catch (err) {
     await cleanup();
@@ -1527,6 +1585,7 @@ async function publishLibraryItem(
 
   await auditLog(sb, actorUserId, 'publish_library_item', 'experience', newId, {
     sourceExperienceId: experienceId, version, files: copied.length, listed, retired, retireFailed,
+    categoryId, keywords: itemKeywords, picture: pictureUrl !== null,
   });
   return json(200, { data: { id: newId, version, files: copied.length, retired, retireFailed } });
 }
@@ -1629,9 +1688,273 @@ async function setLibraryItemState(
   return json(200, { data: { id, state, linkCount } });
 }
 
+/* ── Library taxonomy: categories + keywords (migration 045) ─────────────
+ * Rules mirrored in ./taxonomy.ts. Categories are a two-level tree the DB
+ * trigger enforces (category_too_deep / category_has_children /
+ * slug_immutable); this layer validates shape and says what failed. */
+
+/** Where the admin's browser stages a rendered picture for publish_library_item. */
+const PICTURE_STAGING_PREFIX = '_platform/library/_pictures/';
+const CATEGORY_COLUMNS = 'id, slug, name, description, parent_id, sort_order';
+const BULK_MAX = 200;
+
+/** categoryId arg: absent = not given; null = clear; uuid = must exist. */
+async function readCategoryArg(
+  sb: Client, raw: unknown,
+): Promise<{ ok: true; given: boolean; id: string | null; error?: undefined } | { ok: false; error: string; given?: undefined; id?: undefined }> {
+  if (raw === undefined) return { ok: true, given: false, id: null };
+  if (raw === null) return { ok: true, given: true, id: null };
+  if (typeof raw !== 'string' || !UUID_RE.test(raw)) return { ok: false, error: 'invalid_category' };
+  const { data, error } = await sb.from('library_categories').select('id').eq('id', raw).maybeSingle();
+  if (error) throw error;
+  if (!data) return { ok: false, error: 'invalid_category' };
+  return { ok: true, given: true, id: raw };
+}
+
+function categoryView(r: Record<string, unknown>) {
+  return {
+    id: r.id,
+    slug: r.slug,
+    name: r.name,
+    description: r.description ?? '',
+    parentId: r.parent_id ?? null,
+    sortOrder: r.sort_order ?? 0,
+  };
+}
+
+async function listLibraryCategories(sb: Client): Promise<Response> {
+  const { data, error } = await sb
+    .from('library_categories')
+    .select(CATEGORY_COLUMNS)
+    .order('sort_order')
+    .order('name')
+    .limit(REGISTRY_CAP);
+  if (error) throw error;
+  return json(200, { data: { categories: (data ?? []).map((r) => categoryView(r as Record<string, unknown>)) } });
+}
+
+/** Postgres RAISE codes from library_categories_guard / constraints → our codes. */
+function categoryDbError(err: { code?: string; message?: string }): string | null {
+  const m = err.message ?? '';
+  for (const code of ['category_too_deep', 'category_has_children', 'slug_immutable', 'too_many_categories']) {
+    if (m.includes(code)) return code;
+  }
+  if (err.code === '23505') return 'slug_taken';
+  if (err.code === '23514') return 'invalid_args';
+  return null;
+}
+
+async function saveLibraryCategory(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const id = args.id === undefined ? null : args.id;
+  if (id !== null && (typeof id !== 'string' || !UUID_RE.test(id))) return json(400, { error: 'invalid_args' });
+  const name = normalizeCategoryName(args.name);
+  if (name === null) return json(400, { error: 'invalid_name' });
+  const description = args.description === undefined ? undefined : args.description;
+  if (description !== undefined && (typeof description !== 'string' || description.length > CATEGORY_DESC_MAX)) {
+    return json(400, { error: 'invalid_args' });
+  }
+  const parentId = args.parentId === undefined ? undefined : args.parentId;
+  if (parentId !== undefined && parentId !== null && (typeof parentId !== 'string' || !UUID_RE.test(parentId))) {
+    return json(400, { error: 'invalid_args' });
+  }
+  if (parentId !== undefined && parentId !== null && parentId === id) return json(400, { error: 'category_too_deep' });
+  const sortOrder = args.sortOrder;
+  if (sortOrder !== undefined && (typeof sortOrder !== 'number' || !Number.isInteger(sortOrder) || Math.abs(sortOrder) > 100_000)) {
+    return json(400, { error: 'invalid_args' });
+  }
+
+  const row: Record<string, unknown> = { name };
+  if (description !== undefined) row.description = (description as string).trim();
+  if (parentId !== undefined) row.parent_id = parentId;
+  if (sortOrder !== undefined) row.sort_order = sortOrder;
+
+  let result;
+  if (id === null) {
+    // The slug is the API handle: derived once from the name, never renamed.
+    const slug = typeof args.slug === 'string' && args.slug !== '' ? slugifyCategory(args.slug) : slugifyCategory(name);
+    if (slug === '') return json(400, { error: 'invalid_name' });
+    result = await sb.from('library_categories').insert({ ...row, slug }).select(CATEGORY_COLUMNS).maybeSingle();
+  } else {
+    result = await sb.from('library_categories').update(row).eq('id', id).select(CATEGORY_COLUMNS).maybeSingle();
+  }
+  if (result.error) {
+    const code = categoryDbError(result.error);
+    if (code) return json(code === 'slug_taken' ? 409 : 400, { error: code });
+    throw result.error;
+  }
+  if (!result.data) return json(404, { error: 'not_found' });
+  const view = categoryView(result.data as Record<string, unknown>);
+  await auditLog(sb, actorUserId, id === null ? 'create_library_category' : 'update_library_category', 'library_category', view.id as string, row);
+  return json(200, { data: { category: view } });
+}
+
+/**
+ * Delete a category. Refused while it has subcategories (move or delete those
+ * first — the operator decides where they go). Its items move UP to the
+ * parent shelf when there is one, else become uncategorised; nothing is lost.
+ */
+async function deleteLibraryCategory(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const id = typeof args.id === 'string' ? args.id : '';
+  if (!UUID_RE.test(id)) return json(400, { error: 'invalid_args' });
+  const { data: cat, error: readErr } = await sb.from('library_categories').select(CATEGORY_COLUMNS).eq('id', id).maybeSingle();
+  if (readErr) throw readErr;
+  if (!cat) return json(404, { error: 'not_found' });
+  const { count: kids, error: kidErr } = await sb
+    .from('library_categories').select('id', { count: 'exact', head: true }).eq('parent_id', id);
+  if (kidErr) throw kidErr;
+  if ((kids ?? 0) > 0) return json(409, { error: 'category_has_children' });
+
+  const moveTo = (cat.parent_id as string | null) ?? null;
+  const { data: moved, error: mvErr } = await sb
+    .from('experiences')
+    .update({ library_category_id: moveTo })
+    .eq('library_category_id', id)
+    .select('id');
+  if (mvErr) throw mvErr;
+  const { error: delErr } = await sb.from('library_categories').delete().eq('id', id);
+  if (delErr) throw delErr;
+  await auditLog(sb, actorUserId, 'delete_library_category', 'library_category', id, {
+    slug: cat.slug, name: cat.name, movedTo: moveTo, moved: (moved ?? []).length,
+  });
+  return json(200, { data: { id, movedTo: moveTo, moved: (moved ?? []).length } });
+}
+
+/**
+ * Re-file and re-tag many library items (or import drafts) at once.
+ * Every change is optional; omitted = keep. Global rows only — an event's own
+ * scenes are never touched here.
+ *   categoryId     uuid | null (null = uncategorised)
+ *   addKeywords / removeKeywords   string[]
+ *   addTags / removeTags           { occasions?, colors?, styles? } (fixed vocabulary)
+ */
+async function bulkUpdateLibraryItems(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const ids = idList(args.ids, BULK_MAX);
+  if (!ids) return json(400, { error: 'invalid_args' });
+  const cat = await readCategoryArg(sb, args.categoryId);
+  if (!cat.ok) return json(400, { error: cat.error });
+  const add = normalizeKeywords(args.addKeywords ?? []);
+  const remove = normalizeKeywords(args.removeKeywords ?? []);
+  if (add.invalid.length > 0 || remove.invalid.length > 0 || add.tooMany) {
+    return json(400, { error: 'invalid_keywords', invalid: [...add.invalid, ...remove.invalid] });
+  }
+  const addTags = args.addTags === undefined ? null : normalizeLibraryTags(args.addTags);
+  const removeTags = args.removeTags === undefined ? null : normalizeLibraryTags(args.removeTags);
+  if ((addTags?.invalid.length ?? 0) > 0 || (removeTags?.invalid.length ?? 0) > 0) {
+    return json(400, { error: 'invalid_tags', invalid: [...(addTags?.invalid ?? []), ...(removeTags?.invalid ?? [])] });
+  }
+  const touchesKeywords = add.keywords.length > 0 || remove.keywords.length > 0;
+  const touchesTags = addTags !== null || removeTags !== null;
+  if (!cat.given && !touchesKeywords && !touchesTags) return json(400, { error: 'invalid_args' });
+
+  const { data: rows, error: readErr } = await sb
+    .from('experiences')
+    .select('id, config, library_keywords')
+    .in('id', ids)
+    .eq('is_global', true);
+  if (readErr) throw readErr;
+  const found = new Set((rows ?? []).map((r) => r.id as string));
+  const updated: string[] = [];
+  const failed: { id: string; error: string }[] = ids.filter((i) => !found.has(i)).map((i) => ({ id: i, error: 'not_found' }));
+
+  for (const r of rows ?? []) {
+    const patch: Record<string, unknown> = {};
+    if (cat.given) patch.library_category_id = cat.id;
+    if (touchesKeywords) {
+      const cur = Array.isArray(r.library_keywords) ? (r.library_keywords as string[]) : [];
+      patch.library_keywords = editKeywords(cur, add.keywords, remove.keywords);
+    }
+    if (touchesTags) {
+      const cur = readLibraryMeta(r.config)?.tags ?? normalizeLibraryTags(
+        ((r.config as Record<string, unknown> | null)?.library as Record<string, unknown> | undefined)?.tags,
+      ).tags;
+      const next = { occasions: [...cur.occasions], colors: [...cur.colors], styles: [...cur.styles] };
+      for (const g of ['occasions', 'colors', 'styles'] as const) {
+        const plus = addTags?.tags[g] ?? [];
+        const minus = removeTags?.tags[g] ?? [];
+        next[g] = [...new Set([...next[g].filter((t) => !minus.includes(t)), ...plus.filter((t) => !minus.includes(t))])];
+      }
+      patch.config = patchLibraryMeta(r.config, { tags: normalizeLibraryTags(next).tags });
+    }
+    const { error } = await sb.from('experiences').update(patch).eq('id', r.id).eq('is_global', true);
+    if (error) { console.error('[admin-api] bulk library update failed', r.id, error); failed.push({ id: r.id as string, error: 'update_failed' }); continue; }
+    updated.push(r.id as string);
+  }
+  if (updated.length > 0) {
+    await auditLog(sb, actorUserId, 'bulk_update_library_items', 'experience_batch', 'library', {
+      updated, failed: failed.length,
+      categoryId: cat.given ? cat.id : undefined,
+      addKeywords: add.keywords, removeKeywords: remove.keywords,
+      addTags: addTags?.tags, removeTags: removeTags?.tags,
+    });
+  }
+  return json(200, { data: { updated, failed } });
+}
+
+/**
+ * 3D props and scenes made INSIDE events, for "From events" in the library.
+ * Read-only: copying one in goes through publish_library_item (which copies
+ * its files, so the event keeps its original untouched). `inLibrary` = some
+ * library row already names it as its source.
+ */
+async function listEventModels(sb: Client): Promise<Response> {
+  const { data, error } = await sb
+    .from('experiences')
+    .select('id, name, kind, asset_url, thumbnail_url, config, event_id, created_at, is_published')
+    .eq('is_global', false)
+    .in('kind', ['3d_attachment', 'composite'])
+    .not('event_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(REGISTRY_CAP);
+  if (error) throw error;
+  const rows = data ?? [];
+  const slugs = [...new Set(rows.map((r) => r.event_id as string))];
+  const events = new Map<string, { name: string; archived: boolean }>();
+  if (slugs.length > 0) {
+    const { data: evs, error: evErr } = await sb.from('events').select('slug, name, archived_at').in('slug', slugs);
+    if (evErr) throw evErr;
+    for (const e of evs ?? []) events.set(e.slug as string, { name: e.name as string, archived: e.archived_at !== null });
+  }
+  const { data: libRows, error: libErr } = await sb
+    .from('experiences')
+    .select('config')
+    .eq('is_global', true)
+    .not('config->library->>sourceExperienceId', 'is', null)
+    .limit(REGISTRY_CAP * 4);
+  if (libErr) throw libErr;
+  const copied = new Set((libRows ?? []).map((r) => readLibraryMeta(r.config)?.sourceExperienceId).filter(Boolean));
+
+  const models = rows.map((r) => {
+    const cfg = (r.config && typeof r.config === 'object' ? r.config : {}) as Record<string, unknown>;
+    // Only what the picture fallback and the auto-sort need — never the whole
+    // scene config (a composite's can run to tens of KB).
+    const layers = Array.isArray(cfg.layers)
+      ? (cfg.layers as unknown[]).slice(0, 40).map((l) => {
+        const o = (l && typeof l === 'object' ? l : {}) as Record<string, unknown>;
+        return { kind: typeof o.kind === 'string' ? o.kind : '', asset_url: typeof o.asset_url === 'string' ? o.asset_url : null };
+      })
+      : [];
+    const ev = events.get(r.event_id as string);
+    return {
+      id: r.id,
+      name: r.name,
+      kind: r.kind,
+      assetUrl: r.asset_url,
+      thumbnailUrl: r.thumbnail_url,
+      config: { layers },
+      prompt: typeof cfg.prompt === 'string' ? cfg.prompt.slice(0, 400) : null,
+      eventSlug: r.event_id,
+      eventName: ev?.name ?? r.event_id,
+      eventArchived: ev?.archived ?? false,
+      createdAt: r.created_at,
+      inLibrary: copied.has(r.id as string),
+    };
+  });
+  return json(200, { data: { models, total: models.length } });
+}
+
 /* ── Bulk 3D import: drafts (pure rules in ./libraryImport.ts) ───────────── */
 
-const DRAFT_COLUMNS = 'id, name, asset_url, thumbnail_url, config, created_at';
+const DRAFT_COLUMNS = 'id, name, asset_url, thumbnail_url, config, created_at, library_category_id, library_keywords';
 
 function idList(raw: unknown, max: number): string[] | null {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > max) return null;
@@ -1650,6 +1973,8 @@ function draftView(r: Record<string, unknown>) {
     tags: normalizeLibraryTags(lib?.tags).tags,
     importMeta: normalizeImportMeta(lib?.import),
     createdAt: r.created_at,
+    categoryId: (r.library_category_id as string | null) ?? null,
+    keywords: Array.isArray(r.library_keywords) ? r.library_keywords : [],
   };
 }
 
@@ -2030,6 +2355,16 @@ Deno.serve(async (req: Request) => {
         return await updateLibraryItemMeta(sb, user.id, args);
       case 'set_library_item_state':
         return await setLibraryItemState(sb, user.id, args);
+      case 'list_library_categories':
+        return await listLibraryCategories(sb);
+      case 'save_library_category':
+        return await saveLibraryCategory(sb, user.id, args);
+      case 'delete_library_category':
+        return await deleteLibraryCategory(sb, user.id, args);
+      case 'bulk_update_library_items':
+        return await bulkUpdateLibraryItems(sb, user.id, args);
+      case 'list_event_models':
+        return await listEventModels(sb);
       case 'list_library_drafts':
         return await listLibraryDrafts(sb);
       case 'create_library_drafts':
