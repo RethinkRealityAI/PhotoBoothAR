@@ -69,6 +69,7 @@ import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker from './ArPicker';
 import { AR_FRAME_GEO, HOME_ASSET_DEFAULTS, arOrder, demoQrUrl, lookAction, lookThumb as assetThumb, nextAr, toBeamyLook } from '../../lib/beamyAssets';
+import { motionAttrs } from '../../lib/beamyMotion';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
 import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
@@ -1606,6 +1607,7 @@ export default function BeamyPage() {
   return (
     <div
       data-brand="2"
+      {...motionAttrs(reduced)}
       data-arrival={arrival}
       data-stop-active={active}
       ref={scrollerRef}

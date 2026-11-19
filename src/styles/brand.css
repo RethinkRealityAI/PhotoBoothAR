@@ -1814,14 +1814,11 @@
   [data-brand="2"] .bw-scene > *,
   [data-brand="2"] .bw-scene[data-on="true"] > * { transform: none; filter: none; }
   [data-brand="2"] .bw-float { animation: none; transform: rotateY(var(--tilt, 0deg)); }
-  [data-brand="2"] .bw-scene-scan { animation: none; top: 48%; }
-  /* The scan loop plays as cross-fades only: the phone holds still. */
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-qr-phone { animation: none; }
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-qr-card { animation-name: bw-fade-loop; }
+  /* The story's own sequences (scan, wall, challenge, keepsake film) are
+     CONTENT: never named here. They soften under
+     [data-content-motion="soft"] instead (lib/beamyMotion.ts, enforced by
+     its test). */
   [data-brand="2"] .bw-ar-peek { transform: none; animation: none; }
-  [data-brand="2"] .bw-kb { animation: none; }
-  [data-brand="2"] .bw-kb:first-child { opacity: 1; }
-  [data-brand="2"] .bw-scene-track > span { animation: none; transform: scaleX(0.4); }
   /* The CTA beam keeps travelling, only much slower; no hover sweep. */
   [data-brand="2"] .bw-btn-glow::before,
   [data-brand="2"] .bw-btn-glow:hover:not(:disabled)::before { animation-duration: 16s; }
@@ -1835,15 +1832,9 @@
   [data-brand="2"] .bw-hphone-shadow { animation: none; }
   [data-brand="2"] .bw-beam-pulse { animation: none; opacity: 0; }
   [data-brand="2"] .bw-wall-glint::after { animation: none; opacity: 0; }
-  /* Challenges and keepsake: straight to the last frame. */
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-ch-bell,
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-ch-flash,
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-ch-sent,
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-ch-pts > span { animation: none; }
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-ch-row[data-move="down"] { animation: none; transform: translateY(var(--pitch)); }
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-ch-row[data-move="up"] { animation: none; transform: translateY(calc(var(--pitch) * -3)); background-color: rgba(255, 197, 107, 0.34); }
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-ch-pts > span:first-child { opacity: 0; }
-  [data-brand="2"] .bw-scene[data-on="true"] .bw-ch-pts > span:last-child { opacity: 1; }
-  [data-brand="2"] .bw-ks-fly,
-  [data-brand="2"] .bw-ks-making { display: none; }
 }
+
+/* Content motion, softened (reduced motion): the same story in the same
+   order, just gentler. Never "straight to the last frame". */
+[data-brand="2"][data-content-motion="soft"] .bw-scene[data-on="true"] .bw-ch-bell,
+[data-brand="2"][data-content-motion="soft"] .bw-scene[data-on="true"] .bw-ks-spark { animation-iteration-count: 1; }
