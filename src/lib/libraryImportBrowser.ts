@@ -15,6 +15,7 @@ import { describeGlbError } from './glbErrors';
 import { IMPORT_MAX_BYTES, checkGlbFile, draftModelKey, draftOptimizedModelKey, draftThumbKey, formatBytes } from './libraryImport';
 import { OPTIMIZE_INPUT_MAX_BYTES, worthKeeping, type OptimizeOptions, type OptimizeStats } from './glbOptimizePlan';
 import type { OptimizeResult } from './glbOptimize';
+import { STALE_APP_MESSAGE, isStaleChunkError } from './staleChunk';
 
 export interface PreparedModel {
   id: string;
@@ -49,12 +50,21 @@ function countTriangles(root: THREE.Object3D): number {
 
 /** The optimizer, loaded on first use only — never part of any other bundle. */
 export async function runOptimizer(bytes: Uint8Array, opts: OptimizeOptions): Promise<OptimizeResult> {
+  let optimizeGlb: typeof import('./glbOptimize').optimizeGlb;
   try {
-    const { optimizeGlb } = await import('./glbOptimize');
-    return await optimizeGlb(bytes, opts);
+    ({ optimizeGlb } = await import('./glbOptimize'));
   } catch (e) {
     console.error('[libraryImport] optimizer failed to load', e);
+    // The usual cause: this tab predates a deploy, and the old chunk is gone.
+    if (isStaleChunkError(e)) return { ok: false, stale: true, reason: STALE_APP_MESSAGE };
     return { ok: false, reason: 'The optimizer could not be loaded. Check the connection and try again.' };
+  }
+  try {
+    return await optimizeGlb(bytes, opts);
+  } catch (e) {
+    // optimizeGlb reports its own failures; this is only a last resort.
+    console.error('[libraryImport] optimizer crashed', e);
+    return { ok: false, reason: 'The optimizer stopped unexpectedly on this model. The original is unchanged.' };
   }
 }
 

@@ -32,8 +32,16 @@ import {
 } from './glbOptimizePlan';
 
 export type OptimizeResult =
-  | { ok: true; bytes: Uint8Array; stats: OptimizeStats; notes: string[]; reason?: undefined }
-  | { ok: false; reason: string; bytes?: undefined; stats?: undefined; notes?: undefined };
+  | { ok: true; bytes: Uint8Array; stats: OptimizeStats; notes: string[]; reason?: undefined; stale?: undefined }
+  | {
+      ok: false;
+      reason: string;
+      /** The page is on an old build (a lazy chunk is gone): reloading fixes it. */
+      stale?: boolean;
+      bytes?: undefined;
+      stats?: undefined;
+      notes?: undefined;
+    };
 
 const DRACO = 'KHR_draco_mesh_compression';
 /** Where scripts/copy-three-decoders.mjs self-hosts the Draco runtime (= glbCache's DRACO_PATH). */

@@ -30,7 +30,7 @@ const BTN =
 
 type RunState =
   | { status: 'running' }
-  | { status: 'failed'; reason: string }
+  | { status: 'failed'; reason: string; stale: boolean }
   | { status: 'ready'; bytes: Uint8Array; stats: OptimizeStats; notes: string[]; url: string };
 
 function StatList({ rows }: { rows: string[] }) {
@@ -63,7 +63,7 @@ export default function OptimizeCompare({
     setRun({ status: 'running' });
     void optimizeDraftModel(assetUrl, OPTIMIZE_PRESETS[preset]).then((r) => {
       if (!alive) return;
-      if (!r.ok) { setRun({ status: 'failed', reason: r.reason }); return; }
+      if (!r.ok) { setRun({ status: 'failed', reason: r.reason, stale: r.stale === true }); return; }
       made = URL.createObjectURL(new Blob([r.bytes as BlobPart], { type: 'model/gltf-binary' }));
       setRun({ status: 'ready', bytes: r.bytes, stats: r.stats, notes: r.notes, url: made });
     });
@@ -132,7 +132,14 @@ export default function OptimizeCompare({
           {run.status === 'failed' && (
             <div className="rounded-lg border border-rose-400/25 bg-rose-500/[0.04] px-3 py-4 flex items-start gap-2 text-xs text-rose-100/90" style={{ minHeight: 240 }}>
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-300" aria-hidden />
-              <span>{run.reason}</span>
+              <div className="flex flex-col items-start gap-3">
+                <span>{run.reason}</span>
+                {run.stale && (
+                  <button type="button" onClick={() => window.location.reload()} className={`${BTN} bg-white/[0.08] hover:bg-white/[0.14] text-brand-fg`}>
+                    Reload the page
+                  </button>
+                )}
+              </div>
             </div>
           )}
           {ready && (
