@@ -279,6 +279,28 @@ the concierge-ui work; server-first, order matters).** Live before this wave:
       (default `Beamwall <cards@beamwall.app>`; must be a domain you've verified
       in Resend).
 
+### 4a. Scheduled card delivery (added 2026-11-19, migration 047)
+
+Hosts pick a date, time and time zone per card; at that moment the card
+publishes itself and is emailed. Pieces:
+
+- [x] Migration `047_card_scheduled_delivery` — applied live 2026-11-19
+      (columns, `claim_due_card_deliveries`, `card_delivery_token_ok`, the Vault
+      secret `card_delivery_cron_token` generated IN the database, cron job
+      `card-deliveries` every 5 min that only calls out when a card is due).
+      Nothing to copy anywhere: the token never leaves Postgres.
+- [ ] Deploy `card-publish` with **verify_jwt OFF** (the cron call has no JWT;
+      every host action still runs `auth.getUser` itself). Read back + diff,
+      then boot-probe: POST `{"action":"deliver_due"}` with no token → the
+      function's own `401 {"error":"unauthorized"}`.
+- [ ] `RESEND_API_KEY` (§4). Until it is set, due cards stay scheduled with
+      `delivery_error = 'email_not_configured'` (host sees "Waiting to send"),
+      are retried every 30 min, and are NOT published early.
+- Verify: `select jobname, status, return_message from cron.job_run_details d
+  join cron.job j using (jobid) where jobname = 'card-deliveries' order by
+  start_time desc limit 5;` and the function log line
+  `deliver_due {"claimed":…}` (counts only — no names or addresses are logged).
+
 ## 4b. Support desk — new-ticket email (added 2026-07-28)
 
 - [ ] `SUPPORT_NOTIFY_EMAIL` — the inbox that gets a Resend email when a
