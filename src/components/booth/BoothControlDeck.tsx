@@ -16,10 +16,11 @@
  * platform's blue. The per-option identity comes from each experience's REAL
  * thumbnail, which is better than the demo's invented hues.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Ban, Camera as CameraIcon, Clock, Crown, Film, Sparkles, Video } from 'lucide-react';
+import { type ReactNode } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
+import { Ban, Crown, Sparkles } from 'lucide-react';
 import FilterThumb from './FilterThumb';
+import { CaptureModePill, TimerControl } from './BoothCaptureControls';
 import type { Experience } from '../../types';
 import {
   activeOptionId,
@@ -221,25 +222,6 @@ export default function BoothControlDeck<T extends number>({
   stripShots, onOpenStripPicker,
   colorSlot = null, guestHex = null, onGuestHex,
 }: BoothControlDeckProps<T>) {
-  const [timerOpen, setTimerOpen] = useState(false);
-  /** The open popover sits over the shutter's corner — without light dismissal
-   *  it blocked the very control the guest reaches for next. */
-  const timerWrapRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!timerOpen) return;
-    const onDown = (e: PointerEvent) => {
-      if (timerWrapRef.current && e.target instanceof Node && !timerWrapRef.current.contains(e.target)) {
-        setTimerOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setTimerOpen(false); };
-    document.addEventListener('pointerdown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [timerOpen]);
   const active = sections.find((s) => s.key === category) ?? sections[0] ?? null;
   const activeId = active ? activeOptionId(active, selection) : null;
 
@@ -395,110 +377,29 @@ export default function BoothControlDeck<T extends number>({
           in the tab row's right corner, where it clipped against the viewport
           edge and its popover escaped the screen. */}
       <div className="relative flex min-h-[76px] w-full max-w-md items-center justify-center">
-        {/* Capture mode. The icons stay 32px so the cluster fits a 360px
-            phone, but each carries a `-inset-1.5` pseudo-element, so the real
-            TOUCH target is 44px — the accessibility minimum — while the
-            visual stays compact. */}
-        <div className="liquid-glass-inset absolute left-1 flex items-center gap-0.5 rounded-full p-0.5">
-          <button
-            type="button"
-            onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('photo'); onStripMode?.(false); } }}
-            disabled={recording}
-            aria-label="Photo mode"
-            aria-pressed={mediaMode === 'photo' && !stripMode}
-            className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-              mediaMode === 'photo' && !stripMode ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
-            }`}
-          >
-            <CameraIcon className="h-3.5 w-3.5" />
-          </button>
-          {onOpenStripPicker && (
-            <button
-              type="button"
-              onClick={() => { if (!recording) { haptic('tap'); onOpenStripPicker(); } }}
-              disabled={recording}
-              aria-label="Photo strip — choose 2 or 3 shots"
-              aria-pressed={mediaMode === 'photo' && stripMode}
-              className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-                mediaMode === 'photo' && stripMode ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
-              }`}
-            >
-              <Film className="h-3.5 w-3.5" />
-              {mediaMode === 'photo' && stripMode && stripShots != null && (
-                <span
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full font-label text-[8px] font-bold"
-                  style={{
-                    background: 'var(--color-accent)',
-                    color: 'var(--on-accent)',
-                    boxShadow: '0 0 6px rgba(var(--accent-rgb),0.8)',
-                  }}
-                >
-                  {stripShots}
-                </span>
-              )}
-            </button>
-          )}
-          {videoAllowed && (
-            <button
-              type="button"
-              onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('video'); onStripMode?.(false); } }}
-              disabled={recording}
-              aria-label="Video mode"
-              aria-pressed={mediaMode === 'video'}
-              className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-                mediaMode === 'video' ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
-              }`}
-            >
-              <Video className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
+        <CaptureModePill
+          className="liquid-glass-inset absolute left-1 flex items-center gap-0.5 rounded-full p-0.5"
+          mediaMode={mediaMode}
+          onMediaMode={onMediaMode}
+          videoAllowed={videoAllowed}
+          recording={recording}
+          stripMode={stripMode}
+          onStripMode={onStripMode}
+          stripShots={stripShots}
+          onOpenStripPicker={onOpenStripPicker}
+        />
 
         {shutter}
 
         {/* Timer — anchored to the cluster's right edge; the popover opens
             upward and right-aligned, so both stay inside the viewport. */}
         {mediaMode === 'photo' && !recording && (
-          <div ref={timerWrapRef} className="absolute right-1">
-            <button
-              type="button"
-              onClick={() => { haptic('tap'); setTimerOpen((o) => !o); }}
-              aria-label="Self-timer"
-              aria-expanded={timerOpen}
-              className={`pressable liquid-glass-inset flex h-11 min-w-11 items-center justify-center gap-1 rounded-full px-3 font-label text-[9px] uppercase tracking-wide transition-colors ${
-                timerSec === 0 ? 'text-brand-muted/70' : 'text-[color:var(--color-accent)]'
-              }`}
-            >
-              <Clock className="h-3 w-3" />
-              {timerSec === 0 ? '' : `${timerSec}s`}
-            </button>
-            <AnimatePresence>
-              {timerOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 6, scale: 0.96 }}
-                  transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                  className="liquid-glass-raised absolute bottom-full right-0 z-30 mb-2 flex gap-1 rounded-2xl p-1.5"
-                >
-                  {timerOptions.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => { haptic('select'); onTimerSec(t); setTimerOpen(false); }}
-                      className={`pressable h-11 w-11 rounded-xl font-label text-[10px] transition-colors ${
-                        timerSec === t
-                          ? 'is-selected bg-foil text-[color:var(--on-accent)]'
-                          : 'text-brand-muted/70 hover:text-brand-fg'
-                      }`}
-                    >
-                      {t === 0 ? 'Off' : `${t}s`}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          <TimerControl
+            className="absolute right-1"
+            timerSec={timerSec}
+            onTimerSec={onTimerSec}
+            timerOptions={timerOptions}
+          />
         )}
       </div>
     </div>

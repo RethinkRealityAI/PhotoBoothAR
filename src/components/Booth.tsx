@@ -34,6 +34,9 @@ import TriggerEffects, { type TriggerEffectsHandle } from './booth/TriggerEffect
 import PickerDrawer from './booth/PickerDrawer';
 import BoothControlDeck from './booth/BoothControlDeck';
 import BoothTopBar from './booth/BoothTopBar';
+import BoothLookDeck from './booth/BoothLookDeck';
+import LooksSheet from './booth/LooksSheet';
+import { TimerControl } from './booth/BoothCaptureControls';
 import {
   buildDeck, initialCategory, initialCategoryWhenReady, type DeckCategory, type DeckSelection,
 } from '../lib/boothDeck';
@@ -1645,6 +1648,16 @@ export default function Booth() {
   const ringCircumference = 2 * Math.PI * 28; // r=28 for a 60px button
 
   // ── Control deck ──────────────────────────────────────────────────────
+  // Platform (db) events get the look strip + "More looks" sheet + compact
+  // top bar; legacy/code events keep the category-tab deck, PickerDrawer and
+  // the original top bar exactly as shipped.
+  const lookDeckUi = source === 'db';
+  const clearAllLooks = () => {
+    setEffectId('none');
+    setSparkles(false);
+    handleSelectFrame(null);
+    setAttachExp(null);
+  };
   const deckSections = useMemo(() => buildDeck(catalog), [catalog]);
   // Memoized: a fresh object literal per render made this a new prop identity
   // on every single re-render of the booth, defeating any memo downstream.
@@ -1838,9 +1851,24 @@ export default function Booth() {
                   recordingMs={ms}
                   canFlip={canFlip}
                   onFlip={() => { if (!recording) flipCamera(); }}
+                  compact={lookDeckUi ? {
+                    backTo: `${basePath}/welcome`,
+                    // The timer moves up here on platform booths, camera-app
+                    // style, so the shutter row has room for "More looks".
+                    extra: mediaMode === 'photo' ? (
+                      <TimerControl
+                        className="relative"
+                        variant="circle"
+                        placement="down"
+                        timerSec={timerSec}
+                        onTimerSec={(t) => setTimerSec(t)}
+                        timerOptions={TIMER_OPTIONS}
+                      />
+                    ) : undefined,
+                  } : undefined}
                   leading={
                     <>
-                      <Emblem size={30} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />
+                      {!lookDeckUi && <Emblem size={30} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />}
                       {wallSettings.showChallenges && !recording && (
                         <ChallengeSelector selectedChallenge={selectedChallenge} onSelect={setSelectedChallenge} />
                       )}
@@ -2078,7 +2106,37 @@ export default function Booth() {
           {/* Control deck — the demo's shape: centered category tabs, one orb
               row, then the shutter row with the capture-mode pill and timer
               flanking the shutter. */}
-          {phase === 'camera' && ready && !uiHidden && (
+          {phase === 'camera' && ready && !uiHidden && lookDeckUi && (
+            <div className="absolute inset-x-0 bottom-0 z-20">
+              <BoothLookDeck
+                sections={deckSections}
+                selection={deckSelection}
+                sparkles={sparkles}
+                onToggleSparkles={setSparkles}
+                onSelectEffect={applyEffect}
+                onSelectFrame={handleSelectFrame}
+                onSelectAttachment={setAttachExp}
+                onClearAll={clearAllLooks}
+                onOpenAll={() => setMoreOpen(true)}
+                sheetOpen={moreOpen}
+                mediaMode={mediaMode}
+                onMediaMode={setMediaMode}
+                videoAllowed={videoAllowed}
+                recording={recording}
+                shutter={shutterNode}
+                pendingIds={pendingExperienceIds}
+                stripMode={stripMode}
+                onStripMode={setStripMode}
+                stripShots={stripCount}
+                onOpenStripPicker={() => setStripPickerOpen(true)}
+                colorSlot={colorSlot}
+                guestHex={guestHex}
+                onGuestHex={setGuestHex}
+                hintEnabled={!onboardingVisible && !moreOpen}
+              />
+            </div>
+          )}
+          {phase === 'camera' && ready && !uiHidden && !lookDeckUi && (
             <div className="absolute inset-x-0 bottom-0 z-20">
               <BoothControlDeck
                 sections={deckSections}
@@ -2177,13 +2235,28 @@ export default function Booth() {
       )}
 
       {/* ── More filters & settings sheet ─────────────────────────────── */}
-      {moreOpen && phase === 'camera' && (
+      {lookDeckUi && phase === 'camera' && ready && (
+        <LooksSheet
+          open={moreOpen}
+          onClose={() => setMoreOpen(false)}
+          sections={deckSections}
+          selection={deckSelection}
+          sparkles={sparkles}
+          onToggleSparkles={setSparkles}
+          onSelectEffect={applyEffect}
+          onSelectFrame={handleSelectFrame}
+          onSelectAttachment={setAttachExp}
+          onClearAll={clearAllLooks}
+          pendingIds={pendingExperienceIds}
+        />
+      )}
+      {!lookDeckUi && moreOpen && phase === 'camera' && (
         <div
           className="absolute inset-0 z-30 bg-noir-900/55 backdrop-blur-sm"
           onClick={() => setMoreOpen(false)}
         />
       )}
-      {phase === 'camera' && ready && (
+      {!lookDeckUi && phase === 'camera' && ready && (
         <div className="absolute bottom-0 left-0 right-0 z-40 pb-safe-bottom pointer-events-none">
           <div className="pointer-events-auto">
             <PickerDrawer
