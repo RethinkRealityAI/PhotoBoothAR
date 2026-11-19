@@ -5,14 +5,17 @@
  * /host — the member's events: guest link + QR, status toggles, Open studio,
  * and the New event CTA. Empty state sells the wizard.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import Modal from '../../components/ui/Modal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
-import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, CalendarDays, Check, ChevronDown, Copy, CopyPlus, ExternalLink, Loader2, Plus, QrCode, RefreshCw, Settings2, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowRight, ArrowUpRight, CalendarDays, Check, ChevronDown, Copy, CopyPlus, ExternalLink, Images, LayoutGrid, List, Loader2, MoreHorizontal, Play, Plus, QrCode, Radio, RefreshCw, Search, Settings2, Square, Trash2 } from 'lucide-react';
 import { fetchMyEvents, goLive, updateEventStatus, deleteEvent, duplicateEvent, eventOrgHasActivePro, invalidateProSubscriptionCache, type HostEventRow } from '../../lib/host';
-import { accentOf, formatEventDate, groupEvents } from '../../lib/eventList';
+import { accentOf, filterEvents, firstNameOf, formatEventDate, greetingFor, nextAction, sortEvents, spotlightOf, statusBucket, type NextAction, type SortKey, type StatusFilter } from '../../lib/eventList';
+import { EVENT_TEMPLATES } from '../../lib/eventTemplates';
+import PostImage from '../../components/ui/PostImage';
+import beamyCutout from '../../assets/sales/beamy.webp';
 import { RESTORE_STATUS, archivedLabel, canArchiveStatus, canDeleteStatus, confirmNameMatches, isArchivedStatus, partitionByArchived } from '../../lib/eventArchive';
 import { TierPill, UpgradeModal } from './UpgradeCard';
 import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
@@ -28,9 +31,10 @@ function CopyLinkButton({ text }: { text: string }) {
     <button
       onClick={() => copyText(text).then((ok) => { if (!ok) return; setCopied(true); push('Link copied', 'success'); setTimeout(() => setCopied(false), 2000); })}
       title="Copy guest link"
-      className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+      aria-label="Copy guest link"
+      className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-brand-fg/80 hover:text-brand-fg transition-colors"
     >
-      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
     </button>
   );
 }
@@ -153,6 +157,168 @@ function CapMeter({ used, cap, onUpgrade }: { used: PostCount; cap: number; onUp
   );
 }
 
+/** An event's cover: its latest guest photos and how many moments it has.
+ *  Absent from the map = still loading or the read failed — the card then
+ *  shows its designed placeholder, never a broken image or an invented 0. */
+interface EventCover { thumbs: string[]; count: number }
+
+/** One read per event (newest 8 visible posts + an exact count in the same
+ *  request), capped at the first 24 events so a large account cannot fan out
+ *  into hundreds of requests. Videos are skipped as thumbnails (the image
+ *  transformer cannot frame them) but still count as moments. */
+async function fetchCovers(list: HostEventRow[]): Promise<Record<string, EventCover>> {
+  const entries = await Promise.all(
+    list.slice(0, 24).map(async (ev) => {
+      try {
+        const { data, count, error } = await supabase
+          .from('posts')
+          .select('image_url, media_type', { count: 'exact' })
+          .eq('event_id', ev.slug)
+          .eq('hidden', false)
+          .order('created_at', { ascending: false })
+          .limit(8);
+        if (error || count === null) return null;
+        const thumbs = (data ?? [])
+          .filter((r: { image_url: unknown; media_type: unknown }) => r.media_type !== 'video' && typeof r.image_url === 'string')
+          .map((r: { image_url: string }) => r.image_url)
+          .slice(0, 4);
+        return [ev.id, { thumbs, count }] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return Object.fromEntries(entries.filter((e): e is readonly [string, EventCover] => e !== null));
+}
+
+function typeLabel(type: string | null | undefined): string {
+  const t = EVENT_TEMPLATES.find((x) => x.eventType === type);
+  if (t) return t.label;
+  return type ? type.charAt(0).toUpperCase() + type.slice(1) : 'Event';
+}
+
+/** The status in a word and a dot colour — the card's at-a-glance line. */
+function statusLook(ev: HostEventRow): { label: string; dot: string } {
+  if (ev.status === 'archived') return { label: 'Archived', dot: 'bg-white/40' };
+  const b = statusBucket(ev);
+  if (b === 'live') return { label: 'Live', dot: 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]' };
+  if (b === 'drafts') return { label: 'Draft', dot: 'bg-amber-300' };
+  if (b === 'past') return { label: 'Ended', dot: 'bg-white/45' };
+  return { label: 'Upcoming', dot: 'bg-sky-300' };
+}
+
+/** The cover art: a mosaic of the latest photos, or a designed placeholder in
+ *  the event's own colour with its initial, so an empty event still looks
+ *  intentional. Decorative — the card's text carries the meaning. */
+function Cover({ ev, cover, className = '', size = 'md' }: { ev: HostEventRow; cover: EventCover | undefined; className?: string; size?: 'sm' | 'md' | 'lg' }) {
+  const big = size === 'lg';
+  const thumbs = cover?.thumbs ?? [];
+  const accent = accentOf(ev.config) ?? '#B9BCFF';
+  if (thumbs.length === 0) {
+    return (
+      <div
+        aria-hidden
+        className={`relative overflow-hidden ${className}`}
+        style={{ background: `radial-gradient(120% 90% at 18% 10%, ${accent}66, transparent 60%), radial-gradient(90% 80% at 100% 100%, rgba(150,104,160,0.55), transparent 65%), linear-gradient(160deg, rgba(74,112,186,0.55), rgba(36,32,112,0.65))` }}
+      >
+        <span className={`absolute inset-0 flex items-center justify-center font-serif text-white/85 ${big ? 'text-[88px]' : size === 'sm' ? 'text-[22px]' : 'text-[56px]'} leading-none`}>
+          {ev.name.trim().charAt(0).toUpperCase() || 'B'}
+        </span>
+        {size !== 'sm' && (
+          <span className="absolute bottom-2.5 left-3 flex items-center gap-1.5 text-[12px] text-white/80">
+            <Images className="w-3.5 h-3.5" /> Photos appear here once guests post
+          </span>
+        )}
+      </div>
+    );
+  }
+  // Rows are minmax(0,1fr) so 9:16 photos fill the frame instead of growing it.
+  const n = size === 'sm' ? 1 : Math.min(thumbs.length, 3);
+  const layout = n === 1 ? 'grid-cols-1 grid-rows-[minmax(0,1fr)]' : n === 2 ? 'grid-cols-2 grid-rows-[minmax(0,1fr)]' : 'grid-cols-3 grid-rows-[repeat(2,minmax(0,1fr))]';
+  return (
+    <div aria-hidden className={`grid gap-0.5 overflow-hidden bg-black/30 ${layout} ${className}`}>
+      {thumbs.slice(0, n).map((src, i) => (
+        <PostImage
+          key={src}
+          src={src}
+          alt=""
+          displayWidth={big ? 480 : size === 'sm' ? 96 : 240}
+          className={`h-full min-h-0 w-full object-cover ${n >= 3 && i === 0 ? 'col-span-2 row-span-2' : ''}`}
+          draggable={false}
+        />
+      ))}
+    </div>
+  );
+}
+
+interface MenuItem { label: string; icon: ReactNode; onSelect: () => void; tone?: 'danger'; disabled?: boolean }
+
+/** The ⋯ menu: the less frequent actions, out of the card's way. Same
+ *  keyboard model as the host rail's More menu (HostLayout.tsx). */
+function EventMenu({ label, items, className = '' }: { label: string; items: MenuItem[]; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    menu.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (menu.current?.contains(t) || btn.current?.contains(t)) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+  const onKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const els = Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? []);
+    const i = els.indexOf(document.activeElement as HTMLElement);
+    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); btn.current?.focus(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); els[(i + 1) % els.length]?.focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); els[(i - 1 + els.length) % els.length]?.focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); els[0]?.focus(); }
+    else if (e.key === 'End') { e.preventDefault(); els[els.length - 1]?.focus(); }
+    else if (e.key === 'Tab') setOpen(false);
+  };
+  return (
+    <div className={className || 'relative'}>
+      <button
+        ref={btn}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+        onClick={() => setOpen((v) => !v)}
+        className="glass pressable flex h-11 w-11 items-center justify-center rounded-full text-brand-fg"
+      >
+        <MoreHorizontal className="w-5 h-5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-[calc(100%+0.375rem)] z-40 w-60 max-w-[calc(100vw-2rem)]">
+          <div ref={menu} role="menu" aria-label={label} onKeyDown={onKey} className="rim-glint rounded-2xl p-1.5 flex flex-col bg-[rgba(34,32,104,0.97)] backdrop-blur-xl shadow-[0_24px_50px_-20px_rgba(8,6,30,0.85)]">
+            {items.map((it) => (
+              <button
+                key={it.label}
+                role="menuitem"
+                tabIndex={-1}
+                type="button"
+                disabled={it.disabled}
+                onClick={() => { setOpen(false); it.onSelect(); }}
+                className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-left text-[14px] transition-colors disabled:opacity-40 ${it.tone === 'danger' ? 'text-red-200 hover:bg-red-500/15 focus:bg-red-500/15' : 'text-brand-fg hover:bg-white/[0.08] focus:bg-white/[0.08]'} focus:outline-none`}
+              >
+                <span className="shrink-0 opacity-80">{it.icon}</span> {it.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const VIEW_KEY = 'beamwall.host.eventsView';
+const PAGE = 12;
+
 export default function EventsList() {
   const [events, setEvents] = useState<HostEventRow[] | null>([]);
   const [loading, setLoading] = useState(true);
@@ -172,6 +338,16 @@ export default function EventsList() {
   const [reopenTarget, setReopenTarget] = useState<HostEventRow | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [postCounts, setPostCounts] = useState<Record<string, PostCount>>({});
+  const [covers, setCovers] = useState<Record<string, EventCover>>({});
+  const [view, setView] = useState<'grid' | 'list'>(() => {
+    try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid'; } catch { return 'grid'; }
+  });
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortKey>('event-date');
+  const [shown, setShown] = useState(PAGE);
+  const [firstName, setFirstName] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(() => {
     try { return !localStorage.getItem(HOST_ONBOARDED_KEY); } catch { return false; }
   });
@@ -200,15 +376,34 @@ export default function EventsList() {
     const list = await fetchMyEvents(); // null = load failure → retry state below
     setEvents(list);
     setLoading(false);
-    // Cap meters fill in after the cards render — one shot per load, no polling.
+    // Covers and cap meters fill in after the cards render — one shot per
+    // load, no polling; each falls back on its own if its read fails.
     if (list && list.length > 0) {
-      setPostCounts(await fetchPostCounts(list));
+      const live = list.filter((e) => e.status !== 'archived');
+      const [counts, cov] = await Promise.all([fetchPostCounts(list), fetchCovers(live)]);
+      setPostCounts(counts);
+      setCovers(cov);
     } else {
       setPostCounts({});
+      setCovers({});
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // "Good evening, Dapo": the first name from the account, never the email.
+  useEffect(() => {
+    let alive = true;
+    supabase.auth.getUser().then(({ data }) => { if (alive) setFirstName(firstNameOf(data.user?.user_metadata)); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const pickView = (v: 'grid' | 'list') => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* private mode — non-fatal */ }
+  };
+  // A new filter starts from the first page again.
+  useEffect(() => { setShown(PAGE); }, [statusFilter, typeFilter, query, sort]);
 
   // Checkout round-trip feedback: Stripe returns to the page the host left
   // with ?checkout=success|cancelled (UpgradeModal's returnUrl is the current
@@ -344,8 +539,30 @@ export default function EventsList() {
   // fetchMyEvents payload and are split here, so the "Archived (N)" shelf costs
   // no second query. Order is preserved (created_at desc).
   const { active, archived } = partitionByArchived(events ?? []);
-  // Upcoming / Drafts / Past, by local calendar day (eventList.ts).
-  const grouped = groupEvents(active);
+  // Filter → sort → page over the active list; archived events keep their
+  // own shelf below and never appear in the filters.
+  const filtered = sortEvents(filterEvents(active, { status: statusFilter, type: typeFilter, query }), sort);
+  const spotlight = spotlightOf(active);
+  const filtersOnEarly = statusFilter !== 'all' || typeFilter !== null || query.trim() !== '';
+  // Unfiltered, the spotlight already shows its event, so the grid skips it;
+  // any filter brings it back so a search never hides a match.
+  const listed = !filtersOnEarly && spotlight ? filtered.filter((e) => e.id !== spotlight.id) : filtered;
+  const visible = listed.slice(0, shown);
+  const counts = { live: 0, upcoming: 0, drafts: 0, past: 0 };
+  for (const ev of active) counts[statusBucket(ev)] += 1;
+  const types = Array.from(new Set(active.map((e) => e.event_type).filter((t): t is string => typeof t === 'string' && t !== '')));
+  const coverCounts = Object.values(covers).map((c) => c.count);
+  const moments = coverCounts.length > 0 ? coverCounts.reduce((a, b) => a + b, 0) : null;
+  // One event: the spotlight IS the page; the toolbar and grid would repeat it.
+  const soloSpotlight = active.length === 1 && spotlight !== null;
+  const summary = [
+    counts.live > 0 ? `${counts.live} live now` : null,
+    counts.upcoming > 0 ? `${counts.upcoming} coming up` : null,
+    counts.drafts > 0 ? `${counts.drafts} draft${counts.drafts === 1 ? '' : 's'}` : null,
+    moments !== null && moments > 0 ? `${moments.toLocaleString()} moment${moments === 1 ? '' : 's'} captured` : null,
+  ].filter((x): x is string => x !== null);
+  const filtersOn = filtersOnEarly;
+  const clearFilters = () => { setStatusFilter('all'); setTypeFilter(null); setQuery(''); };
 
   // Getting-started guide, derived from data already in hand: the newest event
   // (fetchMyEvents orders created_at desc) anchors the links, done-ness comes
@@ -363,210 +580,240 @@ export default function EventsList() {
   const guidePct = Math.round((([hasEvents, anyLive].filter(Boolean).length) / 2) * 100);
   const guideDone = hasEvents && anyLive;
 
-  /** One event card. Shared verbatim by the live grid and the archived shelf so
-   *  the two can never drift into looking like different products. */
-  const renderCard = (ev: HostEventRow) => {
-    const guestUrl = `${origin}/e/${ev.slug}`;
-    // Guests should land on the welcome page — the product's own
-    // recommended entry — so copy-link and the QR both point there.
-    const welcomeUrl = `${origin}/e/${ev.slug}/welcome`;
+  const welcomeUrlOf = (ev: HostEventRow) => `${origin}/e/${ev.slug}/welcome`;
+
+  /** The one action that matters most for this event right now. */
+  const renderAction = (ev: HostEventRow, size: 'lg' | 'md' = 'md') => {
+    const kind: NextAction = nextAction(ev);
     const busy = busyId === ev.id;
-    const isArchived = isArchivedStatus(ev.status);
-    const when = formatEventDate(ev.starts_at);
-    const accent = accentOf(ev.config);
+    const cls = size === 'lg'
+      ? 'bg-foil pressable inline-flex min-h-12 items-center gap-2 rounded-full px-6 text-[15px] font-semibold transition disabled:opacity-40'
+      : 'glass pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-4 text-[14px] font-medium text-brand-fg transition disabled:opacity-40';
+    const icon = 'w-4 h-4';
+    if (kind === 'open-wall' || kind === 'recap') {
+      const href = kind === 'open-wall' ? `${origin}/e/${ev.slug}/wall` : `/r/${ev.slug}`;
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>
+          {kind === 'open-wall' ? <><Play className={icon} /> Open the wall</> : <><Images className={icon} /> View recap</>}
+        </a>
+      );
+    }
+    if (kind === 'share') {
+      return <button type="button" onClick={() => setQrTarget(ev)} className={cls}><QrCode className={icon} /> Share the QR</button>;
+    }
+    if (kind === 'go-live') {
+      return (
+        <button type="button" disabled={busy} onClick={() => setStatus(ev, 'live', 'You’re live — guests can scan now')} className={cls}>
+          {busy ? <Loader2 className={`${icon} animate-spin`} /> : <Radio className={icon} />} Go live
+        </button>
+      );
+    }
     return (
-      <div key={ev.id} className="relative overflow-hidden liquid-glass rounded-2xl p-5 flex flex-col gap-3">
-        {/* The event's own colour, so a list of events reads at a glance. */}
-        <span
-          aria-hidden
-          className="absolute inset-y-0 left-0 w-1.5"
-          style={{ background: accent ?? 'rgba(255,255,255,0.08)' }}
-        />
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-serif text-lg text-brand-fg leading-tight truncate">{ev.name}</p>
-            <p className="mt-1 flex items-center gap-1.5 font-sans text-[12px] text-brand-muted/80">
-              <CalendarDays className="w-3.5 h-3.5 shrink-0" aria-hidden />
-              {when ? (
-                <>
-                  <span>{when.day}</span>
-                  <span aria-hidden>·</span>
-                  <span className={when.past ? 'text-brand-muted/60' : when.relative === 'Today' ? 'text-emerald-300' : ''}>{when.relative}</span>
-                </>
-              ) : (
-                <span className="text-brand-muted/55">No date set</span>
-              )}
-            </p>
-          </div>
-          <div className="shrink-0 flex items-center gap-1.5">
-            <TierPill tier={ev.plan_tier} />
-            <StatusPill status={ev.status} />
-          </div>
-        </div>
+      <button type="button" disabled={busy} onClick={() => setStatus(ev, RESTORE_STATUS, `“${ev.name}” is back in your events`)} className={cls}>
+        <ArchiveRestore className={icon} /> Restore
+      </button>
+    );
+  };
 
-        <div className="flex items-center gap-1.5">
-          <p className="flex-1 font-mono text-[11px] text-brand-muted/70 truncate">/e/{ev.slug}</p>
-          <CopyLinkButton text={welcomeUrl} />
-          <button
-            onClick={() => setQrTarget(ev)}
-            title="QR code"
-            className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
-          >
-            <QrCode className="w-3.5 h-3.5" />
-          </button>
-          <a
-            href={guestUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open guest view"
-            className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-        </div>
-        {ev.status === 'draft' && (
-          <p className="font-sans text-[11px] text-amber-400/90 leading-snug">
-            Guests can’t open this link until you Go live.
-          </p>
-        )}
-        {isArchived && (
-          <p className="font-sans text-[11px] text-brand-muted/50 leading-snug">
-            {archivedLabel(ev.archived_at)} — nothing was deleted. Restore it to bring it back.
-          </p>
-        )}
-        {/* Posts-used / plan-cap meter — only for capped tiers whose
-            count actually loaded (0 is a real count, keep !== undefined). */}
-        {capFor(ev) !== null && postCounts[ev.id] !== undefined && (
-          <CapMeter
-            used={postCounts[ev.id]}
-            cap={capFor(ev) as number}
-            onUpgrade={() => setUpgradeTarget(ev)}
-          />
-        )}
+  /** Everything else, in the ⋯ menu (the primary action is never repeated). */
+  const menuItems = (ev: HostEventRow): MenuItem[] => {
+    const kind = nextAction(ev);
+    const archivedEv = isArchivedStatus(ev.status);
+    const i = 'w-4 h-4';
+    const items: (MenuItem | false)[] = [
+      { label: 'Manage event', icon: <Settings2 className={i} />, onSelect: () => navigate(`/host/events/${ev.id}`) },
+      { label: 'Open guest view', icon: <ExternalLink className={i} />, onSelect: () => { window.open(`${origin}/e/${ev.slug}`, '_blank', 'noopener,noreferrer'); } },
+      { label: 'Copy guest link', icon: <Copy className={i} />, onSelect: () => { void copyText(welcomeUrlOf(ev)).then((ok) => { if (ok) push('Link copied', 'success'); }); } },
+      kind !== 'share' && { label: 'Show QR code', icon: <QrCode className={i} />, onSelect: () => setQrTarget(ev) },
+      !archivedEv && { label: 'Duplicate', icon: duplicatingId === ev.id ? <Loader2 className={`${i} animate-spin`} /> : <CopyPlus className={i} />, onSelect: () => void runDuplicate(ev), disabled: duplicatingId !== null },
+      ev.status === 'live' && { label: 'End event', icon: <Square className={i} />, onSelect: () => void setStatus(ev, 'ended', 'Event ended'), disabled: busyId === ev.id },
+      ev.status === 'ended' && { label: 'Re-open…', icon: <Radio className={i} />, onSelect: () => setReopenTarget(ev), disabled: busyId === ev.id },
+      // No upgrade on an archived event — selling a bigger plan for something
+      // the host has just retired is the wrong ask.
+      !archivedEv && normalizeTier(ev.plan_tier) !== 'deluxe' && { label: 'Upgrade plan', icon: <ArrowUpRight className={i} />, onSelect: () => setUpgradeTarget(ev) },
+      // Archiving a LIVE event is deliberately not offered — end it first, so
+      // nobody retires a party that is still running.
+      canArchiveStatus(ev.status) && { label: 'Archive', icon: <Archive className={i} />, onSelect: () => setArchiveTarget(ev), disabled: busyId === ev.id },
+      // Permanent delete: archived events only, and the dialog asks for the name.
+      canDeleteStatus(ev.status) && { label: 'Delete forever', icon: <Trash2 className={i} />, tone: 'danger', onSelect: () => { setDeleteTarget(ev); setDeleteTyped(''); }, disabled: busyId === ev.id },
+    ];
+    return items.filter((x): x is MenuItem => x !== false);
+  };
 
-        {/* flex-wrap: four 44px-tall pills do not fit one line on a 390px
-            phone, and a card that overflows sideways is worse than one row. */}
-        <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+  const qrButton = (ev: HostEventRow) => (
+    <button
+      type="button"
+      onClick={() => setQrTarget(ev)}
+      title="QR code"
+      aria-label={`QR code for ${ev.name}`}
+      className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-brand-fg/80 hover:text-brand-fg transition-colors"
+    >
+      <QrCode className="w-4 h-4" />
+    </button>
+  );
+
+  /** The date · status · moments line. */
+  const metaLine = (ev: HostEventRow) => {
+    const when = formatEventDate(ev.starts_at);
+    const look = statusLook(ev);
+    const cover = covers[ev.id];
+    return (
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-brand-muted">
+        <span className="inline-flex items-center gap-1.5">
+          <CalendarDays className="w-3.5 h-3.5 shrink-0" aria-hidden />
+          {when ? (
+            <>{when.day} <span aria-hidden>·</span> <span className={when.relative === 'Today' ? 'text-emerald-300' : ''}>{when.relative}</span></>
+          ) : 'No date set'}
+        </span>
+        <span aria-hidden className="text-white/30">|</span>
+        <span>{look.label}</span>
+        {cover && (
+          <>
+            <span aria-hidden className="text-white/30">|</span>
+            <span>{cover.count.toLocaleString()} moment{cover.count === 1 ? '' : 's'}</span>
+          </>
+        )}
+      </p>
+    );
+  };
+
+  /** Notes a card owes the host: the link is shut, the event is archived, or
+   *  the plan is filling up. */
+  const notes = (ev: HostEventRow) => (
+    <>
+      {ev.status === 'draft' && (
+        <p className="text-[13px] text-amber-200/90 leading-snug">Guests can’t open the link until you go live.</p>
+      )}
+      {isArchivedStatus(ev.status) && (
+        <p className="text-[13px] text-brand-muted leading-snug">
+          {archivedLabel(ev.archived_at)} — nothing was deleted. Restore it to bring it back.
+        </p>
+      )}
+      {/* Posts-used / plan-cap meter — only for capped tiers whose count
+          actually loaded (0 is a real count, keep !== undefined). */}
+      {capFor(ev) !== null && postCounts[ev.id] !== undefined && (
+        <CapMeter used={postCounts[ev.id]} cap={capFor(ev) as number} onUpgrade={() => setUpgradeTarget(ev)} />
+      )}
+    </>
+  );
+
+  /** One event card, shared by the grid and the archived shelf so the two can
+   *  never drift into looking like different products. The cover and the name
+   *  open the event; the ⋯ menu holds everything else. A card lifts above its
+   *  neighbours while its menu is open (each glass card is its own stacking
+   *  context, so the menu would otherwise slide under the next card). */
+  const renderCard = (ev: HostEventRow) => {
+    const look = statusLook(ev);
+    return (
+      <article key={ev.id} className="group liquid-glass rounded-[22px] flex flex-col has-[[aria-expanded=true]]:z-30">
+        <div className="relative">
           <Link
             to={`/host/events/${ev.id}`}
-            className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-fg/90 transition-colors"
+            tabIndex={-1}
+            aria-hidden
+            className="block overflow-hidden rounded-t-[22px]"
           >
-            <Settings2 className="w-3.5 h-3.5" /> Manage
+            <Cover ev={ev} cover={covers[ev.id]} className="aspect-[16/10] w-full transition-transform duration-500 group-hover:scale-[1.03] motion-reduce:transition-none" />
           </Link>
-          {ev.status === 'draft' && (
-            <button
-              onClick={() => setStatus(ev, 'live', 'You’re live — guests can scan now')}
-              disabled={busy}
-              className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-emerald-400 transition-colors disabled:opacity-40"
-            >
-              Go live
-            </button>
-          )}
-          {ev.status === 'ended' && (
-            <button
-              onClick={() => setReopenTarget(ev)}
-              disabled={busy}
-              className="rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40"
-            >
-              Re-open…
-            </button>
-          )}
-          {!isArchived && (
-            <button
-              onClick={() => void runDuplicate(ev)}
-              disabled={duplicatingId !== null}
-              title="Make a new draft with this event’s look, frames and filters"
-              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-40"
-            >
-              {duplicatingId === ev.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CopyPlus className="w-3.5 h-3.5" />} Duplicate
-            </button>
-          )}
-          {ev.status === 'live' && (
-            <button
-              onClick={() => setStatus(ev, 'ended', 'Event ended')}
-              disabled={busy}
-              className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-amber-400 transition-colors disabled:opacity-40"
-            >
-              End
-            </button>
-          )}
-          {/* Archiving a LIVE event is deliberately not offered — end it first,
-              so nobody retires a party that is still running. */}
-          {canArchiveStatus(ev.status) && (
-            <button
-              onClick={() => setArchiveTarget(ev)}
-              disabled={busy}
-              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/60 hover:text-brand-fg transition-colors disabled:opacity-40"
-            >
-              <Archive className="w-3.5 h-3.5" /> Archive
-            </button>
-          )}
-          {isArchived && (
-            <button
-              onClick={() => setStatus(ev, RESTORE_STATUS, `“${ev.name}” is back in your events`)}
-              disabled={busy}
-              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-fg/90 transition-colors disabled:opacity-40"
-            >
-              <ArchiveRestore className="w-3.5 h-3.5" /> Restore
-            </button>
-          )}
-          {/* Permanent delete, archived events only — two deliberate acts, and
-              the second one is guarded by typing the event's name. Styled quiet
-              (not a red slab) so it is never the loud thing on an archived card;
-              the dialog is where the danger is stated. */}
-          {canDeleteStatus(ev.status) && (
-            <button
-              onClick={() => { setDeleteTarget(ev); setDeleteTyped(''); }}
-              disabled={busy}
-              className="pressable flex items-center gap-1.5 rounded-full bg-white/[0.04] hover:bg-red-500/15 px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/60 hover:text-red-300 transition-colors disabled:opacity-40"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Delete forever
-            </button>
-          )}
-          {/* No upgrade CTA on an archived event — selling a bigger plan for
-              something the host has just retired is the wrong ask. */}
-          {!isArchived && normalizeTier(ev.plan_tier) !== 'deluxe' && (
-            <button
-              onClick={() => setUpgradeTarget(ev)}
-              className="ml-auto flex items-center gap-1 rounded-full bg-accent/10 hover:bg-accent/20 px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-accent-2 transition-colors"
-            >
-              Upgrade <ArrowUpRight className="w-3 h-3" />
-            </button>
-          )}
+          <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-[rgba(20,18,64,0.55)] px-2.5 py-1 text-[12px] font-medium text-white backdrop-blur-md shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25)]">
+            {typeLabel(ev.event_type)}
+          </span>
+          <EventMenu className="absolute right-2.5 top-2.5" label={`More for ${ev.name}`} items={menuItems(ev)} />
+        </div>
+        <div className="flex flex-1 flex-col gap-2.5 p-4">
+          <div className="min-w-0">
+            <p className="flex min-w-0 items-center gap-2">
+              <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${look.dot}`} />
+              <Link to={`/host/events/${ev.id}`} className="truncate font-serif text-[19px] leading-tight text-brand-fg hover:underline underline-offset-4">
+                {ev.name}
+              </Link>
+            </p>
+            <div className="mt-1">{metaLine(ev)}</div>
+          </div>
+          {notes(ev)}
+          <div className="mt-auto flex items-center gap-2 pt-1">
+            {renderAction(ev)}
+            <CopyLinkButton text={welcomeUrlOf(ev)} />
+            {nextAction(ev) !== 'share' && qrButton(ev)}
+          </div>
+        </div>
+      </article>
+    );
+  };
+
+  /** The list view: one row per event, for hosts with many. Columns past the
+   *  name fold away on a phone, where the row keeps its thumbnail and menu. */
+  // Fixed outer columns, so the header row and every event row line up.
+  const rowGrid = 'grid grid-cols-[4.5rem_minmax(0,1fr)_auto] md:grid-cols-[4.5rem_minmax(0,2fr)_6.5rem_minmax(0,1.4fr)_5rem_2.75rem] lg:grid-cols-[4.5rem_minmax(0,2fr)_6.5rem_minmax(0,1.4fr)_5rem_13rem] items-center gap-3 md:gap-4';
+  const renderRow = (ev: HostEventRow) => {
+    const look = statusLook(ev);
+    const when = formatEventDate(ev.starts_at);
+    const cover = covers[ev.id];
+    return (
+      <div key={ev.id} className={`relative ${rowGrid} px-3 py-2.5 border-t border-white/10 first:border-t-0 has-[[aria-expanded=true]]:z-30`}>
+        <Link to={`/host/events/${ev.id}`} tabIndex={-1} aria-hidden className="block h-12 w-[4.5rem] overflow-hidden rounded-xl">
+          <Cover ev={ev} cover={cover} size="sm" className="h-full w-full" />
+        </Link>
+        <div className="min-w-0">
+          <Link to={`/host/events/${ev.id}`} className="block truncate text-[15px] font-medium text-brand-fg hover:underline underline-offset-4">{ev.name}</Link>
+          <p className="truncate font-mono text-[12px] text-brand-muted/80">/e/{ev.slug}</p>
+        </div>
+        <span className="hidden md:inline-flex items-center gap-2 text-[13px] text-brand-fg/90">
+          <span aria-hidden className={`h-2 w-2 rounded-full ${look.dot}`} /> {look.label}
+        </span>
+        <span className="hidden md:block truncate text-[13px] text-brand-muted">{when ? `${when.day} · ${when.relative}` : 'No date set'}</span>
+        <span className="hidden md:block text-[13px] text-brand-muted">{cover ? cover.count.toLocaleString() : '—'}</span>
+        <div className="flex items-center justify-end gap-2">
+          <span className="hidden lg:inline-flex">{renderAction(ev)}</span>
+          <EventMenu label={`More for ${ev.name}`} items={menuItems(ev)} />
         </div>
       </div>
     );
   };
 
+  const spotlightEyebrow = (ev: HostEventRow) =>
+    ev.status === 'live' ? (
+      <><span className="relative flex h-2.5 w-2.5"><span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping motion-reduce:animate-none" /><span className="relative h-2.5 w-2.5 rounded-full bg-emerald-400" /></span> Live now</>
+    ) : ev.status === 'draft' ? <>Finish setting up</> : <>Up next</>;
+
+  const chip = 'inline-flex min-h-8 items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-[13px] text-brand-fg/90 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]';
+  const control = 'glass min-h-11 rounded-full px-4 text-[14px] text-brand-fg';
+
   return (
     // pb-24 on phones: the Copilot FAB is fixed at bottom-6 right-6 and 56px
     // square, so it sat on top of the last card's actions at 390px.
-    <div className="p-6 pb-24 md:p-10 md:pb-10 max-w-5xl mx-auto">
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="font-serif text-3xl text-foil-static">Your events</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">
-            {/* Counts what the grid is showing — archived events have their own
-                labelled shelf below, so folding them in here would not add up. */}
-            {loading ? 'Loading…' : events === null ? '' : `${active.length} event${active.length === 1 ? '' : 's'}`}
+    <div className="p-5 pb-24 md:p-10 md:pb-12 max-w-6xl mx-auto">
+      <header className="relative mb-7 flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[15px] text-brand-muted">
+            {greetingFor(new Date().getHours())}{firstName ? `, ${firstName}` : ''}
+          </p>
+          <h1 className="mt-1 font-serif text-[34px] md:text-[40px] leading-none text-brand-fg">
+            Your events
+            {!loading && events !== null && active.length > 0 && (
+              <span className="ml-2 align-middle text-[20px] text-brand-muted">({active.length})</span>
+            )}
+          </h1>
+          {/* Counts what the page is showing — archived events have their own
+              labelled shelf below, so folding them in here would not add up. */}
+          <p className="mt-2 text-[14px] text-brand-muted">
+            {loading ? 'Loading…' : events === null ? '' : summary.length > 0 ? summary.join(' · ') : active.length === 0 && archived.length > 0 ? 'Everything here is archived' : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <img src={beamyCutout} alt="" aria-hidden className="pointer-events-none hidden md:block h-20 w-auto -mb-2 drop-shadow-[0_12px_20px_rgba(10,8,40,0.45)]" />
           <button
             onClick={load}
             disabled={loading}
             aria-label="Refresh events"
-            className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
+            className="glass pressable min-h-11 min-w-11 flex items-center justify-center rounded-full text-brand-fg/80 hover:text-brand-fg transition-colors disabled:opacity-40"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
           {/* The empty state has its own (single) primary CTA — two "New
               event" buttons on one screen is one too many. */}
           {!(events !== null && events.length === 0 && !loading) && (
-            <Link
-              to="/host/new"
-              className="pressable flex items-center gap-2 rounded-full bg-foil px-5 min-h-11 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition"
-            >
+            <Link to="/host/new" className="bg-foil pressable flex items-center gap-2 rounded-full px-5 min-h-11 text-[14px] font-semibold transition">
               <Plus className="w-4 h-4" /> New event
             </Link>
           )}
@@ -637,60 +884,174 @@ export default function EventsList() {
       )}
 
       {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-40 liquid-glass rounded-2xl animate-pulse" />
-          ))}
+        <div className="flex flex-col gap-6" aria-busy="true">
+          <div className="h-[280px] liquid-glass rounded-[28px] animate-pulse" />
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-72 liquid-glass rounded-[22px] animate-pulse" />
+            ))}
+          </div>
         </div>
       ) : events === null ? (
         <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto">
-          <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-6">
+          <p className="text-[15px] text-brand-muted leading-relaxed mb-6">
             Couldn’t load your events — check your connection and try again.
           </p>
-          <button
-            onClick={load}
-            className="inline-flex items-center gap-2 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-6 py-2.5 font-label uppercase tracking-luxe text-[11px] text-brand-fg/90 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Retry
+          <button onClick={load} className="glass pressable inline-flex items-center gap-2 rounded-full px-6 min-h-11 text-[14px] font-medium text-brand-fg">
+            <RefreshCw className="w-4 h-4" /> Retry
           </button>
         </div>
       ) : events.length === 0 ? (
-        <div className="liquid-glass rounded-3xl px-6 py-10 sm:p-12 text-center max-w-lg mx-auto">
-          <h2 className="font-serif text-2xl text-foil-static mb-2">Create your first event</h2>
-          <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-8">
+        <div className="liquid-glass rounded-[28px] px-6 py-10 sm:p-12 text-center max-w-xl mx-auto">
+          <img src={beamyCutout} alt="" aria-hidden className="mx-auto mb-4 h-32 w-auto drop-shadow-[0_16px_26px_rgba(10,8,40,0.5)]" />
+          <h2 className="font-serif text-[30px] leading-tight text-brand-fg mb-2">Create your first event</h2>
+          <p className="text-[15px] text-brand-muted leading-relaxed mb-8">
             Describe the night or fill it in yourself, pick the frames guests can use, then go live and share
             the QR. About a minute, no design skills needed.
           </p>
-          <Link
-            to="/host/new"
-            className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-foil px-6 sm:px-8 py-3.5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98]"
-          >
+          <Link to="/host/new" className="bg-foil pressable inline-flex items-center gap-2 whitespace-nowrap rounded-full px-7 min-h-12 text-[15px] font-semibold transition active:scale-[0.98]">
             <Plus className="w-4 h-4" /> Create your event
           </Link>
         </div>
       ) : (
         <>
-          {active.length > 0 ? (
-            <div className="flex flex-col gap-8">
-              {([
-                ['upcoming', 'Upcoming & live'],
-                ['drafts', 'Drafts'],
-                ['past', 'Past'],
-              ] as const).map(([key, label]) => {
-                const list = grouped[key];
-                if (list.length === 0) return null;
-                return (
-                  <section key={key} aria-labelledby={`events-${key}`}>
-                    <h2 id={`events-${key}`} className="mb-3 font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
-                      {label} <span className="text-brand-muted/45">· {list.length}</span>
-                    </h2>
-                    <div className="grid gap-4 sm:grid-cols-2">{list.map(renderCard)}</div>
-                  </section>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="font-sans text-sm text-brand-muted/60 text-center py-8">
+          {spotlight && (
+            <section aria-labelledby="spotlight-title" className="liquid-glass rounded-[28px] mb-8 grid md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] has-[[aria-expanded=true]]:z-30">
+              <Link to={`/host/events/${spotlight.id}`} tabIndex={-1} aria-hidden className="block overflow-hidden rounded-t-[28px] md:rounded-tr-none md:rounded-l-[28px]">
+                <Cover ev={spotlight} cover={covers[spotlight.id]} size="lg" className="h-[220px] md:h-[320px] w-full" />
+              </Link>
+              <div className="flex flex-col gap-4 p-6 md:p-8">
+                <p className="flex items-center gap-2 text-[14px] font-medium text-accent-2">{spotlightEyebrow(spotlight)}</p>
+                <h2 id="spotlight-title" className="font-serif text-[30px] md:text-[38px] leading-[1.04] text-brand-fg">
+                  <Link to={`/host/events/${spotlight.id}`} className="hover:underline underline-offset-4">{spotlight.name}</Link>
+                </h2>
+                <div className="flex flex-wrap gap-2">
+                  {(() => {
+                    const when = formatEventDate(spotlight.starts_at);
+                    return (
+                      <span className={chip}>
+                        <CalendarDays className="w-3.5 h-3.5" aria-hidden />
+                        {when ? `${when.day} · ${when.relative}` : 'No date set'}
+                      </span>
+                    );
+                  })()}
+                  {covers[spotlight.id] && (
+                    <span className={chip}><Images className="w-3.5 h-3.5" aria-hidden /> {covers[spotlight.id].count.toLocaleString()} moment{covers[spotlight.id].count === 1 ? '' : 's'}</span>
+                  )}
+                  <span className={chip}>{typeLabel(spotlight.event_type)}</span>
+                  <TierPill tier={spotlight.plan_tier} />
+                </div>
+                {notes(spotlight)}
+                <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
+                  {renderAction(spotlight, 'lg')}
+                  <Link to={`/host/events/${spotlight.id}`} className="glass pressable inline-flex min-h-12 items-center gap-2 rounded-full px-5 text-[15px] font-medium text-brand-fg">
+                    <Settings2 className="w-4 h-4" /> Manage
+                  </Link>
+                  <CopyLinkButton text={welcomeUrlOf(spotlight)} />
+                  <EventMenu label={`More for ${spotlight.name}`} items={menuItems(spotlight)} />
+                </div>
+              </div>
+            </section>
+          )}
+
+          {!soloSpotlight && active.length > 0 && (
+            <>
+              <div className="mb-5 flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="relative min-w-[12rem] flex-1">
+                    <span className="sr-only">Search events</span>
+                    <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-muted" aria-hidden />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Search events"
+                      className="liquid-glass-inset w-full min-h-11 rounded-full pl-10 pr-4 text-[14px] text-brand-fg placeholder:text-brand-muted/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+                    />
+                  </label>
+                  {types.length > 1 && (
+                    <label className="relative">
+                      <span className="sr-only">Event type</span>
+                      <select value={typeFilter ?? ''} onChange={(e) => setTypeFilter(e.target.value === '' ? null : e.target.value)} className={`${control} bg-[color:var(--color-brand-surface)]`}>
+                        <option value="">All types</option>
+                        {types.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  <label className="relative">
+                    <span className="sr-only">Sort by</span>
+                    <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={`${control} bg-[color:var(--color-brand-surface)]`}>
+                      <option value="event-date">Event date</option>
+                      <option value="created">Recently created</option>
+                      <option value="name">Name A–Z</option>
+                    </select>
+                  </label>
+                  <div role="group" aria-label="View" className="glass flex rounded-full p-1">
+                    {([['grid', LayoutGrid, 'Grid'], ['list', List, 'List']] as const).map(([v, Icon, label]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={view === v}
+                        aria-label={`${label} view`}
+                        onClick={() => pickView(v)}
+                        className={`flex h-9 w-11 items-center justify-center rounded-full text-brand-fg/80 transition-colors hover:text-brand-fg ${view === v ? 'is-selected' : ''}`}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-2">
+                  {([
+                    ['all', 'All', active.length],
+                    ['live', 'Live', counts.live],
+                    ['upcoming', 'Upcoming', counts.upcoming],
+                    ['drafts', 'Drafts', counts.drafts],
+                    ['past', 'Past', counts.past],
+                  ] as const).filter(([k, , n]) => k === 'all' || n > 0 || statusFilter === k).map(([k, label, n]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      aria-pressed={statusFilter === k}
+                      onClick={() => setStatusFilter(k)}
+                      className={`glass pressable inline-flex min-h-10 items-center gap-1.5 rounded-full px-4 text-[14px] text-brand-fg/90 transition-colors hover:text-brand-fg ${statusFilter === k ? 'is-selected' : ''}`}
+                    >
+                      {label} <span className="text-brand-muted">{n}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {visible.length === 0 ? (
+                <div className="liquid-glass rounded-2xl p-10 text-center">
+                  <p className="text-[15px] text-brand-muted mb-5">No events match{query.trim() ? ` “${query.trim()}”` : ''}.</p>
+                  {filtersOn && (
+                    <button onClick={clearFilters} className="glass pressable inline-flex min-h-11 items-center rounded-full px-5 text-[14px] font-medium text-brand-fg">Clear filters</button>
+                  )}
+                </div>
+              ) : view === 'grid' ? (
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{visible.map(renderCard)}</div>
+              ) : (
+                <div className="liquid-glass rounded-2xl">
+                  <div className={`hidden md:grid ${rowGrid} px-3 pt-3 pb-2 text-[12px] text-brand-muted`} aria-hidden>
+                    <span /><span>Event</span><span>Status</span><span>Date</span><span>Moments</span><span />
+                  </div>
+                  <div>{visible.map(renderRow)}</div>
+                </div>
+              )}
+
+              {listed.length > shown && (
+                <div className="mt-6 flex justify-center">
+                  <button onClick={() => setShown((n) => n + PAGE)} className="glass pressable inline-flex min-h-11 items-center gap-2 rounded-full px-6 text-[14px] font-medium text-brand-fg">
+                    Show more <span className="text-brand-muted">({listed.length - shown} left)</span>
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {active.length === 0 && (
+            <p className="text-[15px] text-brand-muted text-center py-8">
               Everything here is archived — open the shelf below to restore one, or start a new event.
             </p>
           )}
@@ -699,21 +1060,18 @@ export default function EventsList() {
               already in hand — archiving is the product's soft-delete, so the
               events have to stay reachable, just out of the way. */}
           {archived.length > 0 && (
-            <div className="mt-8">
+            <div className="mt-10">
               <button
                 onClick={() => setShowArchived((v) => !v)}
                 aria-expanded={showArchived}
-                className="pressable inline-flex items-center gap-2 rounded-full bg-white/[0.04] hover:bg-white/[0.08] px-4 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/60 hover:text-brand-fg transition-colors"
+                className="glass pressable inline-flex items-center gap-2 rounded-full px-4 min-h-11 text-[14px] text-brand-fg/80 hover:text-brand-fg transition-colors"
               >
-                <Archive className="w-3.5 h-3.5" />
+                <Archive className="w-4 h-4" />
                 Archived ({archived.length})
-                <ChevronDown
-                  className={`w-3 h-3 transition-transform motion-reduce:transition-none ${showArchived ? 'rotate-180' : ''}`}
-                  aria-hidden
-                />
+                <ChevronDown className={`w-4 h-4 transition-transform motion-reduce:transition-none ${showArchived ? 'rotate-180' : ''}`} aria-hidden />
               </button>
               {showArchived && (
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">{archived.map(renderCard)}</div>
+                <div className="mt-4 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{archived.map(renderCard)}</div>
               )}
             </div>
           )}
