@@ -2210,3 +2210,287 @@
 [data-brand="2"] .bw-hl-caps { text-transform: uppercase; font-size: 0.8em; letter-spacing: 0.005em; line-height: 1.08; }
 [data-brand="2"] .bw-hl-line { font-size: clamp(16px, 0.6vw + 13px, 20px); font-weight: 500; line-height: 1.35; }
 [data-brand="2"] .bw-hl-beats { font-size: clamp(14px, 0.3vw + 12px, 16px); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--bw-ink); opacity: 0.86; }
+
+/* virtual celebrations ─────────────────────────────────────────────────
+   The "Celebrate from anywhere" stop (pages/beamy/VirtualCelebrations.tsx,
+   timeline in lib/beamyVirtual VC_SEQ): a share link goes out, notes,
+   photos and short videos fly in from the screen's edges onto a glass card,
+   the card closes into its cover, then slips into an envelope and arrives.
+   Every `bw-vc-` animation is CONTENT (lib/beamyMotion CONTENT_MOTION_CLASSES):
+   it is never named in a reduced-motion block; it softens to fades under
+   [data-content-motion="soft"] at the end of this block. Flat glass panels,
+   white line icons, no gradient text. */
+[data-brand="2"] .bw-vc { overflow-x: clip; }
+[data-brand="2"] .bw-vc-scene { position: relative; }
+
+/* Pieces that wait for their cue. */
+[data-brand="2"] .bw-vc [data-seq]:not(.bw-vc-piece) { transition: opacity 520ms var(--bw-ease), transform 620ms var(--bw-ease); }
+[data-brand="2"] .bw-vc [data-seq="off"]:not(.bw-vc-piece) { opacity: 0; transform: translateY(10px); }
+
+/* The share link. */
+[data-brand="2"] .bw-vc-link { position: relative; padding: 16px; }
+[data-brand="2"] .bw-vc-url {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: #FFFFFF;
+  background-color: rgba(14, 12, 46, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+[data-brand="2"] .bw-vc-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 6px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1A1740;
+  background-color: rgba(246, 245, 255, 0.94);
+  transition: background-color 320ms var(--bw-ease);
+}
+[data-brand="2"] .bw-vc-copy[data-done="true"] { background-color: #FFC56B; }
+[data-brand="2"] .bw-vc-sent { display: flex; align-items: center; gap: 10px; }
+[data-brand="2"] .bw-vc-faces { display: flex; }
+[data-brand="2"] .bw-vc-faces > span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: -7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1A1740;
+  background-color: #E9E8FF;
+  box-shadow: 0 0 0 2px rgba(43, 42, 140, 0.9);
+}
+[data-brand="2"] .bw-vc-faces > span:first-child { margin-left: 0; }
+/* The link going out: three pings leave the panel's right edge. */
+[data-brand="2"] .bw-vc-pings { position: absolute; right: 18px; top: 50%; pointer-events: none; }
+[data-brand="2"] .bw-vc-pings > i {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background-color: #FFC56B;
+  box-shadow: 0 0 10px 2px rgba(255, 197, 107, 0.7);
+  opacity: 0;
+}
+[data-brand="2"] .bw-vc-pings[data-on="true"] > i { animation: bw-vc-ping 1300ms var(--bw-ease) both; }
+[data-brand="2"] .bw-vc-pings > i:nth-child(1) { --px: 220px; --py: -120px; }
+[data-brand="2"] .bw-vc-pings > i:nth-child(2) { --px: 260px; --py: 10px; animation-delay: 120ms; }
+[data-brand="2"] .bw-vc-pings > i:nth-child(3) { --px: 200px; --py: 130px; animation-delay: 240ms; }
+@keyframes bw-vc-ping {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--px), var(--py)) scale(1); }
+}
+
+/* The card: a flat glass page with six places, then its cover. */
+[data-brand="2"] .bw-vc-cardbox { position: relative; width: 100%; max-width: 420px; margin-inline: auto; }
+[data-brand="2"] .bw-vc-card {
+  position: relative;
+  border-radius: 24px;
+  color: #FFFFFF;
+  background-color: rgba(43, 42, 140, 0.5);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  backdrop-filter: blur(20px) saturate(120%);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+    0 0 60px -18px rgba(165, 171, 255, 0.7),
+    0 34px 64px -30px rgba(10, 8, 40, 0.8);
+  transform-origin: 50% 100%;
+  transition: transform 1000ms var(--bw-ease);
+}
+[data-brand="2"] .bw-vc-page { padding: 14px; transition: opacity 600ms var(--bw-ease); }
+[data-brand="2"] .bw-vc-card[data-closed="true"] .bw-vc-page { opacity: 0; }
+[data-brand="2"] .bw-vc-count {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1A1740;
+  background-color: #FFFFFF;
+}
+[data-brand="2"] .bw-vc-cell {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.2);
+}
+[data-brand="2"] .bw-vc-piece {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  opacity: 0;
+}
+/* Its cue: it flies in from its edge (the page measured --dx/--dy) and lands. */
+[data-brand="2"] .bw-vc-piece[data-seq="on"] { animation: bw-vc-fly 1150ms cubic-bezier(0.2, 0.75, 0.25, 1) var(--d, 0s) both; }
+@keyframes bw-vc-fly {
+  0% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--r)) scale(1.3); }
+  14% { opacity: 1; }
+  82% { transform: translate(0, 0) rotate(0deg) scale(1.04); }
+  100% { opacity: 1; transform: none; }
+}
+[data-brand="2"] .bw-vc-note {
+  flex: 1;
+  min-height: 0;
+  padding: 9px 8px;
+  border-radius: 12px 12px 12px 4px;
+  overflow: hidden;
+  color: #1A1740;
+  background-color: rgba(246, 245, 255, 0.95);
+}
+[data-brand="2"] .bw-vc-note p { margin-top: 4px; font-size: 11px; font-weight: 600; line-height: 1.3; }
+[data-brand="2"] .bw-vc-media { position: relative; flex: 1; min-height: 0; overflow: hidden; border-radius: 12px; }
+[data-brand="2"] .bw-vc-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+[data-brand="2"] .bw-vc-play {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  color: #FFFFFF;
+  background-color: rgba(14, 12, 46, 0.45);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+}
+[data-brand="2"] .bw-vc-dur {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #FFFFFF;
+  background-color: rgba(14, 12, 46, 0.6);
+}
+[data-brand="2"] .bw-vc-who {
+  margin-top: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+[data-brand="2"] .bw-vc-more {
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #FFFFFF;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+/* A wave landing: the card's rim glows once. */
+[data-brand="2"] .bw-vc-glow { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; }
+[data-brand="2"] .bw-vc-glow[data-run="true"] { animation: bw-vc-glow 1400ms ease-out 900ms both; }
+@keyframes bw-vc-glow {
+  0% { opacity: 0; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.2), 0 0 0 0 rgba(255, 197, 107, 0); }
+  30% { opacity: 1; box-shadow: 0 0 0 2px #FFFFFF, 0 0 46px 6px rgba(255, 197, 107, 0.55); }
+  100% { opacity: 0; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.2), 0 0 60px 10px rgba(255, 197, 107, 0); }
+}
+/* The cover, once the card closes. */
+[data-brand="2"] .bw-vc-cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 12% 22px 22px;
+  border-radius: inherit;
+  opacity: 0;
+  transform: translateY(14px) scale(0.97);
+  transition: opacity 700ms var(--bw-ease) 200ms, transform 800ms var(--bw-ease) 200ms;
+  pointer-events: none;
+}
+[data-brand="2"] .bw-vc-card[data-closed="true"] .bw-vc-cover { opacity: 1; transform: none; }
+[data-brand="2"] .bw-vc-collage { display: flex; justify-content: center; width: 100%; }
+[data-brand="2"] .bw-vc-collage img {
+  width: 30%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: 10px;
+  box-shadow: 0 0 0 3px #FFFFFF, 0 16px 30px -16px rgba(10, 8, 40, 0.8);
+}
+[data-brand="2"] .bw-vc-collage img:nth-child(1) { transform: rotate(-8deg) translateX(18%); }
+[data-brand="2"] .bw-vc-collage img:nth-child(2) { position: relative; z-index: 1; transform: translateY(-6%); }
+[data-brand="2"] .bw-vc-collage img:nth-child(3) { transform: rotate(8deg) translateX(-18%); }
+[data-brand="2"] .bw-vc-cover-title {
+  margin-top: 22px;
+  text-align: center;
+  font-size: clamp(22px, 1.6vw + 12px, 30px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: #FFFFFF;
+}
+/* Sent: the card shrinks into an envelope; the arrival slides up over it. */
+[data-brand="2"] .bw-vc-card[data-sent="true"] { transform: scale(0.6); }
+[data-brand="2"] .bw-vc-env {
+  position: absolute;
+  left: 8%;
+  bottom: 0;
+  z-index: 4;
+  width: 84%;
+  height: 36%;
+  overflow: visible;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 600ms var(--bw-ease) 300ms, transform 700ms var(--bw-ease) 300ms;
+}
+[data-brand="2"] .bw-vc-env path,
+[data-brand="2"] .bw-vc-env rect { vector-effect: non-scaling-stroke; }
+[data-brand="2"] .bw-vc-env rect { fill: rgba(43, 42, 140, 0.78); }
+[data-brand="2"] .bw-vc-cardbox[data-sent="true"] .bw-vc-env { opacity: 1; transform: none; }
+[data-brand="2"] .bw-vc-mail {
+  position: absolute;
+  left: 50%;
+  top: 2%;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(300px, 88%);
+  padding: 12px 14px;
+  border-radius: 18px;
+  color: #FFFFFF;
+  background-color: rgba(30, 27, 110, 0.86);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 24px 44px -22px rgba(10, 8, 40, 0.85);
+  opacity: 0;
+  transform: translate(-50%, 24px);
+  transition: opacity 600ms var(--bw-ease) 1100ms, transform 760ms cubic-bezier(0.2, 1.25, 0.32, 1) 1100ms;
+}
+[data-brand="2"] .bw-vc-cardbox[data-sent="true"] .bw-vc-mail { opacity: 1; transform: translate(-50%, 0); }
+[data-brand="2"] .bw-vc-mail-icon { width: 40px; height: 40px; }
+[data-brand="2"] .bw-vc-from { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(255, 255, 255, 0.72); }
+
+/* Soft content motion (reduced motion): the same beats, as fades in place. */
+[data-brand="2"][data-content-motion="soft"] .bw-vc-piece[data-seq="on"] { animation: bw-fade 520ms ease-out var(--d, 0s) both; }
+[data-brand="2"][data-content-motion="soft"] .bw-vc-pings > i { animation: none; }
+[data-brand="2"][data-content-motion="soft"] .bw-vc [data-seq]:not(.bw-vc-piece),
+[data-brand="2"][data-content-motion="soft"] .bw-vc-cover,
+[data-brand="2"][data-content-motion="soft"] .bw-vc-env { transform: none; }
+[data-brand="2"][data-content-motion="soft"] .bw-vc-mail,
+[data-brand="2"][data-content-motion="soft"] .bw-vc-cardbox[data-sent="true"] .bw-vc-mail { transform: translate(-50%, 0); transition: opacity 600ms ease 900ms; }
+[data-brand="2"][data-content-motion="soft"] .bw-vc-glow[data-run="true"] { animation-duration: 900ms; }

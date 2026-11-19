@@ -77,6 +77,8 @@ import {
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
+import VirtualCelebrations from './VirtualCelebrations';
+import { VC_COPY } from '../../lib/beamyVirtual';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
 import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
@@ -441,6 +443,7 @@ export default function BeamyPage() {
       case 'try': return a.lines.snap;
       case 'pricing': return pricingSection().line;
       case 'start': return a.lines.go;
+      case 'virtual': return VC_COPY.beamy;
     }
   }, []);
 
@@ -1905,6 +1908,8 @@ export default function BeamyPage() {
         {hero}
         {story}
         {films}
+        {/* Virtual celebrations (VirtualCelebrations.tsx): its own stop; he beams at the card when the link goes out. */}
+        <VirtualCelebrations phone={phone} wide={wideHero} beamyHere={active === 'virtual'} onBeam={(to) => { const b = api.current; if (b !== null && readyRef.current) void b.beam(to, undefined, 'mouth'); }} />
         {pick}
         {tryIt}
         {pricingSec}
