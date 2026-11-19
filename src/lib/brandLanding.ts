@@ -145,12 +145,17 @@ export function spinSettled(s: Spin): boolean {
 
 /* ── Copy ──────────────────────────────────────────────────────────────── */
 
-/** The hero, set like the owner's reference: a light lead-in and a bold payoff in one headline. */
+/**
+ * The hero, set like the owner's reference: a light lead-in and a bold
+ * payoff in one headline (the payoff is SET in capitals by CSS; the copy
+ * stays lower case so screen readers say words, not letters), then the
+ * promise, then three beats. Nothing sits above the headline.
+ */
 export const HERO = {
-  eyebrow: 'Every guest phone becomes the booth',
   lead: 'Welcome to your',
   strong: 'immersive booth',
-  sub: 'Guests scan, snap in AR, and every shot beams to your live wall.',
+  line: 'Every guest phone becomes the booth',
+  sub: 'Scan. Snap. Beam.',
   primary: 'Create your free event',
   /** The same action where the phone header has no room for the full label. */
   primaryShort: 'Start free',
@@ -347,8 +352,6 @@ export function pricingSection(): { heading: string; intro: string; pro: string;
 
 export const START_COPY = {
   signIn: 'Sign in',
-  skipIntro: 'Skip intro',
-  skipShort: 'Skip',
 } as const;
 
 /** Footer links, matching MarketingFooter's destinations (Contact = the support dialog). */

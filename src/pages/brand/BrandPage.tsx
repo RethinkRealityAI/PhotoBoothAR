@@ -31,7 +31,7 @@ const SCALE = [
   { name: 'Display', cls: 'bw-display', spec: 'Bricolage 300 + 760 mixed · 36 → 78px · -0.034em', mixed: true, sample: '' },
   { name: 'Heading 2', cls: 'bw-h2', spec: 'Bricolage 720 · 28 → 46px · -0.022em', mixed: false, sample: 'What applies to you?' },
   { name: 'Heading 3', cls: 'bw-h3', spec: 'Bricolage 620 · 19 → 23px', mixed: false, sample: 'Share one link' },
-  { name: 'Eyebrow', cls: 'bw-eyebrow', spec: 'Geist 500 · 15px · short rule under', mixed: false, sample: HERO.eyebrow },
+  { name: 'Eyebrow', cls: 'bw-eyebrow', spec: 'Geist 500 · 15px · short rule under', mixed: false, sample: HERO.line },
   { name: 'Body', cls: 'bw-body', spec: 'Geist 400 · 15 → 17px · 1.5 · Ink 2', mixed: false, sample: 'Guests scan a QR code and the booth opens on their phones.' },
   { name: 'Small', cls: 'bw-small', spec: 'Geist 400 · 14px', mixed: false, sample: 'Nothing leaves your device.' },
   { name: 'Label', cls: 'bw-label', spec: 'Geist 500 · 13px · sentence case', mixed: false, sample: 'Step 1' },

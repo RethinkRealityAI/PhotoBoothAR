@@ -67,6 +67,7 @@ import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, 
 import { preloadModel } from '../../lib/glbCache';
 import { ambientFor } from '../../lib/ambientFx';
 import AmbientFx from '../../components/beamy/AmbientFx';
+import ShineText from '../../components/beamy/ShineText';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
@@ -579,8 +580,21 @@ export default function BeamyPage() {
       // above it. Phones/tablets place the frame on him instead (below).
       const hf0 = heroFrame.current;
       let heroIn: ReturnType<typeof standInFrame> | null = null;
-      const heroSample = hf0 !== null && vw >= WIDE_HERO_MIN ? samples.find((x) => x.id === 'hero') : undefined;
-      if (hf0 !== null && heroSample !== undefined) {
+      const heroSample = hf0 !== null && (vw >= WIDE_HERO_MIN || isPhone) ? samples.find((x) => x.id === 'hero') : undefined;
+      // Phones: a smaller cover in the wall's lower-left corner (it used to
+      // hide most of the wall's left half), him standing inside its window.
+      const regP = isPhone && heroSample !== undefined ? rectOf(heroRegionRef.current) : null;
+      if (hf0 !== null && heroSample !== undefined && regP !== null) {
+        const fw = regP.width * 0.46;
+        const fh = Math.min(regP.height, (fw * 16) / 9);
+        const panelL = rectOf(heroPanelRef.current)?.left ?? 0;
+        heroIn = standInFrame({
+          opening: hf0.opening ?? DEFAULT_OPENING,
+          box: { top: regP.top + regP.height - fh, bottom: regP.top + regP.height, left: regP.left, right: regP.left + fw },
+          // His selfie arm stays inside the hero panel.
+          clearLeft: { x: panelL + 6, reach: 0.66 },
+        });
+      } else if (hf0 !== null && heroSample !== undefined && !isPhone) {
         const copyR = main.querySelector('[data-card-avoid]')?.getBoundingClientRect();
         const wallR = heroWallColRef.current?.firstElementChild?.getBoundingClientRect();
         const panelR = rectOf(heroPanelRef.current);
@@ -592,11 +606,13 @@ export default function BeamyPage() {
             // (measured): keep them clear of the headline.
             clearLeft: { x: copyR.right + 8, reach: 0.66 },
           });
-          const st0 = heroIn.stand;
-          heroSample.rect = { left: st0.x - st0.heightPx, top: st0.y - st0.heightPx, width: st0.heightPx * 2, height: st0.heightPx };
-          heroSample.pose.fit = 1;
-          heroSample.pose.ax = 0.5;
         }
+      }
+      if (heroIn !== null && heroSample !== undefined) {
+        const st0 = heroIn.stand;
+        heroSample.rect = { left: st0.x - st0.heightPx, top: st0.y - st0.heightPx, width: st0.heightPx * 2, height: st0.heightPx };
+        heroSample.pose.fit = 1;
+        heroSample.pose.ax = 0.5;
       }
       const b = blendSlots(samples, vw, vh, isPhone);
       const slotId = (b.active >= 0 ? samples[b.active].id : activeRef.current) as StopId;
@@ -1087,21 +1103,6 @@ export default function BeamyPage() {
     return () => window.clearInterval(id);
   }, [arOn, arFx]);
 
-  /* Only the Skip chip skips the intro (or scrolling on). */
-  const skipIntro = useCallback(() => {
-    logStep('intro:skip');
-    begin();
-    const b = api.current;
-    b?.skipArrival();
-    b?.stopSelfie();
-    b?.stopBeam();
-    hideSelfieFx();
-    setArrival('done');
-    setIntroRunning(false);
-    const p = pendingSelfie.current;
-    if (p !== null) landSelfie(p, false);
-  }, [begin, hideSelfieFx, landSelfie]);
-
   /* ── The booth hands over a shot: Beamy catches it, then beams it. ─── */
   const onBeam = useCallback((src: string) => {
     logStep('try:shot');
@@ -1172,7 +1173,7 @@ export default function BeamyPage() {
     const b = api.current;
     if (b === null) return;
     if (activeRef.current === 'hero') {
-      // During the intro a tap is just a sparkle (only Skip skips); once it
+      // During the intro a tap is just a sparkle (it is short); once it
       // has settled, a tap tries on the next look (with a little hop).
       if (introRunning) { b.sparkle('sparkle'); return; }
       logStep('look:tap');
@@ -1308,13 +1309,18 @@ export default function BeamyPage() {
   );
   const heroHeadline = (
     <>
-      <p className={`bw-eyebrow ${wideHero ? '' : 'text-[14px] after:hidden'}`} style={i(0)}>{HERO.eyebrow}</p>
-      <h1 className={`bw-display ${wideHero ? 'mt-6' : 'mt-2'}`} style={wideHero ? { ...i(1), fontSize: 'clamp(40px, min(22px + 3vw, 7.4dvh), 76px)' } : i(1)}>
+      {/* The headline first; its payoff set in capitals with a shimmering
+          rim (components/beamy/ShineText: the glow CTA's travelling light, on the
+          outline only; the fill stays solid ink). */}
+      <h1 className="bw-display" style={wideHero ? { ...i(0), fontSize: 'clamp(40px, min(22px + 3vw, 7.4dvh), 76px)' } : i(0)}>
         <span className="bw-light block">{HERO.lead}</span>
-        <span className="block">{HERO.strong}</span>
+        <span className="bw-hl-caps block">
+          <ShineText text={HERO.strong} />
+        </span>
       </h1>
-      {/* Full ink here: the hero's sheen and floor light sit behind this line. */}
-      <p className={`bw-body ${wideHero ? 'mt-5 max-w-[34ch]' : 'mt-2 max-w-[36ch]'}`} style={{ ...i(2), color: 'var(--bw-ink)' }}>{HERO.sub}</p>
+      {/* Full ink here: the hero's sheen and floor light sit behind these lines. */}
+      <p className={`bw-hl-line ${wideHero ? 'mt-5' : 'mt-2.5'}`} style={{ ...i(1), color: 'var(--bw-ink)' }}>{HERO.line}</p>
+      <p className={`bw-hl-beats ${wideHero ? 'mt-2' : 'mt-1'}`} style={i(2)}>{HERO.sub}</p>
     </>
   );
   const heroRows = heroGeo?.rows ?? 3;
@@ -1335,11 +1341,6 @@ export default function BeamyPage() {
         <p className="bw-label pointer-events-none absolute inset-x-0 top-[55%] text-center">Beamy is on his way&hellip;</p>
       )}
     </>
-  );
-  const skipChip = introRunning && (
-    <button type="button" className="bw-btn bw-btn-secondary bw-btn-sm" onClick={skipIntro} data-skip-intro>
-      {wideHero ? START_COPY.skipIntro : START_COPY.skipShort}
-    </button>
   );
   const panelInset = wideHero ? clamp(Math.round(vp.w * 0.022), 18, 40) : 10;
   const radius = wideHero ? 36 : 24;
@@ -1378,7 +1379,6 @@ export default function BeamyPage() {
             <div ref={heroWallColRef} className={`flex h-full items-start justify-end ${showContent ? 'bw-rise' : 'invisible'}`}>
               <div data-bubble-right className="relative" style={{ ...i(2), marginTop: heroGeo?.wall?.top ?? 0, marginRight: heroGeo?.wall != null ? -40 : 0, width: heroGeo?.wall?.width ?? 'min(420px, 100%)', height: heroGeo?.wall?.height ?? 'auto' }}>{heroWall}</div>
             </div>
-            <div className="absolute bottom-5 left-[clamp(28px,3.4vw,64px)]">{skipChip}</div>
           </div>
         ) : (
           <div className="relative flex h-full flex-col px-4 pb-4 pt-4 sm:px-8">
@@ -1423,7 +1423,6 @@ export default function BeamyPage() {
               ))}
             </div>
             <div className={`mt-4 shrink-0 ${showContent ? 'bw-rise' : 'invisible'}`}>{heroCtas}</div>
-            {introRunning && <div className="mt-3 flex justify-center">{skipChip}</div>}
           </div>
         )}
         {/* The front pane: a crisp rim and a soft sheen that slides with the pointer. */}
