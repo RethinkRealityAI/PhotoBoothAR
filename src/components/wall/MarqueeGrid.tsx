@@ -34,6 +34,7 @@ import {
   autoplayVideoIds,
   boundRowItems,
   marqueeMetrics,
+  fitMarqueeMetrics,
   type MarqueeMetrics,
 } from '../../lib/wallRuntime';
 import { usePageVisible, usePrefersReducedMotion } from './wallHooks';
@@ -318,9 +319,13 @@ interface MarqueeGridProps {
    *  exactly as before. */
   savedIds?: ReadonlySet<string>;
   onSelect?: (post: Post) => void;
+  /** Platform wall: the height actually free between header and footer. When
+   *  set, rows are sized to FIT it (fitMarqueeMetrics) instead of the legacy
+   *  viewport sizing that runs under the chrome. */
+  areaH?: number;
 }
 
-export default function MarqueeGrid({ posts, scrollSpeed, viewportH, savedIds, onSelect }: MarqueeGridProps) {
+export default function MarqueeGrid({ posts, scrollSpeed, viewportH, savedIds, onSelect, areaH }: MarqueeGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Compute effective px/s — honour reduced motion with a ~30% cap
@@ -336,7 +341,10 @@ export default function MarqueeGrid({ posts, scrollSpeed, viewportH, savedIds, o
   // Card geometry follows the viewport height: 290 px on a laptop (unchanged),
   // ~510 px on a 4K projector, where the old fixed size made each face about
   // 9% of the screen width.
-  const metrics = useMemo(() => marqueeMetrics(viewportH, numRows), [viewportH, numRows]);
+  const metrics = useMemo(
+    () => (areaH === undefined ? marqueeMetrics(viewportH, numRows) : fitMarqueeMetrics(areaH, numRows)),
+    [viewportH, numRows, areaH],
+  );
 
   const playable = useMemo(() => autoplayVideoIds(posts, MARQUEE_VIDEO_CAP), [posts]);
 

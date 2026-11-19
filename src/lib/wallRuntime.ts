@@ -184,6 +184,35 @@ export function marqueeMetrics(viewportH: number, numRows: number): MarqueeMetri
   };
 }
 
+/** Smallest card `fitMarqueeMetrics` will draw — below this a face stops reading. */
+export const MARQUEE_FIT_MIN_CARD_H = 96;
+
+/**
+ * Marquee geometry that FITS a measured area — the platform wall's version.
+ *
+ * `marqueeMetrics` sizes from the whole viewport and never goes below 290 px,
+ * which is right for the legacy wall (its rows were designed to run under the
+ * header) and wrong for the platform wall, whose rows start BELOW its glass
+ * header and stop above the footer: three 290 px rows do not fit the ~640 px
+ * left on a laptop, so they ran under the chrome. This divides the area that
+ * is actually free between the rows, so every row is whole and on screen.
+ * The 8 px top and bottom inset matches the grid's breathing room.
+ */
+export function fitMarqueeMetrics(areaH: number, numRows: number): MarqueeMetrics {
+  const rows = Math.max(1, Math.round(numRows) || 1);
+  const h = Number.isFinite(areaH) && areaH > 0 ? areaH : WALL_BASE_H;
+  const gapGuess = Math.round(clamp(8, h / 60, 28));
+  const fit = Math.floor((h - 16 - gapGuess * (rows - 1)) / rows);
+  const cardH = Math.round(clamp(MARQUEE_FIT_MIN_CARD_H, fit, MAX_CARD_H));
+  const k = cardH / BASE_CARD_H;
+  return {
+    cardH,
+    minCardW: Math.round(150 * k),
+    maxCardW: Math.round(360 * k),
+    gap: gapGuess,
+  };
+}
+
 /**
  * Height ceiling for a mosaic tile, or 0 for "no ceiling".
  *

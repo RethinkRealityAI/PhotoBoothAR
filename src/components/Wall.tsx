@@ -762,7 +762,9 @@ export default function Wall() {
   /** One platform view. Crossfaded by the AnimatePresence in the render. */
   const renderPlatformView = () => {
     if (platformView === 'leaderboard') {
-      return <div className="wall-chrome h-full"><LeaderboardView /></div>;
+      // `relative` so the board's own `absolute inset-0` centres in the room
+      // under the header instead of behind it.
+      return <div className="wall-chrome wall-leaderboard relative h-full"><LeaderboardView platform /></div>;
     }
     if (galleryState !== 'ready') return <div className="wall-chrome h-full">{galleryPlaceholder}</div>;
     switch (platformView) {
@@ -802,13 +804,20 @@ export default function Wall() {
       case 'marquee':
         return (
           <>
-            <MarqueeGrid
-              posts={posts}
-              scrollSpeed={wallSettings.galleryScrollSpeed ?? 1}
-              viewportH={viewport.height}
-              savedIds={savedIds}
-              onSelect={setLightboxPost}
-            />
+            {/* MarqueeGrid is `absolute inset-0`, which resolves against the
+                PADDING box — this wrapper puts it inside the room left
+                between the header and the footer, and areaH sizes its rows
+                to that room, so no row runs under the chrome. */}
+            <div className="relative h-full w-full">
+              <MarqueeGrid
+                posts={posts}
+                scrollSpeed={wallSettings.galleryScrollSpeed ?? 1}
+                viewportH={viewport.height}
+                areaH={Math.max(0, viewport.height - (projectionMode ? 0 : headerH) - (gridAreaStyle.paddingBottom as number))}
+                savedIds={savedIds}
+                onSelect={setLightboxPost}
+              />
+            </div>
             {gallerySpotlight}
           </>
         );
@@ -820,6 +829,7 @@ export default function Wall() {
             onTileRect={handleTileRect}
             onSelect={setLightboxPost}
             projectionMode={projectionMode}
+            stage
           />
         );
       case 'slideshow':
@@ -838,7 +848,7 @@ export default function Wall() {
   const platformAreaStyle: React.CSSProperties =
     platformView === 'slideshow'
       ? { paddingRight: modeAreaStyle.paddingRight }
-      : platformView === 'grid'
+      : platformView === 'grid' || platformView === 'marquee' || platformView === 'carousel' || platformView === 'leaderboard'
         ? gridAreaStyle
         : modeAreaStyle;
 

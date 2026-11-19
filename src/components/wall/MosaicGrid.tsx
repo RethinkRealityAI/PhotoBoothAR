@@ -266,7 +266,15 @@ export default function MosaicGrid({ posts, freshIds, beamingIds, savedIds, view
     // most photos sat off screen to the right. Columns inside a scroller
     // grow downward and scroll as intended.
     return (
-      <div className="w-full h-full overflow-y-auto hide-scrollbar px-4 pt-4 pb-24 sm:pb-4">
+      // The last visible row is always cut by the screen edge (the wall
+      // scrolls); a short fade turns that hard crop into a soft run-off.
+      <div
+        className="w-full h-full overflow-y-auto hide-scrollbar px-4 pt-4 pb-24 sm:pb-4"
+        style={{
+          maskImage: 'linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 56px), transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 56px), transparent 100%)',
+        }}
+      >
         <div style={columnsStyle}>{content}</div>
       </div>
     );

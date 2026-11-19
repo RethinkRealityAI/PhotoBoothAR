@@ -683,6 +683,24 @@ select option:disabled {
     inset 0 0 0 1px rgba(255, 255, 255, 0.65),
     0 14px 36px -18px rgba(44, 40, 120, 0.45);
 }
+/* Leaderboard on a light wall: the shared board writes its labels as
+   champagne/ivory at 30-50% alpha, which on a near-white panel lands around
+   2:1. Solid ink here (#4A4783 on white is ~8:1, #1C1A4C ~15:1). */
+[data-wall-tone="light"] .wall-leaderboard :is([class*="text-champagne/"], [class*="text-gold-300/"]) {
+  color: #4A4783;
+}
+[data-wall-tone="light"] .wall-leaderboard [class*="text-ivory/"] {
+  color: #1C1A4C;
+}
+/* Platform leaderboard on a phone: Points + Photos + Challenges columns
+   (24+16+20 rem-ish) left the NAME zero pixels. Keep the name and points. */
+@media (max-width: 639px) {
+  .wall-leaderboard :is(.w-16, .w-20).shrink-0 { display: none; }
+  .wall-leaderboard .w-24.shrink-0 { width: 4rem; }
+}
+[data-wall-tone="light"] .wall-leaderboard .glass-strong {
+  background: rgba(255, 255, 255, 0.82);
+}
 [data-wall-tone="light"] .wall-tile-face {
   background: rgba(255, 255, 255, 0.7);
   box-shadow: 0 16px 36px -18px rgba(44, 40, 120, 0.5), 0 2px 6px -2px rgba(44, 40, 120, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.8);
