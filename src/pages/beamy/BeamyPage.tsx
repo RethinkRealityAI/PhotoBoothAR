@@ -270,6 +270,8 @@ export default function BeamyPage() {
   const stageFrame = useRef<(() => void) | null>(null);
   /** The AR step's frame image (ArPicker); the glide places it on him every frame. */
   const arFrameRef = useRef<HTMLImageElement | null>(null);
+  /** The frames carousel box, laid exactly over the frame (ArPicker). */
+  const arCarRef = useRef<HTMLDivElement | null>(null);
   const arFrameAt = useRef({ el: null as HTMLImageElement | null, t: 0, x: 0, tip: 0, mouth: 0, hp: 0, lift: 0, base: 0, mAt: 0.485 });
   /** The frame the AR step has picked (its window shapes where it stands). */
   const arFrameLook = useRef<HomeLook | undefined>(undefined);
@@ -727,6 +729,8 @@ export default function BeamyPage() {
           });
         const tf = `translate(${g.left.toFixed(1)}px, ${g.top.toFixed(1)}px)`;
         if (fr.style.transform !== tf) { fr.style.transform = tf; fr.style.height = `${g.h.toFixed(1)}px`; }
+        const carEl = arCarRef.current;
+        if (carEl !== null && carEl.style.transform !== tf) { carEl.style.transform = tf; carEl.style.height = `${g.h.toFixed(1)}px`; }
         // The prop shrinks into the frame's window when it must (never pokes out of the frame).
         bw.wornScale(g.propScale);
         if (STEP_LOG) (window as unknown as { __beamyAr?: unknown }).__beamyAr = { ...g, tip: fa.tip, mouth: fa.mouth, hp: fa.hp, lift: fa.lift, x: fa.x, hatTop: fa.tip - (fa.base + (fa.lift - fa.base) * g.propScale) };
@@ -1409,9 +1413,10 @@ export default function BeamyPage() {
   const storyIds = STORY_STEPS.map((s) => s.id);
   /** His slot in the story. */
   // Phones: on the AR step he steps up under the picker so his frame fills the
-  // screen with no dead band (wide screens keep him where he stands).
+  // screen with no dead band (wide screens keep him where he stands). A
+  // layout marker only: it never takes a tap (the frames carousel sits on it).
   const storySlotCls = `${stacked ? 'left-[15%] right-[15%] h-[46%]' : 'bottom-[3%] left-[30%] right-[30%] h-[58%]'} ${
-    stacked ? (inStoryAR ? 'bottom-[11%]' : 'bottom-[1%]') : ''} transition-[bottom] duration-700 ease-out`;
+    stacked ? (inStoryAR ? 'bottom-[11%]' : 'bottom-[1%]') : ''} pointer-events-none transition-[bottom] duration-700 ease-out`;
   const qrUrl = demoQrUrl(window.location.origin, A.demoEventSlug ?? 'demo');
   const storyDots = (
     <div className="bw-cap-dots" role="group" aria-label="Steps">
@@ -1446,7 +1451,7 @@ export default function BeamyPage() {
   const storyScenes = (
     <>
       <StoryScenes step={step} live={active === 'story'} ids={storyIds} stacked={stacked} qrUrl={qrUrl} wallCentreRef={storyWallRef} seed={seed} beamyAt={beamyAt} onCue={onCue} />
-      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onToggle={toggleAr} active={inStoryAR} stacked={stacked} frameRef={arFrameRef} />
+      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onToggle={toggleAr} active={inStoryAR} stacked={stacked} frameRef={arFrameRef} carRef={arCarRef} />
     </>
   );
   const story = (

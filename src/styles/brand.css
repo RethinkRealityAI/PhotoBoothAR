@@ -1735,6 +1735,61 @@
     filter: drop-shadow(0 18px 28px rgba(10, 8, 40, 0.45));
     animation: bw-ar-frame-in 560ms var(--bw-ease) both;
   }
+  /* The frames carousel: the page lays this box exactly over the frame, so
+     the frames before and after it peek in at its sides (tilted away, a
+     touch dimmer) and the arrows sit on its edges. Only the peeks and the
+     arrows take taps; the box passes everything else through to the page. */
+  .bw-ar-car {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 0;
+    aspect-ratio: 9 / 16;
+    pointer-events: none;
+    touch-action: pan-y;
+    perspective: 900px;
+    transform-origin: 50% 100%;
+  }
+  .bw-ar-peek {
+    position: absolute;
+    top: 14%;
+    height: 72%;
+    aspect-ratio: 9 / 16;
+    padding: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    opacity: 0.6;
+    pointer-events: auto;
+    box-shadow: 0 24px 40px -22px rgba(10, 8, 40, 0.8);
+    transition: opacity 200ms ease;
+    animation: bw-ar-peek-in 520ms var(--bw-ease) both;
+  }
+  .bw-ar-peek > img { width: 100%; height: 100%; object-fit: cover; }
+  .bw-ar-peek:hover { opacity: 0.85; }
+  .bw-ar-peek[data-side="next"] { left: calc(100% + 14px); transform: rotateY(-24deg); transform-origin: 0 50%; }
+  .bw-ar-peek[data-side="prev"] { right: calc(100% + 14px); transform: rotateY(24deg); transform-origin: 100% 50%; }
+  .bw-ar-car > .bw-ar-arrow {
+    position: absolute;
+    top: 50%;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    margin-top: -22px;
+    border-radius: 999px;
+    pointer-events: auto;
+    color: var(--bw-ink);
+    background-color: var(--bw-card-veil);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 12px 24px -14px var(--bw-shadow);
+  }
+  .bw-ar-car > .bw-ar-arrow:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+  .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: -22px; }
+  .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: -22px; }
+  /* Phones: the frame nearly fills the width, so the arrows step inside its edges. */
+  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: 6px; }
+  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: 6px; }
 
   /* ── How it works, challenges (cue-driven, see STORY_SEQ.medal): the
      alert pings, Ada's selfie lands with a flash, "Sent by Ada", the alert
@@ -1924,6 +1979,7 @@
   100% { box-shadow: 0 0 0 16px rgba(110, 231, 183, 0); }
 }
 @keyframes bw-ar-frame-in { from { opacity: 0; scale: 1.06; } }
+@keyframes bw-ar-peek-in { from { opacity: 0; } }
 @keyframes bw-ch-ping {
   0% { box-shadow: 0 0 0 0 rgba(255, 197, 107, 0.75); }
   100% { box-shadow: 0 0 0 16px rgba(255, 197, 107, 0); }
