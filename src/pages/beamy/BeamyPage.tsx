@@ -72,7 +72,7 @@ import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker from './ArPicker';
 import {
-  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arTour, frameOnBeamy, demoQrUrl, smallWindow, stepIntoFrame, lookAction, selectedLooks, toBeamyLook, toggleLook,
+  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arTour, frameOnBeamy, demoQrUrl, smallWindow, standInFrame, stepIntoFrame, lookAction, selectedLooks, toBeamyLook, toggleLook,
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
@@ -573,6 +573,31 @@ export default function BeamyPage() {
         storySample.rect = { left: s.x - (s.heightPx * 1.1) / 2, top: s.y - s.heightPx, width: s.heightPx * 1.1, height: s.heightPx };
         storySample.pose.fit = 1;
       }
+      // Laptops, the hero's frame look (the Holiday cover): the frame fills
+      // the gap between the copy and the wall and he shrinks to stand INSIDE
+      // its window (lib/beamyAssets standInFrame), his antlers free to pop
+      // above it. Phones/tablets place the frame on him instead (below).
+      const hf0 = heroFrame.current;
+      let heroIn: ReturnType<typeof standInFrame> | null = null;
+      const heroSample = hf0 !== null && vw >= WIDE_HERO_MIN ? samples.find((x) => x.id === 'hero') : undefined;
+      if (hf0 !== null && heroSample !== undefined) {
+        const copyR = main.querySelector('[data-card-avoid]')?.getBoundingClientRect();
+        const wallR = heroWallColRef.current?.firstElementChild?.getBoundingClientRect();
+        const panelR = rectOf(heroPanelRef.current);
+        if (copyR !== undefined && wallR !== undefined && panelR !== null && wallR.left - copyR.right > 120) {
+          heroIn = standInFrame({
+            opening: hf0.opening ?? DEFAULT_OPENING,
+            box: { top: Math.max(panelR.top + 12, headerH + 8), bottom: panelR.top + panelR.height - 12, left: copyR.right + 12, right: wallR.left - 12 },
+            // His selfie arm and phone reach ~0.61 of his height to his left
+            // (measured): keep them clear of the headline.
+            clearLeft: { x: copyR.right + 8, reach: 0.66 },
+          });
+          const st0 = heroIn.stand;
+          heroSample.rect = { left: st0.x - st0.heightPx, top: st0.y - st0.heightPx, width: st0.heightPx * 2, height: st0.heightPx };
+          heroSample.pose.fit = 1;
+          heroSample.pose.ax = 0.5;
+        }
+      }
       const b = blendSlots(samples, vw, vh, isPhone);
       const slotId = (b.active >= 0 ? samples[b.active].id : activeRef.current) as StopId;
       const settled = b.share > 0.85;
@@ -616,7 +641,11 @@ export default function BeamyPage() {
         const box = vw >= WIDE_HERO_MIN && copyR !== undefined && wallR !== undefined && panelR !== null
           ? { top: Math.max(panelR.top + 12, headerH + 8), bottom: panelR.top + panelR.height - 12, left: copyR.right + 12, right: wallR.left - 12 }
           : reg !== null ? { top: Math.max(reg.top, headerH + 8), bottom: reg.top + reg.height, left: reg.left, right: reg.left + reg.width } : null;
-        if (box !== null && box.right - box.left > 40 && box.bottom - box.top > 40) {
+        if (heroIn !== null) {
+          frameAt = heroIn.frame;
+          stApi.wornScale(1);
+          if (STEP_LOG) (window as unknown as { __beamyHeroFrame?: unknown }).__beamyHeroFrame = { ...heroIn.frame, stand: heroIn.stand, propScale: 1, fits: true, inWindow: true };
+        } else if (box !== null && box.right - box.left > 40 && box.bottom - box.top > 40) {
           const hpx = b.heightPx;
           const g = frameOnBeamy({
             x: b.x, tip: b.y - hpx * 1.02, mouth: b.y - hpx * arFrameAt.current.mAt, heightPx: hpx,
@@ -874,7 +903,7 @@ export default function BeamyPage() {
       card.style.height = `${ch.toFixed(1)}px`;
       card.style.transform = `translate3d(${(x - cw / 2).toFixed(1)}px, ${(y - ch / 2).toFixed(1)}px, 0) rotate(${st.tiltDeg.toFixed(2)}deg) scale(${Math.max(0.001, st.scale).toFixed(3)})`;
       cardBox = { left: x - cw / 2, top: y - ch / 2, width: cw, height: ch };
-    });
+    }, { shades: false }); // the intro selfie shows the Christmas look only
     if (!played) logStep('selfie:stopped');
     if (!launched) hideSelfieFx();
   }, [hideSelfieFx, launchSelfie]);

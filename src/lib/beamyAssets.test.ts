@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   AR_CATEGORIES, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, arOrder, arTour, carousel, categoryStart, demoQrUrl,
-  DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, smallWindow, stepIntoFrame, toBeamyLook, toggleLook, type HomeLook,
+  DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, smallWindow, standInFrame, stepIntoFrame, BODY_W, toBeamyLook, toggleLook, type HomeLook,
 } from './beamyAssets';
 import { BEAMY_LOOKS } from './beamyLooks';
 import { EMOJI_RE } from './brandLanding';
@@ -268,5 +268,40 @@ describe('beamyAssets', () => {
     // A dev or http origin cannot be opened from a phone: production instead.
     expect(demoQrUrl('http://localhost:5180', 'demo')).toBe('https://beamwall.app/e/demo/welcome?from=beamy-qr');
     expect(demoQrUrl('https://beamwall.app/', 'a b')).toBe('https://beamwall.app/e/a%20b/welcome?from=beamy-qr');
+  });
+});
+
+describe('standInFrame (a frame look in a box narrower than him)', () => {
+  it('fills the box with the frame and stands him wholly inside its window', () => {
+    const o = { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 }; // the Holiday cover
+    for (const box of [{ top: 128, bottom: 856, left: 615, right: 924 }, { top: 100, bottom: 400, left: 0, right: 600 }]) {
+      const { frame, stand } = standInFrame({ opening: o, box });
+      const w = (frame.h * 9) / 16;
+      // The frame stays in its box.
+      expect(frame.left).toBeGreaterThanOrEqual(box.left - 0.5);
+      expect(frame.left + w).toBeLessThanOrEqual(box.right + 0.5);
+      expect(frame.top).toBeGreaterThanOrEqual(box.top - 0.5);
+      expect(frame.top + frame.h).toBeLessThanOrEqual(box.bottom + 0.5);
+      // His body is inside the window: sides, feet and head.
+      const win = { l: frame.left + o.left * w, r: frame.left + o.right * w, t: frame.top + o.top * frame.h, b: frame.top + o.bottom * frame.h };
+      expect(stand.x - (stand.heightPx * BODY_W) / 2).toBeGreaterThanOrEqual(win.l - 0.5);
+      expect(stand.x + (stand.heightPx * BODY_W) / 2).toBeLessThanOrEqual(win.r + 0.5);
+      expect(stand.y).toBeLessThanOrEqual(win.b);
+      expect(stand.y - stand.heightPx).toBeGreaterThan(win.t);
+    }
+  });
+
+  it('keeps his selfie arm clear of the copy on its left', () => {
+    const o = { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 };
+    const box = { top: 128, bottom: 856, left: 615, right: 924 };
+    const free = standInFrame({ opening: o, box });
+    // Unconstrained, a 0.66-height reach crosses x = 604 (the headline's edge).
+    expect(free.stand.x - 0.66 * free.stand.heightPx).toBeLessThan(604);
+    const { frame, stand } = standInFrame({ opening: o, box, clearLeft: { x: 604, reach: 0.66 } });
+    expect(stand.x - 0.66 * stand.heightPx).toBeGreaterThanOrEqual(603.5);
+    // ...by the least it takes (he shrinks no more than he must).
+    expect(stand.x - 0.66 * stand.heightPx).toBeLessThan(606);
+    expect(frame.left + (frame.h * 9) / 16).toBeLessThanOrEqual(box.right + 0.5);
+    expect(stand.heightPx).toBeGreaterThan(free.stand.heightPx * 0.75);
   });
 });

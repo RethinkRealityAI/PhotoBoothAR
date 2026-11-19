@@ -297,6 +297,61 @@ export function stepIntoFrame(i: { opening: FrameOpening; box: { top: number; bo
   };
 }
 
+/** His width over his height with his arms in (the body a frame's window must hold). */
+export const BODY_W = 0.8;
+
+/**
+ * A frame look worn in a box narrower than him (laptops: the gap between the
+ * hero's copy and its wall): the frame takes the whole box (centred), and he
+ * shrinks to stand INSIDE its window, his body within its width, his feet
+ * just above its bottom edge and his head clear below its top. What he wears
+ * on his head may pop out above the window (antlers do).
+ */
+export function standInFrame(i: {
+  opening: FrameOpening;
+  box: { top: number; bottom: number; left: number; right: number };
+  /** Keep his reach (x his height, left of his centre: the selfie arm and phone) right of this x. */
+  clearLeft?: { x: number; reach: number };
+}): {
+  frame: { left: number; top: number; h: number };
+  stand: { x: number; y: number; heightPx: number };
+} {
+  const r = placeInFrame(i.opening, i.box);
+  const c = i.clearLeft;
+  const clears = (q: typeof r) => c === undefined || q.stand.x - c.reach * q.stand.heightPx >= c.x;
+  if (clears(r)) return r;
+  // The arm reaches past the box: move the box's left edge in (frame and he
+  // shrink and shift right) by the least that clears. Moving it in only ever
+  // helps, so a bisection finds that edge.
+  let lo = i.box.left;
+  let hi = Math.max(lo, i.box.right - 40);
+  let best = placeInFrame(i.opening, { ...i.box, left: hi });
+  for (let k = 0; k < 16 && hi - lo > 0.5; k++) {
+    const mid = (lo + hi) / 2;
+    const q = placeInFrame(i.opening, { ...i.box, left: mid });
+    if (clears(q)) { hi = mid; best = q; } else lo = mid;
+  }
+  return best;
+}
+
+function placeInFrame(o: FrameOpening, box: { top: number; bottom: number; left: number; right: number }): {
+  frame: { left: number; top: number; h: number };
+  stand: { x: number; y: number; heightPx: number };
+} {
+  const bh = Math.max(1, box.bottom - box.top);
+  const h = Math.max(1, Math.min(bh, ((box.right - box.left) * 16) / 9));
+  const w = (h * 9) / 16;
+  const left = (box.left + box.right) / 2 - w / 2;
+  const top = box.top + (bh - h) / 2;
+  const winW = (o.right - o.left) * w;
+  const winH = (o.bottom - o.top) * h;
+  const hp = Math.max(1, Math.min(winW / BODY_W, winH * 0.82));
+  return {
+    frame: { left, top, h },
+    stand: { x: left + ((o.left + o.right) / 2) * w, y: top + o.bottom * h - winH * 0.03, heightPx: hp },
+  };
+}
+
 /** A HomeLook as the stage's BeamyLook (frames/props only; others are not worn). A frame's `with` prop rides along. */
 export function toBeamyLook(l: HomeLook, frame?: { h: number; c: number }): BeamyLook {
   const a = lookAction(l);

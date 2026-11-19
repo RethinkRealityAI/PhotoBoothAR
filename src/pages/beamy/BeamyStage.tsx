@@ -165,9 +165,10 @@ export interface BeamyApi {
    * Play the Selfie clip here (no second canvas). `onFrame` runs every frame
    * of the clip so the page can draw the flash and the photo card; the snap
    * frame carries his portrait. Resolves true at the clip's end, false if
-   * another clip (or `stopSelfie`) cut it short.
+   * another clip (or `stopSelfie`) cut it short. `shades: false` keeps the
+   * clip's heart shades off (a selfie in a worn look shows only that look).
    */
-  selfie(onFrame: (f: SelfieFrame) => void): Promise<boolean>;
+  selfie(onFrame: (f: SelfieFrame) => void, opts?: { shades?: boolean }): Promise<boolean>;
   stopSelfie(): void;
   /** Finish an `arrive()` in flight at once (a click skips the intro). */
   skipArrival(): void;
@@ -442,7 +443,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const propSpin = useRef(0);
   const bodyBone = useRef<THREE.Object3D | null>(null);
   const phoneBone = useRef<THREE.Object3D | null>(null);
-  const selfieRun = useRef<{ t: number; tl: SelfieTimeline; snapped: boolean; action: THREE.AnimationAction; onFrame: (f: SelfieFrame) => void; resolve: (done: boolean) => void } | null>(null);
+  /** The heart shades' bone (the Selfie and ShadesOn clips scale it up). */
+  const shadesBone = useRef<THREE.Object3D | null>(null);
+  const selfieRun = useRef<{ t: number; tl: SelfieTimeline; snapped: boolean; noShades: boolean; action: THREE.AnimationAction; onFrame: (f: SelfieFrame) => void; resolve: (done: boolean) => void } | null>(null);
   const crystalRefs = useRef<(THREE.Group | null)[]>([]);
   const crystalShadowRefs = useRef<(THREE.Mesh | null)[]>([]);
   /** The mirrored copy of his rig on the hero's glossy floor (desktop only). */
@@ -460,6 +463,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const frameBack = useRef<THREE.Mesh>(null);
   const frameOpening = useRef<{ top: number; bottom: number; left: number; right: number } | null>(null);
   const frameOn = useRef({ on: false, alpha: 0 });
+  /** Where the page last placed the frame (it fades out there, never jumping to his own fit). */
+  const lastFrameAt = useRef<{ left: number; top: number; h: number } | null>(null);
   /** The frame's height and centre in his heights: smaller on phones, where he is small beside the wall. */
   const frameFit = useRef<{ h: number; c: number } | null>(null);
   const frameGeo = () => frameFit.current ?? (decorRef.current.phone ? { h: 1.45, c: 0.62 } : { h: 1.7, c: 0.75 });
@@ -507,6 +512,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           // never flash on before the first mixer update.
           if ((o as THREE.Bone).isBone && o.name === 'phone') { phoneBone.current = o; o.scale.setScalar(0); }
           if ((o as THREE.Bone).isBone && o.name === 'body') bodyBone.current = o;
+          if ((o as THREE.Bone).isBone && o.name === 'shades') shadesBone.current = o;
         });
         mouthNode.current = g.scene.getObjectByName('beam') ?? null;
         // The waving hand: arm.R (Wave raises it). Its tip is the bound vertex
@@ -857,7 +863,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       where() {
         return { ...pos.current, heightPx: layoutRef.current.heightPx * scale.current };
       },
-      selfie(onFrame) {
+      selfie(onFrame, opts) {
         api.stopSelfie();
         if (actions.current[SELFIE_CLIP] === undefined) return Promise.resolve(false); // an old GLB
         yawTarget.current = 0;
@@ -866,7 +872,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         if (action === null) return Promise.resolve(false);
         action.timeScale = SELFIE_SPEED;
         return new Promise<boolean>((resolve) => {
-          selfieRun.current = { t: 0, tl: selfieTimeline(reducedRef.current), snapped: false, action, onFrame, resolve };
+          selfieRun.current = { t: 0, tl: selfieTimeline(reducedRef.current), snapped: false, noShades: opts?.shades === false, action, onFrame, resolve };
         });
       },
       stopSelfie() {
@@ -1283,6 +1289,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     (floorMat.uniforms.uTime as { value: number }).value = t;
     (floorMat.uniforms.uAlpha as { value: number }).value = appear.current * presence;
     mixer.current?.update(dt);
+    // A selfie in a worn look: the clip's heart shades stay off.
+    if (selfieRun.current?.noShades === true) shadesBone.current?.scale.setScalar(0);
 
     /* The try-on: a prop pops onto his head (overshoot; a plain grow when
        reduced); a frame fades in behind him, sized to him, never turning. */
@@ -1301,7 +1309,10 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       fmesh.visible = a > 0.01 && shown.current;
       if (fmesh.visible) {
         const pop = reduced ? 1 : 0.92 + 0.08 * fo.alpha;
-        const at = layout.frameAt;
+        // Fading out after the page let go of it: it fades where it stood.
+        if (layout.frameAt != null) lastFrameAt.current = layout.frameAt;
+        else if (fo.on) lastFrameAt.current = null;
+        const at = layout.frameAt ?? (fo.on ? null : lastFrameAt.current);
         if (at != null) {
           // Placed by the page (frameOnBeamy): his face in its window.
           const c = toWorld({ x: at.left + (at.h * 9) / 32, y: at.top + at.h / 2 });
