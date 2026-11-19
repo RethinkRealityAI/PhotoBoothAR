@@ -3,13 +3,15 @@
  * Five elegant steps, each with a bespoke gold line-art illustration (see
  * OnboardingArt.tsx). Gala-styled bottom sheet, swipeable, skippable.
  */
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { X, ChevronRight } from 'lucide-react';
-import { Art } from './OnboardingArt';
+import { useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { X, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Art, SceneArt, SceneChallengeArt } from './OnboardingArt';
 import { useEvent } from '../../events/EventContext';
 import { Emblem } from '../ui/EventLogo';
+import ResponsiveSheet from '../ui/ResponsiveSheet';
 import { useStore } from '../../store';
+import { resolveScene } from '../../lib/sceneThemes';
 
 export function useOnboarding(): { showOnboarding: boolean; dismiss: () => void } {
   const { eventId } = useEvent();
@@ -42,7 +44,149 @@ const CHALLENGES_STEP = {
   body: 'This event has photo missions — open Challenges at the top of the booth, complete them all, and race for the leaderboard.',
 };
 
-export default function Onboarding({ onDismiss, withChallengesStep = false }: Props) {
+/** Platform events get the responsive sheet/modal intro; coded legacy events
+ *  keep the original gala sheet below exactly as it shipped. Same props and
+ *  the same completion semantics either way: Skip, close, Escape, the scrim
+ *  and the last step's button all call `onDismiss` once. */
+export default function Onboarding(props: Props) {
+  const { source } = useEvent();
+  return source === 'db' ? <SceneOnboarding {...props} /> : <LegacyOnboarding {...props} />;
+}
+
+function SceneOnboarding({ onDismiss, withChallengesStep = false }: Props) {
+  const copy = useStore((s) => s.copy);
+  const { config } = useEvent();
+  const reduced = useReducedMotion() ?? false;
+  const steps = withChallengesStep ? [...copy.onboardingSteps, CHALLENGES_STEP] : copy.onboardingSteps;
+  const [step, setStep] = useState(0);
+  const [dir, setDir] = useState(1);
+  const last = steps.length - 1;
+  const at = Math.min(step, last);
+  const isLast = at === last;
+  const current = steps[at];
+  const StepArt = withChallengesStep && isLast ? SceneChallengeArt : SceneArt[Math.min(at, SceneArt.length - 1)];
+
+  const scene = config.scene ? resolveScene(config.scene) : null;
+  const tone = scene?.tone ?? 'dark';
+  const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
+
+  const go = (to: number) => {
+    const next = Math.max(0, Math.min(last, to));
+    setDir(next >= at ? 1 : -1);
+    setStep(next);
+  };
+  const advance = () => (isLast ? onDismiss() : go(at + 1));
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowRight') { e.preventDefault(); advance(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); go(at - 1); }
+  };
+  const slide = reduced ? 0 : 28;
+
+  return (
+    <ResponsiveSheet onClose={onDismiss} label={`How the ${copy.eventName} booth works`} tone={tone}>
+      <div style={vars} className="px-6 pb-6 pt-2 sm:px-9 sm:pb-8 sm:pt-7" onKeyDown={onKeyDown}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Emblem size={28} className="shrink-0" />
+            <span className="truncate font-sans text-[14px] font-medium sc-muted">{copy.eventName}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="sc-chip pressable inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-4 font-sans text-[13px] font-medium"
+          >
+            Skip
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+
+        {/* Progress: one segment per step, each a way to jump there. */}
+        <div className="mt-5 flex items-center gap-3">
+          <div className="flex flex-1 gap-1.5">
+            {steps.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => go(i)}
+                aria-label={`Go to step ${i + 1}`}
+                aria-current={i === at ? 'step' : undefined}
+                className="group flex h-6 flex-1 items-center"
+              >
+                <span
+                  className="h-1.5 w-full rounded-full transition-colors duration-300"
+                  style={{ background: i <= at ? 'var(--sc-accent)' : 'var(--sc-hair)', opacity: i < at ? 0.55 : 1 }}
+                />
+              </button>
+            ))}
+          </div>
+          <span className="shrink-0 font-sans text-[12px] tabular-nums sc-faint">
+            {at + 1} of {steps.length}
+          </span>
+        </div>
+
+        <div className="relative mt-2 overflow-hidden" aria-live="polite">
+          <AnimatePresence mode="wait" initial={false} custom={dir}>
+            <motion.div
+              key={at}
+              custom={dir}
+              initial={{ x: dir * slide, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -dir * slide, opacity: 0 }}
+              transition={{ duration: 0.24, ease: 'easeOut' }}
+              drag={reduced ? false : 'x'}
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.2}
+              onDragEnd={(_, info) => {
+                if (info.offset.x < -60) advance();
+                else if (info.offset.x > 60) go(at - 1);
+              }}
+              className="flex touch-pan-y flex-col items-center text-center"
+            >
+              <div className="relative my-4 flex h-44 w-44 items-center justify-center">
+                <div
+                  aria-hidden
+                  className="absolute inset-2 rounded-full blur-2xl"
+                  style={{ background: 'radial-gradient(closest-side, color-mix(in srgb, var(--sc-accent) 35%, transparent), transparent)' }}
+                />
+                <StepArt size={150} className="relative sc-ink" />
+              </div>
+              <p className="font-sans text-[12px] font-semibold" style={{ color: 'var(--sc-accent)' }}>{current.eyebrow}</p>
+              <h2 className="sc-display mt-1.5 text-[28px] font-semibold leading-tight sc-ink">{current.title}</h2>
+              <p className="mt-2.5 max-w-[34ch] font-sans text-[15px] leading-relaxed sc-muted">{current.body}</p>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        <div className="mt-7 flex items-center gap-3">
+          {at > 0 && (
+            <button
+              type="button"
+              onClick={() => go(at - 1)}
+              aria-label="Previous step"
+              className="sc-chip pressable flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
+            >
+              <ChevronLeft className="h-5 w-5" aria-hidden />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={advance}
+            className="sc-cta pressable flex min-h-14 flex-1 items-center justify-center gap-2 rounded-full px-6 font-sans text-[16px] font-semibold"
+          >
+            {isLast ? 'Start taking photos' : (
+              <>
+                Next
+                <ChevronRight className="h-5 w-5" aria-hidden />
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </ResponsiveSheet>
+  );
+}
+
+function LegacyOnboarding({ onDismiss, withChallengesStep = false }: Props) {
   const copy = useStore((s) => s.copy);
   const STEPS = withChallengesStep
     ? [...copy.onboardingSteps, CHALLENGES_STEP]

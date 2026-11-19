@@ -432,3 +432,139 @@ export const Art: ReadonlyArray<ComponentType<ArtProps>> = [
 ];
 
 export default Art;
+
+/* ── Scene art (platform events) ──────────────────────────────────────
+   The platform intro's illustrations: crisp glass-and-light line drawings
+   in the page's own ink (currentColor) with one accent (--sc-accent), so
+   they sit on any scene, dark or light. Motion is CSS (.sc-float/.sc-pulse/
+   .sc-spin in platform.css), which prefers-reduced-motion switches off.
+   The gold set above stays for the coded legacy events. */
+
+const ACC = { stroke: 'var(--sc-accent)' } as const;
+const ACC_FILL = { fill: 'var(--sc-accent)' } as const;
+
+function SceneFrame({ size = 148, className, children }: ArtProps & { children: ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 160 160"
+      width={size}
+      height={size}
+      className={className}
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ overflow: 'visible' }}
+    >
+      {children}
+    </svg>
+  );
+}
+
+/** A phone with a face, and the looks to choose from. */
+function SceneLook(p: ArtProps) {
+  return (
+    <SceneFrame {...p}>
+      <rect x="48" y="14" width="64" height="112" rx="14" strokeWidth="2.5" fill="currentColor" fillOpacity="0.06" />
+      <circle cx="80" cy="60" r="17" strokeWidth="2" strokeOpacity="0.8" />
+      <path d="M72 66 Q80 72 88 66" strokeWidth="2" strokeOpacity="0.8" />
+      <path d="M58 44 Q80 22 102 44" strokeWidth="2.5" style={ACC} className="sc-float" />
+      <circle cx="56" cy="144" r="8" strokeWidth="2" strokeOpacity="0.5" />
+      <circle cx="80" cy="144" r="10" strokeWidth="2.5" style={ACC} />
+      <circle cx="80" cy="144" r="15" strokeWidth="1.5" style={ACC} strokeOpacity="0.5" className="sc-pulse" />
+      <circle cx="104" cy="144" r="8" strokeWidth="2" strokeOpacity="0.5" />
+    </SceneFrame>
+  );
+}
+
+/** Flip the camera; 3D pieces follow your head. */
+function SceneFlip(p: ArtProps) {
+  return (
+    <SceneFrame {...p}>
+      <circle cx="80" cy="86" r="30" strokeWidth="2.5" fill="currentColor" fillOpacity="0.06" />
+      <path d="M68 96 Q80 106 92 96" strokeWidth="2" strokeOpacity="0.8" />
+      <circle cx="70" cy="82" r="2.5" fill="currentColor" stroke="none" />
+      <circle cx="90" cy="82" r="2.5" fill="currentColor" stroke="none" />
+      <g className="sc-float">
+        <path d="M58 52 L64 34 L80 46 L96 34 L102 52 Z" strokeWidth="2.5" style={ACC} />
+      </g>
+      <g className="sc-spin">
+        <path d="M34 86 A46 46 0 0 1 104 46" strokeWidth="2" strokeOpacity="0.45" />
+        <path d="M126 86 A46 46 0 0 1 56 126" strokeWidth="2" strokeOpacity="0.45" />
+        <path d="M100 40 L106 46 L98 50" strokeWidth="2" strokeOpacity="0.45" />
+        <path d="M60 132 L54 126 L62 122" strokeWidth="2" strokeOpacity="0.45" />
+      </g>
+    </SceneFrame>
+  );
+}
+
+/** The shutter: a photo, or hold for video. */
+function SceneShutter(p: ArtProps) {
+  return (
+    <SceneFrame {...p}>
+      <circle cx="80" cy="80" r="46" strokeWidth="2.5" fill="currentColor" fillOpacity="0.06" />
+      <circle cx="80" cy="80" r="56" strokeWidth="1.5" strokeOpacity="0.4" strokeDasharray="3 9" className="sc-spin" />
+      <circle cx="80" cy="80" r="30" strokeWidth="3" style={ACC} />
+      <circle cx="80" cy="80" r="14" stroke="none" style={ACC_FILL} className="sc-pulse" />
+      <path d="M126 30 l6 -6 M134 40 l9 -2 M118 22 l2 -9" strokeWidth="2" strokeOpacity="0.6" />
+    </SceneFrame>
+  );
+}
+
+/** Your photo beams up to the live wall. */
+function SceneSend(p: ArtProps) {
+  return (
+    <SceneFrame {...p}>
+      <rect x="86" y="14" width="62" height="46" rx="8" strokeWidth="2" strokeOpacity="0.5" />
+      <path d="M106 14 V60 M128 14 V60 M86 37 H148" strokeWidth="1.5" strokeOpacity="0.35" />
+      <path d="M44 118 L104 46" strokeWidth="6" style={ACC} strokeOpacity="0.22" />
+      <path d="M44 118 L104 46" strokeWidth="1.5" style={ACC} strokeDasharray="4 6" className="sc-pulse" />
+      <g className="sc-float">
+        <rect x="18" y="98" width="46" height="54" rx="6" strokeWidth="2.5" fill="currentColor" fillOpacity="0.08" transform="rotate(-8 41 125)" />
+        <circle cx="41" cy="118" r="9" strokeWidth="2" strokeOpacity="0.7" />
+      </g>
+      <rect x="106" y="37" width="22" height="23" stroke="none" style={ACC_FILL} fillOpacity="0.55" className="sc-pulse" />
+    </SceneFrame>
+  );
+}
+
+/** Swipe to change the look, double-tap to flip. */
+function SceneGestures(p: ArtProps) {
+  return (
+    <SceneFrame {...p}>
+      <rect x="40" y="12" width="80" height="136" rx="16" strokeWidth="2.5" fill="currentColor" fillOpacity="0.06" />
+      <path d="M56 72 H104" strokeWidth="2.5" style={ACC} />
+      <path d="M62 64 L54 72 L62 80 M98 64 L106 72 L98 80" strokeWidth="2.5" style={ACC} />
+      <g className="sc-float">
+        <circle cx="80" cy="112" r="7" strokeWidth="2.5" />
+        <circle cx="80" cy="112" r="15" strokeWidth="1.5" strokeOpacity="0.5" className="sc-pulse" />
+      </g>
+    </SceneFrame>
+  );
+}
+
+/** Photo missions and the leaderboard. */
+function SceneChallenge(p: ArtProps) {
+  return (
+    <SceneFrame {...p}>
+      <circle cx="80" cy="76" r="52" strokeWidth="2" strokeOpacity="0.35" />
+      <circle cx="80" cy="76" r="36" strokeWidth="2" strokeOpacity="0.55" />
+      <circle cx="80" cy="76" r="20" strokeWidth="2.5" style={ACC} />
+      <path d="M71 76 L78 83 L91 69" strokeWidth="3" style={ACC} />
+      <circle cx="80" cy="76" r="52" strokeWidth="2" style={ACC} strokeDasharray="40 290" className="sc-spin" />
+      <path d="M58 142 H102 M66 130 H94 V142 M70 130 V122 H90 V130" strokeWidth="2" strokeOpacity="0.6" />
+    </SceneFrame>
+  );
+}
+
+/** Platform intro art, in the default steps' order (look · flip · shutter ·
+ *  send · gestures); `SceneChallengeArt` is for the appended challenges step. */
+export const SceneArt: ReadonlyArray<ComponentType<ArtProps>> = [
+  SceneLook,
+  SceneFlip,
+  SceneShutter,
+  SceneSend,
+  SceneGestures,
+];
+export const SceneChallengeArt: ComponentType<ArtProps> = SceneChallenge;
