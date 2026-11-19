@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   AR_CATEGORIES, AR_NOUN, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, NONE_TITLE, arOrder, arStopIndex, arStops, arTitle, arTour, carousel, categoryStart, demoQrUrl, wearStop,
+  AR_REF_FRAME_ID, AR_REF_OPENING, arPropScale, arStage,
   DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, smallWindow, standInFrame, stepIntoFrame, BODY_W, toBeamyLook, toggleLook, type HomeLook,
 } from './beamyAssets';
 import { BEAMY_LOOKS } from './beamyLooks';
@@ -367,5 +368,46 @@ describe('standInFrame (a frame look in a box narrower than him)', () => {
     expect(stand.x - 0.66 * stand.heightPx).toBeLessThan(606);
     expect(frame.left + (frame.h * 9) / 16).toBeLessThanOrEqual(box.right + 0.5);
     expect(stand.heightPx).toBeGreaterThan(free.stand.heightPx * 0.75);
+  });
+
+  it('keeps ONE AR stage: the Nigerian wedding window sets his size, the box ignores the worn look', () => {
+    expect(AR_REF_FRAME_ID).toBe('ar-asoebi');
+    expect(AR_REF_OPENING).toEqual(HOME_ASSET_DEFAULTS.arLooks.find((l) => l.id === 'ar-asoebi')?.opening);
+    const box = { top: 120, bottom: 892, left: 420, right: 1020 };
+    const a = arStage({ box });
+    // A 9:16 box as tall as the room, centred; he stands in the reference window, feet near its bottom.
+    expect(a.frame.h).toBeCloseTo(772, 5);
+    expect(a.frame.left + (a.frame.h * 9) / 16 / 2).toBeCloseTo(720, 5);
+    const w = (a.frame.h * 9) / 16;
+    expect(a.stand.heightPx).toBeLessThanOrEqual((AR_REF_OPENING.bottom - AR_REF_OPENING.top) * a.frame.h);
+    expect(a.stand.heightPx * BODY_W).toBeLessThanOrEqual((AR_REF_OPENING.right - AR_REF_OPENING.left) * w + 0.5);
+    expect(a.stand.y).toBeLessThanOrEqual(a.frame.top + AR_REF_OPENING.bottom * a.frame.h);
+    expect(a.stand.y - a.stand.heightPx).toBeGreaterThan(a.frame.top);
+    // Same inputs, same stage (nothing in it depends on a look).
+    expect(arStage({ box })).toEqual(a);
+    // Phones: a width-bound box sits right under its top (no gap under the switcher).
+    const p = arStage({ box: { top: 318, bottom: 834, left: 47, right: 343 }, align: 'top' });
+    expect(p.frame.top).toBe(318);
+    const pm = arStage({ box: { top: 318, bottom: 900, left: 47, right: 343 } });
+    expect(pm.frame.top).toBeGreaterThan(318);
+    const pt = arStage({ box: { top: 318, bottom: 900, left: 47, right: 343 }, align: 'top' });
+    expect(pt.frame.top).toBe(318);
+    expect(pt.stand.heightPx).toBe(pm.stand.heightPx);
+    expect(pm.stand.y - pt.stand.y).toBeCloseTo(pm.frame.top - pt.frame.top, 5);
+  });
+
+  it('scales a prop to the reference window once (frozen): fits = 1, too tall = down to PROP_MIN_SCALE', () => {
+    const a = arStage({ box: { top: 120, bottom: 892, left: 420, right: 1020 } });
+    const hp = a.stand.heightPx;
+    expect(arPropScale({ stand: a.stand, frame: a.frame, lift: 0, liftBase: 0 })).toBe(1);
+    expect(arPropScale({ stand: a.stand, frame: a.frame, lift: hp * 0.02, liftBase: 0 })).toBe(1);
+    const tall = arPropScale({ stand: a.stand, frame: a.frame, lift: hp * 2, liftBase: 0 });
+    expect(tall).toBe(PROP_MIN_SCALE);
+    const mid = arPropScale({ stand: a.stand, frame: a.frame, lift: hp * 0.2, liftBase: 0 });
+    expect(mid).toBeGreaterThanOrEqual(PROP_MIN_SCALE);
+    expect(mid).toBeLessThanOrEqual(1);
+    // Where it fits, its top lands just under the window's top edge.
+    const room = a.stand.y - hp * 1.02 - (a.frame.top + AR_REF_OPENING.top * a.frame.h) - hp * 0.03;
+    if (mid > PROP_MIN_SCALE && mid < 1) expect(mid * hp * 0.2).toBeCloseTo(room, 5);
   });
 });

@@ -365,6 +365,47 @@ function placeInFrame(o: FrameOpening, box: { top: number; bottom: number; left:
   };
 }
 
+/** The AR step's reference frame (the owner's: the Nigerian wedding arch). Its window sets his one size there. */
+export const AR_REF_FRAME_ID = 'ar-asoebi';
+/** The reference frame's window (falls back to the typical one if the look is ever renamed). */
+export const AR_REF_OPENING: FrameOpening = HOME_ASSET_DEFAULTS.arLooks.find((l) => l.id === AR_REF_FRAME_ID)?.opening ?? DEFAULT_OPENING;
+
+/**
+ * The AR step's ONE stage, fixed for the whole step: a 9:16 frame box (as
+ * big as `box` allows) and where he stands in it, placed by the reference
+ * frame's window (standInFrame's rule). Every frame renders in this same
+ * box, and he never leaves this stand on any tab or item, so the only
+ * things that move are the looks themselves. `align` 'top' puts the box
+ * right under `box.top` (phones: no gap under the switcher); 'middle'
+ * centres it in `box`.
+ */
+export function arStage(i: { box: { top: number; bottom: number; left: number; right: number }; align?: 'top' | 'middle' }): {
+  frame: { left: number; top: number; h: number };
+  stand: { x: number; y: number; heightPx: number };
+} {
+  const r = placeInFrame(AR_REF_OPENING, i.box);
+  if (i.align !== 'top') return r;
+  const up = r.frame.top - i.box.top;
+  return { frame: { ...r.frame, top: r.frame.top - up }, stand: { ...r.stand, y: r.stand.y - up } };
+}
+
+/**
+ * How much his worn prop shrinks on the AR stage, FROZEN to the reference
+ * frame's window (so cycling frames never resizes it): its top stays under
+ * the window's top edge, never smaller than PROP_MIN_SCALE (a taller hat
+ * then pops past it). `lift`/`liftBase`: how far it reaches above his tip
+ * at full size and at its seat, in px. 1 when it fits as fitted.
+ */
+export function arPropScale(i: { stand: { y: number; heightPx: number }; frame: { top: number; h: number }; lift: number; liftBase: number }): number {
+  const hp = Math.max(1, i.stand.heightPx);
+  const base = Math.max(0, Math.min(i.liftBase, i.lift));
+  const span = i.lift - base;
+  if (!(span > 0.5)) return 1;
+  const tip = i.stand.y - hp * 1.02;
+  const room = tip - (i.frame.top + AR_REF_OPENING.top * i.frame.h) - hp * 0.03 - base;
+  return Math.min(1, Math.max(PROP_MIN_SCALE, room / span));
+}
+
 /** A HomeLook as the stage's BeamyLook (frames/props only; others are not worn). A frame's `with` prop rides along. */
 export function toBeamyLook(l: HomeLook, frame?: { h: number; c: number }): BeamyLook {
   const a = lookAction(l);
