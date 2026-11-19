@@ -23,7 +23,6 @@ import { Link } from 'react-router-dom';
 import { Cake, Check, Link2, Mail, MessageCircle, Play, Send } from 'lucide-react';
 import ShineText from '../../components/beamy/ShineText';
 import { WALL_POOL } from '../../components/beamy/LiveWall';
-import { HERO_BIRTHDAY } from '../../lib/landingAssets';
 import { SIGNUP_PATH } from '../../lib/brandLanding';
 import { nextChange, phaseAt, reached, type Sequence } from '../../lib/beamyMotion';
 import { VC_COPY, VC_PIECES, VC_SCENE, VC_SEQ, type VcPiece } from '../../lib/beamyVirtual';
@@ -53,8 +52,10 @@ function usePhase(live: boolean, s: Sequence): number {
 /** Where each piece starts its flight, relative to its landing place (px). */
 type Flight = { dx: number; dy: number };
 
-/** The photos the pieces show: the hero wall's own (no guest photos). */
-const photoOf = (k: number) => (k === 0 ? HERO_BIRTHDAY : WALL_POOL[(k * 3 + 1) % WALL_POOL.length]);
+/** The photos the pieces show: the hero wall's own (no guest photos). Explicit
+ *  pool picks (birthday first, then party scenes), so no two pieces repeat. */
+const PICKS = [0, 7, 4, 2, 8, 1];
+const photoOf = (k: number) => WALL_POOL[PICKS[k % PICKS.length] % WALL_POOL.length];
 
 export default function VirtualCelebrations({ phone, wide, beamyHere, onBeam }: {
   phone: boolean;

@@ -2459,7 +2459,7 @@
 }
 [data-brand="2"] .bw-vc-env path,
 [data-brand="2"] .bw-vc-env rect { vector-effect: non-scaling-stroke; }
-[data-brand="2"] .bw-vc-env rect { fill: rgba(43, 42, 140, 0.78); }
+[data-brand="2"] .bw-vc-env rect { fill: rgba(43, 42, 140, 0.94); }
 [data-brand="2"] .bw-vc-cardbox[data-sent="true"] .bw-vc-env { opacity: 1; transform: none; }
 [data-brand="2"] .bw-vc-mail {
   position: absolute;
