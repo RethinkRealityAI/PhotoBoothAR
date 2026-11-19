@@ -308,24 +308,76 @@ const CRYSTALS: CrystalSpec[] = [
   { prop: 'royal-crown', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, shadow: true },
 ];
 
-/* ── Projector cone: origin → the near edge of a film frame ─────────────── */
+/* ── Projector light: origin → the near edge of a story card ──────────────
+   Not a hard wedge: a feathered volume of light, brightest at his mouth,
+   fading out across its width (never reaching its own edges) and along its
+   length (gone before it reaches the card), with a few dust motes drifting
+   through it. The card gets a soft bloom where the light lands (CONE_GLOW).
+   BEAM_STYLE 'stream' instead drops the volume for a glow at his mouth and a
+   few soft particles travelling to the card. Under reduced motion
+   (uFlicker 0) only the still, soft light remains. */
+
+/** 'volume' = soft projector light with drifting motes; 'stream' = particles only. */
+const BEAM_STYLE: 'volume' | 'stream' = 'volume';
 
 const CONE_VERT = /* glsl */ `
 attribute vec2 aCone;
 varying vec2 vCone;
 void main() { vCone = aCone; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const CONE_FRAG = /* glsl */ `
-varying vec2 vCone;   // x: 0 at Beamy → 1 at the frame; y: −1..1 across
+varying vec2 vCone;   // x: 0 at Beamy → 1 at the card; y: −x..x across
 uniform float uAlpha;
 uniform float uTime;
 uniform float uFlicker;
+uniform float uLen;   // px, mouth → card
+uniform float uHalf;  // px, half the card edge's width
+uniform float uMode;  // 0 volume, 1 stream
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main() {
-  float across = abs(vCone.y) / max(vCone.x, 0.001);
-  float soft = pow(clamp(1.0 - across, 0.0, 1.0), 0.7);
-  float along = mix(0.5, 0.42, vCone.x) * smoothstep(0.0, 0.12, vCone.x);
-  float flick = 1.0 - uFlicker * (0.08 + 0.06 * sin(uTime * 23.0) * sin(uTime * 7.3));
-  vec3 col = mix(vec3(1.0, 0.95, 0.86), vec3(0.62, 0.65, 1.0), vCone.x);
-  gl_FragColor = vec4(col, soft * along * flick * uAlpha);
+  float x = vCone.x;
+  float across = abs(vCone.y) / max(x, 0.001);
+  // Feathered on every side: zero well inside the triangle's edges.
+  float side = exp(-across * across * 3.5) * (1.0 - smoothstep(0.6, 0.95, across));
+  // It fades in where the cone is already wide (never a sharp apex) and is
+  // gone before the card.
+  float along = smoothstep(0.04, 0.22, x) * (1.0 - smoothstep(0.4, 0.92, x));
+  vec2 px = vec2(x * uLen, vCone.y * uHalf); // roughly isotropic px
+  vec3 warm = vec3(1.0, 0.95, 0.86);
+  vec3 cool = vec3(0.70, 0.72, 1.0);
+  vec3 col = mix(warm, cool, smoothstep(0.0, 0.7, x));
+  float a = 0.0;
+  if (uMode < 0.5) {
+    // (Its source, a round glow at his mouth or hand, is its own mesh: the
+    // triangle would clip it to a point.)
+    float body = side * along * (0.2 + 0.35 * exp(-x * 4.0));
+    vec2 g = px / 16.0 + vec2(-uTime * 0.9, uTime * 0.12);
+    vec2 id = floor(g);
+    vec2 f = fract(g) - 0.5 - (vec2(hash(id + 3.1), hash(id + 7.7)) - 0.5) * 0.5;
+    float h = hash(id);
+    float mote = step(0.82, h) * smoothstep(0.16, 0.0, length(f)) * (0.55 + 0.45 * sin(uTime * 1.7 + h * 40.0));
+    a = body + mote * side * along * 0.55 * uFlicker;
+  } else {
+    float glow = exp(-length(px) / 26.0) * 0.55;
+    float dots = 0.0;
+    for (int k = 0; k < 7; k++) {
+      float fk = float(k);
+      float p = fract(uTime * 0.28 + fk / 7.0);
+      vec2 c = vec2(p * uLen, (hash(vec2(fk, 1.0)) - 0.5) * 0.8 * p * uHalf);
+      float d = length(px - c);
+      dots += exp(-d * d / 18.0) * smoothstep(0.0, 0.12, p) * (1.0 - smoothstep(0.75, 1.0, p));
+    }
+    a = glow + dots * 0.8 * mix(1.0, 0.0, 1.0 - uFlicker) + (1.0 - uFlicker) * side * along * 0.2;
+  }
+  gl_FragColor = vec4(col, a * uAlpha);
+}`;
+/** The soft bloom on the card where the light lands. */
+const CONE_GLOW_FRAG = /* glsl */ `
+varying vec2 vUv;
+uniform float uAlpha;
+void main() {
+  vec2 q = (vUv - 0.5) * 2.0;
+  float d = dot(q, q);
+  gl_FragColor = vec4(vec3(0.78, 0.80, 1.0), exp(-d * 3.0) * smoothstep(1.0, 0.7, d) * uAlpha);
 }`;
 
 /* ── Impact / poke flash: a soft radial bloom ──────────────────────────── */
@@ -431,6 +483,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   /** The projector cone: target getter, origin, age, grow-in, fade-out. */
   const cone = useRef<{ target: () => Rect | null; from: 'mouth' | 'hand'; t: number; grow: boolean; alpha: number; off: boolean; landed: boolean; resolve: () => void } | null>(null);
   const coneMesh = useRef<THREE.Mesh>(null);
+  const coneGlow = useRef<THREE.Mesh>(null);
+  const coneSrc = useRef<THREE.Mesh>(null);
   /** Smoothed height (the director's height changes between stops). */
   const shownH = useRef(layoutRef.current.heightPx);
   const lean = useRef(0);
@@ -1018,11 +1072,18 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   }), []);
   const coneMat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: CONE_VERT, fragmentShader: CONE_FRAG,
-    uniforms: { uAlpha: { value: 0 }, uTime: { value: 0 }, uFlicker: { value: 1 } },
+    uniforms: { uAlpha: { value: 0 }, uTime: { value: 0 }, uFlicker: { value: 1 }, uLen: { value: 1 }, uHalf: { value: 1 }, uMode: { value: BEAM_STYLE === 'stream' ? 1 : 0 } },
     // Both faces: the triangle's winding flips with the side he projects from.
     side: THREE.DoubleSide,
     transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
   }), []);
+  const coneGlowMat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: BEAM_VERT, fragmentShader: CONE_GLOW_FRAG,
+    uniforms: { uAlpha: { value: 0 } },
+    transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
+  }), []);
+  /** The same soft radial bloom at the light's source (his mouth or hand). */
+  const coneSrcMat = useMemo(() => coneGlowMat.clone(), [coneGlowMat]);
   const coneGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
@@ -1091,8 +1152,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   useEffect(() => () => {
     beamMat.dispose(); floorMat.dispose(); flashMat.dispose(); sparkGeo.dispose(); sparkMat.dispose();
     sparkTex.dispose(); moteGeo.dispose(); moteMat.dispose(); crystalShadowMat.dispose();
-    coneMat.dispose(); coneGeo.dispose();
-  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalShadowMat, coneMat, coneGeo]);
+    coneMat.dispose(); coneGeo.dispose(); coneGlowMat.dispose(); coneSrcMat.dispose();
+  }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalShadowMat, coneMat, coneGeo, coneGlowMat, coneSrcMat]);
   /* The decor props: real library assets, each fitted into a unit box and
      dropped into its holder once Beamy himself is on screen (they share the
      glb cache with the hero try-on; masters are cloned, never disposed). */
@@ -1522,6 +1583,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     const cm = coneMesh.current;
     if (cm) {
       let ca = 0;
+      let landAt: { x: number; y: number; w: number; ang: number } | null = null;
+      let srcAt: Pt | null = null;
       if (cn !== null) {
         cn.t += dt;
         const growS = reduced ? 0.9 : 0.6;
@@ -1545,7 +1608,16 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           else if (o.x < r.left) { e1 = { x: r.left, y: r.top }; e2 = { x: r.left, y: r.top + r.height }; }
           else { e1 = { x: r.left + r.width, y: r.top + r.height }; e2 = { x: r.left + r.width, y: r.top }; }
           const ease = 1 - (1 - g2) ** 3;
+          // A little wider than the card edge: the feathering eats its sides.
+          const mx = (e1.x + e2.x) / 2;
+          const my = (e1.y + e2.y) / 2;
+          e1 = { x: mx + (e1.x - mx) * 1.25, y: my + (e1.y - my) * 1.25 };
+          e2 = { x: mx + (e2.x - mx) * 1.25, y: my + (e2.y - my) * 1.25 };
           const pts = [o, { x: o.x + (e1.x - o.x) * ease, y: o.y + (e1.y - o.y) * ease }, { x: o.x + (e2.x - o.x) * ease, y: o.y + (e2.y - o.y) * ease }];
+          (coneMat.uniforms.uLen as { value: number }).value = Math.max(1, Math.hypot(mx - o.x, my - o.y) * ease);
+          (coneMat.uniforms.uHalf as { value: number }).value = Math.max(1, (Math.hypot(e2.x - e1.x, e2.y - e1.y) / 2) * ease);
+          landAt = { x: mx, y: my, w: Math.hypot(e2.x - e1.x, e2.y - e1.y), ang: -Math.atan2(e2.y - e1.y, e2.x - e1.x) };
+          srcAt = o;
           const arr = (cm.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
           pts.forEach((p2, i2) => { const wv = toWorld(p2); arr[i2 * 3] = wv.x; arr[i2 * 3 + 1] = wv.y; arr[i2 * 3 + 2] = 280; });
           cm.geometry.getAttribute('position').needsUpdate = true;
@@ -1556,6 +1628,32 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       }
       cm.visible = ca > 0.001;
       (coneMat.uniforms.uAlpha as { value: number }).value = ca;
+      // The card's soft bloom where the light lands (once it has reached it).
+      const cg = coneGlow.current;
+      if (cg) {
+        const ga = landAt !== null && cn !== null ? ca * clamp((cn.t - 0.35) / 0.6, 0, 1) * 0.42 : 0;
+        cg.visible = ga > 0.001 && landAt !== null;
+        if (cg.visible && landAt !== null) {
+          const wv = toWorld(landAt);
+          cg.position.set(wv.x, wv.y, 270);
+          cg.rotation.z = landAt.ang;
+          cg.scale.set(landAt.w * 0.9, landAt.w * 0.5, 1);
+          (coneGlowMat.uniforms.uAlpha as { value: number }).value = ga;
+        }
+      }
+      // Its source: a round soft glow, the brightest part of the light.
+      const cs = coneSrc.current;
+      if (cs) {
+        const sa = srcAt !== null ? ca * 0.42 : 0;
+        cs.visible = sa > 0.001 && srcAt !== null;
+        if (cs.visible && srcAt !== null) {
+          const wv = toWorld(srcAt);
+          const d = Math.max(36, layout.heightPx * 0.32);
+          cs.position.set(wv.x, wv.y, 275);
+          cs.scale.set(d, d, 1);
+          (coneSrcMat.uniforms.uAlpha as { value: number }).value = sa;
+        }
+      }
       (coneMat.uniforms.uTime as { value: number }).value = t;
       (coneMat.uniforms.uFlicker as { value: number }).value = reduced ? 0 : 1;
     }
@@ -1788,6 +1886,12 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         </group>
       )}
       <mesh ref={coneMesh} geometry={coneGeo} material={coneMat} visible={false} frustumCulled={false} renderOrder={4} />
+      <mesh ref={coneGlow} material={coneGlowMat} visible={false} renderOrder={4}>
+        <planeGeometry args={[1, 1]} />
+      </mesh>
+      <mesh ref={coneSrc} material={coneSrcMat} visible={false} renderOrder={4}>
+        <planeGeometry args={[1, 1]} />
+      </mesh>
       <mesh ref={beamMesh} material={beamMat} visible={false} renderOrder={5}>
         <planeGeometry args={[1, 1]} />
       </mesh>
