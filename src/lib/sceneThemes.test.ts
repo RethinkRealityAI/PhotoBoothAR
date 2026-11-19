@@ -4,6 +4,9 @@ import {
   SCENE_PALETTES,
   SCENE_TEMPLATES,
   gridCellCount,
+  normalizePageBorder,
+  SCENE_PAGE_BORDERS,
+  SCENE_PAGE_BORDER_META,
   normalizeScene,
   normalizeWallLook,
   paletteCss,
@@ -72,6 +75,27 @@ describe('resolveSceneImageUrl', () => {
     ]) {
       expect(resolveSceneImageUrl(bad)).toBeUndefined();
     }
+  });
+});
+
+describe('page border (additive)', () => {
+  it('keeps a real border on any scene kind', () => {
+    expect(normalizeScene({ kind: 'template', id: 'beamwall', border: 'glow' })).toEqual({ kind: 'template', id: 'beamwall', border: 'glow' });
+    expect(normalizeScene({ kind: 'color', color: '#112233', border: 'filmstrip' })).toEqual({ kind: 'color', color: '#112233', border: 'filmstrip' });
+  });
+  it('never stores none or an unknown border, and a scene without one is unchanged', () => {
+    expect(normalizeScene({ kind: 'template', id: 'beamwall', border: 'none' })).toEqual({ kind: 'template', id: 'beamwall' });
+    expect(normalizeScene({ kind: 'template', id: 'beamwall', border: 'neon' })).toEqual({ kind: 'template', id: 'beamwall' });
+    expect(normalizeScene({ kind: 'template', id: 'beamwall' })).toEqual({ kind: 'template', id: 'beamwall' });
+  });
+  it('a border cannot rescue an invalid scene', () => {
+    expect(normalizeScene({ kind: 'template', id: 'nope', border: 'glow' })).toBeUndefined();
+  });
+  it('normalizePageBorder is total', () => {
+    expect(normalizePageBorder('gilded')).toBe('gilded');
+    expect(normalizePageBorder(undefined)).toBe('none');
+    expect(normalizePageBorder(3)).toBe('none');
+    expect(SCENE_PAGE_BORDERS.every((b) => SCENE_PAGE_BORDER_META[b].label.length > 0)).toBe(true);
   });
 });
 

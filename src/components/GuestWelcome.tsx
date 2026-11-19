@@ -11,17 +11,23 @@
  */
 import { Link, useLocation } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { Album, ArrowRight, Camera, ChevronRight, Images, Trophy, UploadCloud } from 'lucide-react';
-import { useEffect, type CSSProperties } from 'react';
+import { Album, Camera, ChevronRight, Images, Trophy, UploadCloud } from 'lucide-react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
-import PostImage from './ui/PostImage';
 import ReportIssueButton from './support/ReportIssueButton';
+import LiveWallField from './theme/LiveWallField';
+import BoothViewfinder from './theme/BoothViewfinder';
+import PageBorder from './theme/PageBorder';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import { useEntitlements } from '../lib/entitlements';
 import { resolveScene } from '../lib/sceneThemes';
-import { recentWallPhotos } from '../lib/scenePage';
+import { heroFrameUrl, wallFieldPhotos } from '../lib/scenePage';
+import { buildCatalog } from '../lib/catalog';
+import { effectiveOpeningLookId } from '../lib/openingLook';
+import { subscribeToPosts } from '../lib/db';
+import type { Post } from '../types';
 
 /** Platform events get the immersive page; coded legacy events keep the
  *  original page below exactly as it shipped. */
@@ -30,14 +36,22 @@ export default function GuestWelcome() {
   return source === 'db' ? <SceneGuestWelcome /> : <LegacyGuestWelcome />;
 }
 
+/**
+ * The platform page reads as the event's booth and wall, not a landing page:
+ * the whole background is the live photo wall (LiveWallField), the hero is a
+ * preview of the booth whose shutter is the way in (BoothViewfinder), and the
+ * host may put a border round it all (PageBorder).
+ */
 function SceneGuestWelcome() {
-  const { config, basePath } = useEvent();
+  const { config, basePath, eventId } = useEvent();
   const fromLanding = new URLSearchParams(useLocation().search).get('from') === 'beamy-qr';
   const { videoEnabled } = useEntitlements();
   const {
     wallSettings, fetchWallSettings,
-    posts, fetchPosts,
+    posts, fetchPosts, prependPost, updatePost, removePost,
     challenges, challengesLoaded, fetchChallenges,
+    experiences, linkedGlobals, experiencesLoaded, fetchExperiences,
+    presetOverrides, fetchPresetOverrides,
   } = useStore();
   useEffect(() => {
     fetchWallSettings();
@@ -46,6 +60,30 @@ function SceneGuestWelcome() {
   useEffect(() => {
     if (!challengesLoaded) void fetchChallenges(true);
   }, [challengesLoaded, fetchChallenges]);
+  // The booth's catalogue, for the frame drawn over the preview.
+  useEffect(() => {
+    if (!experiencesLoaded) void fetchExperiences(true);
+    void fetchPresetOverrides();
+  }, [experiencesLoaded, fetchExperiences, fetchPresetOverrides]);
+
+  // Photos snapped while this page is open beam onto the wall at once.
+  const [fresh, setFresh] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const arrive = (p: Post) => {
+      if (!p.approved || p.hidden) return;
+      setFresh((prev) => new Set(prev).add(p.id));
+      prependPost(p);
+    };
+    return subscribeToPosts(eventId, {
+      onInsert: arrive,
+      onUpdate: (p) => {
+        // A pre-moderated post approved just now is an arrival, not an edit.
+        if (useStore.getState().posts.some((x) => x.id === p.id)) updatePost(p);
+        else arrive(p);
+      },
+      onDelete: removePost,
+    }, { visibleOnly: true });
+  }, [eventId, prependPost, updatePost, removePost]);
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const eventUrl = `${origin}${basePath || ''}/welcome`;
@@ -58,7 +96,18 @@ function SceneGuestWelcome() {
   const scene = config.scene ? resolveScene(config.scene) : null;
   const tone = scene?.tone ?? 'dark';
   const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
-  const photos = recentWallPhotos(posts, 8);
+  const wallPhotos = useMemo(() => wallFieldPhotos(posts), [posts]);
+  const newest = wallPhotos[wallPhotos.length - 1];
+  const frameUrl = useMemo(() => {
+    const catalog = buildCatalog(
+      config.arContent,
+      experiencesLoaded ? experiences : [],
+      presetOverrides,
+      experiencesLoaded ? linkedGlobals : [],
+      true,
+    );
+    return heroFrameUrl(catalog, effectiveOpeningLookId(wallSettings.defaultExperienceId, config.defaultExperienceId));
+  }, [config.arContent, config.defaultExperienceId, experiences, experiencesLoaded, linkedGlobals, presetOverrides, wallSettings.defaultExperienceId]);
   const intro =
     typeof config.copy.welcomeIntro === 'string' && config.copy.welcomeIntro.trim() !== ''
       ? config.copy.welcomeIntro
@@ -93,55 +142,7 @@ function SceneGuestWelcome() {
       : []),
   ];
 
-  /** The room, live. Phones get a swipeable strip right under the CTA;
-   *  desktop gets a collage beside the hero (newest photo large). Only one
-   *  is displayed, and lazy images under display:none are never fetched. */
-  const renderWall = (desk: boolean) => (
-    <div className={`sc-glass rounded-[28px] p-4 sm:p-5 ${desk ? 'hidden lg:block' : 'mt-8 w-full lg:hidden'}`}>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="flex items-center gap-2 font-sans text-[14px] font-semibold sc-ink">
-          <span aria-hidden className="sc-live-dot h-2 w-2 rounded-full" style={{ background: 'var(--sc-accent)' }} />
-          Live from the wall
-        </p>
-        <Link to={`${basePath}/wall`} className="inline-flex min-h-11 items-center gap-1 font-sans text-[13px] font-medium sc-muted hover:underline">
-          Open the wall <ChevronRight className="h-4 w-4" aria-hidden />
-        </Link>
-      </div>
-      {photos.length === 0 ? (
-        <div className="flex aspect-[16/9] flex-col items-center justify-center gap-2 rounded-2xl text-center" style={{ boxShadow: 'inset 0 0 0 1px var(--sc-hair)' }}>
-          <Images className="h-6 w-6 sc-faint" aria-hidden />
-          <p className="max-w-[24ch] font-sans text-[14px] leading-snug sc-muted">The wall is waiting for its first photo. Yours could be it.</p>
-        </div>
-      ) : desk ? (
-        <div className="grid grid-cols-3 gap-2.5">
-          {/* One large (2×2) + five small fills the 3×3 grid exactly. */}
-          {photos.slice(0, 6).map((p, i) => (
-            <PostImage
-              key={p.id}
-              src={p.image_url}
-              alt={p.guest_name ? `Photo by ${p.guest_name}` : 'A guest photo'}
-              displayWidth={i === 0 ? 320 : 160}
-              eager={i < 4}
-              className={`h-full w-full rounded-2xl object-cover ${i === 0 ? 'col-span-2 row-span-2 aspect-square' : 'aspect-square'}`}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="-mx-1 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-1 pb-1 hide-scrollbar">
-          {photos.map((p, i) => (
-            <PostImage
-              key={p.id}
-              src={p.image_url}
-              alt={p.guest_name ? `Photo by ${p.guest_name}` : 'A guest photo'}
-              displayWidth={128}
-              eager={i < 3}
-              className="aspect-[3/4] w-32 shrink-0 snap-start rounded-2xl object-cover"
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const moments = posts.length;
 
   return (
     <div
@@ -150,6 +151,11 @@ function SceneGuestWelcome() {
       className="absolute inset-0 overflow-y-auto overflow-x-hidden bg-noir-900"
     >
       <EventBackground density={40} sparkle={0.6} />
+      {/* The wall stays put while the page scrolls over it. */}
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <LiveWallField photos={wallPhotos} fresh={fresh} />
+      </div>
+      {config.scene?.border && <PageBorder border={config.scene.border} />}
       <div className="relative z-10 mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 sm:px-8 pt-safe-top [--safe-top:1.25rem] pb-safe-bottom [--safe-bottom:1.5rem]">
 
         {/* Top line: who this is, and the wall one tap away. */}
@@ -173,47 +179,65 @@ function SceneGuestWelcome() {
           </p>
         )}
 
-        <main className="grid flex-1 grid-cols-[minmax(0,1fr)] items-center gap-10 py-8 sm:py-12 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] lg:gap-16">
-          {/* ── Hero ── */}
-          <section className="flex min-w-0 flex-col items-start animate-rise-in">
-            <p className="font-sans text-[13px] font-medium sc-faint">Welcome to</p>
-            <h1 className="sc-display mt-2 max-w-[14ch] text-[clamp(40px,9vw,84px)] font-semibold leading-[0.98] sc-ink break-words">
+        <main className="grid flex-1 grid-cols-[minmax(0,1fr)] items-start gap-x-16 gap-y-8 py-8 sm:py-12 [grid-template-areas:'head'_'vf'_'rest'_'qr'] lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:grid-rows-[auto_1fr_auto] lg:[grid-template-areas:'head_vf'_'rest_vf'_'rest_qr']">
+          {/* ── Hero: the room's pulse, then the name ── */}
+          <section className="flex min-w-0 flex-col items-start animate-rise-in [grid-area:head] lg:pt-6">
+            {moments > 0 ? (
+              <Link
+                to={`${basePath}/wall`}
+                aria-live="polite"
+                className="sc-chip pressable inline-flex min-h-11 items-center gap-2.5 rounded-full px-4 font-sans text-[14px] font-semibold"
+              >
+                <span aria-hidden className="sc-live-dot h-2.5 w-2.5 rounded-full" style={{ background: 'var(--sc-accent)', boxShadow: '0 0 12px var(--sc-accent)' }} />
+                Guests are snapping
+                <span className="sc-faint font-medium">· {moments} {moments === 1 ? 'moment' : 'moments'}</span>
+              </Link>
+            ) : (
+              <div className="sc-glass flex items-center gap-3 rounded-2xl py-3 pl-3 pr-5">
+                <span
+                  aria-hidden
+                  className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+                  style={{ background: 'color-mix(in srgb, var(--sc-accent) 20%, transparent)', color: 'var(--sc-accent)' }}
+                >
+                  <span className="sc-live-dot absolute inset-0 rounded-full" style={{ boxShadow: 'inset 0 0 0 1.5px var(--sc-accent)' }} />
+                  <Images className="h-5 w-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-sans text-[15px] font-semibold sc-ink">Time to fill the wall</span>
+                  <span className="block font-sans text-[13px] leading-snug sc-muted">Your photo could be the first one up here.</span>
+                </span>
+              </div>
+            )}
+            <p className="mt-7 font-sans text-[13px] font-medium sc-faint">Welcome to</p>
+            <h1 className="sc-display mt-2 max-w-[14ch] text-[clamp(42px,9.5vw,92px)] font-semibold leading-[0.96] sc-ink break-words">
               {config.copy.fullName}
             </h1>
             {config.copy.tagline && (
-              <p className="mt-4 max-w-xl font-sans text-[clamp(17px,2.2vw,21px)] leading-snug sc-muted">{config.copy.tagline}</p>
+              <p className="mt-4 max-w-xl font-sans text-[clamp(17px,2.2vw,22px)] leading-snug sc-muted">{config.copy.tagline}</p>
             )}
-            <p className="mt-4 max-w-lg font-sans text-[15px] leading-relaxed sc-faint">{intro}</p>
+          </section>
 
-            <div className="mt-8 flex w-full flex-col items-stretch gap-3 sm:w-auto sm:items-start">
-              <Link
-                to={`${basePath}/booth`}
-                className="sc-cta pressable group inline-flex min-h-[60px] items-center justify-center gap-3 rounded-full px-8 font-sans text-[17px] font-semibold"
-              >
-                <Camera className="h-5 w-5" aria-hidden />
-                Step into the booth
-                <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" aria-hidden />
-              </Link>
-              <p className="font-sans text-[14px] leading-relaxed sc-faint">
-                {/* Same capability the booth reads: a photos-only plan must
-                    not promise video. */}
-                {videoEnabled
-                  ? 'Try on live filters, frames and 3D pieces, then snap a photo or video.'
-                  : 'Try on live filters, frames and 3D pieces, then snap a photo.'}
-                {posts.length > 0 && (
-                  <>
-                    {' '}
-                    <span className="font-medium" style={{ color: 'var(--sc-accent)' }}>
-                      {posts.length} {posts.length === 1 ? 'moment' : 'moments'} on the wall so far.
-                    </span>
-                  </>
-                )}
-              </p>
-            </div>
+          {/* ── The booth, previewed: its shutter is the way in ── */}
+          <div className="flex min-w-0 flex-col items-center gap-4 animate-rise-in [grid-area:vf] lg:items-end lg:justify-center lg:self-center">
+            <BoothViewfinder
+              to={`${basePath}/booth`}
+              frameUrl={frameUrl}
+              previewUrl={newest?.image_url}
+              previewAlt={newest ? (newest.guest_name ? `The newest photo, by ${newest.guest_name}` : 'The newest guest photo') : undefined}
+            />
+          </div>
 
-            {renderWall(false)}
+          <section className="flex min-w-0 flex-col items-start animate-rise-in [grid-area:rest]">
+            <p className="max-w-lg font-sans text-[15px] leading-relaxed sc-muted">{intro}</p>
+            <p className="mt-3 max-w-lg font-sans text-[14px] leading-relaxed sc-faint">
+              {/* Same capability the booth reads: a photos-only plan must
+                  not promise video. */}
+              {videoEnabled
+                ? 'Try on live filters, frames and 3D pieces, then snap a photo or video for the wall.'
+                : 'Try on live filters, frames and 3D pieces, then snap a photo for the wall.'}
+            </p>
 
-            <nav aria-label="More to do here" className="mt-8 grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:mt-10">
+            <nav aria-label="More to do here" className="mt-7 grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
               {actions.map((a) => (
                 <Link
                   key={a.to}
@@ -236,10 +260,8 @@ function SceneGuestWelcome() {
             </nav>
           </section>
 
-          {/* ── The room, live: recent photos + bring a friend ── */}
-          <aside className="flex min-w-0 flex-col gap-4 animate-rise-in">
-            {renderWall(true)}
-
+          {/* ── Bring a friend ── */}
+          <aside className="flex min-w-0 flex-col animate-rise-in [grid-area:qr] lg:ml-auto lg:w-full lg:max-w-[420px]">
             <div className="sc-glass flex items-center gap-4 rounded-[28px] p-4 sm:p-5">
               <div className="shrink-0 rounded-2xl bg-white p-2.5">
                 <QRCodeSVG value={eventUrl} size={96} bgColor="#FFFFFF" fgColor="#1A1740" level="M" />

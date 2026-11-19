@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { Experience, Post } from '../types';
 import {
   draftTone,
+  heroFrameUrl,
+  withPageBorder,
+  wallFieldSlots,
+  wallFieldTileCentre,
+  tileOrder,
+  wallFieldPhotos,
+  wallFieldSize,
   recentWallPhotos,
   rgbTriplet,
   sceneEquals,
@@ -127,5 +134,96 @@ describe('recentWallPhotos', () => {
     const list = [post({ id: 'a', created_at: '1' }), post({ id: 'b', created_at: '2' })];
     recentWallPhotos(list, 5);
     expect(list.map((p) => p.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('wall field', () => {
+  it('sizes a phone and a desktop within the tile budget', () => {
+    const phone = wallFieldSize(390, 844);
+    const desk = wallFieldSize(1440, 900);
+    expect(phone.cols).toBeGreaterThanOrEqual(4);
+    expect(phone.tiles).toBeLessThanOrEqual(30);
+    expect(desk.cols).toBe(9);
+    expect(desk.tiles).toBeLessThanOrEqual(63);
+    expect(wallFieldSize(NaN, 0)).toEqual(wallFieldSize(390, 844));
+  });
+  it('tileOrder is a stable permutation', () => {
+    const o = tileOrder(30);
+    expect([...o].sort((a, b) => a - b)).toEqual(Array.from({ length: 30 }, (_, i) => i));
+    expect(tileOrder(30)).toEqual(o);
+    expect(o.slice(0, 5)).not.toEqual([0, 1, 2, 3, 4]);
+    expect(tileOrder(0)).toEqual([]);
+  });
+  it('wallFieldPhotos keeps the newest N, oldest first, so tiles never reshuffle', () => {
+    const a = post({ id: 'a', created_at: '2026-11-19T09:00:00Z' });
+    const b = post({ id: 'b', created_at: '2026-11-19T10:00:00Z' });
+    const c = post({ id: 'c', created_at: '2026-11-19T11:00:00Z' });
+    expect(wallFieldPhotos([c, a, b], 5).map((p) => p.id)).toEqual(['a', 'b', 'c']);
+    expect(wallFieldPhotos([c, a, b], 2).map((p) => p.id)).toEqual(['b', 'c']);
+  });
+});
+
+describe('wallFieldSlots', () => {
+  it('is a permutation of every tile, stable across calls', () => {
+    for (const [w, h] of [[390, 844], [1440, 900], [768, 1024]]) {
+      const { cols, rows, tiles } = wallFieldSize(w, h);
+      const s = wallFieldSlots(cols, rows, w, h);
+      expect([...s].sort((a, b) => a - b)).toEqual(Array.from({ length: tiles }, (_, i) => i));
+      expect(wallFieldSlots(cols, rows, w, h)).toEqual(s);
+    }
+  });
+  it('puts on-screen tiles clear of the words and the booth first', () => {
+    for (const [w, h] of [[390, 844], [1440, 900]]) {
+      const { cols, rows } = wallFieldSize(w, h);
+      const first = wallFieldSlots(cols, rows, w, h).slice(0, 6);
+      for (const t of first) {
+        const { x, y } = wallFieldTileCentre(t, cols, rows, w, h);
+        expect(x).toBeGreaterThan(0);
+        expect(x).toBeLessThan(1);
+        expect(y).toBeGreaterThan(0);
+        expect(y).toBeLessThan(1);
+        if (w >= 1024) expect(x < 0.1 || x > 0.52 || y < 0.12 || y > 0.86).toBe(true);
+      }
+    }
+  });
+  it('maps the plane centre to the middle of the screen', () => {
+    const c = wallFieldTileCentre(4, 9, 1, 1000, 1000);
+    expect(c.x).toBeCloseTo(0.5, 5);
+    expect(c.y).toBeCloseTo(0.48, 5);
+  });
+});
+
+describe('withPageBorder', () => {
+  it('adds, replaces and removes the border without touching the look', () => {
+    const t = { kind: 'gradient', paletteId: 'aurora' } as const;
+    expect(withPageBorder(t, 'glow')).toEqual({ ...t, border: 'glow' });
+    expect(withPageBorder({ ...t, border: 'glow' }, 'gilded')).toEqual({ ...t, border: 'gilded' });
+    expect(withPageBorder({ ...t, border: 'glow' }, 'none')).toEqual(t);
+    expect(withPageBorder(t, 'none')).toBe(t);
+  });
+  it('a border with no look yet starts from the first template; none stays nothing', () => {
+    const s = withPageBorder(undefined, 'filmstrip');
+    expect(s?.kind).toBe('template');
+    expect(s?.border).toBe('filmstrip');
+    expect(sceneToSave(s)).toEqual(s);
+    expect(withPageBorder(undefined, 'none')).toBeUndefined();
+  });
+});
+
+describe('heroFrameUrl', () => {
+  const a = exp({ id: 'a', kind: 'border', asset_url: 'data:image/svg+xml;utf8,<svg/>' });
+  const b = exp({ id: 'b', kind: 'border', asset_url: '/frames/b.png' });
+  const f = exp({ id: 'f', kind: '2d_filter', asset_url: '/x.png' });
+  const bad = exp({ id: 'bad', kind: 'border', asset_url: 'javascript:alert(1)' });
+  it('prefers the opening look when it is a frame, built-in or not', () => {
+    expect(heroFrameUrl([a, b], 'b')).toBe('/frames/b.png');
+    expect(heroFrameUrl([a, b], 'a')).toBe(a.asset_url);
+  });
+  it('falls back to the host’s own first frame (never a built-in), then none', () => {
+    expect(heroFrameUrl([f, bad, a, b], 'f')).toBe('/frames/b.png');
+    expect(heroFrameUrl([a, b], null)).toBe('/frames/b.png');
+    expect(heroFrameUrl([a], null)).toBeUndefined();
+    expect(heroFrameUrl([f, bad], null)).toBeUndefined();
+    expect(heroFrameUrl([exp({ id: 'p', kind: 'border', asset_url: '//evil.com/a.png' })], null)).toBeUndefined();
   });
 });

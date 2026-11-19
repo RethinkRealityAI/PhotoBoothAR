@@ -27,10 +27,14 @@ import {
   isHex,
   paletteCss,
   resolveScene,
+  normalizePageBorder,
   resolveSceneImageUrl,
+  SCENE_PAGE_BORDER_META,
+  SCENE_PAGE_BORDERS,
   SCENE_PALETTES,
   SCENE_TEMPLATES,
   type EventScene,
+  type ScenePageBorder,
   type ScenePalette,
 } from '../../lib/sceneThemes';
 import {
@@ -41,8 +45,10 @@ import {
   sceneToSave,
   sceneUploadError,
   SCENE_UPLOAD_TYPES,
+  withPageBorder,
   type SceneKind,
 } from '../../lib/scenePage';
+import PageBorder from './PageBorder';
 
 const TABS: Array<{ kind: SceneKind; label: string; icon: typeof Palette }> = [
   { kind: 'template', label: 'Templates', icon: LayoutTemplate },
@@ -101,11 +107,27 @@ function ScenePickerBody() {
 
   // What each tab last held, so flicking between tabs never loses a pick.
   const memory = useRef<Partial<Record<SceneKind, EventScene>>>(saved ? { [saved.kind]: saved } : {});
+  // The page border is one setting across every kind of look: switching
+  // tabs or picking a new look keeps it.
+  const borderRef = useRef<ScenePageBorder>(normalizePageBorder(saved?.border));
+  useEffect(() => { borderRef.current = normalizePageBorder(saved?.border); }, [savedKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (next: EventScene | undefined) => {
-    if (next) memory.current[next.kind] = next;
+    const withB = next ? withPageBorder(next, borderRef.current) : next;
+    if (withB) memory.current[withB.kind] = withB;
+    setDraft(withB);
+    setError(null);
+  };
+  const chooseBorder = (b: ScenePageBorder) => {
+    borderRef.current = b;
+    const next = withPageBorder(draft, b);
+    if (next) {
+      memory.current[next.kind] = next;
+      if (next.kind !== tab) setTab(next.kind);
+    }
     setDraft(next);
     setError(null);
   };
+  const border = normalizePageBorder(draft?.border);
   const openTab = (kind: SceneKind) => {
     setTab(kind);
     pick(memory.current[kind] ?? starterFor(kind, frames));
@@ -142,6 +164,7 @@ function ScenePickerBody() {
     const ok = await updateEventConfig(eventUuid, { scene: null });
     if (ok) {
       memory.current = {};
+      borderRef.current = 'none';
       setDraft(undefined);
       await refreshConfig();
       toast.push('Back to the default look.', 'success');
@@ -412,6 +435,35 @@ function ScenePickerBody() {
               )
             )}
           </div>
+
+          {/* One setting across every kind of look. */}
+          <fieldset className="mt-6">
+            <legend className="mb-2 font-sans text-[13px] font-semibold text-brand-fg">Page border</legend>
+            <div className="flex flex-wrap gap-2">
+              {SCENE_PAGE_BORDERS.map((b) => {
+                const on = border === b;
+                const meta = SCENE_PAGE_BORDER_META[b];
+                return (
+                  <button
+                    key={b}
+                    type="button"
+                    aria-pressed={on}
+                    title={meta.blurb}
+                    onClick={() => chooseBorder(b)}
+                    className={`min-h-11 whitespace-nowrap rounded-xl px-3.5 py-2 text-left font-sans text-[13px] transition ${
+                      on ? 'is-selected text-brand-fg' : 'text-brand-muted/80 ring-1 ring-white/15 hover:text-brand-fg hover:ring-white/30'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5 font-medium">
+                      {on && <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+                      {meta.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 font-sans text-[12px] text-brand-muted/70">{SCENE_PAGE_BORDER_META[border].blurb}</p>
+          </fieldset>
         </div>
 
         {/* Live preview of the guest welcome page (phone). */}
@@ -478,6 +530,7 @@ function ScenePreview({ scene, name }: { scene: EventScene | undefined; name: st
       className="relative mx-auto aspect-[9/16] w-full max-w-[200px] overflow-hidden rounded-[22px] ring-1 ring-white/20 shadow-[0_20px_40px_-20px_rgba(0,0,0,0.6)]"
     >
       <SceneBackdrop scene={resolved} compact />
+      {scene?.border && <PageBorder border={scene.border} contained />}
       <div className="relative flex h-full flex-col px-3.5 pb-3.5 pt-4">
         <div className="flex items-center gap-1.5">
           <Emblem size={16} />
