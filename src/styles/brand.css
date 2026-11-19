@@ -1463,16 +1463,6 @@
     background-color: rgba(255, 255, 255, 0.08);
   }
   .bw-scene-row[data-first="true"] { background-color: rgba(255, 197, 107, 0.24); }
-  .bw-scene-rank {
-    display: grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
-    background-color: rgba(255, 255, 255, 0.2);
-  }
   .bw-scene-film {
     position: relative;
     overflow: hidden;
@@ -1801,6 +1791,58 @@
   .bw-ch-row[data-move="up"] { position: relative; z-index: 1; }
   .bw-ch-board[data-rank="true"] .bw-ch-row[data-move="down"] { transform: translateY(var(--pitch)); }
   .bw-ch-board[data-rank="true"] .bw-ch-row[data-move="up"] { transform: translateY(calc(var(--pitch) * -3)); background-color: rgba(255, 197, 107, 0.34); }
+  /* Premium board: metal places (gold with a crown, silver, bronze), a
+     face per row, a slow shine across whoever is on top, and the climb:
+     Ada's row lifts and glows, a chevron pops, the gold place pings. */
+  .bw-ch-medal {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--bw-ink);
+    background-color: rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  }
+  .bw-ch-medal[data-place="1"] { color: #4A2F00; background: radial-gradient(circle at 35% 30%, #FFF1C2, #F5C451 55%, #C8901E); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 0 14px rgba(255, 197, 107, 0.55); }
+  .bw-ch-medal[data-place="2"] { color: #2B3040; background: radial-gradient(circle at 35% 30%, #FFFFFF, #D5DAE4 55%, #9AA3B5); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6); }
+  .bw-ch-medal[data-place="3"] { color: #3B1E0A; background: radial-gradient(circle at 35% 30%, #F8D2B0, #D08A55 55%, #9A5A2E); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45); }
+  [data-rank="true"] > .bw-ch-ranks .bw-ch-medal[data-place="1"] { animation: bw-ch-crown 900ms var(--bw-ease) 700ms both; }
+  .bw-ch-row { position: relative; overflow: hidden; gap: 8px; padding-left: 5px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
+  .bw-ch-face {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--bw-ink);
+    background-color: rgba(255, 255, 255, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  }
+  .bw-ch-row[data-move="up"] .bw-ch-face { color: #4A2F00; background-color: #FFD58A; }
+  /* Phones: the board is narrow, so names keep the room (no faces). */
+  @media (max-width: 640px) { .bw-ch-face { display: none; } }
+  /* Whoever is on top: a gold hairline and a slow shine. */
+  .bw-ch-board[data-rank="false"] .bw-ch-row:first-child,
+  .bw-ch-board[data-rank="true"] .bw-ch-row[data-move="up"] { box-shadow: inset 0 0 0 1px rgba(255, 213, 138, 0.7), 0 8px 22px -12px rgba(255, 197, 107, 0.7); }
+  .bw-ch-row::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.38) 50%, transparent 70%);
+    transform: translateX(-100%);
+  }
+  .bw-scene[data-on="true"] .bw-ch-board[data-rank="false"] .bw-ch-row:first-child::after,
+  .bw-scene[data-on="true"] .bw-ch-board[data-rank="true"] .bw-ch-row[data-move="up"]::after { opacity: 1; animation: bw-ch-shine 3.4s ease-in-out 1.2s infinite; }
+  .bw-ch-climb { display: grid; place-items: center; color: #FFD58A; opacity: 0; transform: translateY(8px) scale(0.6); transition: opacity 300ms ease, transform 500ms var(--bw-ease); }
+  .bw-ch-board[data-rank="true"] .bw-ch-climb { opacity: 1; transform: none; transition-delay: 500ms; }
   .bw-ch-pts { display: inline-grid; }
   .bw-ch-pts > span { grid-area: 1 / 1; text-align: right; transition: opacity 300ms ease, transform 400ms var(--bw-ease); }
   .bw-ch-pts > span:last-child { opacity: 0; transform: translateY(6px) scale(1.4); }
@@ -1985,6 +2027,8 @@
   100% { box-shadow: 0 0 0 16px rgba(255, 197, 107, 0); }
 }
 @keyframes bw-ch-flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
+@keyframes bw-ch-shine { 0% { transform: translateX(-100%); } 45%, 100% { transform: translateX(100%); } }
+@keyframes bw-ch-crown { 0% { transform: scale(1); } 35% { transform: scale(1.3); box-shadow: 0 0 0 6px rgba(255, 213, 138, 0.35), 0 0 22px rgba(255, 197, 107, 0.9); } 100% { transform: scale(1); } }
 @keyframes bw-ks-tile {
   0% { opacity: var(--o0, 1); transform: none; }
   12% { opacity: 1; transform: translateY(-6px) rotate(calc(var(--r) * 0.3)); }
@@ -2060,6 +2104,9 @@
 [data-brand="2"][data-content-motion="soft"] .bw-scene[data-on="true"] .bw-ch-bell,
 [data-brand="2"][data-content-motion="soft"] .bw-scene[data-on="true"] .bw-ks-spark { animation-iteration-count: 1; }
 [data-brand="2"][data-content-motion="soft"] .bw-ar-frame { animation-name: bw-fade; }
+/* The board's shine is ambient: gone under reduced motion; the climb stays (it is the story). */
+[data-brand="2"][data-content-motion="soft"] .bw-ch-row::after { animation: none; opacity: 0; }
+[data-brand="2"][data-content-motion="soft"] .bw-ch-medal { animation-iteration-count: 1; }
 
 /* How it works, touch screens: one native snap stop mid-step (the anchors
    come from lib/beamyScroll storySnapOffsets). A momentum flick on a phone
