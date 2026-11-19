@@ -196,6 +196,25 @@ export function discardLibraryDrafts(ids: string[]): Promise<AdminResult<{ disca
   return adminApi('discard_library_drafts', { ids });
 }
 
+export interface ReplaceModelResult {
+  /** in_place: the same item now has the new file. new_version: events kept
+   *  the old version and `id` is the new one. */
+  path: 'in_place' | 'new_version';
+  id: string;
+  version: number;
+  linkCount: number;
+  retired: string[];
+  retireFailed: string[];
+  accessCopyFailed: boolean;
+  /** false = the draft (and its upload) is still in Bulk import. */
+  draftRemoved: boolean;
+}
+
+/** Give a published library prop the model of an import draft (the draft is used up). */
+export function replaceLibraryItemModel(targetId: string, draftId: string): Promise<AdminResult<ReplaceModelResult>> {
+  return adminApi('replace_library_item_model', { targetId, draftId });
+}
+
 /* ── Taxonomy: categories + keywords (migration 045) ──────────────────── */
 
 export function fetchLibraryCategories(): Promise<AdminResult<{ categories: LibraryCategory[] }>> {
@@ -296,6 +315,8 @@ export function libraryErrorText(code: string): string {
     case 'slug_immutable': return 'A category’s web name cannot change after it is made.';
     case 'too_many_categories': return 'That is the most categories the library holds (300).';
     case 'event_cap': return 'Your organisation is at its event limit, so the workshop could not be made. Archive an old event and try again.';
+    case 'not_replaceable': return 'Only a 3D prop that is in the library (not withdrawn) can have its file replaced.';
+    case 'changed': return 'Its file changed while you were working. Refresh and try again.';
     case 'forbidden': return 'This account is not a platform admin.';
     case 'unauthorized': return 'Your session has expired. Sign in again.';
     // A dropped connection says nothing about whether the server finished, so

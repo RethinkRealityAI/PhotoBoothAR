@@ -25,6 +25,13 @@ import {
   normalizeImportMeta,
   patchDraftConfig,
   publishedDraftConfig,
+  draftReplacementKeys,
+  inPlaceReplacedConfig,
+  replacedFileKeys,
+  replacedImportMeta,
+  replacePathFor,
+  replaceTargetBlocker,
+  swapModelUrls,
 } from '../../supabase/functions/admin-api/libraryImport.ts';
 import { libraryStateOf, readLibraryMeta } from '../../supabase/functions/admin-api/library.ts';
 import { HAND_ANCHOR_MAP } from './handPose';
@@ -316,5 +323,85 @@ describe('optimized model swap (update_library_draft assetUrl)', () => {
     expect(normalizeImportMeta({ bytes: 4, originalBytes: 40, originalTriangles: 9 })).toMatchObject({ originalBytes: 40, originalTriangles: 9 });
     expect(normalizeImportMeta({ bytes: 4, originalTriangles: 9 }).originalTriangles).toBeUndefined();
     expect(normalizeImportMeta({ bytes: 4, originalBytes: -1 }).originalBytes).toBeUndefined();
+  });
+});
+
+describe('replace a library model (replace_library_item_model)', () => {
+  const TARGET = '22222222-2222-4333-8444-555555555555';
+  const oldModel = url(`_platform/library/${TARGET}/model.glb`);
+  const oldThumb = url(`_platform/library/${TARGET}/thumb.png`);
+  const draftRow = { asset_url: url(draftModelKey(ID)), thumbnail_url: url(draftThumbKey(ID)) };
+
+  it('swaps in place only when NO event links it; unknown counts take the safe path', () => {
+    expect(replacePathFor(0)).toBe('in_place');
+    for (const n of [1, 7, NaN, Infinity, -1]) expect(replacePathFor(n), String(n)).toBe('new_version');
+  });
+
+  it('only a published lone 3D prop with a file can be replaced', () => {
+    const ok = { kind: '3d_attachment', is_published: true, asset_url: oldModel, config: { library: { version: 1 } } };
+    expect(replaceTargetBlocker(ok)).toBeNull();
+    expect(replaceTargetBlocker({ ...ok, config: { library: { draft: true } } })).toBe('is_draft');
+    expect(replaceTargetBlocker({ ...ok, kind: 'composite' })).toBe('not_replaceable');
+    expect(replaceTargetBlocker({ ...ok, is_published: false })).toBe('not_replaceable');
+    expect(replaceTargetBlocker({ ...ok, asset_url: '' })).toBe('not_replaceable');
+    expect(replaceTargetBlocker({ ...ok, asset_url: null })).toBe('not_replaceable');
+  });
+
+  it('takes the draft’s files only from its own folder', () => {
+    expect(draftReplacementKeys(ID, draftRow, ORIGIN)).toEqual({ model: draftModelKey(ID), thumb: draftThumbKey(ID) });
+    const opt = { ...draftRow, asset_url: url(draftOptimizedModelKey(ID, 5)) };
+    expect(draftReplacementKeys(ID, opt, ORIGIN)?.model).toBe(draftOptimizedModelKey(ID, 5));
+    expect(draftReplacementKeys(ID, { ...draftRow, asset_url: oldModel }, ORIGIN)).toBeNull();
+    expect(draftReplacementKeys(ID, { ...draftRow, thumbnail_url: oldThumb }, ORIGIN)).toBeNull();
+    expect(draftReplacementKeys(ID, { ...draftRow, asset_url: 'https://evil.example/x.glb' }, ORIGIN)).toBeNull();
+  });
+
+  it('names NEW files in the target’s folder — never an overwrite', () => {
+    const k = replacedFileKeys(TARGET, 1763590000000.9);
+    expect(k).toEqual({
+      model: `_platform/library/${TARGET}/model-r1763590000000.glb`,
+      thumb: `_platform/library/${TARGET}/thumb-r1763590000000.png`,
+    });
+    expect(k.model).not.toBe(`_platform/library/${TARGET}/model.glb`);
+    expect(replacedFileKeys(TARGET, NaN).model).toBe(`_platform/library/${TARGET}/model-r0.glb`);
+  });
+
+  it('swaps URLs by exact string or by bucket key, deep, without mutating', () => {
+    const cfg = { anchor: { id: 'crown' }, layers: [{ kind: '3d_attachment', asset_url: `${oldModel}?v=2` }], other: 'keep', n: 3 };
+    const snap = JSON.stringify(cfg);
+    const out = swapModelUrls(cfg, [{ fromUrl: oldModel, toUrl: 'NEW' }, { fromUrl: null, toUrl: 'X' }], ORIGIN);
+    expect(out.layers[0].asset_url).toBe('NEW');
+    expect(out.other).toBe('keep');
+    expect(out.n).toBe(3);
+    expect(JSON.stringify(cfg)).toBe(snap);
+    const rel = swapModelUrls({ a: '/models/x.glb', b: '/models/y.glb' }, [{ fromUrl: '/models/x.glb', toUrl: 'Z' }], ORIGIN);
+    expect(rel).toEqual({ a: 'Z', b: '/models/y.glb' });
+    expect(swapModelUrls(cfg, [], ORIGIN)).toBe(cfg);
+  });
+
+  it('in place: keeps placement and every library key, stamps replacedAt, refreshes the file facts', () => {
+    const cfg = {
+      anchor: { id: 'noseBridge' }, scale: 0.4,
+      layers: [{ kind: '3d_attachment', asset_url: oldModel }],
+      library: { version: 3, lineageId: TARGET, listed: true, tags: { occasions: ['gala'], colors: [], styles: [] },
+        import: { category: 'eyewear', classifiedBy: 'human', fileName: 'old.glb', bytes: 40, triangles: 9, maxDim: 1, originalBytes: 80, originalTriangles: 20 } },
+    };
+    const draftMeta = normalizeImportMeta({ category: 'headwear', classifiedBy: 'none', fileName: 'new.glb', bytes: 4, triangles: 2, maxDim: 1.1 });
+    const out = inPlaceReplacedConfig(cfg, [{ fromUrl: oldModel, toUrl: 'NEW' }], ORIGIN, '2026-11-19T00:00:00Z', draftMeta);
+    expect(out.anchor).toEqual({ id: 'noseBridge' });
+    expect(out.scale).toBe(0.4);
+    expect((out.layers as Array<Record<string, unknown>>)[0].asset_url).toBe('NEW');
+    const lib = out.library as Record<string, unknown>;
+    expect(lib).toMatchObject({ version: 3, lineageId: TARGET, listed: true, replacedAt: '2026-11-19T00:00:00Z' });
+    expect(lib.import).toEqual({ category: 'eyewear', classifiedBy: 'human', fileName: 'new.glb', bytes: 4, triangles: 2, maxDim: 1.1 });
+    expect(readLibraryMeta(out)?.tags.occasions).toEqual(['gala']);
+  });
+
+  it('import facts: none invented for an event-published row; the optimized original carries over', () => {
+    const d = normalizeImportMeta({ fileName: 'n.glb', bytes: 4, triangles: 2, maxDim: 1, originalBytes: 50, originalTriangles: 30 });
+    expect(replacedImportMeta(undefined, d)).toBeUndefined();
+    expect(replacedImportMeta({ category: 'ears', bytes: 9 }, d)).toMatchObject({ category: 'ears', bytes: 4, originalBytes: 50, originalTriangles: 30 });
+    const out = inPlaceReplacedConfig({ layers: [], library: { version: 1 } }, [], ORIGIN, 'now', d);
+    expect((out.library as Record<string, unknown>).import).toBeUndefined();
   });
 });

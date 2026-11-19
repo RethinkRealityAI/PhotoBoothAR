@@ -30,6 +30,7 @@ import {
   isUuid,
   normalizeLibraryName,
   normalizeLibraryTags,
+  stripLibraryMeta,
   type LibraryTags,
 } from './library.ts';
 
@@ -360,6 +361,141 @@ export function publishedDraftConfig(current: unknown, actorUserId: string, now:
     ...cur,
     library: { ...lib, listed: true, publishedAt: now, publishedBy: actorUserId },
   };
+}
+
+/* ── Replace a library model with a draft (replace_library_item_model) ──── */
+
+/**
+ * THE VERSIONING RULE. What a published library row renders may change only
+ * while no event links it. With zero event_catalog_links the swap happens IN
+ * PLACE (same id, name, shelf, tags, access, state); with any link the draft
+ * becomes version N+1 of the target's chain and linked events keep version N.
+ * A capped or unknown count is never zero, so it can only pick the safe path.
+ */
+export type ReplacePath = 'in_place' | 'new_version';
+
+export function replacePathFor(linkCount: number): ReplacePath {
+  return Number.isFinite(linkCount) && linkCount === 0 ? 'in_place' : 'new_version';
+}
+
+/**
+ * Why a row cannot have its model replaced, or null. Only a published, lone
+ * 3D prop with a model file: a scene's 3D layer is one of many files, and a
+ * withdrawn row is a takedown, not something to keep improving.
+ */
+export function replaceTargetBlocker(row: {
+  kind: unknown; is_published: unknown; asset_url: unknown; config: unknown;
+}): 'is_draft' | 'not_replaceable' | null {
+  if (isDraftConfig(row.config)) return 'is_draft';
+  if (row.kind !== '3d_attachment' || row.is_published !== true) return 'not_replaceable';
+  if (typeof row.asset_url !== 'string' || row.asset_url === '') return 'not_replaceable';
+  return null;
+}
+
+/** The draft's model and thumbnail keys, or null when either is not where the
+ *  import put it (a draft never hands over another folder's files). */
+export function draftReplacementKeys(
+  draftId: string,
+  row: { asset_url: unknown; thumbnail_url: unknown },
+  origin: string,
+): { model: string; thumb: string } | null {
+  const model = assetKey(row.asset_url, origin);
+  const thumb = assetKey(row.thumbnail_url, origin);
+  if (model === null || !isDraftModelKey(draftId, model)) return null;
+  if (thumb !== draftThumbKey(draftId)) return null;
+  return { model, thumb };
+}
+
+/**
+ * Where an in-place swap puts the new files: NEW names in the target's own
+ * folder, never an overwrite — a browser or the CDN may hold the old public
+ * URL, and glbCache keys parsed models by URL. `stamp` is a run stamp.
+ */
+export function replacedFileKeys(targetId: string, stamp: number): { model: string; thumb: string } {
+  const n = Math.max(0, Math.floor(Number.isFinite(stamp) ? stamp : 0));
+  return { model: `${draftFolder(targetId)}model-r${n}.glb`, thumb: `${draftFolder(targetId)}thumb-r${n}.png` };
+}
+
+export interface UrlSwap {
+  /** The URL being replaced; null/empty swaps nothing. */
+  fromUrl: unknown;
+  toUrl: string;
+}
+
+const SWAP_MAX_DEPTH = 32;
+
+/**
+ * Deep copy of `value` with every string that names a swapped file replaced
+ * by its new URL — matched exactly, or by assets-bucket key (so `?v=1` and
+ * other query noise still match). Never mutates the input.
+ */
+export function swapModelUrls<T>(value: T, swaps: readonly UrlSwap[], origin: string): T {
+  const live = swaps
+    .filter((s): s is { fromUrl: string; toUrl: string } => typeof s.fromUrl === 'string' && s.fromUrl !== '')
+    .map((s) => ({ ...s, fromKey: assetKey(s.fromUrl, origin) }));
+  if (live.length === 0) return value;
+  const go = (v: unknown, depth: number): unknown => {
+    if (depth > SWAP_MAX_DEPTH) return v;
+    if (typeof v === 'string') {
+      const key = assetKey(v, origin);
+      const hit = live.find((s) => s.fromUrl === v || (key !== null && s.fromKey === key));
+      return hit ? hit.toUrl : v;
+    }
+    if (Array.isArray(v)) return v.map((x) => go(x, depth + 1));
+    if (isRecord(v)) {
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v)) out[k] = go(x, depth + 1);
+      return out;
+    }
+    return v;
+  };
+  return go(value, 0) as T;
+}
+
+/**
+ * The import facts after a swap: the file facts (name, size, triangles, size
+ * on disk before optimizing) come from the new file; the labelling (category,
+ * who labelled it, the AI's note) stays the target's. Undefined when the
+ * target never had import facts (it was published from an event).
+ */
+export function replacedImportMeta(current: unknown, draft: ImportMeta): ImportMeta | undefined {
+  if (!isRecord(current)) return undefined;
+  const cur = normalizeImportMeta(current);
+  const out: ImportMeta = {
+    ...cur,
+    fileName: draft.fileName,
+    bytes: draft.bytes,
+    triangles: draft.triangles,
+    maxDim: draft.maxDim,
+  };
+  delete out.originalBytes;
+  delete out.originalTriangles;
+  if (draft.originalBytes !== undefined) {
+    out.originalBytes = draft.originalBytes;
+    out.originalTriangles = draft.originalTriangles ?? 0;
+  }
+  return out;
+}
+
+/**
+ * The target's config after an IN-PLACE swap. Its own placement (anchor,
+ * offset, fit) is kept, with the old file's URLs pointed at the new ones —
+ * NOT the draft's config, whose anchor comes from an import category that may
+ * not have been reviewed yet. `config.library` keeps every key (version,
+ * lineage, listed, tags) and gains `replacedAt`.
+ */
+export function inPlaceReplacedConfig(
+  current: unknown,
+  swaps: readonly UrlSwap[],
+  origin: string,
+  now: string,
+  draftImport: ImportMeta | null,
+): Record<string, unknown> {
+  const cfg = isRecord(current) ? current : {};
+  const lib = isRecord(cfg.library) ? cfg.library : {};
+  const rendering = swapModelUrls(stripLibraryMeta(cfg), swaps, origin) as Record<string, unknown>;
+  const imp = draftImport ? replacedImportMeta(lib.import, draftImport) : undefined;
+  return { ...rendering, library: { ...lib, replacedAt: now, ...(imp ? { import: imp } : {}) } };
 }
 
 /* ── AI classification (Gemini, one thumbnail per call) ─────────────────── */

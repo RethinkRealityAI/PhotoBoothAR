@@ -31,10 +31,12 @@ import {
   fetchLibraryItems,
   libraryErrorText,
   publishLibraryDrafts,
+  replaceLibraryItemModel,
   updateLibraryDraft,
   type LibraryDraftRow,
   type LibraryItemRow,
 } from '../../lib/adminLibrary';
+import { replaceConsequence, replaceOutcomeText, replaceTargetFor } from '../../lib/libraryReplace';
 import { builtInModels, existingModelNamed, isLibrary3dKind, type PlatformModel } from '../../lib/platformModels';
 import {
   CLASSIFY_BATCH_MAX,
@@ -224,6 +226,9 @@ export default function LibraryImport() {
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [tagEdit, setTagEdit] = useState<{ draft: LibraryDraftRow; tags: LibraryTags } | null>(null);
   const [confirm, setConfirm] = useState<'publish' | 'discard' | null>(null);
+  /** A draft about to take the place of a library item's file. */
+  const [replacing, setReplacing] = useState<{ draft: LibraryDraftRow; target: LibraryItemRow } | null>(null);
+  const [linkCapped, setLinkCapped] = useState(false);
   const [busy, setBusy] = useState(false);
   const [aiDown, setAiDown] = useState<string | null>(null);
   const [dragDepth, setDragDepth] = useState(0);
@@ -261,7 +266,10 @@ export default function LibraryImport() {
     setTaxonomyReady(cats.error === null && cats.data !== null);
     setCategories(cats.data?.categories ?? []);
     if (listed.error !== null || listed.data === null) setLibraryError(listed.error ?? 'internal');
-    else setLibraryItems(listed.data.items.filter((i) => isLibrary3dKind(i.kind)));
+    else {
+      setLibraryItems(listed.data.items.filter((i) => isLibrary3dKind(i.kind)));
+      setLinkCapped(listed.data.linkCountsCapped);
+    }
     if (drafted.error !== null || drafted.data === null) { setError(drafted.error ?? 'internal'); return; }
     setDrafts(drafted.data.drafts);
   }, []);
@@ -463,6 +471,37 @@ export default function LibraryImport() {
   );
   const duplicateOf = (d: LibraryDraftRow): string | null =>
     existingModelNamed(d.name, [...platformNames, ...drafts.filter((x) => x.id !== d.id).map((x) => x.name)]);
+  /** The LIBRARY prop a draft with the same name can replace (built-in and
+   *  event models are never replaced from here). `source` on a library row
+   *  is where its file came from, not which shelf it is on, so it is left out. */
+  const replaceTargetOf = (d: LibraryDraftRow): LibraryItemRow | null => {
+    const rows = libraryItems ?? [];
+    const hit = replaceTargetFor(d.name, rows.map((r) => ({
+      id: r.id, name: r.name, kind: r.kind, state: r.state, version: r.version, modelUrl: r.modelUrl ?? r.assetUrl,
+    })));
+    return hit ? rows.find((r) => r.id === hit.id) ?? null : null;
+  };
+
+  /** "Replace": the draft's file goes into the library item (consuming the draft). */
+  const doReplace = async () => {
+    if (!replacing) return;
+    const { draft, target: item } = replacing;
+    setBusy(true);
+    const { data, error: err } = await replaceLibraryItemModel(item.id, draft.id);
+    setBusy(false);
+    if (err !== null || data === null) { push(`${draft.name}: ${libraryErrorText(err ?? 'internal')}`, 'error'); return; }
+    setReplacing(null);
+    setDrafts((rows) => rows.filter((r) => r.id !== draft.id));
+    mark(setSelected, [draft.id], false);
+    const out = replaceOutcomeText(item.name, data);
+    push(out.text, out.tone);
+    // Quietly refresh the shelf below (new file, or a new version).
+    const listed = await fetchLibraryItems();
+    if (listed.error === null && listed.data !== null) {
+      setLibraryItems(listed.data.items.filter((i) => isLibrary3dKind(i.kind)));
+      setLinkCapped(listed.data.linkCountsCapped);
+    }
+  };
   const builtInNote = (m: PlatformModel) =>
     m.source === 'customisable'
       ? 'Built into the app. Hosts recolour it and can add a name to it in the Studio.'
@@ -952,11 +991,27 @@ export default function LibraryImport() {
                   ))}
                   {(() => {
                     const dup = duplicateOf(d);
-                    return dup === null ? null : (
-                      <p className="text-[11px] text-amber-200/90 flex gap-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden />
-                        “{dup}” is already on the platform. Rename this one or discard it if it is the same model.
-                      </p>
+                    if (dup === null) return null;
+                    const libTarget = replaceTargetOf(d);
+                    return (
+                      <div className="flex flex-col items-start gap-1.5">
+                        <p className="text-[11px] text-amber-200/90 flex gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden />
+                          {libTarget
+                            ? `“${libTarget.name}” is already in the library. Replace its file with this one, rename this one, or discard it.`
+                            : `“${dup}” is already on the platform. Rename this one or discard it if it is the same model.`}
+                        </p>
+                        {libTarget && (
+                          <button
+                            type="button"
+                            onClick={() => setReplacing({ draft: d, target: libTarget })}
+                            disabled={isBusy || busy}
+                            className="pressable min-h-11 px-3 inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] text-[11px] text-brand-fg disabled:opacity-40"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" aria-hidden /> Replace “{libTarget.name}”
+                          </button>
+                        )}
+                      </div>
                     );
                   })()}
                 </li>
@@ -1052,7 +1107,7 @@ export default function LibraryImport() {
       {optimizeTarget && (
         <OptimizeCompare
           name={optimizeTarget.name}
-          assetUrl={optimizeTarget.assetUrl}
+          modelUrl={optimizeTarget.assetUrl}
           onUse={(bytes, stats) => applyOptimized(optimizeTarget, bytes, stats)}
           onClose={() => setOptimizeTarget(null)}
         />
@@ -1076,6 +1131,29 @@ export default function LibraryImport() {
           </div>
         </Modal>
       )}
+
+      {replacing && (() => {
+        const c = replaceConsequence(
+          { name: replacing.target.name, linkCount: replacing.target.linkCount, state: replacing.target.state },
+          linkCapped,
+        );
+        return (
+          <ConfirmModal
+            title={`Replace the file of “${replacing.target.name}”?`}
+            tone="caution"
+            confirmLabel={c.path === 'in_place' ? 'Replace the file' : 'Add as a new version'}
+            busy={busy}
+            body={
+              <>
+                {c.lines.map((l) => <p key={l} className="mb-2">{l}</p>)}
+                <p>This draft is used up: it leaves Bulk import. This cannot be undone.</p>
+              </>
+            }
+            onConfirm={() => void doReplace()}
+            onCancel={() => setReplacing(null)}
+          />
+        );
+      })()}
 
       {confirm && (
         <ConfirmModal

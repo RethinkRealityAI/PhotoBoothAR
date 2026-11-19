@@ -2,17 +2,21 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Optimize one import draft in the browser and compare it with the original
- * before switching: two live 3D viewers (side by side, stacked on a phone)
- * lit exactly like the booth, each with its size / triangles / texture size.
- * Nothing is uploaded until "Use optimized"; "Keep original" just closes.
+ * Optimize one model in the browser and compare it with the original before
+ * switching: two live 3D viewers (side by side, stacked on a phone) lit
+ * exactly like the booth, each with its size / triangles / texture size.
+ * Nothing is uploaded until the apply button; "Keep original" just closes.
+ * The caller decides what applying means (an import draft points at the new
+ * file; a library item goes through replace_library_item_model; an event
+ * model is copied into the library) — or passes no `onUse` for a compare
+ * with nothing to apply (built-in models are files in the app itself).
  */
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import Modal from '../../ui/Modal';
 import { ModelPreview } from '../../studio/DirectorCards';
 import { evictModel } from '../../../lib/glbCache';
-import { optimizeDraftModel } from '../../../lib/libraryImportBrowser';
+import { optimizeModelAt } from '../../../lib/libraryImportBrowser';
 import {
   OPTIMIZE_PRESETS,
   OPTIMIZE_PRESET_LABEL,
@@ -41,27 +45,44 @@ function StatList({ rows }: { rows: string[] }) {
   );
 }
 
+const DRAFT_FOOT_NOTE = 'Turn both to compare. The optimized copy is saved next to the original; the thumbnail stays as it is.';
+
 export default function OptimizeCompare({
   name,
-  assetUrl,
+  modelUrl,
   onUse,
+  useLabel = 'Use optimized',
+  footNote = DRAFT_FOOT_NOTE,
+  confirm,
   onClose,
 }: {
   name: string;
-  assetUrl: string;
-  /** Upload + point the draft at the optimized bytes; true on success (the parent closes). */
-  onUse: (bytes: Uint8Array, stats: OptimizeStats) => Promise<boolean>;
+  modelUrl: string;
+  /** Apply the optimized bytes; true on success (the parent closes). Omitted = compare only. */
+  onUse?: (bytes: Uint8Array, stats: OptimizeStats) => Promise<boolean>;
+  /** The apply button's words. */
+  useLabel?: string;
+  /** What applying does (or, with no `onUse`, why nothing can be applied). */
+  footNote?: string;
+  /**
+   * An irreversible apply asks first, IN this dialog (a second dialog on top
+   * would share its Escape and focus handling): the apply button shows these
+   * lines and a confirm button instead of applying straight away.
+   */
+  confirm?: { lines: string[]; label: string };
   onClose: () => void;
 }) {
   const [preset, setPreset] = useState<OptimizePreset>('balanced');
   const [run, setRun] = useState<RunState>({ status: 'running' });
   const [using, setUsing] = useState(false);
+  const [asking, setAsking] = useState(false);
 
   useEffect(() => {
     let alive = true;
     let made: string | null = null;
     setRun({ status: 'running' });
-    void optimizeDraftModel(assetUrl, OPTIMIZE_PRESETS[preset]).then((r) => {
+    setAsking(false);
+    void optimizeModelAt(modelUrl, OPTIMIZE_PRESETS[preset]).then((r) => {
       if (!alive) return;
       if (!r.ok) { setRun({ status: 'failed', reason: r.reason, stale: r.stale === true }); return; }
       made = URL.createObjectURL(new Blob([r.bytes as BlobPart], { type: 'model/gltf-binary' }));
@@ -73,16 +94,17 @@ export default function OptimizeCompare({
       // URL; release both so a session of compares does not pile up meshes.
       if (made) { evictModel(made); URL.revokeObjectURL(made); }
     };
-  }, [assetUrl, preset]);
+  }, [modelUrl, preset]);
 
   const ready = run.status === 'ready' ? run : null;
   const keep = ready ? worthKeeping(ready.stats) : false;
 
   const use = async () => {
-    if (!ready) return;
+    if (!ready || !onUse) return;
     setUsing(true);
     const ok = await onUse(ready.bytes, ready.stats);
     setUsing(false);
+    setAsking(false);
     if (ok) onClose();
   };
 
@@ -110,7 +132,7 @@ export default function OptimizeCompare({
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
         <section className="min-w-0" aria-label="Original">
           <h3 className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-1.5">Original</h3>
-          <ModelPreview url={assetUrl} height={240} />
+          <ModelPreview url={modelUrl} height={240} />
           {ready && (
             <StatList rows={[
               formatBytes(ready.stats.bytesBefore),
@@ -161,24 +183,40 @@ export default function OptimizeCompare({
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden /> {n}
         </p>
       ))}
-      {ready && !keep && (
+      {ready && !keep && onUse && (
         <p className="mt-3 text-xs text-brand-muted/70">It saves too little to be worth it. Keep the original.</p>
       )}
-      <p className="mt-3 text-[11px] text-brand-muted/60">
-        Turn both to compare. The optimized copy is saved next to the original; the thumbnail stays as it is.
-      </p>
+      <p className="mt-3 text-[11px] text-brand-muted/60">{footNote}</p>
 
+      {asking && confirm && (
+        <div role="group" aria-label="Confirm" className="mt-4 rounded-2xl border border-amber-400/25 bg-amber-500/[0.06] px-4 py-3 font-sans text-xs text-brand-fg/85 leading-relaxed">
+          {confirm.lines.map((l) => <p key={l} className="mb-1.5 last:mb-0">{l}</p>)}
+        </div>
+      )}
       <div className="flex flex-col-reverse sm:flex-row gap-2 mt-4">
+        {asking && confirm ? (
+          <>
+            <button onClick={() => setAsking(false)} disabled={using} className={`${BTN} bg-white/[0.06] hover:bg-white/[0.1] text-brand-fg/80 sm:flex-1`}>
+              Back
+            </button>
+            <button onClick={() => void use()} disabled={!ready || using} className={`${BTN} bg-foil text-[color:var(--on-accent)] font-bold sm:flex-1`}>
+              {using ? <><Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Saving…</> : confirm.label}
+            </button>
+          </>
+        ) : (<>
         <button onClick={onClose} disabled={using} className={`${BTN} bg-white/[0.06] hover:bg-white/[0.1] text-brand-fg/80 sm:flex-1`}>
-          Keep original
+          {onUse ? 'Keep original' : 'Close'}
         </button>
-        <button
-          onClick={() => void use()}
-          disabled={!ready || !keep || using}
-          className={`${BTN} bg-foil text-[color:var(--on-accent)] font-bold sm:flex-1`}
-        >
-          {using ? <><Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Saving…</> : 'Use optimized'}
-        </button>
+        {onUse && (
+          <button
+            onClick={() => { if (confirm) setAsking(true); else void use(); }}
+            disabled={!ready || !keep || using}
+            className={`${BTN} bg-foil text-[color:var(--on-accent)] font-bold sm:flex-1`}
+          >
+            {using ? <><Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Saving…</> : useLabel}
+          </button>
+        )}
+        </>)}
       </div>
     </Modal>
   );

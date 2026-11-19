@@ -96,6 +96,13 @@
  *                              only, writes nothing (the browser applies + saves)
  *   publish_library_drafts   → { data: { published: [id], failed: [{ id, error }] } } (args: { ids ≤25 }) — audited
  *   discard_library_drafts   → { data: { discarded: [id], filesFailed: [id] } } (args: { ids ≤25 }) — audited
+ *   replace_library_item_model → { data: { path: 'in_place'|'new_version', id, version, linkCount,
+ *                              retired, retireFailed, accessCopyFailed, draftRemoved } }
+ *                              (args: { targetId, draftId }) — audited; a published lone 3D prop
+ *                              takes the draft's model: in place with 0 event links, else as
+ *                              version N+1 (linked events keep theirs). The draft is consumed.
+ *                              400 invalid_args|not_replaceable|invalid_asset|too_many_files ·
+ *                              404 not_found (+which) · 409 is_draft|changed · 502 copy_failed
  *
  * DEPLOYS AS FIVE FILES: index.ts, library.ts, libraryImport.ts, taxonomy.ts, deno.json.
  */
@@ -103,6 +110,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
 import {
   assetKey,
+  assetPublicUrl,
   buildLibraryRow,
   collectAssetKeys,
   libraryStateOf,
@@ -117,6 +125,7 @@ import {
   readLibraryMeta,
   stripLibraryMeta,
   ASSETS_BUCKET_NAME,
+  type LibraryTags,
 } from './library.ts';
 import {
   CLASSIFY_BATCH_MAX,
@@ -130,11 +139,17 @@ import {
   checkDraftCreate,
   draftFolder,
   draftPublishBlocker,
+  draftReplacementKeys,
+  inPlaceReplacedConfig,
   isDraftConfig,
   normalizeClassification,
   normalizeImportMeta,
   patchDraftConfig,
   publishedDraftConfig,
+  replacedFileKeys,
+  replacePathFor,
+  replaceTargetBlocker,
+  swapModelUrls,
 } from './libraryImport.ts';
 import {
   CATEGORY_DESC_MAX,
@@ -1567,12 +1582,84 @@ async function publishLibraryItem(
   const lineage = await workshopLineageOf(sb, experienceId) ?? experienceId;
   // Earlier versions in the chain → this one is version N+1.
   const prior = await lineageVersions(sb, lineage);
+  const made = await insertLibraryVersion(sb, origin, actorUserId, {
+    srcRow: {
+      kind: src.kind as string,
+      asset_url: src.asset_url as string | null,
+      thumbnail_url: thumb,
+      config: src.config,
+      source: src.source as string | null,
+    },
+    name,
+    tags,
+    listed,
+    sourceExperienceId: experienceId,
+    lineage,
+    prior,
+    // A new version stays on the shelf the previous one was filed on.
+    inheritFrom: prior[0],
+    category: { given: cat.given, id: cat.id },
+    keywords,
+  });
+  if (!made.ok) return made.response;
+
+  await auditLog(sb, actorUserId, 'publish_library_item', 'experience', made.id, {
+    sourceExperienceId: experienceId, lineageId: lineage, version: made.version, files: made.files, listed,
+    retired: made.retired, retireFailed: made.retireFailed,
+    categoryId: made.categoryId, keywords: made.keywords, picture: pictureUrl !== null,
+    access: made.inheritsAccess ? { orgIds: made.inheritedOrgs, copyFailed: made.accessCopyFailed } : 'everyone',
+  });
+  return json(200, {
+    data: {
+      id: made.id, version: made.version, files: made.files,
+      retired: made.retired, retireFailed: made.retireFailed, accessCopyFailed: made.accessCopyFailed,
+    },
+  });
+}
+
+interface NewVersionInput {
+  /** What the new version renders. Every assets-bucket file it names is COPIED
+   *  into the new version's own folder (URLs rewritten to the copies). */
+  srcRow: { kind: string; asset_url: string | null; thumbnail_url: string | null; config: unknown; source: string | null };
+  name: string;
+  tags: LibraryTags;
+  listed: boolean;
+  sourceExperienceId: string;
+  lineage: string;
+  /** Every version already in the chain, newest first (lineageVersions). */
+  prior: Array<Record<string, unknown>>;
+  /** The version whose shelf (category, keywords, collection, position) and
+   *  who-can-use-it the new one inherits. undefined = a brand-new item. */
+  inheritFrom: Record<string, unknown> | undefined;
+  /** An explicit category wins over the inherited one. */
+  category: { given: boolean; id: string | null };
+  /** Explicit keywords win over the inherited ones; undefined = inherit. */
+  keywords?: string[];
+}
+
+type NewVersionResult =
+  | {
+    ok: true; id: string; version: number; files: number; retired: string[]; retireFailed: string[];
+    accessCopyFailed: boolean; categoryId: string | null; keywords: string[]; inheritsAccess: boolean; inheritedOrgs: string[];
+    response?: undefined;
+  }
+  | { ok: false; response: Response };
+
+/**
+ * Insert version N+1 of a library chain — THE one place a new version is made
+ * (publish_library_item and replace_library_item_model both come here, so the
+ * inheritance rules cannot drift). Copies every file all-or-nothing, inherits
+ * shelf + access from `inheritFrom`, and retires the chain's listed older
+ * versions when the new one is listed. Events that linked an old version keep it.
+ */
+async function insertLibraryVersion(
+  sb: Client, origin: string, actorUserId: string, input: NewVersionInput,
+): Promise<NewVersionResult> {
+  const { srcRow, name, tags, listed, prior } = input;
   const version = nextLibraryVersion(prior.map((p) => p.config));
-  // A new version stays on the shelf (category, keywords, collection, position)
-  // the previous one was filed on unless the caller says otherwise.
-  const latest = prior[0];
-  const categoryId = cat.given ? cat.id : ((latest?.library_category_id as string | null) ?? null);
-  const itemKeywords = keywords ?? (Array.isArray(latest?.library_keywords) ? latest.library_keywords as string[] : []);
+  const latest = input.inheritFrom;
+  const categoryId = input.category.given ? input.category.id : ((latest?.library_category_id as string | null) ?? null);
+  const itemKeywords = input.keywords ?? (Array.isArray(latest?.library_keywords) ? latest.library_keywords as string[] : []);
   const latestLib = (latest?.config as Record<string, unknown> | null)?.library as Record<string, unknown> | undefined;
   const collection = typeof latestLib?.collection === 'string' ? latestLib.collection : null;
   const sortOrder = typeof latest?.sort_order === 'number' ? latest.sort_order : 0;
@@ -1584,15 +1671,8 @@ async function publishLibraryItem(
     ? (await libraryAccessOrgs(sb, [latest.id as string])).get(latest.id as string)?.map((o) => o.id) ?? []
     : [];
 
-  const srcRow = {
-    kind: src.kind as string,
-    asset_url: src.asset_url as string | null,
-    thumbnail_url: thumb,
-    config: src.config,
-    source: src.source as string | null,
-  };
   const keys = collectAssetKeys(srcRow, origin);
-  if (keys.length > LIBRARY_MAX_FILES) return json(400, { error: 'too_many_files' });
+  if (keys.length > LIBRARY_MAX_FILES) return { ok: false, response: json(400, { error: 'too_many_files' }) };
 
   const newId = crypto.randomUUID();
   const plan = planLibraryCopies(keys, newId);
@@ -1613,7 +1693,7 @@ async function publishLibraryItem(
       if (error) {
         console.error('[admin-api] library copy failed', step.from, error);
         await cleanup();
-        return json(502, { error: 'copy_failed', path: step.from });
+        return { ok: false, response: json(502, { error: 'copy_failed', path: step.from }) };
       }
       copied.push(step.to);
     }
@@ -1624,8 +1704,8 @@ async function publishLibraryItem(
       tags,
       listed,
       version,
-      sourceExperienceId: experienceId,
-      lineageId: lineage,
+      sourceExperienceId: input.sourceExperienceId,
+      lineageId: input.lineage,
       publishedBy: actorUserId,
       publishedAt: new Date().toISOString(),
       origin,
@@ -1679,12 +1759,10 @@ async function publishLibraryItem(
     }
   }
 
-  await auditLog(sb, actorUserId, 'publish_library_item', 'experience', newId, {
-    sourceExperienceId: experienceId, lineageId: lineage, version, files: copied.length, listed, retired, retireFailed,
-    categoryId, keywords: itemKeywords, picture: pictureUrl !== null,
-    access: inheritsAccess ? { orgIds: inheritedOrgs, copyFailed: accessCopyFailed } : 'everyone',
-  });
-  return json(200, { data: { id: newId, version, files: copied.length, retired, retireFailed, accessCopyFailed } });
+  return {
+    ok: true, id: newId, version, files: copied.length, retired, retireFailed, accessCopyFailed,
+    categoryId, keywords: itemKeywords, inheritsAccess, inheritedOrgs,
+  };
 }
 
 async function updateLibraryItemMeta(
@@ -2574,38 +2652,212 @@ async function publishLibraryDrafts(sb: Client, actorUserId: string, args: Recor
   return json(200, { data: { published, failed } });
 }
 
+/**
+ * Delete ONE draft row, then every file in its folder. `removed: false` when
+ * it was not a draft any more (already gone or published) — a live item is
+ * never deleted here. Row FIRST: a row pointing at deleted files is a broken
+ * tile; files without a row are only orphaned bytes (logged, reported).
+ */
+async function removeDraft(sb: Client, id: string): Promise<{ removed: boolean; filesFailed: boolean }> {
+  const row = await readDraft(sb, id);
+  if (!row) return { removed: false, filesFailed: false };
+  const { data: gone, error } = await sb
+    .from('experiences')
+    .delete()
+    .eq('id', id)
+    .eq('is_global', true)
+    .eq('is_published', false)
+    .select('id');
+  if (error) throw error;
+  if (!gone || gone.length === 0) return { removed: false, filesFailed: false };
+  const storage = sb.storage.from(ASSETS_BUCKET_NAME);
+  const folder = draftFolder(id).replace(/\/$/, '');
+  const { data: objs, error: listErr } = await storage.list(folder, { limit: 100 });
+  const keys = (objs ?? []).map((o) => `${folder}/${o.name}`);
+  const { error: rmErr } = keys.length > 0 ? await storage.remove(keys) : { error: null };
+  if (listErr || rmErr) {
+    console.error('[admin-api] discard draft files failed', id, listErr ?? rmErr);
+    return { removed: true, filesFailed: true };
+  }
+  return { removed: true, filesFailed: false };
+}
+
 async function discardLibraryDrafts(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
   const ids = idList(args.ids, IMPORT_BATCH_MAX);
   if (!ids) return json(400, { error: 'invalid_args' });
-  const storage = sb.storage.from(ASSETS_BUCKET_NAME);
   const discarded: string[] = [];
   const filesFailed: string[] = [];
   for (const id of ids) {
-    const row = await readDraft(sb, id);
-    if (!row) continue; // already gone or published — never delete a live item here
-    // Row FIRST: a row pointing at deleted files is a broken tile; files
-    // without a row are only orphaned bytes (logged, reported).
-    const { data: gone, error } = await sb
-      .from('experiences')
-      .delete()
-      .eq('id', id)
-      .eq('is_global', true)
-      .eq('is_published', false)
-      .select('id');
-    if (error) throw error;
-    if (!gone || gone.length === 0) continue;
+    const r = await removeDraft(sb, id);
+    if (!r.removed) continue;
     discarded.push(id);
-    const folder = draftFolder(id).replace(/\/$/, '');
-    const { data: objs, error: listErr } = await storage.list(folder, { limit: 100 });
-    const keys = (objs ?? []).map((o) => `${folder}/${o.name}`);
-    const { error: rmErr } = keys.length > 0 ? await storage.remove(keys) : { error: null };
-    if (listErr || rmErr) {
-      console.error('[admin-api] discard draft files failed', id, listErr ?? rmErr);
-      filesFailed.push(id);
-    }
+    if (r.filesFailed) filesFailed.push(id);
   }
   if (discarded.length > 0) await auditLog(sb, actorUserId, 'discard_library_drafts', 'experience_batch', 'library', { discarded, filesFailed });
   return json(200, { data: { discarded, filesFailed } });
+}
+
+/**
+ * replace_library_item_model { targetId, draftId } — give a published library
+ * prop a new model file (an optimized copy, a small fix) without keeping two
+ * copies on the shelf. The draft (uploaded through the import pipeline) is
+ * consumed either way. The versioning rule decides the path (libraryImport.ts
+ * replacePathFor):
+ *  - no event links the target → IN PLACE: the draft's model + thumbnail are
+ *    COPIED into the target's own folder under NEW names (a cached public URL
+ *    is never overwritten), the row points at them, and it keeps its id, name,
+ *    shelf, tags, access, state and placement. The target's OLD files are KEPT:
+ *    a host who duplicated the item into an event copied its URLs verbatim
+ *    (components/admin/Library.tsx draftFrom), and event links do not count
+ *    those copies — the same reason set_library_item_state's delete keeps them.
+ *  - any link → NEW VERSION: the draft is published as version N+1 of the
+ *    target's chain through insertLibraryVersion (the publish path), inheriting
+ *    the target's shelf, access and listed state; a listed target is retired.
+ *    Linked events keep the version they have.
+ * All-or-nothing on the storage copies. A draft that cannot be removed after a
+ * successful swap is reported (`draftRemoved: false`), never a failure.
+ */
+async function replaceLibraryItemModel(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const targetId = typeof args.targetId === 'string' ? args.targetId : '';
+  const draftId = typeof args.draftId === 'string' ? args.draftId : '';
+  if (!UUID_RE.test(targetId) || !UUID_RE.test(draftId) || targetId === draftId) return json(400, { error: 'invalid_args' });
+
+  const { data: target, error: tErr } = await sb
+    .from('experiences')
+    .select(LIBRARY_COLUMNS)
+    .eq('id', targetId)
+    .eq('is_global', true)
+    .maybeSingle();
+  if (tErr) throw tErr;
+  if (!target) return json(404, { error: 'not_found', which: 'target' });
+  const blocker = replaceTargetBlocker(target);
+  if (blocker === 'is_draft') return json(409, { error: 'is_draft' });
+  if (blocker !== null) return json(400, { error: blocker });
+
+  const draft = await readDraft(sb, draftId);
+  if (!draft) return json(404, { error: 'not_found', which: 'draft' });
+  const origin = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/+$/, '');
+  if (!origin) throw new Error('SUPABASE_URL missing');
+  const draftKeys = draftReplacementKeys(draftId, { asset_url: draft.asset_url, thumbnail_url: draft.thumbnail_url }, origin);
+  if (!draftKeys) return json(400, { error: 'invalid_asset' });
+  const draftLib = (draft.config as Record<string, unknown> | null)?.library as Record<string, unknown> | undefined;
+  const draftImport = normalizeImportMeta(draftLib?.import);
+
+  const linkCount = await libraryLinkCount(sb, targetId);
+  const path = replacePathFor(linkCount);
+  const oldAsset = target.asset_url as string;
+  const oldThumb = (target.thumbnail_url as string | null) ?? null;
+
+  const consumeDraft = async (): Promise<boolean> => {
+    try {
+      const r = await removeDraft(sb, draftId);
+      return r.removed && !r.filesFailed;
+    } catch (e) {
+      console.error('[admin-api] replace: draft cleanup failed', draftId, e);
+      return false;
+    }
+  };
+
+  if (path === 'in_place') {
+    const to = replacedFileKeys(targetId, Date.now());
+    const storage = sb.storage.from(ASSETS_BUCKET_NAME);
+    const copied: string[] = [];
+    const cleanup = async () => {
+      if (copied.length === 0) return;
+      const { error } = await storage.remove(copied);
+      if (error) console.error('[admin-api] replace cleanup failed', targetId, copied, error);
+    };
+    for (const step of [{ from: draftKeys.model, to: to.model }, { from: draftKeys.thumb, to: to.thumb }]) {
+      const { error } = await storage.copy(step.from, step.to);
+      if (error) {
+        console.error('[admin-api] replace copy failed', step.from, error);
+        await cleanup();
+        return json(502, { error: 'copy_failed', path: step.from });
+      }
+      copied.push(step.to);
+    }
+    const newAsset = assetPublicUrl(to.model, origin);
+    const newThumb = assetPublicUrl(to.thumb, origin);
+    const config = inPlaceReplacedConfig(
+      target.config,
+      [{ fromUrl: oldAsset, toUrl: newAsset }, { fromUrl: oldThumb, toUrl: newThumb }],
+      origin,
+      new Date().toISOString(),
+      draftImport,
+    );
+    let updated: Array<{ id: unknown }> | null = null;
+    try {
+      // Guarded on the file it had when read: a concurrent replace must not be
+      // silently overwritten by this one.
+      const { data, error } = await sb
+        .from('experiences')
+        .update({ asset_url: newAsset, thumbnail_url: newThumb, config })
+        .eq('id', targetId)
+        .eq('is_global', true)
+        .eq('asset_url', oldAsset)
+        .select('id');
+      if (error) throw error;
+      updated = data;
+    } catch (err) {
+      await cleanup();
+      throw err;
+    }
+    if (!updated || updated.length === 0) {
+      await cleanup();
+      return json(409, { error: 'changed' });
+    }
+    const draftRemoved = await consumeDraft();
+    const version = readLibraryMeta(target.config)?.version ?? 1;
+    await auditLog(sb, actorUserId, 'replace_library_item_model', 'experience', targetId, {
+      path, draftId, linkCount, version, from: { assetUrl: oldAsset, thumbnailUrl: oldThumb },
+      to: { assetUrl: newAsset, thumbnailUrl: newThumb }, oldFilesKept: true, draftRemoved,
+      bytes: draftImport.bytes, triangles: draftImport.triangles,
+    });
+    return json(200, {
+      data: { path, id: targetId, version, linkCount, retired: [], retireFailed: [], accessCopyFailed: false, draftRemoved },
+    });
+  }
+
+  // NEW VERSION: what the target renders, with its model + thumbnail swapped
+  // for the draft's — insertLibraryVersion copies them into the new folder.
+  const meta = readLibraryMeta(target.config);
+  const lineage = lineageOf({ id: targetId, config: target.config });
+  const prior = await lineageVersions(sb, lineage);
+  const made = await insertLibraryVersion(sb, origin, actorUserId, {
+    srcRow: {
+      kind: target.kind as string,
+      asset_url: draft.asset_url as string,
+      thumbnail_url: draft.thumbnail_url as string,
+      config: swapModelUrls(
+        stripLibraryMeta(target.config ?? {}),
+        [{ fromUrl: oldAsset, toUrl: draft.asset_url as string }, { fromUrl: oldThumb, toUrl: draft.thumbnail_url as string }],
+        origin,
+      ),
+      source: (target.source as string | null) ?? null,
+    },
+    name: target.name as string,
+    tags: meta?.tags ?? { occasions: [], colors: [], styles: [] },
+    listed: libraryStateOf({ is_published: target.is_published as boolean, config: target.config }) === 'listed',
+    sourceExperienceId: meta?.sourceExperienceId ?? '',
+    lineage,
+    prior,
+    inheritFrom: target as Record<string, unknown>,
+    category: { given: false, id: null },
+  });
+  if (!made.ok) return made.response;
+  const draftRemoved = await consumeDraft();
+  await auditLog(sb, actorUserId, 'replace_library_item_model', 'experience', made.id, {
+    path, draftId, linkCount, targetId, lineageId: lineage, version: made.version, files: made.files,
+    retired: made.retired, retireFailed: made.retireFailed, draftRemoved,
+    access: made.inheritsAccess ? { orgIds: made.inheritedOrgs, copyFailed: made.accessCopyFailed } : 'everyone',
+    bytes: draftImport.bytes, triangles: draftImport.triangles,
+  });
+  return json(200, {
+    data: {
+      path, id: made.id, version: made.version, linkCount, retired: made.retired, retireFailed: made.retireFailed,
+      accessCopyFailed: made.accessCopyFailed, draftRemoved,
+    },
+  });
 }
 
 Deno.serve(async (req: Request) => {
@@ -2766,6 +3018,8 @@ Deno.serve(async (req: Request) => {
         return await publishLibraryDrafts(sb, user.id, args);
       case 'discard_library_drafts':
         return await discardLibraryDrafts(sb, user.id, args);
+      case 'replace_library_item_model':
+        return await replaceLibraryItemModel(sb, user.id, args);
       default:
         return json(400, { error: 'unknown_action' });
     }

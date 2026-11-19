@@ -12,7 +12,25 @@ import { supabase, ASSETS_BUCKET, publicUrl } from './supabase';
 import { captureGlbThumbnail } from './studio/glbThumb';
 import { evictModel, loadModel } from './glbCache';
 import { describeGlbError } from './glbErrors';
-import { IMPORT_MAX_BYTES, checkGlbFile, draftModelKey, draftOptimizedModelKey, draftThumbKey, formatBytes } from './libraryImport';
+import {
+  DEFAULT_IMPORT_CATEGORY,
+  IMPORT_MAX_BYTES,
+  buildDraftRenderConfig,
+  checkGlbFile,
+  draftModelKey,
+  draftOptimizedModelKey,
+  draftThumbKey,
+  formatBytes,
+  type ImportMeta,
+} from './libraryImport';
+import {
+  createLibraryDrafts,
+  discardLibraryDrafts,
+  libraryErrorText,
+  replaceLibraryItemModel,
+  type ReplaceModelResult,
+} from './adminLibrary';
+import { normalizeLibraryName } from './libraryPublish';
 import { OPTIMIZE_INPUT_MAX_BYTES, worthKeeping, type OptimizeOptions, type OptimizeStats } from './glbOptimizePlan';
 import type { OptimizeResult } from './glbOptimize';
 import { STALE_APP_MESSAGE, isStaleChunkError } from './staleChunk';
@@ -195,19 +213,27 @@ export async function uploadPreparedModel(m: PreparedModel): Promise<{ assetUrl:
 }
 
 /**
- * Download a draft's current model and optimize it, for the compare view.
- * Never throws.
+ * The bytes of a model file by URL — usually straight from the browser cache,
+ * since the 3D view just loaded the same URL. Never throws.
  */
-export async function optimizeDraftModel(assetUrl: string, opts: OptimizeOptions): Promise<OptimizeResult> {
-  let bytes: Uint8Array;
+export async function fetchModelBytes(url: string): Promise<{ ok: true; bytes: Uint8Array; reason?: undefined } | { ok: false; reason: string; bytes?: undefined }> {
   try {
-    const res = await fetch(assetUrl);
+    const res = await fetch(url);
     if (!res.ok) return { ok: false, reason: `The model could not be downloaded (${res.status}).` };
-    bytes = new Uint8Array(await res.arrayBuffer());
+    return { ok: true, bytes: new Uint8Array(await res.arrayBuffer()) };
   } catch {
     return { ok: false, reason: 'The model could not be downloaded. Check the connection and try again.' };
   }
-  return runOptimizer(bytes, opts);
+}
+
+/**
+ * Download a model (an import draft's, a library item's, an event's or a
+ * built-in one) and optimize it, for the compare view. Never throws.
+ */
+export async function optimizeModelAt(url: string, opts: OptimizeOptions): Promise<OptimizeResult> {
+  const got = await fetchModelBytes(url);
+  if (!got.ok) return { ok: false, reason: got.reason };
+  return runOptimizer(got.bytes, opts);
 }
 
 /**
@@ -232,4 +258,100 @@ export async function uploadOptimizedModel(
     assetUrl: publicUrl(ASSETS_BUCKET, key),
     remove: async () => { await bucket.remove([key]).then(() => undefined, () => undefined); },
   };
+}
+
+/* ── Replace a library item's model (Replace file · Optimize · bulk) ──── */
+
+export type ReplaceStep = 'checking' | 'uploading' | 'replacing';
+
+export type ReplaceRun =
+  | {
+    ok: true;
+    result: ReplaceModelResult;
+    /** Size and triangles of the file that went in. */
+    bytes: number;
+    triangles: number;
+    /** What the operator's file weighed before "Optimize on upload" shrank it. */
+    original?: { bytes: number; triangles: number };
+    reason?: undefined;
+  }
+  | { ok: false; reason: string; result?: undefined };
+
+/**
+ * Give a published library prop a new model file, through the SAME pipeline
+ * as an import: check, (optionally) optimize, measure and thumbnail in this
+ * browser, upload as a hidden import draft, then admin-api's
+ * replace_library_item_model, which swaps the file in place when no event
+ * uses the item and makes a new version when one does (and consumes the
+ * draft either way). A failure after the upload discards the draft again, so
+ * Bulk import is never left with a stray copy. Never throws.
+ *
+ * `requireSmaller`: refuse (change nothing) when the optimizer could not make
+ * a worthwhile saving — for "optimize this item", where swapping in the same
+ * bytes would only churn the file.
+ */
+export async function replaceModelFile(
+  target: { id: string; name: string },
+  file: File,
+  opts: { optimize: OptimizeOptions | null; requireSmaller?: boolean; onStep?: (s: ReplaceStep) => void },
+): Promise<ReplaceRun> {
+  opts.onStep?.('checking');
+  const prepared = await prepareModel(file, opts.optimize);
+  if (!prepared.ok) return { ok: false, reason: prepared.reason };
+  const m = prepared.model;
+  try {
+    if (opts.requireSmaller === true && !m.original) {
+      return { ok: false, reason: m.optimizeNote ?? 'It is already about as small as it gets, so nothing was changed.' };
+    }
+    opts.onStep?.('uploading');
+    const urls = await uploadPreparedModel(m);
+    if (!urls) return { ok: false, reason: 'The upload failed. Check the connection and try again.' };
+    const name = normalizeLibraryName(target.name) ?? 'Replacement model';
+    const importMeta: ImportMeta = {
+      category: DEFAULT_IMPORT_CATEGORY,
+      classifiedBy: 'none',
+      fileName: file.name,
+      bytes: m.file.size,
+      triangles: m.triangles,
+      maxDim: m.maxDim,
+      ...(m.original ? { originalBytes: m.original.bytes, originalTriangles: m.original.triangles } : {}),
+    };
+    // The draft only carries the file: the target keeps its own placement, so
+    // this config is never what a guest sees.
+    const config = buildDraftRenderConfig({ assetUrl: urls.assetUrl, name, categoryId: DEFAULT_IMPORT_CATEGORY, maxDim: m.maxDim });
+    const created = await createLibraryDrafts([{
+      id: m.id, name, ...urls, config, tags: { occasions: [], colors: [], styles: [] }, importMeta,
+    }]);
+    const createErr = created.error ?? created.data?.failed[0]?.error ?? (created.data?.created.includes(m.id) ? null : 'internal');
+    if (createErr !== null) {
+      // No row points at the upload: remove it so it is not orphaned bytes.
+      await supabase.storage.from(ASSETS_BUCKET).remove([draftModelKey(m.id), draftThumbKey(m.id)]).then(() => undefined, () => undefined);
+      return { ok: false, reason: libraryErrorText(createErr) };
+    }
+    opts.onStep?.('replacing');
+    const { data, error } = await replaceLibraryItemModel(target.id, m.id);
+    if (error !== null || data === null) {
+      // 'network' says nothing about whether the server finished: discarding
+      // is still safe — a draft the server already consumed is skipped there.
+      await discardLibraryDrafts([m.id]).catch(() => undefined);
+      return { ok: false, reason: libraryErrorText(error ?? 'internal') };
+    }
+    return {
+      ok: true, result: data, bytes: m.file.size, triangles: m.triangles, ...(m.original ? { original: m.original } : {}),
+    };
+  } finally {
+    URL.revokeObjectURL(m.thumbPreviewUrl);
+  }
+}
+
+/** A model file to upload from bytes the optimizer made. */
+export function glbFile(bytes: Uint8Array, fileName: string): File {
+  return new File([bytes as BlobPart], fileName, { type: 'model/gltf-binary' });
+}
+
+/** Download a model so it can go back through replaceModelFile (bulk optimize). */
+export async function modelFileAt(url: string, fileName: string): Promise<{ ok: true; file: File; reason?: undefined } | { ok: false; reason: string; file?: undefined }> {
+  const got = await fetchModelBytes(url);
+  if (!got.ok) return { ok: false, reason: got.reason };
+  return { ok: true, file: glbFile(got.bytes, fileName) };
 }
