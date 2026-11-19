@@ -17,6 +17,7 @@ import { createGenericVisuals } from './generic';
 import { resolveBackgroundTemplate } from '../components/theme/backgrounds';
 import { isEmptyBrief, normalizeBrief } from '../lib/eventBrief';
 import { isUntouchedTemplateTheme } from '../lib/eventTemplates';
+import { normalizeScene } from '../lib/sceneThemes';
 
 export interface RuntimeEvent {
   /** slug — doubles as the posts/experiences/app_settings event_id. */
@@ -141,6 +142,8 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   const rawThemeVars = (cfg.themeVars && typeof cfg.themeVars === 'object'
     ? (cfg.themeVars as Record<string, string>)
     : {});
+  // Guest-page scene (lib/sceneThemes): absent/invalid = today's background.
+  const scene = normalizeScene(cfg.scene);
   const brandLook = cfg.look === 'beamwall' || (cfg.look === undefined && isUntouchedTemplateTheme(rawThemeVars));
 
   return {
@@ -161,6 +164,7 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     themeVars: brandLook ? {} : rawThemeVars,
     ...(brief !== undefined && !isEmptyBrief(brief) ? { brief } : {}),
     ...(brandLook ? { look: 'beamwall' as const } : {}),
+    ...(scene ? { scene } : {}),
   };
 }
 

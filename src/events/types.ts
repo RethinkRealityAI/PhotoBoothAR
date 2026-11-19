@@ -7,6 +7,7 @@
  */
 import type { ComponentType } from 'react';
 import type { EventBrief } from '../lib/eventBrief';
+import type { EventScene } from '../lib/sceneThemes';
 
 /** A single numbered step on the /join landing + onboarding. */
 export interface EventStep {
@@ -111,6 +112,10 @@ export interface EventConfig {
    *  themeVars over the classic dark default. DB events only — coded legacy
    *  events never carry it. */
   look?: 'beamwall';
+  /** How the guest pages are dressed (events.config.scene): a template,
+   *  gradient, colour, photo or frame. DB events only; undefined = today's
+   *  background. Always normalized (lib/sceneThemes.normalizeScene). */
+  scene?: EventScene;
   /** The shared event brief (events.config.brief) the concierge captures and
    *  the Platform Copilot / Scene Director read. DB events only — undefined
    *  when the row carries none, and always undefined for legacy coded events. */

@@ -51,3 +51,16 @@ describe('buildRuntimeConfig — the brand look', () => {
     expect(optOut.themeVars).toEqual(templateById('wedding')!.themeVars);
   });
 });
+
+describe('buildRuntimeConfig — guest-page scene', () => {
+  it('absent or invalid scene leaves the key off (today\'s background)', () => {
+    expect('scene' in buildRuntimeConfig(row({}))).toBe(false);
+    expect('scene' in buildRuntimeConfig(row({ scene: { kind: 'image', url: 'javascript:alert(1)' } }))).toBe(false);
+  });
+  it('a valid scene is carried normalized', () => {
+    expect(buildRuntimeConfig(row({ scene: { kind: 'template', id: 'pearl-studio' } })).scene)
+      .toEqual({ kind: 'template', id: 'pearl-studio' });
+    expect(buildRuntimeConfig(row({ scene: { kind: 'color', color: ' #112233 ' } })).scene)
+      .toEqual({ kind: 'color', color: '#112233' });
+  });
+});
