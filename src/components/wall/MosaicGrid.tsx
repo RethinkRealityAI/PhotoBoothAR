@@ -41,10 +41,14 @@ interface Props {
   viewportH?: number;
   /** Tap a card to open it (download/share). */
   onSelect?: (post: Post) => void;
+  /** Platform walls: the event accent instead of the legacy gold for the
+   *  fresh ring and play badge, and a scroller that actually scrolls (see
+   *  below). Off (the default) = byte-identical legacy. */
+  platformPolish?: boolean;
 }
 
 /** Small play-glyph badge shown on video thumbnails */
-function PlayBadge() {
+function PlayBadge({ fill = '#D4AF37' }: { fill?: string }) {
   return (
     <div
       className="absolute top-2 right-2 z-10 flex items-center justify-center rounded-full"
@@ -57,14 +61,14 @@ function PlayBadge() {
       }}
     >
       <svg width="10" height="12" viewBox="0 0 10 12" fill="none">
-        <path d="M1 1.5 L9 6 L1 10.5 Z" fill="#D4AF37" />
+        <path d="M1 1.5 L9 6 L1 10.5 Z" fill={fill} />
       </svg>
     </div>
   );
 }
 
 function PostCard({
-  post, isFresh, isBeaming, isMine, canPlay, maxH, onTileRect, onSelect,
+  post, isFresh, isBeaming, isMine, canPlay, maxH, onTileRect, onSelect, brandAccents = false,
 }: {
   post: Post;
   isFresh: boolean;
@@ -76,6 +80,7 @@ function PostCard({
   maxH: number;
   onTileRect?: (id: string, rect: BeamRect | null) => void;
   onSelect?: (p: Post) => void;
+  brandAccents?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -115,7 +120,7 @@ function PostCard({
       onClick={onSelect ? () => onSelect(post) : undefined}
       style={{
         boxShadow: isFresh
-          ? '0 0 0 2px #D4AF37, 0 0 32px 8px rgba(var(--accent-rgb),0.33)'
+          ? `0 0 0 2px ${brandAccents ? 'var(--color-accent)' : '#D4AF37'}, 0 0 32px 8px rgba(var(--accent-rgb),0.33)`
           : '0 4px 24px rgba(0,0,0,0.45)',
         transition: 'box-shadow 0.6s ease, opacity 0.35s ease',
         // Invisible, not unmounted: the ceremony needs this exact rectangle.
@@ -141,7 +146,7 @@ function PostCard({
             className="w-full block object-cover"
             style={{ aspectRatio: ar, background: '#0a0703' }}
           />
-          <PlayBadge />
+          {brandAccents ? <PlayBadge fill="var(--color-accent)" /> : <PlayBadge />}
         </>
       ) : (
         <PostImage
@@ -203,19 +208,16 @@ function PostCard({
   );
 }
 
-export default function MosaicGrid({ posts, freshIds, beamingIds, savedIds, viewportH, onTileRect, onSelect }: Props) {
+export default function MosaicGrid({ posts, freshIds, beamingIds, savedIds, viewportH, onTileRect, onSelect, platformPolish }: Props) {
   const playable = useMemo(() => autoplayVideoIds(posts, MOSAIC_VIDEO_CAP), [posts]);
   const maxH = mosaicTileMaxH(viewportH ?? 0);
 
-  // Empty state lives in Wall.tsx (<EmptyWall/>) — shared across all modes.
-  return (
-    <div
-      className="w-full h-full overflow-y-auto hide-scrollbar px-4 pt-4 pb-24 sm:pb-4"
-      style={{
-        columns: 'var(--wall-cols, 4)',
-        columnGap: 'calc(12px * var(--wall-scale, 1))',
-      }}
-    >
+  const columnsStyle = {
+    columns: 'var(--wall-cols, 4)',
+    columnGap: 'calc(12px * var(--wall-scale, 1))',
+  };
+  const content = (
+    <>
       <style>{`
         @media (max-width: 640px)  { :root { --wall-cols: 2 } }
         @media (min-width: 641px) and (max-width: 1023px) { :root { --wall-cols: 3 } }
@@ -248,10 +250,33 @@ export default function MosaicGrid({ posts, freshIds, beamingIds, savedIds, view
               maxH={maxH}
               onTileRect={onTileRect}
               onSelect={onSelect}
+              brandAccents={platformPolish}
             />
           </motion.div>
         );
       })}
+    </>
+  );
+
+  // Empty state lives in Wall.tsx (<EmptyWall/>) — shared across all modes.
+  if (platformPolish) {
+    // The scroller must NOT be the multicol box: a height-capped multicol
+    // container spills its overflow into extra columns sideways (measured:
+    // scrollWidth 5636 vs 1268 at 1440×900) instead of scrolling down, so
+    // most photos sat off screen to the right. Columns inside a scroller
+    // grow downward and scroll as intended.
+    return (
+      <div className="w-full h-full overflow-y-auto hide-scrollbar px-4 pt-4 pb-24 sm:pb-4">
+        <div style={columnsStyle}>{content}</div>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="w-full h-full overflow-y-auto hide-scrollbar px-4 pt-4 pb-24 sm:pb-4"
+      style={columnsStyle}
+    >
+      {content}
     </div>
   );
 }

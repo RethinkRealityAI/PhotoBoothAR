@@ -12,6 +12,13 @@ import {
   resolveWallBackdrop,
   toneForColor,
   wallTone,
+  WALL_LAYOUTS,
+  WALL_LAYOUT_META,
+  WALL_TRANSITIONS,
+  WALL_TRANSITION_META,
+  describeWallLook,
+  sameWallArrangement,
+  wallLookEquals,
 } from './sceneThemes';
 
 const SUPA = 'https://zrtftliozslrjomxbfrr.supabase.co/storage/v1/object/public/assets/ev/uploads/a.png';
@@ -126,5 +133,34 @@ describe('wall backdrop + tone', () => {
   });
   it('grid cell counts', () => {
     expect([3, 4, 5].map((n) => gridCellCount(n as 3 | 4 | 5))).toEqual([9, 16, 25]);
+  });
+});
+
+describe('wall look helpers', () => {
+  it('has copy for every layout and transition', () => {
+    for (const l of WALL_LAYOUTS) expect(WALL_LAYOUT_META[l].label.length).toBeGreaterThan(0);
+    for (const t of WALL_TRANSITIONS) expect(WALL_TRANSITION_META[t].label.length).toBeGreaterThan(0);
+  });
+
+  it('sameWallArrangement looks only at layout and grid size', () => {
+    const a = normalizeWallLook({ layout: 'grid', gridSize: 4, backdrop: { kind: 'gradient', paletteId: 'aurora' } });
+    expect(sameWallArrangement(a, { ...a, tone: 'light', backdrop: { kind: 'event' } })).toBe(true);
+    expect(sameWallArrangement(a, { ...a, gridSize: 5 })).toBe(false);
+    expect(sameWallArrangement(a, { ...a, layout: 'masonry' })).toBe(false);
+  });
+
+  it('wallLookEquals compares every field, backdrop included', () => {
+    const a = normalizeWallLook({ layout: 'grid', backdrop: { kind: 'color', color: '#AABBCC' } });
+    expect(wallLookEquals(a, normalizeWallLook({ layout: 'grid', backdrop: { kind: 'color', color: '#aabbcc' } }))).toBe(true);
+    expect(wallLookEquals(a, { ...a, transition: 'zoom' })).toBe(false);
+    expect(wallLookEquals(a, { ...a, backdrop: { kind: 'event' } })).toBe(false);
+    const img = normalizeWallLook({ backdrop: { kind: 'image', url: SUPA, dim: 0.3 } });
+    expect(wallLookEquals(img, { ...img, backdrop: { kind: 'image', url: SUPA, dim: 0.5 } })).toBe(false);
+  });
+
+  it('describeWallLook reads like a sentence for the host', () => {
+    expect(describeWallLook(normalizeWallLook({ layout: 'grid', gridSize: 4, backdrop: { kind: 'gradient', paletteId: 'aurora' }, tone: 'dark' })))
+      .toBe('Grid 4×4 · Aurora · Dark');
+    expect(describeWallLook(normalizeWallLook(undefined))).toBe('Gallery · Event theme · Auto');
   });
 });

@@ -99,10 +99,20 @@ export async function installGuestMocks(page, { base, config = {}, wall = {}, po
   // Realtime: acknowledge every join so the wall shows LIVE, never "Reconnecting".
   await page.routeWebSocket(new RegExp(`wss://${MOCK_HOST.replace(/\./g, '\\.')}/.*`), (ws) => {
     ws.onMessage((raw) => {
-      let msg;
-      try { msg = JSON.parse(String(raw)); } catch { return; }
+      let parsed;
+      try { parsed = JSON.parse(String(raw)); } catch { return; }
+      // realtime-js >= 2.10x speaks protocol vsn 2.0.0: every frame is the
+      // array [join_ref, ref, topic, event, payload]. Older clients sent an
+      // object. Read either, and answer in the shape we were spoken to.
+      const isArray = Array.isArray(parsed);
+      const msg = isArray
+        ? { join_ref: parsed[0], ref: parsed[1], topic: parsed[2], event: parsed[3], payload: parsed[4] }
+        : parsed;
       if (msg.event === 'phx_join' || msg.event === 'heartbeat' || msg.event === 'access_token') {
-        ws.send(JSON.stringify({ topic: msg.topic, event: 'phx_reply', ref: msg.ref, payload: { status: 'ok', response: { postgres_changes: (msg.payload?.config?.postgres_changes ?? []).map((c, i) => ({ ...c, id: i + 1 })) } } }));
+        const payload = { status: 'ok', response: { postgres_changes: (msg.payload?.config?.postgres_changes ?? []).map((c, i) => ({ ...c, id: i + 1 })) } };
+        ws.send(JSON.stringify(isArray
+          ? [msg.join_ref ?? null, msg.ref ?? null, msg.topic, 'phx_reply', payload]
+          : { topic: msg.topic, event: 'phx_reply', ref: msg.ref, payload }));
       }
     });
   });

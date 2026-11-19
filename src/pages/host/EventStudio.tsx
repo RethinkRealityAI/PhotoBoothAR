@@ -43,6 +43,7 @@ import Moderation from '../../components/admin/Moderation';
 import Challenges from '../../components/admin/Challenges';
 import Branding from '../../components/admin/Branding';
 import SettingsScreen from '../../components/admin/Settings';
+import WallDesign from '../../components/admin/WallDesign';
 import ManagerAccess from './ManagerAccess';
 import CardsTab from './CardsTab';
 import ShareKit from './ShareKit';
@@ -249,6 +250,8 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
             ))}
           </div>
         </div>
+
+        <WallDesign />
 
         {/* A failed read is reported, never left silent: an invisible queue and
             an empty queue look identical to a host, and the difference is

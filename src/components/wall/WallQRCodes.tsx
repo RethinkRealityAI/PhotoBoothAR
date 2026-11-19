@@ -16,10 +16,28 @@ interface Props {
   layout?: 'row' | 'column';
   /** QR module size in px. The rail runs them a little smaller. */
   size?: number;
+  /** Platform walls: frosted glass, a white code and sentence-case labels.
+   *  Absent (the default) = byte-identical legacy panels. */
+  variant?: 'brand';
 }
 
-export function QRPanel({ url, label, size }: { url: string; label: string; size?: number }) {
+export function QRPanel({ url, label, size, variant }: { url: string; label: string; size?: number; variant?: 'brand' }) {
   const px = size ?? 108;
+  if (variant === 'brand') {
+    return (
+      <div className="wall-glass flex flex-col items-center gap-2.5 rounded-[20px] px-4 py-4">
+        <div className="rounded-2xl bg-white p-2.5 shadow-[0_8px_24px_-12px_rgba(10,8,40,0.6)]">
+          <QRCodeSVG value={url} size={px} bgColor="#FFFFFF" fgColor="#1B1A3F" level="M" />
+        </div>
+        <p
+          className="font-sans font-medium text-ivory/90 text-center leading-tight"
+          style={{ fontSize: 'calc(12px * var(--wall-scale, 1))', maxWidth: px + 16 }}
+        >
+          {label}
+        </p>
+      </div>
+    );
+  }
   return (
     <div
       className="glass flex flex-col items-center gap-3 px-5 py-5 rounded-2xl"
@@ -47,11 +65,11 @@ export function QRPanel({ url, label, size }: { url: string; label: string; size
   );
 }
 
-export default function WallQRCodes({ origin, joinUrl, layout = 'row', size }: Props) {
+export default function WallQRCodes({ origin, joinUrl, layout = 'row', size, variant }: Props) {
   return (
     <div className={layout === 'column' ? 'flex flex-col gap-3' : 'flex gap-4'}>
-      <QRPanel url={joinUrl ?? `${origin}/`} label="Scan to join the booth" size={size} />
-      <QRPanel url={`${origin}/me`} label="Scan to get your photos" size={size} />
+      <QRPanel url={joinUrl ?? `${origin}/`} label="Scan to join the booth" size={size} variant={variant} />
+      <QRPanel url={`${origin}/me`} label="Scan to get your photos" size={size} variant={variant} />
     </div>
   );
 }
