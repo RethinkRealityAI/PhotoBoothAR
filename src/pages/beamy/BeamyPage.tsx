@@ -1391,7 +1391,10 @@ export default function BeamyPage() {
   const stacked = phone || vp.w < WIDE_HERO_MIN;
   const storyIds = STORY_STEPS.map((s) => s.id);
   /** His slot in the story. */
-  const storySlotCls = stacked ? 'bottom-[1%] left-[15%] right-[15%] h-[46%]' : 'bottom-[3%] left-[30%] right-[30%] h-[58%]';
+  // Phones: on the AR step he steps up under the picker so his frame fills the
+  // screen with no dead band (wide screens keep him where he stands).
+  const storySlotCls = `${stacked ? 'left-[15%] right-[15%] h-[46%]' : 'bottom-[3%] left-[30%] right-[30%] h-[58%]'} ${
+    stacked ? (inStoryAR ? 'bottom-[11%]' : 'bottom-[1%]') : ''} transition-[bottom] duration-700 ease-out`;
   const qrUrl = demoQrUrl(window.location.origin, A.demoEventSlug ?? 'demo');
   const storyDots = (
     <div className="bw-cap-dots" role="group" aria-label="Steps">
