@@ -4,7 +4,7 @@
  *
  * /brand — the living style guide for brand v2, "Liquid glass + Beam"
  * (noindex). Rendered with the same scoped tokens and component classes as
- * the candidate landing (src/styles/brand.css), so what the owner approves
+ * the homepage (src/styles/brand.css), so what the owner approves
  * here is exactly what ships. Every contrast figure is MEASURED by
  * lib/brandTokens against the composited glass (frost over veil over the
  * field), the pixel the reader actually sees. The "Type options" strip loads
@@ -88,7 +88,7 @@ export default function BrandPage() {
       <div className="relative mx-auto max-w-[1180px] px-3 pb-24 sm:px-8">
         <header className="flex h-16 items-center justify-between gap-3 px-1">
           <span className="bw-wordmark">Beamwall</span>
-          <Link to="/beamy" className="bw-link">See the candidate landing <ArrowRight className="h-4 w-4" strokeWidth={1.75} aria-hidden /></Link>
+          <Link to="/" className="bw-link">See the homepage <ArrowRight className="h-4 w-4" strokeWidth={1.75} aria-hidden /></Link>
         </header>
 
         {/* The hero specimen: the system in one panel. */}
@@ -287,7 +287,7 @@ export default function BrandPage() {
           </div>
         </Block>
 
-        <Block title="Backdrop journey and grain" note="/beamy: bright at the hero, midnight mid-page, bright again for the close; a still grain under every pane">
+        <Block title="Backdrop journey and grain" note="The homepage: bright at the hero, midnight mid-page, bright again for the close; a still grain under every pane">
           <div className="flex flex-col gap-4">
             <div aria-hidden className="relative h-40 overflow-hidden rounded-2xl" style={{ background: 'linear-gradient(90deg, var(--bw-bg) 0%, var(--bw-night-2) 28%, var(--bw-night) 50%, var(--bw-night-2) 72%, var(--bw-bg) 100%)' }}>
               <span className="absolute rounded-full" style={{ left: '28%', top: '-30%', width: '30%', height: '120%', backgroundImage: 'radial-gradient(closest-side, rgba(124, 108, 247, 0.42), transparent)' }} />

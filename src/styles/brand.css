@@ -2,8 +2,8 @@
  * Beamwall brand v2 ("Liquid glass + Beam") — tokens and base components.
  *
  * SCOPED, on purpose: everything here applies only under `[data-brand="2"]`
- * (the candidate landing at /beamy and the style guide at /brand), so the
- * rest of the platform renders byte-identically until the owner approves the
+ * (the homepage at / and the style guide at /brand), so the rest of the
+ * platform renders byte-identically until the owner approves the wider
  * rollout. Rollout = change the token selector below to `:root` and drop the
  * attribute from the two pages; the component classes already read tokens
  * only, so nothing else moves.

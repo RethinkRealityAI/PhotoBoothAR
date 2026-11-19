@@ -208,7 +208,8 @@ describe('beamyAssets', () => {
 
   it('calls only the face-oval frames small, and steps him into their window', () => {
     const small = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'frame' && l.opening !== undefined && smallWindow(l.opening)).map((l) => l.id).sort();
-    expect(small).toEqual(['ar-art-deco', 'ar-floral-arch']);
+    // The floral arch's oval was swapped for the wedding monogram (a full-width window).
+    expect(small).toEqual(['ar-art-deco']);
     const o = { top: 0.263, bottom: 0.637, left: 0.274, right: 0.73 };
     const box = { top: 391, bottom: 836, left: 8, right: 382 };
     const g = stepIntoFrame({ opening: o, box, mouthAt: 0.49 });

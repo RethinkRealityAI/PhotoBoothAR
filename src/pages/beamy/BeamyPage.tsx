@@ -2,8 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * /beamy — the candidate landing in brand v2 (noindex while the owner reacts
- * to it; `/` is untouched). A normal, natively scrolling page over ONE fixed,
+ * The homepage (`/`), brand v2 (`/beamy` redirects here; the previous landing
+ * lives at `/classic`, noindex). A normal, natively scrolling page over ONE fixed,
  * full-screen canvas (BeamyStage) that sits BEHIND the content:
  *
  *   hero → the pinned story (five glass cards, one 3D effect each) → the
@@ -48,7 +48,6 @@ import { BoothIcon, CardIcon, ChallengeIcon, WallIcon, type BeamIconProps } from
 import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../components/beamy/selfieFx';
 import { usePageTitle } from '../../lib/usePageTitle';
-import { useNoIndex } from '../sales/components/pageMeta';
 import type { Rect } from '../../lib/beamGeometry';
 import { REDUCED_GLIDE_S, SELFIE_SPEED, flashOpacity, photoState } from '../../lib/beamySelfie';
 import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
@@ -212,7 +211,6 @@ function poseOf(el: HTMLElement, h: number): Pose {
 
 export default function BeamyPage() {
   usePageTitle('Beamwall · Your immersive photo booth');
-  useNoIndex();
 
   const vp = useViewport();
   const phone = vp.w < PHONE_MAX;
