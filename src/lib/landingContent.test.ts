@@ -8,6 +8,7 @@ import {
   FAQ_MAX,
   AUDIENCE_MAX,
 } from './landingContent';
+import { landingCopy } from './brandLanding';
 
 const SUPA_IMG =
   'https://zrtftliozslrjomxbfrr.supabase.co/storage/v1/object/public/assets/_platform/landing/abc-hero.jpg';
@@ -195,25 +196,28 @@ describe('normalizeLandingContent — total function', () => {
   });
 });
 
-describe('index.html FAQPage JSON-LD mirrors the default FAQs', () => {
-  // The JSON-LD is hand-written static HTML (crawlers don't run the app), so it
-  // drifted from the rendered FAQ once already. Apostrophes are normalised
-  // because the page uses ’ while the JSON-LD uses a plain '.
+describe('index.html head describes the homepage ("/"), not /classic', () => {
+  // The head is hand-written static HTML (crawlers don't run the app), so it
+  // drifted from the rendered page once already. "/" is the brand-v2 page
+  // (BeamyPage, copy in lib/brandLanding); the previous landing and its FAQ
+  // live at /classic, which is noindex. Apostrophes are normalised because
+  // the pages use ’ while the JSON-LD uses a plain '.
   const html = readFileSync(join(__dirname, '..', '..', 'index.html'), 'utf8');
-  const ld = html.slice(html.indexOf('"FAQPage"'));
   const plain = (s: string) => s.replace(/[’‘]/g, "'");
 
-  it('every default FAQ question and answer appears in it', () => {
-    expect(ld.length).toBeGreaterThan(0);
-    for (const f of DEFAULT_LANDING_CONTENT.faqs) {
-      expect(ld, f.q).toContain(`"name": "${plain(f.q)}"`);
-      expect(ld, f.q).toContain(`"text": "${plain(f.a)}"`);
-    }
+  it('lists no FAQ question the homepage does not show', () => {
+    const shown = landingCopy().map(plain);
+    const names = [...html.matchAll(/"@type": "Question", "name": "([^"]+)"/g)].map((m) => m[1]);
+    // So the /classic FAQ is never advertised for "/" while the homepage does not show it.
+    for (const n of names) expect(shown, n).toContain(n);
   });
 
-  it('it lists no question the page does not show', () => {
-    const names = [...ld.matchAll(/"@type": "Question", "name": "([^"]+)"/g)].map((m) => m[1]);
-    expect(names.sort()).toEqual(DEFAULT_LANDING_CONTENT.faqs.map((f) => plain(f.q)).sort());
+  it('carries the homepage’s own title, for the tab and for shares', () => {
+    const page = readFileSync(join(__dirname, '..', 'pages', 'beamy', 'BeamyPage.tsx'), 'utf8');
+    const title = /usePageTitle\('([^']+)'\)/.exec(page)?.[1];
+    expect(title).toBeDefined();
+    expect(html).toContain(`<title>${String(title)}</title>`);
+    expect(html).toContain(`<meta property="og:title" content="${String(title)}" />`);
   });
 });
 

@@ -113,6 +113,13 @@ const FRAME_URLS: Record<string, string> = Object.fromEntries(
   Object.entries(DEMO_FRAME_SVGS).map(([id, svg]) => [id, toDataUrl(svg)]),
 );
 
+/** The frame a look opens on — the same one `pickTheme` applies (null = the
+ *  Beam set's 'beam' frame) — so a host can preview a look before the camera
+ *  starts. */
+export function lookFrameUrl(look: string | null): string | null {
+  return look === null ? FRAME_URLS.beam ?? null : demoKit(look).frames[0]?.src ?? null;
+}
+
 const PROP_ICONS: Record<string, typeof Glasses> = {
   'neon-shades': Glasses,
   'queen-tiara': Crown,
@@ -206,6 +213,10 @@ export interface CameraExperienceProps {
   /** Show the look pills (Beam · Wedding · Christmas · Birthday) that swap
    *  frame, effect and 3D prop together. Ignored when `kit` pins one set. */
   themePicker?: boolean;
+  /** Host-controlled look (a demo kit id; null = Beam). When set, the host
+   *  renders its own look pills and this applies the same swap `themePicker`
+   *  does. Omitted (the landing, /beam) = behaviour unchanged. */
+  look?: string | null;
 }
 
 /** The landing demo's look pills; `kit` null = the default beam set. */
@@ -235,7 +246,7 @@ function kitSetup(kit: DemoKit | undefined): {
 }
 
 export default function CameraExperience({
-  enabled, videoId, beamLabel, onBeam, onClose, screenRef, kit, themePicker = false,
+  enabled, videoId, beamLabel, onBeam, onClose, screenRef, kit, themePicker = false, look,
 }: CameraExperienceProps) {
   const [themeKit, setThemeKit] = useState<string | null>(null);
   const activeKit = kit ?? (themeKit !== null ? demoKit(themeKit) : undefined);
@@ -316,6 +327,11 @@ export default function CameraExperience({
     setEffectId(k !== undefined ? k.effects[0]?.id ?? null : null);
     setPropId(k !== undefined ? k.props[0]?.id ?? null : null);
   }, []);
+
+  // A host-controlled look applies through the same swap as a pill tap.
+  useEffect(() => {
+    if (look !== undefined && kit === undefined) pickTheme(look);
+  }, [look, kit, pickTheme]);
 
   const beam = useCallback(() => {
     if (shot === null) return;
