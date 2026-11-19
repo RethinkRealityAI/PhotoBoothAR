@@ -73,7 +73,7 @@ import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker from './ArPicker';
 import {
-  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arTour, frameOnBeamy, demoQrUrl, smallWindow, standInFrame, stepIntoFrame, lookAction, selectedLooks, toBeamyLook, toggleLook,
+  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, PROP_MIN_SCALE, arOrder, arTour, frameOnBeamy, demoQrUrl, smallWindow, standInFrame, stepIntoFrame, lookAction, selectedLooks, toBeamyLook, wearStop,
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
@@ -273,9 +273,13 @@ export default function BeamyPage() {
   const stageFrame = useRef<(() => void) | null>(null);
   /** The AR step's frame image (ArPicker); the glide places it on him every frame. */
   const arFrameRef = useRef<HTMLImageElement | null>(null);
-  /** The frames carousel box, laid exactly over the frame (ArPicker). */
+  /** The AR carousel box (ArPicker), laid over the worn frame or around him. */
   const arCarRef = useRef<HTMLDivElement | null>(null);
-  const arFrameAt = useRef({ el: null as HTMLImageElement | null, t: 0, x: 0, tip: 0, mouth: 0, hp: 0, lift: 0, base: 0, mAt: 0.485 });
+  const arFrameAt = useRef({ el: null as HTMLImageElement | null, t: 0, x: 0, tip: 0, mouth: 0, hp: 0, lift: 0, base: 0, mAt: 0.485, side: 0 });
+  /** The carousel around him when no frame is on (eased like the frame). */
+  const arStandAt = useRef({ t: 0, x: 0, y: 0, hp: 0, lift: 0 });
+  /** The AR picker's tab, for the glide (phones narrow the frame off the Frames tab). */
+  const arTabRef = useRef<LookCategory>('frame');
   /** The frame the AR step has picked (its window shapes where it stands). */
   const arFrameLook = useRef<HomeLook | undefined>(undefined);
   /** The frame look he wears in the hero (the Christmas look), placed around him every frame; null = none. */
@@ -559,14 +563,47 @@ export default function BeamyPage() {
         if (id === 'story') { pose.yaw = card.yaw; pose.fx = { [card.id]: 1 }; }
         samples.push({ id, rect: { left: r.left, top: r.top, width: r.width, height: r.height }, pose });
       });
+      // The AR step: the frame (or the carousel around him) starts under the
+      // switcher (phones) and the carousel's title above it, and the props
+      // carousel's floating stops (read now, with the other reads) go to the
+      // stage, which draws the real GLBs in their places.
+      const onAr = card.id === 'prop';
+      const arCar = arCarRef.current;
+      let arTop = headerH + 8;
+      const arPeeks: NonNullable<StageDecor['peeks']> = [];
+      if (onAr && arCar !== null) {
+        const titleH = arCar.querySelector('.bw-ar-title')?.getBoundingClientRect().height ?? 0;
+        const tabsEl = vw < WIDE_HERO_MIN ? main.querySelector('.bw-ar .bw-ar-tabs') : null;
+        arTop = Math.max(arTop, tabsEl !== null ? tabsEl.getBoundingClientRect().bottom + 6 : 0) + titleH + 6;
+        if (arCar.closest('.bw-ar[data-on="true"]') !== null) {
+          arCar.querySelectorAll<HTMLElement>('.bw-ar-peek[data-prop-url]').forEach((el) => {
+            const r = el.getBoundingClientRect();
+            if (r.width > 4) arPeeks.push({ url: el.dataset.propUrl ?? '', x: r.left + r.width / 2, y: r.top + r.height / 2, size: r.width });
+          });
+        }
+      }
+      // Phones, off the Frames tab: the frame steps in from the screen's sides
+      // so the carousel's stops float beside it (eased in the frame block below).
+      const arSide = arFrameAt.current.side;
       // Phones, a face-oval frame on the AR step: the frame takes all the room
       // under the picker and he steps into its window (lib/beamyAssets
       // stepIntoFrame), standing there instead of in the story's CSS slot.
       const arLook = arFrameLook.current;
       let stepIn: ReturnType<typeof stepIntoFrame> | null = null;
-      if (vw < WIDE_HERO_MIN && card.id === 'prop' && arFrameRef.current !== null && arLook?.opening !== undefined && smallWindow(arLook.opening)) {
-        const tiles = main.querySelector('.bw-ar [data-fx-anchor="prop"]')?.getBoundingClientRect();
-        if (tiles !== undefined) stepIn = stepIntoFrame({ opening: arLook.opening, box: { top: tiles.bottom + 6, bottom: vh - 8, left: 8, right: vw - 8 }, mouthAt: arFrameAt.current.mAt });
+      if (vw < WIDE_HERO_MIN && onAr && arFrameRef.current !== null && arLook?.opening !== undefined && smallWindow(arLook.opening)) {
+        stepIn = stepIntoFrame({ opening: arLook.opening, box: { top: arTop, bottom: vh - 8, left: 8 + arSide, right: vw - 8 - arSide }, mouthAt: arFrameAt.current.mAt });
+      }
+      // Laptops: the frame takes the whole height under its title and he
+      // stands INSIDE its window (lib/beamyAssets standInFrame, the hero's
+      // rule), instead of a frame sized around a Beamy too wide for it.
+      let arIn: ReturnType<typeof standInFrame> | null = null;
+      const storyAt = vw >= WIDE_HERO_MIN && onAr && arFrameRef.current !== null && arLook !== undefined ? samples.find((x) => x.id === 'story') : undefined;
+      if (storyAt !== undefined && arLook !== undefined) {
+        const cx = storyAt.rect.left + storyAt.rect.width / 2;
+        arIn = standInFrame({ opening: arLook.opening ?? DEFAULT_OPENING, box: { top: arTop, bottom: vh - 8, left: cx - vw * 0.3, right: cx + vw * 0.3 } });
+        const s = arIn.stand;
+        storyAt.rect = { left: s.x - (s.heightPx * 1.1) / 2, top: s.y - s.heightPx, width: s.heightPx * 1.1, height: s.heightPx };
+        storyAt.pose.fit = 1;
       }
       const storySample = stepIn !== null ? samples.find((x) => x.id === 'story') : undefined;
       if (stepIn !== null && storySample !== undefined) {
@@ -773,23 +810,31 @@ export default function BeamyPage() {
         fa.hp += (w.heightPx - fa.hp) * k;
         fa.lift += (bw.wornLiftAt(1) * w.heightPx - fa.lift) * k;
         fa.base += (bw.wornLiftAt(0) * w.heightPx - fa.base) * k;
+        const side = vw < WIDE_HERO_MIN && arTabRef.current !== 'frame' ? clamp(vw * 0.17, 62, 92) : 0;
+        fa.side += (side - fa.side) * k;
+        // Laptops, standing in its window: the frame holds still and the prop
+        // shrinks (to PROP_MIN_SCALE at most) so it stays under the window's top.
+        const inWin = (() => {
+          if (arIn === null) return 1;
+          const o = arFrameLook.current?.opening ?? DEFAULT_OPENING;
+          const room = fa.tip - (arIn.frame.top + o.top * arIn.frame.h) - fa.hp * 0.03 - fa.base;
+          return fa.lift - fa.base > 0.5 ? clamp(room / (fa.lift - fa.base), PROP_MIN_SCALE, 1) : 1;
+        })();
         // Stepped into a face oval: the frame holds still, the prop keeps its size.
-        const tilesEl = vw < WIDE_HERO_MIN ? main.querySelector('.bw-ar [data-fx-anchor="prop"]') : null;
-        const arTilesTop = tilesEl !== null ? Math.max(headerH + 8, tilesEl.getBoundingClientRect().top) : null;
-        const g = stepIn !== null
+        const g = arIn !== null
+          ? { ...arIn.frame, propScale: inWin, fits: inWin >= 1, faceIn: true, stepIn: true }
+          : stepIn !== null
           ? { ...stepIn.frame, propScale: 1, fits: false, faceIn: true, stepIn: true }
           : frameOnBeamy({
             x: fa.x, tip: fa.tip, mouth: fa.mouth, heightPx: fa.hp, lift: fa.lift, liftBase: fa.base,
             opening: arFrameLook.current?.opening ?? DEFAULT_OPENING,
-            // Phones/tablets: never higher than the tile row's top, so the
-            // frame stays under the caption and the tab switcher even while he
-            // glides in (the owner-approved p3b look; the carousel rides on it).
-            box: { top: arTilesTop ?? headerH + 8, bottom: vh - 8, left: 8, right: window.innerWidth - 8 },
+            // Never higher than the switcher (phones) and the carousel's
+            // title, even while he glides in; the carousel rides on it.
+            box: { top: arTop, bottom: vh - 8, left: 8 + fa.side, right: window.innerWidth - 8 - fa.side },
           });
         const tf = `translate(${g.left.toFixed(1)}px, ${g.top.toFixed(1)}px)`;
         if (fr.style.transform !== tf) { fr.style.transform = tf; fr.style.height = `${g.h.toFixed(1)}px`; }
-        const carEl = arCarRef.current;
-        if (carEl !== null && carEl.style.transform !== tf) { carEl.style.transform = tf; carEl.style.height = `${g.h.toFixed(1)}px`; }
+        if (arCar !== null && (arCar.style.transform !== tf || arCar.style.width !== '')) { arCar.style.transform = tf; arCar.style.height = `${g.h.toFixed(1)}px`; arCar.style.width = ''; }
         // The prop shrinks into the frame's window when it must (never pokes out of the frame).
         bw.wornScale(g.propScale);
         if (STEP_LOG) (window as unknown as { __beamyAr?: unknown }).__beamyAr = { ...g, tip: fa.tip, mouth: fa.mouth, hp: fa.hp, lift: fa.lift, x: fa.x, hatTop: fa.tip - (fa.base + (fa.lift - fa.base) * g.propScale) };
@@ -798,6 +843,30 @@ export default function BeamyPage() {
         arFrameAt.current.el = null;
         bw.wornScale(1);
       }
+      // No frame on: the carousel stands around him, from his head (and any
+      // prop on it) to his feet, leaving room at his sides for its stops.
+      if (fr === null && onAr && arCar !== null && bw !== null && readyRef.current) {
+        const w = bw.where();
+        const sa = arStandAt.current;
+        const now = performance.now();
+        const k = now - sa.t < 400 ? 1 - Math.exp(-(now - sa.t) / 180) : 1;
+        sa.t = now;
+        sa.x += (w.x - sa.x) * k;
+        sa.y += (w.y - sa.y) * k;
+        sa.hp += (w.heightPx - sa.hp) * k;
+        sa.lift += (bw.wornLiftAt(1) * w.heightPx - sa.lift) * k;
+        const col = vw < WIDE_HERO_MIN ? clamp(vw * 0.13, 52, 72) + 30 : 124;
+        const half = Math.max(sa.hp * 0.3, Math.min(sa.hp * 0.5, sa.x - col, vw - sa.x - col));
+        const top = Math.max(arTop, sa.y - sa.hp * 1.02 - Math.max(0, sa.lift) - 4);
+        const tf = `translate(${(sa.x - half).toFixed(1)}px, ${top.toFixed(1)}px)`;
+        const ww = `${(half * 2).toFixed(1)}px`;
+        if (arCar.style.transform !== tf || arCar.style.width !== ww) {
+          arCar.style.transform = tf;
+          arCar.style.width = ww;
+          arCar.style.height = `${Math.max(40, sa.y - top).toFixed(1)}px`;
+        }
+      }
+      decorRef.current.peeks = arPeeks;
       layoutRef.current.tickMs = performance.now() - t0;
     };
     const tick = () => {
@@ -1023,7 +1092,7 @@ export default function BeamyPage() {
   }, [tryOn, lookIx, reduced, introRunning, active]);
 
   /* ── The story's AR step: the picker drives what he wears, ONE look per
-     category, combined (lib/beamyAssets toggleLook): the prop on his head,
+     category, combined (lib/beamyAssets wearStop): the prop on his head,
      the filter as his tint, the effect on a loop, and the frame in front of
      him (ArPicker draws it; the stage never wears it here). Until the first
      tap it tours on its own, building a look up one category at a time
@@ -1034,11 +1103,12 @@ export default function BeamyPage() {
   const arK = useRef(0);
   const arOn = ready && !failed && arrival === 'done' && inStoryAR;
   arFrameLook.current = selectedLooks(arSel, AR_LOOKS).find((l) => l.category === 'frame');
-  const toggleAr = useCallback((l: HomeLook) => {
-    logStep(`ar:pick:${l.id}`);
+  arTabRef.current = arTab;
+  const wearAr = useCallback((c: LookCategory, stop: HomeLook | null) => {
+    logStep(`ar:pick:${stop?.id ?? `none:${c}`}`);
     setArTouched(true);
-    setArTab(l.category);
-    setArSel((s) => toggleLook(s, l));
+    setArTab(c);
+    setArSel((s) => wearStop(s, c, stop));
   }, []);
   const tabAr = useCallback((c: LookCategory) => {
     logStep(`ar:tab:${c}`);
@@ -1497,7 +1567,7 @@ export default function BeamyPage() {
   const storyScenes = (
     <>
       <StoryScenes step={step} live={active === 'story'} ids={storyIds} stacked={stacked} qrUrl={qrUrl} wallCentreRef={storyWallRef} seed={seed} beamyAt={beamyAt} onCue={onCue} />
-      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onToggle={toggleAr} active={inStoryAR} stacked={stacked} frameRef={arFrameRef} carRef={arCarRef} />
+      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onWear={wearAr} active={inStoryAR} stacked={stacked} frameRef={arFrameRef} carRef={arCarRef} />
     </>
   );
   const story = (

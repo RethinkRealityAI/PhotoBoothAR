@@ -40,6 +40,8 @@ export interface HomeLook {
   opening?: FrameOpening;
   /** A frame worn together with a library prop (GLB url); the prop sits where `fit` says. */
   with?: string;
+  /** A frame's celebration, the AR carousel's title ("Wedding"); absent = its name. */
+  occasion?: string;
 }
 
 /** A frame's see-through window: fractions of the frame's height (top/bottom) and width (left/right). */
@@ -97,21 +99,22 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
   heroLooks: [
     // Christmas first: he lands, puts on the Holiday cover and the antlers, and
     // that dressed-up selfie is the photo he beams to the wall.
-    { id: 'holiday', name: 'Holiday cover + antlers', category: 'frame', url: `${F}christmas-santa-cover.png`, opening: { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 }, with: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'Tap me to see more!' },
+    { id: 'holiday', name: 'Holiday cover + antlers', category: 'frame', occasion: 'Christmas', url: `${F}christmas-santa-cover.png`, opening: { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 }, with: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'Tap me to see more!' },
     { id: 'glasses', name: 'Neon shades', category: 'prop', url: `${P}neon-shades.glb`, fit: { width: 0.4, at: [0, 0.225, 0.19], align: 'centre' }, line: 'Real 3D filters, right in the browser.' },
     { id: 'elf', name: 'Elf hat', category: 'prop', url: `${P}elf-hat.glb`, fit: { width: 0.3, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 }, line: 'Scroll to see what I can do.' },
     { id: 'tree', name: 'Christmas tree hat', category: 'prop', url: `${P}tree-hat.glb`, fit: { width: 0.27, at: [0, 0.33, 0], align: 'base' }, line: 'Snapchat and Instagram in one, right in the browser.' },
     { id: 'antlers', name: 'Reindeer antlers', category: 'prop', url: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'Tap me for another look!' },
   ],
   arLooks: [
-    { id: 'ar-wedding-cover', name: 'Wedding cover', category: 'frame', url: `${F}wedding-magazine-cover.png`, opening: { top: 0.242, bottom: 0.91, left: 0.13, right: 0.87 } },
-    { id: 'ar-sangeet', name: 'Sangeet arch', category: 'frame', url: `${F}cultural-mehndi-arch.png`, opening: { top: 0.172, bottom: 0.889, left: 0.071, right: 0.929 } },
-    { id: 'ar-birthday', name: 'Birthday monogram', category: 'frame', url: `${F}birthday-monogram-corner.png`, opening: { top: 0.056, bottom: 0.946, left: 0.093, right: 0.915 } },
-    { id: 'ar-countdown', name: 'New Year countdown', category: 'frame', url: `${F}nye-countdown.png`, opening: { top: 0.212, bottom: 0.812, left: 0.144, right: 0.863 } },
-    { id: 'ar-asoebi', name: 'Aso ebi arch', category: 'frame', url: `${F}cultural-asoebi-arch.png`, opening: { top: 0.177, bottom: 0.89, left: 0, right: 1 } },
-    { id: 'ar-gala', name: 'Gala cover', category: 'frame', url: `${F}gala-magazine-cover.png`, opening: { top: 0.318, bottom: 0.906, left: 0.074, right: 0.926 } },
+    { id: 'ar-wedding-cover', name: 'Wedding cover', category: 'frame', occasion: 'Wedding', url: `${F}wedding-magazine-cover.png`, opening: { top: 0.242, bottom: 0.91, left: 0.13, right: 0.87 } },
+    { id: 'ar-sangeet', name: 'Sangeet arch', category: 'frame', occasion: 'Indian wedding', url: `${F}cultural-mehndi-arch.png`, opening: { top: 0.172, bottom: 0.889, left: 0.071, right: 0.929 } },
+    { id: 'ar-birthday', name: 'Birthday monogram', category: 'frame', occasion: 'Birthday', url: `${F}birthday-monogram-corner.png`, opening: { top: 0.056, bottom: 0.946, left: 0.093, right: 0.915 } },
+    { id: 'ar-countdown', name: 'New Year countdown', category: 'frame', occasion: 'New Year’s Eve', url: `${F}nye-countdown.png`, opening: { top: 0.212, bottom: 0.812, left: 0.144, right: 0.863 } },
+    { id: 'ar-asoebi', name: 'Aso ebi arch', category: 'frame', occasion: 'Nigerian wedding', url: `${F}cultural-asoebi-arch.png`, opening: { top: 0.177, bottom: 0.89, left: 0, right: 1 } },
+    { id: 'ar-gala', name: 'Gala cover', category: 'frame', occasion: 'Gala', url: `${F}gala-magazine-cover.png`, opening: { top: 0.318, bottom: 0.906, left: 0.074, right: 0.926 } },
     { id: 'ar-holly', name: 'Holly crown', category: 'prop', url: `${P}holly-crown.glb`, fit: { width: 0.36, at: [0, 0.31, 0], align: 'base' } },
-    { id: 'ar-rudolph', name: 'Rudolph nose', category: 'prop', url: `${P}rudolph-nose.glb`, fit: { width: 0.075, at: [0, 0.185, 0.215], align: 'centre' } },
+    // (No Rudolph nose: floating in the carousel it read as a plain red ball.)
+    { id: 'ar-santa', name: 'Santa hat', category: 'prop', url: `${P}santa-hat.glb`, fit: { width: 0.36, at: [0, 0.34, -0.01], align: 'base', tilt: -0.12 } },
     { id: 'ar-snowflake', name: 'Snowflake tiara', category: 'prop', url: `${P}snowflake-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' } },
     { id: 'ar-prismatic', name: 'Prismatic', category: 'filter', url: 'tint:prismatic' },
     { id: 'ar-aurora', name: 'Aurora', category: 'filter', url: 'tint:#34D399' },
@@ -411,6 +414,39 @@ export function arTour(k: number, looks: HomeLook[]): { sel: ArSelection; tab: L
     sel[cats[j]] = inCat[round % inCat.length].id;
   }
   return { sel, tab: cats[upto] };
+}
+
+/** The AR carousels' "nothing on" stop, titled per category. */
+export const NONE_TITLE: Record<LookCategory, string> = { frame: 'No frame', prop: 'No prop', filter: 'No filter', effect: 'No effect' };
+/** What one item of a category is called (the carousel's arrow labels). */
+export const AR_NOUN: Record<LookCategory, string> = { frame: 'frame', prop: 'prop', filter: 'filter', effect: 'effect' };
+
+/** A category's carousel stops: "None" (null) first, so it can always be taken off, then its looks in order. */
+export function arStops(looks: HomeLook[], cat: LookCategory): (HomeLook | null)[] {
+  return [null, ...looks.filter((l) => l.category === cat)];
+}
+
+/** The stop a category's carousel stands on: the worn look's, else None (0). */
+export function arStopIndex(sel: ArSelection, looks: HomeLook[], cat: LookCategory): number {
+  const id = sel[cat];
+  if (id === undefined) return 0;
+  const k = looks.filter((l) => l.category === cat).findIndex((l) => l.id === id);
+  return k < 0 ? 0 : k + 1;
+}
+
+/** Wear a carousel stop: its look replaces the category's pick; the None stop takes it off. Other categories stay. */
+export function wearStop(sel: ArSelection, cat: LookCategory, stop: HomeLook | null): ArSelection {
+  const out = { ...sel };
+  if (stop === null) delete out[cat];
+  else out[cat] = stop.id;
+  return out;
+}
+
+/** A carousel's title: a frame names its celebration (occasion, else its name); the rest their name; None says so. */
+export function arTitle(cat: LookCategory, look: HomeLook | null): string {
+  if (look === null) return NONE_TITLE[cat];
+  const occ = look.occasion?.trim() ?? '';
+  return cat === 'frame' && occ !== '' ? occ : look.name;
 }
 
 /** Auto-advance: the next look, wrapping to the first. */

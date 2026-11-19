@@ -106,7 +106,16 @@ export interface StageLayout {
  * (crystals around his feet), and how far the hero has scrolled (scroll
  * parallax), all viewport px.
  */
-export interface StageDecor { panel: Rect | null; stand: { feet: Pt; heightPx: number } | null; phone: boolean; scroll: number; }
+export interface StageDecor {
+  panel: Rect | null;
+  stand: { feet: Pt; heightPx: number } | null;
+  phone: boolean;
+  scroll: number;
+  /** The AR props carousel's floating stops (viewport px: centre and size). The
+   *  stage draws each one's real GLB there; the page's peek is a see-through
+   *  button over it. Absent or empty = none. */
+  peeks?: { url: string; x: number; y: number; size: number }[];
+}
 
 /** One frame of the Selfie clip on the stage, for the page's DOM overlays. */
 export interface SelfieFrame {
@@ -297,6 +306,22 @@ interface CrystalSpec {
   layer?: 'back' | 'front';
 }
 const PROP_DIR = '/models/props/';
+/** How many carousel stops the stage can draw at once (the one before and the one after). */
+const PEEK_SLOTS = 2;
+
+/** A clone of a cached library model, fitted into a unit box about its centre (masters are never disposed). */
+function unitClone(master: THREE.Object3D): THREE.Object3D {
+  const obj = master.clone(true);
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const dim = box.getSize(new THREE.Vector3());
+  const k = 1 / Math.max(1e-6, dim.x, dim.y, dim.z);
+  const mid = box.getCenter(new THREE.Vector3());
+  obj.scale.multiplyScalar(k);
+  obj.position.set(-mid.x * k, -mid.y * k, -mid.z * k);
+  obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 1; } });
+  return obj;
+}
 const CRYSTALS: CrystalSpec[] = [
   { prop: 'royal-crown', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true },
   { prop: 'halo-ring', at: { panel: [1.015, 1.02] }, size: 0.16, depth: 0.35, phone: true },
@@ -502,6 +527,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const selfieRun = useRef<{ t: number; tl: SelfieTimeline; snapped: boolean; noShades: boolean; action: THREE.AnimationAction; onFrame: (f: SelfieFrame) => void; resolve: (done: boolean) => void } | null>(null);
   const crystalRefs = useRef<(THREE.Group | null)[]>([]);
   const crystalShadowRefs = useRef<(THREE.Mesh | null)[]>([]);
+  /** The AR props carousel's stops, and the GLB each holder is showing. */
+  const peekRefs = useRef<(THREE.Group | null)[]>([]);
+  const peekUrls = useRef<(string | null)[]>(Array.from({ length: PEEK_SLOTS }, () => null));
   /** The mirrored copy of his rig on the hero's glossy floor (desktop only). */
   const reflRig = useRef<THREE.Group>(null);
   const reflect = useRef<{ root: THREE.Object3D; pairs: [THREE.Object3D, THREE.Object3D][]; floorY: { value: number }; fade: { value: number } } | null>(null);
@@ -1164,16 +1192,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         void loadModel(HOME_ASSET_DEFAULTS.sceneProps[i] ?? `${PROP_DIR}${c.prop}.glb`).then((master) => {
           const holder = crystalRefs.current[i];
           if (!live || holder === null || holder.children.length > 0) return;
-          const obj = master.clone(true);
-          obj.updateMatrixWorld(true);
-          const box = new THREE.Box3().setFromObject(obj);
-          const dim = box.getSize(new THREE.Vector3());
-          const k = 1 / Math.max(1e-6, dim.x, dim.y, dim.z);
-          const mid = box.getCenter(new THREE.Vector3());
-          obj.scale.multiplyScalar(k);
-          obj.position.set(-mid.x * k, -mid.y * k, -mid.z * k);
-          obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 1; } });
-          holder.add(obj);
+          holder.add(unitClone(master));
         }, () => undefined);
       });
     }, 1200);
@@ -1520,6 +1539,35 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         m.rotation.x = 0.22 + Math.sin(t * 0.45 + i) * 0.1;
       } else {
         m.rotation.set(0.22, 0.6 + i, 0);
+      }
+    }
+
+    /* The AR props carousel: each stop's real GLB floats in its peek, small
+       and turning slowly (it bobs with the peek, which the page reads). Still
+       when reduced. */
+    const pk = dec.peeks ?? [];
+    for (let i = 0; i < PEEK_SLOTS; i++) {
+      const holder = peekRefs.current[i];
+      if (!holder) continue;
+      const p = pk[i];
+      if (p === undefined || p.url === '') { holder.visible = false; continue; }
+      if (peekUrls.current[i] !== p.url) {
+        const url = p.url;
+        peekUrls.current[i] = url;
+        holder.clear();
+        void loadModel(url).then((master) => {
+          if (peekUrls.current[i] === url && holder.children.length === 0) holder.add(unitClone(master));
+        }, () => undefined);
+      }
+      holder.visible = holder.children.length > 0;
+      const wp = toWorld({ x: p.x, y: p.y });
+      holder.position.set(wp.x, wp.y, 260);
+      holder.scale.setScalar(Math.max(1, p.size * 0.86));
+      if (!reduced) {
+        holder.rotation.y += dt * 0.55;
+        holder.rotation.x = 0.2;
+      } else {
+        holder.rotation.set(0.2, 0.5, 0);
       }
     }
 
@@ -1870,6 +1918,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       ))}
       {CRYSTALS.map((c, i) => (
         <group key={`${c.prop}${i}`} ref={(m) => { crystalRefs.current[i] = m; }} visible={false} />
+      ))}
+      {Array.from({ length: PEEK_SLOTS }, (_, i) => (
+        <group key={`peek${i}`} ref={(m) => { peekRefs.current[i] = m; }} visible={false} />
       ))}
       <group ref={reflRig} visible={false}>
         {reflectObj !== null && <primitive object={reflectObj} />}

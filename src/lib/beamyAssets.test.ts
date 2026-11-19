@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  AR_CATEGORIES, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, arOrder, arTour, carousel, categoryStart, demoQrUrl,
+  AR_CATEGORIES, AR_NOUN, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, NONE_TITLE, arOrder, arStopIndex, arStops, arTitle, arTour, carousel, categoryStart, demoQrUrl, wearStop,
   DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, smallWindow, standInFrame, stepIntoFrame, BODY_W, toBeamyLook, toggleLook, type HomeLook,
 } from './beamyAssets';
 import { BEAMY_LOOKS } from './beamyLooks';
@@ -113,6 +113,55 @@ describe('beamyAssets', () => {
     expect(carousel(0, 3)).toEqual({ prev: 2, next: 1, after: null });
     expect(carousel(0, 2)).toEqual({ prev: null, next: 1, after: null });
     expect(carousel(0, 1)).toEqual({ prev: null, next: null, after: null });
+  });
+
+  it('gives every category a carousel that starts on a None stop', () => {
+    const o = arOrder(HOME_ASSET_DEFAULTS.arLooks);
+    for (const c of AR_CATEGORIES) {
+      const stops = arStops(o, c.id);
+      expect(stops[0], c.id).toBeNull();
+      expect(stops.slice(1).every((l) => l !== null && l.category === c.id), c.id).toBe(true);
+      expect(stops.length, c.id).toBe(o.filter((l) => l.category === c.id).length + 1);
+      expect(arStopIndex({}, o, c.id), c.id).toBe(0);
+      expect(arTitle(c.id, null), c.id).toBe(NONE_TITLE[c.id]);
+      expect(AR_NOUN[c.id].length, c.id).toBeGreaterThan(0);
+    }
+    const props = o.filter((l) => l.category === 'prop');
+    expect(arStopIndex({ prop: props[1].id }, o, 'prop')).toBe(2);
+    // An id that is gone (or in another category) stands on None, never throws.
+    expect(arStopIndex({ prop: 'gone' }, o, 'prop')).toBe(0);
+    expect(arStopIndex({ prop: o.find((l) => l.category === 'frame')?.id }, o, 'prop')).toBe(0);
+  });
+
+  it('wears a carousel stop in its own category only; None takes it off', () => {
+    const o = arOrder(HOME_ASSET_DEFAULTS.arLooks);
+    const prop = o.filter((l) => l.category === 'prop')[1];
+    const before = { frame: 'ar-gala', filter: 'ar-aurora' };
+    const sel = wearStop(before, 'prop', prop);
+    expect(sel).toEqual({ frame: 'ar-gala', filter: 'ar-aurora', prop: prop.id });
+    expect(before).toEqual({ frame: 'ar-gala', filter: 'ar-aurora' });
+    expect(wearStop(sel, 'frame', null)).toEqual({ filter: 'ar-aurora', prop: prop.id });
+    expect(wearStop({}, 'effect', null)).toEqual({});
+  });
+
+  it('titles a frame by its celebration, everything else by its name', () => {
+    const frames = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'frame');
+    const want: Record<string, string> = {
+      'ar-wedding-cover': 'Wedding', 'ar-sangeet': 'Indian wedding', 'ar-birthday': 'Birthday',
+      'ar-countdown': 'New Year’s Eve', 'ar-asoebi': 'Nigerian wedding', 'ar-gala': 'Gala',
+    };
+    for (const f of frames) expect(arTitle('frame', f), f.id).toBe(want[f.id]);
+    expect(arTitle('frame', HOME_ASSET_DEFAULTS.heroLooks[0])).toBe('Christmas');
+    // No occasion (or a blank one, as a CMS row may carry): the frame's name.
+    expect(arTitle('frame', { ...frames[0], occasion: undefined })).toBe(frames[0].name);
+    expect(arTitle('frame', { ...frames[0], occasion: '  ' })).toBe(frames[0].name);
+    const prop = HOME_ASSET_DEFAULTS.arLooks.find((l) => l.category === 'prop');
+    expect(prop !== undefined && arTitle('prop', { ...prop, occasion: 'Party' })).toBe(prop?.name);
+    for (const l of [...HOME_ASSET_DEFAULTS.arLooks, ...HOME_ASSET_DEFAULTS.heroLooks]) {
+      const t = arTitle(l.category, l);
+      expect(t, l.id).not.toMatch(EMOJI_RE);
+      expect(t.length, l.id).toBeLessThanOrEqual(22);
+    }
   });
 
   it('wears one look per category, combined, and a second tap takes it off', () => {
