@@ -5,7 +5,7 @@
  *   • Single composited StageCanvas (preview + capture + record)
  *   • Collapsible PickerDrawer (effects + frames + 3D — combinable)
  *   • Front/back camera flip (only shown when hasMultipleCameras)
- *   • Photo / Video mode toggle (record up to 30s via StreamRecorder)
+ *   • Photo / Video mode toggle (record up to the plan's videoMaxSec via StreamRecorder)
  *   • Timer selector: Off / 3s / 5s / 10s
  *   • First-launch Onboarding modal
  *   • Challenge selector (optional, tags post via challengeId)
@@ -87,6 +87,7 @@ import {
 import { normalizeGuestLettering } from '../lib/letteringFit';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
+import { videoBitsPerSecondFor } from '../lib/plans';
 import { dataUrlToBlob } from './booth/capture';
 import { challengeNeedsCheck, validateChallengePhoto } from '../lib/challengeValidation';
 import { reportError } from '../lib/errorReport';
@@ -126,7 +127,6 @@ type MediaMode = 'photo' | 'video';
 type TimerOption = 0 | 3 | 5 | 10;
 
 const TIMER_OPTIONS: TimerOption[] = [0, 3, 5, 10];
-const VIDEO_MAX_MS = 30_000;
 const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
 /** Upper bound on the send + challenge-check awaits so "Beaming…"/"Checking…"
  *  can never spin forever on a stalled connection. */
@@ -329,9 +329,12 @@ export default function Booth() {
   const [started, setStarted] = useState(false);
   const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
 
-  // Video capture is entitlement-gated (free tier: photo only). If the flag
-  // resolves after the guest already toggled, snap back to photo mode.
+  // Video capture is entitlement-gated. If the flag resolves after the guest
+  // already toggled, snap back to photo mode.
   const videoAllowed = entitlements.videoEnabled;
+  // Clip length is per plan (30 / 60 / 90 s; legacy sites stay at 30). The
+  // server derives its byte ceiling from the same value (submit-post).
+  const VIDEO_MAX_MS = entitlements.videoMaxSec * 1000;
   useEffect(() => {
     if (!videoAllowed && mediaMode === 'video') setMediaMode('photo');
   }, [videoAllowed, mediaMode]);
@@ -1343,6 +1346,7 @@ export default function Booth() {
       const recStream = buildRecordStream(canvas, streamRef.current ?? undefined, 30);
       const rec = new StreamRecorder({
         maxMs: VIDEO_MAX_MS,
+        videoBitsPerSecond: videoBitsPerSecondFor(entitlements.videoMaxSec),
         onTick: publishRecordingMs,
         onMaxReached: () => stopRecording(rec),
         onError: (e) => failRecording(rec, e),

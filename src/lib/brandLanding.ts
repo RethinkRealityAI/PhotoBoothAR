@@ -18,7 +18,7 @@
  *     plans is DERIVED from plans.ts / beta.ts so the page cannot promise a
  *     limit the product does not have.
  */
-import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
+import { ENTITLEMENTS, FAIR_USE_LINE, formatPostCap, formatRetention, formatVideoLength } from './plans';
 import { BETA_FREE, pricingCopy } from './beta';
 import { DEFAULT_LANDING_CONTENT } from './landingContent';
 import type { StopId } from './beamyScroll';
@@ -292,14 +292,14 @@ export function planCards(): PlanCard[] {
     {
       name: 'Essentials', price: '$49', unit: 'per event', blurb: 'Everything a small celebration needs.',
       features: [
-        formatPostCap(E.essentials.maxPosts, E.essentials.videoEnabled), 'Video capture', 'No watermark',
+        formatPostCap(E.essentials.maxPosts, E.essentials.videoEnabled), formatVideoLength(E.essentials.videoMaxSec), 'No watermark',
         formatRetention(E.essentials.retentionDays), '+20 AI credits',
       ],
     },
     {
       name: 'Premium', price: '$99', unit: 'per event', blurb: 'The full experience, cards included.',
       features: [
-        formatPostCap(E.premium.maxPosts, E.premium.videoEnabled), 'Keepsake cards',
+        formatPostCap(E.premium.maxPosts, E.premium.videoEnabled), formatVideoLength(E.premium.videoMaxSec), 'Keepsake cards',
         formatRetention(E.premium.retentionDays), 'Priority support', '+100 AI credits',
       ],
       popular: true,
@@ -307,7 +307,7 @@ export function planCards(): PlanCard[] {
     {
       name: 'Deluxe', price: '$169', unit: 'per event', blurb: 'A keepsake film, and every finishing touch.',
       features: [
-        'Everything in Premium', 'Keepsake highlight film', 'Premium card renders',
+        'Everything in Premium', formatVideoLength(E.deluxe.videoMaxSec), 'Keepsake highlight film', 'Premium card renders',
         formatRetention(E.deluxe.retentionDays), '+130 AI credits',
       ],
     },
@@ -332,13 +332,14 @@ export function beamyPlanCards(): PlanCard[] {
 }
 
 /** The pricing section's words: the landing's own (beta-aware) heading, intro and CTAs, plus its Pro line. */
-export function pricingSection(): { heading: string; intro: string; pro: string; cta: (tier: string) => string; recommended: string; line: string } {
+export function pricingSection(): { heading: string; intro: string; pro: string; fairUse: string; cta: (tier: string) => string; recommended: string; line: string } {
   const p = pricingCopy(BETA_FREE);
   return {
     heading: p.heading,
     // The shared beta.ts wording, with its em dash read as the sentence break it is.
     intro: p.intro.replace(/\s+—\s+(\w)/g, (_m, c: string) => `. ${c.toUpperCase()}`),
     pro: 'Frequent host? Beamwall Pro is $79/month: Premium on every event, plus 300 AI credits a month.',
+    fairUse: FAIR_USE_LINE,
     cta: p.cta,
     recommended: 'Recommended',
     line: 'Start free. Upgrade only the events that need it.',

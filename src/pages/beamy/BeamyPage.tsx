@@ -1642,6 +1642,7 @@ export default function BeamyPage() {
             <h2 id="h-pricing" className="bw-h2">{pricing.heading}</h2>
             <p className="bw-body mt-3 max-w-[56ch]">{pricing.intro}</p>
             <p className="bw-small mt-3 max-w-[56ch]">{pricing.pro}</p>
+            <p className="bw-small mt-2 max-w-[56ch]">{pricing.fairUse}</p>
           </div>
           <div className={`mt-10 grid gap-x-4 gap-y-6 ${planCols}`}>
             {plans.map((t, k) => (

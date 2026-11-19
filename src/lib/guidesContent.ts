@@ -1162,6 +1162,16 @@ const RUN_THE_NIGHT: GuideDoc = {
           value: '≈30 credits',
           why: 'One render turns a full card into a shareable film.',
         },
+        {
+          label: 'Photos and videos',
+          value: 'Unlimited on Premium and up',
+          why: 'No cap on how many your guests take. Fair use is up to 2,000 new shots a day per event, more than a big gala takes. Free carries 25 and Essentials 500.',
+        },
+        {
+          label: 'Video clip length',
+          value: '30 s · 60 s on Premium · 90 s on Deluxe',
+          why: 'Every plan records video, Free included. Longer clips come with the bigger plans, and every clip stays small enough to upload on busy venue wifi.',
+        },
       ],
     },
     {
@@ -1290,6 +1300,7 @@ export const GUIDE_COVERAGE: {
   },
   featureKeys: {
     maxPosts: { guide: 'run-the-night', note: 'What things cost — how many photos a plan carries.' },
+    videoMaxSec: { guide: 'run-the-night', note: 'What things cost — video clip length per plan (30 / 60 / 90 seconds).' },
     videoEnabled: { guide: 'make-3d-props', note: 'Put a crown on every guest — video capture is what makes a reacting prop worth having.' },
     watermark: { guide: 'run-the-night', note: 'What things cost — paid plans remove the Beamwall signature from guest photos.' },
     aiStudio: { guide: 'make-a-frame', note: 'Describe it to AI Frame Studio, and the credit table in run-the-night.' },

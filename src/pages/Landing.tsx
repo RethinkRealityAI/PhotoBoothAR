@@ -59,7 +59,7 @@ import challengesFeatureVideo from '../assets/landing/challenges-feature.mp4';
 import challengesFeaturePoster from '../assets/landing/challenges-feature-poster.jpg';
 import cardsFeatureVideo from '../assets/landing/cards-feature.mp4';
 import cardsFeaturePoster from '../assets/landing/cards-feature-poster.jpg';
-import { ENTITLEMENTS, formatPostCap, formatRetention } from '../lib/plans';
+import { ENTITLEMENTS, formatPostCap, formatRetention, formatVideoLength } from '../lib/plans';
 import { BETA_FREE, pricingCopy } from '../lib/beta';
 import ReportIssueButton from '../components/support/ReportIssueButton';
 
@@ -176,8 +176,8 @@ interface Tier {
  * FREE_IMAGES_PER_EVENT), and aiStudio itself is on from Essentials — so an
  * "AI event studio" bullet on Premium alone was false. Frames are not gated at
  * all, so "Every frame & effect" on Essentials implied Free lacked them; video
- * capture (ENTITLEMENTS.free.videoEnabled false → essentials true) is the real
- * step up. The "+N AI credits" lines are the billing catalogue's
+ * capture is on every tier since 2026-11-19; clip LENGTH (videoMaxSec
+ * 30 → 60 → 90) is the step up. The "+N AI credits" lines are the billing catalogue's
  * credits_granted (migration 029: 20 / 100 / 130; Pro 300 a month). */
 const TIERS: Tier[] = [
   {
@@ -201,7 +201,7 @@ const TIERS: Tier[] = [
     blurb: 'Everything a small celebration needs.',
     features: [
       formatPostCap(ENTITLEMENTS.essentials.maxPosts, ENTITLEMENTS.essentials.videoEnabled),
-      'Video capture',
+      formatVideoLength(ENTITLEMENTS.essentials.videoMaxSec),
       'No watermark',
       formatRetention(ENTITLEMENTS.essentials.retentionDays),
       '+20 AI credits',
@@ -214,6 +214,7 @@ const TIERS: Tier[] = [
     blurb: 'The full experience, cards included.',
     features: [
       formatPostCap(ENTITLEMENTS.premium.maxPosts, ENTITLEMENTS.premium.videoEnabled),
+      formatVideoLength(ENTITLEMENTS.premium.videoMaxSec),
       'Keepsake cards',
       formatRetention(ENTITLEMENTS.premium.retentionDays),
       'Priority support',
@@ -228,6 +229,7 @@ const TIERS: Tier[] = [
     blurb: 'A keepsake film, and every finishing touch.',
     features: [
       'Everything in Premium',
+      formatVideoLength(ENTITLEMENTS.deluxe.videoMaxSec),
       'Keepsake highlight film',
       'Premium card renders',
       formatRetention(ENTITLEMENTS.deluxe.retentionDays),

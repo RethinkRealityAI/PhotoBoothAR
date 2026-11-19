@@ -8,6 +8,9 @@ import { ENTITLEMENTS } from './plans';
 import { normalizeResolvedFeatures } from './features';
 
 const FREE_NO_STUDIO = hostEntitlementsFrom({ features: { ...ENTITLEMENTS.free, studio: false }, studio: false });
+// Free records video since 2026-11-19; the photo-only path is still reachable
+// through a videoEnabled=false override, so it keeps its own fixture.
+const NO_VIDEO = hostEntitlementsFrom({ features: { ...ENTITLEMENTS.free, videoEnabled: false, studio: false }, studio: false });
 
 const gen3d: CopilotAction = { tool: 'add_head_piece', proposal: { source: 'generate', prompt: 'a Santa hat' } };
 const builtin: CopilotAction = { tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: 'royal-crown' } };
@@ -16,7 +19,8 @@ const frame: CopilotAction = { tool: 'generate_frame', proposal: { prompt: 'snow
 
 describe('hostEntitlementsFrom', () => {
   it('a brand-new free host without the Studio add-on can neither generate 3D nor open the Director', () => {
-    expect(FREE_NO_STUDIO).toEqual({ studio: false, ai3d: false, aiFrames: false, video: false });
+    expect(FREE_NO_STUDIO).toEqual({ studio: false, ai3d: false, aiFrames: false, video: true });
+    expect(NO_VIDEO).toEqual({ studio: false, ai3d: false, aiFrames: false, video: false });
   });
 
   it('fails OPEN on an unknown answer (not read yet / resolver failed)', () => {
@@ -82,7 +86,8 @@ describe('entitlementContextLine', () => {
     expect(line).toContain('add_head_piece with source "generate"');
     expect(line).toContain('open_scene_director');
     expect(line).toContain('Never propose or price these');
-    expect(line).toContain('photos only');
+    expect(line).not.toContain('photos only'); // Free has video now
+    expect(entitlementContextLine(NO_VIDEO) ?? '').toContain('photos only');
     expect(line).not.toContain('\n');
     expect(line).not.toMatch(/-{3,}/); // can never read as a fence marker
   });
