@@ -128,6 +128,9 @@ export function updateLibraryDraft(args: {
   tags?: LibraryTags;
   config?: Record<string, unknown>;
   importMeta?: ImportMeta;
+  /** Point the draft at another model in its own folder (the optimizer's
+   *  "Use optimized"); `config` must then name the same URL. */
+  assetUrl?: string;
 }): Promise<AdminResult<{ id: string }>> {
   return adminApi('update_library_draft', { ...args });
 }

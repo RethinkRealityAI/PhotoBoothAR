@@ -102,6 +102,21 @@ export function draftModelKey(id: string): string {
 export function draftThumbKey(id: string): string {
   return `${draftFolder(id)}thumb.png`;
 }
+/**
+ * Where an in-browser OPTIMIZED copy of the draft's model goes: a NEW key per
+ * run, never an overwrite of model.glb. The original stays intact until the
+ * draft is discarded (that sweep lists the whole folder), "Keep original"
+ * costs nothing, and a new URL can never be served stale by the CDN or by a
+ * browser's glbCache entry for the old one. `n` is a run stamp (Date.now()).
+ */
+export function draftOptimizedModelKey(id: string, n: number): string {
+  return `${draftFolder(id)}model-opt-${Math.max(0, Math.floor(n))}.glb`;
+}
+/** model.glb or a model-opt-<n>.glb directly inside the draft's OWN folder. */
+export function isDraftModelKey(id: string, key: string | null): boolean {
+  if (typeof key !== 'string' || !key.startsWith(draftFolder(id))) return false;
+  return /^model(-opt-\d{1,16})?\.glb$/.test(key.slice(draftFolder(id).length));
+}
 
 /* ── Import metadata (config.library.import) ────────────────────────────── */
 
@@ -119,6 +134,10 @@ export interface ImportMeta {
   triangles: number;
   /** Largest bounding-box dimension in the file's own units (drives the fit). */
   maxDim: number;
+  /** Present only once the model was optimized in the browser: what the
+   *  operator dropped, so the card can say "38 MB → 4.1 MB". */
+  originalBytes?: number;
+  originalTriangles?: number;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -150,6 +169,12 @@ export function normalizeImportMeta(raw: unknown): ImportMeta {
   }
   const note = cleanText(src.note, 240);
   if (note) out.note = note;
+  // The triangle count rides with the size; without a size there is no saving to show.
+  const ob = Math.round(finiteNonNeg(src.originalBytes));
+  if (ob > 0) {
+    out.originalBytes = ob;
+    out.originalTriangles = Math.round(finiteNonNeg(src.originalTriangles));
+  }
   return out;
 }
 
@@ -229,6 +254,26 @@ export function checkDraftConfig(raw: unknown, assetUrl: string): DraftCheck<Rec
     if (layer.kind !== '3d_attachment' || layer.asset_url !== assetUrl) return { ok: false, error: 'invalid_config' };
   }
   return { ok: true, value: rest };
+}
+
+/**
+ * Point a draft at another copy of its model (update_library_draft with
+ * `assetUrl` — the optimizer's "Use optimized"). The new file must be a model
+ * key inside the draft's OWN folder (never another draft's, never outside the
+ * bucket), and a rendering config is REQUIRED with it: the current one names
+ * the old URL in `layers[0].asset_url`, so a swap without it would leave the
+ * row rendering a file it no longer claims.
+ */
+export function checkDraftAssetSwap(
+  id: string,
+  raw: { assetUrl?: unknown; config?: unknown },
+  origin: string,
+): DraftCheck<{ assetUrl: string; config: Record<string, unknown> }> {
+  if (!isDraftModelKey(id, assetKey(raw.assetUrl, origin))) return { ok: false, error: 'invalid_asset' };
+  if (raw.config === undefined) return { ok: false, error: 'invalid_config' };
+  const checked = checkDraftConfig(raw.config, raw.assetUrl as string);
+  if (!checked.ok) return { ok: false, error: checked.error as string };
+  return { ok: true, value: { assetUrl: raw.assetUrl as string, config: checked.value as Record<string, unknown> } };
 }
 
 /** The `experiences` insert for a new draft. */

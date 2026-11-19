@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type DragEvent, type SetStateAction } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Box, Check, Loader2, RefreshCw, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Box, Check, Loader2, Minimize2, RefreshCw, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import {
   bulkUpdateLibraryItems,
   classifyLibraryDrafts,
@@ -50,7 +50,9 @@ import {
   type ImportMeta,
 } from '../../lib/libraryImport';
 import { LIBRARY_NAME_MAX, normalizeLibraryName, type LibraryTags } from '../../lib/libraryPublish';
-import { prepareModel, uploadPreparedModel } from '../../lib/libraryImportBrowser';
+import { prepareModel, uploadOptimizedModel, uploadPreparedModel } from '../../lib/libraryImportBrowser';
+import { OPTIMIZE_PRESETS, formatSaving, type OptimizeStats } from '../../lib/glbOptimizePlan';
+import OptimizeCompare from '../../components/admin/library/OptimizeCompare';
 import { ModelPreview } from '../../components/studio/DirectorCards';
 import LibraryTagPicker from '../../components/library/LibraryTagPicker';
 import LoadError from '../../components/ui/LoadError';
@@ -74,6 +76,8 @@ interface QueueItem {
   fileName: string;
   status: QueueStatus;
   reason?: string;
+  /** "Optimize on upload" was on when it was dropped (the check step then takes longer). */
+  optimizing?: boolean;
 }
 
 /** What the 3D preview modal shows — a draft or any model already on the platform. */
@@ -202,6 +206,10 @@ export default function LibraryImport() {
   const [dragDepth, setDragDepth] = useState(0);
   /** In-progress name edits, saved on blur (the row keeps its saved name). */
   const [nameEdits, setNameEdits] = useState<Record<string, string>>({});
+  /** Shrink each dropped file in the browser before upload (keeps the original when it saves under 5%). */
+  const [optimizeOnUpload, setOptimizeOnUpload] = useState(true);
+  /** The draft whose optimize-and-compare dialog is open. */
+  const [optimizeTarget, setOptimizeTarget] = useState<LibraryDraftRow | null>(null);
   // Library shelves (migration 045). Absent on an older admin-api: the import
   // still works, the drafts just land with no category.
   const [categories, setCategories] = useState<LibraryCategory[]>([]);
@@ -337,7 +345,8 @@ export default function LibraryImport() {
   /* ── Import pipeline: one file at a time (one WebGL context at a time) ── */
   const importFiles = async (files: File[]) => {
     if (files.length === 0 || importing) return;
-    const items: QueueItem[] = files.map((f, i) => ({ key: `${Date.now()}-${i}-${f.name}`, fileName: f.name, status: 'checking' }));
+    const optimize = optimizeOnUpload ? OPTIMIZE_PRESETS.balanced : null;
+    const items: QueueItem[] = files.map((f, i) => ({ key: `${Date.now()}-${i}-${f.name}`, fileName: f.name, status: 'checking', optimizing: optimize !== null }));
     setQueue((q) => [...items, ...q.filter((x) => x.status === 'failed')]);
     setImporting(true);
     // The shelf and keywords as they were when this batch was dropped.
@@ -346,11 +355,12 @@ export default function LibraryImport() {
     const setStatus = (key: string, status: QueueStatus, reason?: string) =>
       setQueue((q) => q.map((x) => (x.key === key ? { ...x, status, reason } : x)));
     const created: string[] = [];
+    const leftAsIs: string[] = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const key = items[i].key;
-      const prepared = await prepareModel(file);
+      const prepared = await prepareModel(file, optimize);
       if (!prepared.ok) { setStatus(key, 'failed', prepared.reason); continue; }
       const m = prepared.model;
       setStatus(key, 'uploading');
@@ -366,9 +376,11 @@ export default function LibraryImport() {
         category: 'headwear',
         classifiedBy: 'none',
         fileName: file.name,
-        bytes: file.size,
+        // m.file is the optimized copy when "Optimize on upload" kept one.
+        bytes: m.file.size,
         triangles: m.triangles,
         maxDim: m.maxDim,
+        ...(m.original ? { originalBytes: m.original.bytes, originalTriangles: m.original.triangles } : {}),
       };
       const config = buildDraftRenderConfig({ assetUrl: urls.assetUrl, name, categoryId: importMeta.category, maxDim: m.maxDim });
       const tags: LibraryTags = { occasions: [], colors: [], styles: [] };
@@ -380,6 +392,7 @@ export default function LibraryImport() {
         continue;
       }
       created.push(m.id);
+      if (m.optimizeNote && m.optimizeNote.startsWith('Uploaded as-is:')) leftAsIs.push(`${file.name} — ${m.optimizeNote}`);
       setStatus(key, 'done');
       // Show the local thumbnail at once; the CDN copy can lag a moment.
       setDrafts((rows) => [
@@ -390,6 +403,7 @@ export default function LibraryImport() {
 
     setImporting(false);
     setQueue((q) => q.filter((x) => x.status !== 'done'));
+    for (const line of leftAsIs) push(line, 'info');
     if (created.length > 0) {
       push(`Imported ${created.length} model${created.length === 1 ? '' : 's'} as drafts. Labelling them now…`, 'success');
       await classify(created);
@@ -484,6 +498,45 @@ export default function LibraryImport() {
   const markReviewed = (d: LibraryDraftRow) =>
     void saveDraft(d, { importMeta: { ...d.importMeta, classifiedBy: 'human' } });
 
+  /**
+   * "Use optimized": upload the copy NEXT TO the original (a new
+   * model-opt-<n>.glb), then point the draft at it with a config rebuilt for
+   * the new URL. The thumbnail is kept — resizing textures to ≥1024px and
+   * meshopt quantization do not change what a 512px thumbnail shows. A
+   * refused row update removes the just-uploaded file again.
+   */
+  const applyOptimized = async (d: LibraryDraftRow, bytes: Uint8Array, stats: OptimizeStats): Promise<boolean> => {
+    mark(setSaving, [d.id], true);
+    const up = await uploadOptimizedModel(d.id, bytes);
+    if (!up) {
+      mark(setSaving, [d.id], false);
+      push(`${d.name}: the optimized file could not be uploaded. Check the connection and try again.`, 'error');
+      return false;
+    }
+    const current = draftsRef.current.find((x) => x.id === d.id) ?? d;
+    const config = buildDraftRenderConfig({
+      assetUrl: up.assetUrl, name: current.name, categoryId: current.importMeta.category, maxDim: current.importMeta.maxDim,
+    });
+    const importMeta: ImportMeta = {
+      ...current.importMeta,
+      bytes: stats.bytesAfter,
+      triangles: stats.trianglesAfter,
+      // A second optimize keeps the size the operator originally dropped.
+      originalBytes: current.importMeta.originalBytes ?? stats.bytesBefore,
+      originalTriangles: current.importMeta.originalTriangles ?? stats.trianglesBefore,
+    };
+    const { error: err } = await updateLibraryDraft({ id: d.id, assetUrl: up.assetUrl, config, importMeta });
+    mark(setSaving, [d.id], false);
+    if (err !== null) {
+      await up.remove();
+      push(`${current.name}: ${libraryErrorText(err)}`, 'error');
+      return false;
+    }
+    patchDraft(d.id, { assetUrl: up.assetUrl, config, importMeta });
+    push(`${current.name} optimized: ${formatSaving(importMeta.originalBytes ?? stats.bytesBefore, stats.bytesAfter)}.`, 'success');
+    return true;
+  };
+
   return (
     <div
       className="p-4 sm:p-6 md:p-10 max-w-6xl mx-auto"
@@ -555,7 +608,30 @@ export default function LibraryImport() {
         <span className="font-sans text-base text-brand-fg">
           {importing ? 'Importing… you can keep reviewing below' : dragDepth > 0 ? 'Drop to import' : 'Drop .glb files here, or choose files'}
         </span>
-        <span className="font-sans text-xs text-brand-muted/60">Up to 50 MB each. Textures must be packed inside the .glb.</span>
+        <span className="font-sans text-xs text-brand-muted/60">
+          {optimizeOnUpload ? 'Up to 150 MB each when optimizing (50 MB after).' : 'Up to 50 MB each.'} Textures must be packed inside the .glb.
+        </span>
+      </button>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={optimizeOnUpload}
+        onClick={() => setOptimizeOnUpload((v) => !v)}
+        disabled={importing}
+        className="pressable mt-2 w-full min-h-11 rounded-xl px-3 py-2 flex items-center gap-3 text-left hover:bg-white/[0.04] disabled:opacity-40"
+      >
+        <span
+          aria-hidden
+          className={`relative shrink-0 w-11 h-6 rounded-full transition-colors ${optimizeOnUpload ? 'bg-[color:var(--color-accent)]' : 'bg-white/15'}`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${optimizeOnUpload ? 'translate-x-5' : ''}`} />
+        </span>
+        <span className="min-w-0">
+          <span className="block font-sans text-sm text-brand-fg">Optimize on upload</span>
+          <span className="block text-[11px] text-brand-muted/60 leading-snug">
+            Shrinks textures to 2048px WebP, compresses the mesh and simplifies very dense ones, in your browser. Keeps the original if it saves under 5%.
+          </span>
+        </span>
       </button>
       <input
         ref={inputRef}
@@ -584,7 +660,7 @@ export default function LibraryImport() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-brand-fg truncate">{q.fileName}</p>
                 <p className={`text-xs ${q.status === 'failed' ? 'text-rose-200/90' : 'text-brand-muted/60'}`}>
-                  {q.reason ?? QUEUE_LABEL[q.status]}
+                  {q.reason ?? (q.status === 'checking' && q.optimizing ? 'Optimizing and checking…' : QUEUE_LABEL[q.status])}
                 </p>
               </div>
               {q.status === 'failed' && (
@@ -785,9 +861,26 @@ export default function LibraryImport() {
                   </div>
                   {d.importMeta.note && <p className="text-[11px] text-brand-muted/60 leading-snug">“{d.importMeta.note}”</p>}
 
-                  <p className="text-[11px] text-brand-muted/50 tabular-nums">
-                    {formatBytes(d.importMeta.bytes)} · {Math.round(d.importMeta.triangles / 1000)}k triangles
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-brand-muted/50 tabular-nums">
+                        {formatBytes(d.importMeta.bytes)} · {Math.round(d.importMeta.triangles / 1000)}k triangles
+                      </p>
+                      {d.importMeta.originalBytes !== undefined && (
+                        <p className="text-[11px] text-emerald-300/90 tabular-nums">
+                          Optimized: {formatSaving(d.importMeta.originalBytes, d.importMeta.bytes)}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setOptimizeTarget(d)}
+                      disabled={isBusy}
+                      className="pressable shrink-0 min-h-11 px-3 -my-2 inline-flex items-center gap-1 rounded-full text-[11px] text-brand-fg/80 hover:text-brand-fg hover:bg-white/[0.06] disabled:opacity-40"
+                      aria-label={`Optimize ${d.name} and compare`}
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" aria-hidden /> Optimize
+                    </button>
+                  </div>
                   {warnings.map((w) => (
                     <p key={w} className="text-[11px] text-amber-200/90 flex gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden /> {w}
@@ -901,6 +994,15 @@ export default function LibraryImport() {
           <ModelPreview url={preview.url} height={360} />
           <p className="mt-3 text-xs text-brand-muted/70">{preview.note}</p>
         </Modal>
+      )}
+
+      {optimizeTarget && (
+        <OptimizeCompare
+          name={optimizeTarget.name}
+          assetUrl={optimizeTarget.assetUrl}
+          onUse={(bytes, stats) => applyOptimized(optimizeTarget, bytes, stats)}
+          onClose={() => setOptimizeTarget(null)}
+        />
       )}
 
       {tagEdit && (

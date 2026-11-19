@@ -33,7 +33,10 @@ export {
   IMPORT_BATCH_MAX,
   IMPORT_CATEGORIES,
   IMPORT_MAX_BYTES,
+  IMPORT_WARN_BYTES,
+  IMPORT_WARN_TRIANGLES,
   draftModelKey,
+  draftOptimizedModelKey,
   draftThumbKey,
   importCategory,
   normalizeImportMeta,
@@ -51,17 +54,19 @@ export type FileCheck = { ok: true; reason?: undefined } | { ok: false; reason: 
  * Cheap checks before a byte is uploaded: extension, size, and the 12-byte
  * GLB header (magic "glTF", container version 2, declared length = file size).
  * A renamed .obj or a truncated download fails HERE with a sentence, instead
- * of as a GLTFLoader stack trace after a 40 MB upload.
+ * of as a GLTFLoader stack trace after a 40 MB upload. `maxBytes` is raised
+ * only when the file will be optimized before upload (the RESULT must still
+ * fit IMPORT_MAX_BYTES — the caller checks that).
  */
-export function checkGlbFile(name: string, size: number, header: Uint8Array): FileCheck {
+export function checkGlbFile(name: string, size: number, header: Uint8Array, maxBytes: number = IMPORT_MAX_BYTES): FileCheck {
   if (!/\.glb$/i.test(name)) {
     return /\.gltf$/i.test(name)
       ? { ok: false, reason: 'A .gltf file keeps its textures in separate files. Export it as a single .glb.' }
       : { ok: false, reason: 'Only .glb 3D models can be imported.' };
   }
   if (!(size > 0)) return { ok: false, reason: 'The file is empty.' };
-  if (size > IMPORT_MAX_BYTES) {
-    return { ok: false, reason: `It is ${formatBytes(size)}; the limit is ${formatBytes(IMPORT_MAX_BYTES)}. Compress it (Draco) and try again.` };
+  if (size > maxBytes) {
+    return { ok: false, reason: `It is ${formatBytes(size)}; the limit is ${formatBytes(maxBytes)}. Compress it (Draco) and try again.` };
   }
   if (header.length < 12) return { ok: false, reason: 'The file is too short to be a 3D model.' };
   const magic = String.fromCharCode(header[0], header[1], header[2], header[3]);
