@@ -182,6 +182,19 @@ export const STORY_COPY = {
   heading: 'One scan, a whole night of moments',
 } as const;
 
+/**
+ * When and how guests get their keepsake: the ONE place this promise lives,
+ * so the owner's final wording is a one-line swap. Kept honest to what ships:
+ * sending is a host button after the event (send-keepsakes), not a timed job,
+ * so nothing here names a day or says it sends itself.
+ */
+export const KEEPSAKE_PROMISE = {
+  /** The How it works step body (80 chars max, no dashes). */
+  step: 'Guests get their keepsake film after the event, a link they can keep and share.',
+  /** What Beamy says over the keepsake film. */
+  beamy: 'And after the event, everyone gets a digital keepsake.',
+} as const;
+
 export type StoryFxId = 'qr' | 'prop' | 'wall' | 'medal' | 'keepsake';
 export type StoryClip = 'Wave' | 'Hop' | 'BeamyBlast' | 'Dance' | 'ShadesOn';
 
@@ -190,7 +203,7 @@ export const STORY_STEPS: { id: StoryFxId; title: string; body: string; clip: St
   { id: 'prop', title: 'They dress up in augmented reality (AR)', body: 'Frames, filters and 3D props in your colours, tracked on every face.', clip: 'ShadesOn', yaw: 0.45 },
   { id: 'wall', title: 'Every shot beams to your wall', body: 'Photos land on the live wall the moment they are taken.', clip: 'BeamyBlast', yaw: 0.6 },
   { id: 'medal', title: 'Challenges keep it going', body: 'Missions and points get the whole room mingling.', clip: 'Dance', yaw: 0.35 },
-  { id: 'keepsake', title: 'Everyone gets a digital keepsake', body: 'A digital album link and an auto-made video of the night, their own shots in it.', clip: 'Hop', yaw: 0.5 },
+  { id: 'keepsake', title: 'Everyone gets a digital keepsake', body: KEEPSAKE_PROMISE.step, clip: 'Hop', yaw: 0.5 },
 ];
 
 export const FILMS_COPY = {
@@ -217,7 +230,7 @@ export const FILMS: { id: FilmId; eyebrow: string; title: string; line: string; 
     ['booth', 'Watch this. Every phone becomes the booth.'],
     ['wall', 'And this is where every shot lands.'],
     ['challenges', 'Want the room to mingle? Give them a mission.'],
-    ['cards', 'And the next morning, everyone gets a digital keepsake.'],
+    ['cards', KEEPSAKE_PROMISE.beamy],
   ] as const
 ).map(([id, beamy]) => {
   const f = DEFAULT_LANDING_CONTENT.features.find((x) => x.id === id);

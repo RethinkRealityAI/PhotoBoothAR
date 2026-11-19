@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  CELEBRATIONS, EMOJI_RE, FILMS, FILM_EYEBROW, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
+  CELEBRATIONS, EMOJI_RE, FILMS, FILM_EYEBROW, KEEPSAKE_PROMISE, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
   createReactionPicker, landingCopy, nearestFront, pickCelebration, pickReaction, beamyPlanCards, planCards, pokeStep,
   pricingSection, seededRandom, spinSettled, spinStep, startFacts,
   type Moment, type PokeState, type Reaction, type Spin,
@@ -138,6 +138,15 @@ describe('copy', () => {
     expect(new Set(STORY_STEPS.map((x) => x.id)).size).toBe(STORY_STEPS.length);
     for (const x of STORY_STEPS) expect(x.body.length, x.title).toBeLessThanOrEqual(80);
     for (const x of STORY_STEPS) expect(x.body, x.title).not.toMatch(/—|–/);
+  });
+
+  it('keeps the keepsake promise in one place, and only promises what ships', () => {
+    // Sending is a host button after the event, so no line names a day or says it sends itself.
+    expect(STORY_STEPS.find((x) => x.id === 'keepsake')?.body).toBe(KEEPSAKE_PROMISE.step);
+    expect(FILMS.find((f) => f.id === 'cards')?.beamy).toBe(KEEPSAKE_PROMISE.beamy);
+    for (const s of Object.values(KEEPSAKE_PROMISE)) {
+      expect(s, s).not.toMatch(/morning|tomorrow|next day|day after|automatic/i);
+    }
   });
 
   it('never words a keepsake as a physical product', () => {
