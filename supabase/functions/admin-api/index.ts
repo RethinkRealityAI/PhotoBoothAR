@@ -88,7 +88,9 @@
  *                              (args: { items: [{ id, name, assetUrl, thumbnailUrl, config, tags, importMeta }] ≤25 })
  *                              — the browser uploads model.glb + thumb.png to
  *                              assets/_platform/library/<id>/ first — audited
- *   update_library_draft     → { data: { id } } (args: { id, name?, tags?, config?, importMeta? }) — audited
+ *   update_library_draft     → { data: { id } } (args: { id, name?, tags?, config?, importMeta?, assetUrl? }) — audited;
+ *                              assetUrl (the optimizer's "Use optimized") must be model.glb or
+ *                              model-opt-<n>.glb in the draft's OWN folder and needs a config naming it
  *   classify_library_drafts  → { data: { results: [{ id, ok, classification?, error? }] } }
  *                              (args: { ids ≤6 }) — Gemini reads each thumbnail; SUGGESTS
  *                              only, writes nothing (the browser applies + saves)
@@ -123,6 +125,7 @@ import {
   DRAFT_LIST_MAX,
   IMPORT_BATCH_MAX,
   buildDraftRow,
+  checkDraftAssetSwap,
   checkDraftConfig,
   checkDraftCreate,
   draftFolder,
@@ -2346,7 +2349,15 @@ async function updateLibraryDraft(sb: Client, actorUserId: string, args: Record<
     tags = t.tags;
   }
   let config: Record<string, unknown> | undefined;
-  if (args.config !== undefined) {
+  if (args.assetUrl !== undefined) {
+    const origin = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/+$/, '');
+    if (!origin) throw new Error('SUPABASE_URL missing');
+    // The config is checked against the NEW url: its one layer must name it.
+    const swap = checkDraftAssetSwap(id, { assetUrl: args.assetUrl, config: args.config }, origin);
+    if (!swap.ok) return json(400, { error: swap.error });
+    update.asset_url = swap.value.assetUrl;
+    config = swap.value.config;
+  } else if (args.config !== undefined) {
     const c = checkDraftConfig(args.config, row.asset_url as string);
     if (!c.ok) return json(400, { error: c.error });
     config = c.value;
@@ -2365,6 +2376,7 @@ async function updateLibraryDraft(sb: Client, actorUserId: string, args: Record<
   if (!updated || updated.length === 0) return json(404, { error: 'not_found' });
   await auditLog(sb, actorUserId, 'update_library_draft', 'experience', id, {
     name: update.name, tags, category: importMeta?.category, classifiedBy: importMeta?.classifiedBy,
+    ...(update.asset_url !== undefined ? { assetUrl: update.asset_url, bytes: importMeta?.bytes } : {}),
   });
   return json(200, { data: { id } });
 }

@@ -13,9 +13,11 @@ import {
 import {
   CLASSIFY_RESPONSE_SCHEMA,
   buildDraftRow,
+  checkDraftAssetSwap,
   checkDraftConfig,
   checkDraftCreate,
   draftModelKey,
+  draftOptimizedModelKey,
   draftPublishBlocker,
   draftThumbKey,
   isDraftConfig,
@@ -63,6 +65,11 @@ describe('checkGlbFile', () => {
     expect(cut.ok).toBe(false);
     if (!cut.ok) expect(cut.reason).toMatch(/cut off/);
     expect(checkGlbFile('a.glb', 100, new Uint8Array(4)).ok).toBe(false);
+  });
+  it('accepts a file over the import cap only when a larger cap is passed (optimize first)', () => {
+    const big = IMPORT_MAX_BYTES + 1;
+    expect(checkGlbFile('a.glb', big, glbHeader(big)).ok).toBe(false);
+    expect(checkGlbFile('a.glb', big, glbHeader(big), big)).toEqual({ ok: true });
   });
 });
 
@@ -265,5 +272,49 @@ describe('review helpers', () => {
     expect(r.importMeta.classifiedBy).toBe('human');
     expect(r.tags.occasions).toEqual(['wedding']);
     expect(r.config).toBeNull();
+  });
+});
+
+describe('optimized model swap (update_library_draft assetUrl)', () => {
+  const optUrl = url(draftOptimizedModelKey(ID, 1763590000000));
+  const config = buildDraftRenderConfig({ assetUrl: optUrl, name: 'Crown', categoryId: 'headwear', maxDim: 1 });
+
+  it('names a fresh model-opt key inside the draft’s own folder', () => {
+    expect(draftOptimizedModelKey(ID, 1763590000000)).toBe(`_platform/library/${ID}/model-opt-1763590000000.glb`);
+    expect(draftOptimizedModelKey(ID, 3.7)).toBe(`_platform/library/${ID}/model-opt-3.glb`);
+  });
+
+  it('accepts the optimized copy or the original, with a config that names it', () => {
+    expect(checkDraftAssetSwap(ID, { assetUrl: optUrl, config }, ORIGIN)).toMatchObject({ ok: true, value: { assetUrl: optUrl } });
+    const back = url(draftModelKey(ID));
+    const backCfg = buildDraftRenderConfig({ assetUrl: back, name: 'Crown', categoryId: 'headwear', maxDim: 1 });
+    expect(checkDraftAssetSwap(ID, { assetUrl: back, config: backCfg }, ORIGIN).ok).toBe(true);
+  });
+
+  it('refuses another draft’s folder, nested paths, other files and foreign origins', () => {
+    const other = '99999999-2222-4333-8444-555555555555';
+    for (const bad of [
+      url(draftOptimizedModelKey(other, 1)),
+      url(`_platform/library/${ID}/x/model-opt-1.glb`),
+      url(`_platform/library/${ID}/thumb.png`),
+      url(`_platform/library/${ID}/model-opt-1.glb.png`),
+      url(`_platform/library/${ID}/../${other}/model.glb`),
+      `https://evil.example/storage/v1/object/public/assets/_platform/library/${ID}/model.glb`,
+      42,
+    ]) {
+      expect(checkDraftAssetSwap(ID, { assetUrl: bad, config }, ORIGIN), String(bad)).toEqual({ ok: false, error: 'invalid_asset' });
+    }
+  });
+
+  it('needs a config, and the config must point at the NEW file', () => {
+    expect(checkDraftAssetSwap(ID, { assetUrl: optUrl }, ORIGIN)).toEqual({ ok: false, error: 'invalid_config' });
+    const stale = buildDraftRenderConfig({ assetUrl: url(draftModelKey(ID)), name: 'Crown', categoryId: 'headwear', maxDim: 1 });
+    expect(checkDraftAssetSwap(ID, { assetUrl: optUrl, config: stale }, ORIGIN)).toEqual({ ok: false, error: 'invalid_config' });
+  });
+
+  it('import meta keeps the original size only alongside a real one', () => {
+    expect(normalizeImportMeta({ bytes: 4, originalBytes: 40, originalTriangles: 9 })).toMatchObject({ originalBytes: 40, originalTriangles: 9 });
+    expect(normalizeImportMeta({ bytes: 4, originalTriangles: 9 }).originalTriangles).toBeUndefined();
+    expect(normalizeImportMeta({ bytes: 4, originalBytes: -1 }).originalBytes).toBeUndefined();
   });
 });
