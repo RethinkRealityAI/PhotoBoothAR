@@ -405,3 +405,91 @@ export function heroFrameUrl(catalog: readonly Experience[], openingId: string |
   const own = frames.find((e) => !String(e.asset_url).startsWith('data:'));
   return (opening ?? own)?.asset_url ?? undefined;
 }
+
+/* ── Booth showcase (the cards floating round the welcome page's phone) ── */
+
+export type ShowcaseKind = 'frame' | 'prop' | 'filter';
+
+/** What a showcase card's tag says. */
+export const SHOWCASE_LABEL: Record<ShowcaseKind, string> = {
+  frame: 'Frame',
+  prop: '3D prop',
+  filter: 'Filter',
+};
+
+export interface ShowcaseCard {
+  id: string;
+  kind: ShowcaseKind;
+  url: string;
+  /** 'cover' for a picture of the look on a person; 'contain' for bare frame art. */
+  fit: 'cover' | 'contain';
+}
+
+/** Generic looks for an event that has not added its own yet: shipped
+ *  previews of the built-in starters, seasonless and never the gold look. */
+export const SHOWCASE_DEFAULTS: readonly ShowcaseCard[] = [
+  { id: 'default-neon', kind: 'frame', url: '/starters/neon-night.webp', fit: 'cover' },
+  { id: 'default-visor', kind: 'prop', url: '/starters/hero-visor.webp', fit: 'cover' },
+  { id: 'default-confetti', kind: 'filter', url: '/starters/confetti-party.webp', fit: 'cover' },
+  { id: 'default-halo', kind: 'filter', url: '/starters/halo-light.webp', fit: 'cover' },
+  { id: 'default-soft', kind: 'frame', url: '/starters/soft-portrait.webp', fit: 'cover' },
+  { id: 'default-eq', kind: 'prop', url: '/starters/equalizer-live.webp', fit: 'cover' },
+];
+
+const SHOWCASE_KIND: Partial<Record<Experience['kind'], ShowcaseKind>> = {
+  border: 'frame',
+  '3d_attachment': 'prop',
+  '2d_filter': 'filter',
+  shader: 'filter',
+  composite: 'filter',
+};
+
+function safeImageUrl(u: unknown): u is string {
+  return typeof u === 'string' && (u.startsWith('data:image/') || u.startsWith('https://') || /^\/(?!\/)/.test(u));
+}
+
+/**
+ * Up to `max` cards: the event's own looks first (the host's uploads before
+ * shared catalogue items), kinds interleaved so one category cannot fill the
+ * ring, then generic defaults to make up the count. A look shows its
+ * thumbnail; a frame without one shows its own art (drawn over a stand-in
+ * guest). Built-in looks and looks with no picture are skipped rather than
+ * drawn as a blank.
+ */
+export function boothShowcase(catalog: readonly Experience[], max = 6): ShowcaseCard[] {
+  const pools: Record<ShowcaseKind, ShowcaseCard[]> = { frame: [], prop: [], filter: [] };
+  const ranked = [...catalog.filter((e) => !e.is_global), ...catalog.filter((e) => e.is_global)];
+  const seen = new Set<string>();
+  for (const e of ranked) {
+    const kind = SHOWCASE_KIND[e.kind];
+    // Built-in engine looks have no picture of their own (and the built-in
+    // frames are an old event's art): the showcase is the host's looks.
+    if (!kind || e.id.startsWith('builtin:')) continue;
+    let card: ShowcaseCard | null = null;
+    if (safeImageUrl(e.thumbnail_url)) card = { id: e.id, kind, url: e.thumbnail_url, fit: 'cover' };
+    else if ((e.kind === 'border' || e.kind === '2d_filter') && safeImageUrl(e.asset_url)) {
+      card = { id: e.id, kind, url: e.asset_url, fit: 'contain' };
+    }
+    if (!card || seen.has(card.url)) continue;
+    seen.add(card.url);
+    pools[kind].push(card);
+  }
+  const out: ShowcaseCard[] = [];
+  const order: ShowcaseKind[] = ['frame', 'prop', 'filter'];
+  while (out.length < max && order.some((k) => pools[k].length > 0)) {
+    for (const k of order) {
+      const next = pools[k].shift();
+      if (next && out.length < max) out.push(next);
+    }
+  }
+  for (const d of SHOWCASE_DEFAULTS) {
+    if (out.length >= max) break;
+    if (!seen.has(d.url)) out.push(d);
+  }
+  return out;
+}
+
+/** The kinds the showcase actually shows, in a fixed order, for the caption under the phone. */
+export function showcaseKinds(cards: readonly ShowcaseCard[]): ShowcaseKind[] {
+  return (['filter', 'prop', 'frame'] as const).filter((k) => cards.some((c) => c.kind === k));
+}

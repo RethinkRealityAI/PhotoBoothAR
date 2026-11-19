@@ -977,6 +977,43 @@
 [data-scene-ui] .vf-shutter { border-radius: 24px; outline: none; }
 [data-scene-ui] .vf-shutter:focus-visible { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--sc-accent); }
 
+/* ── Looks floating round the booth preview (BoothShowcase) ─────────── */
+[data-scene-ui] .bs-card {
+  position: absolute; /* over .sc-glass's relative */
+  /* No backdrop blur: the card is all picture anyway, and six blurred
+     layers over the drifting wall made Chromium drop the wall entirely. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: color-mix(in srgb, var(--sc-glass-strong) 85%, #0E0C2A);
+  --bs-w: 64px;
+  width: var(--bs-w);
+  /* box-shadow, not filter: an animated filtered layer over the drifting
+     wall made Chromium stop painting the wall. */
+  box-shadow: 0 14px 26px -6px var(--sc-shadow);
+  animation: bs-bob 6s ease-in-out infinite alternate;
+  animation-delay: var(--bs-d, 0s);
+}
+/* Phones: the cards tuck behind the phone's edges, three a side. */
+[data-scene-ui] .bs-l1 { left: -24%; top: 12%; rotate: -8deg; }
+[data-scene-ui] .bs-l2 { left: -27%; top: 42%; rotate: 5deg; }
+[data-scene-ui] .bs-l3 { left: -23%; top: 71%; rotate: -4deg; }
+[data-scene-ui] .bs-r1 { right: -24%; top: 6%; rotate: 7deg; }
+[data-scene-ui] .bs-r2 { right: -27%; top: 36%; rotate: -5deg; }
+[data-scene-ui] .bs-r3 { right: -23%; top: 65%; rotate: 6deg; }
+@media (min-width: 1024px) {
+  [data-scene-ui] .bs-card { --bs-w: 96px; }
+  [data-scene-ui] .bs-l1 { left: -38%; top: 6%; }
+  [data-scene-ui] .bs-l2 { left: -46%; top: 38%; }
+  [data-scene-ui] .bs-l3 { left: -34%; top: 70%; }
+  [data-scene-ui] .bs-r1 { right: -36%; top: 2%; }
+  [data-scene-ui] .bs-r2 { right: -44%; top: 34%; }
+  [data-scene-ui] .bs-r3 { right: -32%; top: 66%; }
+}
+@keyframes bs-bob { to { translate: 0 -10px; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-scene-ui] .bs-card { animation: none; }
+}
+
 /* ── Optional page border (PageBorder) ─────────────────────────────────── */
 [data-page-border] { --pb-inset: 10px; --pb-radius: 22px; overflow: hidden; }
 @media (min-width: 640px) { [data-page-border] { --pb-inset: 14px; --pb-radius: 28px; } }

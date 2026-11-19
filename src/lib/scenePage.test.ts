@@ -20,6 +20,8 @@ import {
   rgbTriplet,
   sceneEquals,
   sceneFrameChoices,
+  boothShowcase,
+  showcaseKinds,
   sceneSummary,
   sceneToSave,
   sceneUploadError,
@@ -313,5 +315,54 @@ describe('stripShots', () => {
     expect(c.cy).toBeCloseTo((p.y + p.h / 2) / 1920, 5);
     expect(Math.min(p.w / 1080, p.h / 1920) * c.scale).toBeCloseTo(1, 5);
     expect(stripPanelCrop(2).scale).toBeGreaterThan(1);
+  });
+});
+
+describe('boothShowcase', () => {
+  const own = (id: string, kind: Experience['kind'], extra: Partial<Experience> = {}) =>
+    exp({ id, kind, thumbnail_url: `/t/${id}.webp`, asset_url: null, ...extra });
+
+  it('fills with generic defaults when the event has no looks', () => {
+    const cards = boothShowcase([], 6);
+    expect(cards).toHaveLength(6);
+    expect(cards.every((c) => c.id.startsWith('default-'))).toBe(true);
+    expect(cards.some((c) => c.url.includes('gold'))).toBe(false);
+  });
+
+  it('puts the event\'s own looks first, kinds interleaved, globals after', () => {
+    const cards = boothShowcase([
+      own('g1', 'border', { is_global: true }),
+      own('f1', 'border'),
+      own('f2', 'border'),
+      own('p1', '3d_attachment'),
+      own('s1', 'shader'),
+    ], 5);
+    expect(cards.map((c) => c.id)).toEqual(['f1', 'p1', 's1', 'f2', 'g1']);
+    expect(cards.map((c) => c.kind)).toEqual(['frame', 'prop', 'filter', 'frame', 'frame']);
+  });
+
+  it('shows a frame\'s own art when it has no thumbnail, and skips pictureless looks', () => {
+    const cards = boothShowcase([
+      own('f', 'border', { thumbnail_url: null, asset_url: '/frames/f.png' }),
+      own('s', 'shader', { thumbnail_url: null }),
+      own('bad', '3d_attachment', { thumbnail_url: 'javascript:alert(1)' }),
+    ], 3);
+    expect(cards[0]).toEqual({ id: 'f', kind: 'frame', url: '/frames/f.png', fit: 'contain' });
+    expect(cards.slice(1).every((c) => c.id.startsWith('default-'))).toBe(true);
+  });
+
+  it('skips the built-in engine looks', () => {
+    const cards = boothShowcase([own('builtin:border:gala', 'border')], 2);
+    expect(cards.every((c) => c.id.startsWith('default-'))).toBe(true);
+  });
+
+  it('never shows the same picture twice', () => {
+    const cards = boothShowcase([own('a', 'border', { thumbnail_url: '/x.webp' }), own('b', 'border', { thumbnail_url: '/x.webp' })], 6);
+    expect(new Set(cards.map((c) => c.url)).size).toBe(cards.length);
+  });
+
+  it('showcaseKinds lists only the kinds present, in caption order', () => {
+    expect(showcaseKinds([{ id: 'a', kind: 'frame', url: '/a', fit: 'cover' }, { id: 'b', kind: 'prop', url: '/b', fit: 'cover' }]))
+      .toEqual(['prop', 'frame']);
   });
 });

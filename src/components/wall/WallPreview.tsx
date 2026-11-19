@@ -24,41 +24,9 @@ import {
 import GridWall from './GridWall';
 import WallBackdrop from './WallBackdrop';
 import { usePrefersReducedMotion } from './wallHooks';
-import heroWedding from '../../assets/landing/hero/hero-wedding.webp';
-import heroGala from '../../assets/landing/hero/hero-gala.webp';
-import heroBirthday from '../../assets/landing/hero/hero-birthday.webp';
-import heroConference from '../../assets/landing/hero/hero-conference.webp';
-import heroTradeshow from '../../assets/landing/hero/hero-tradeshow.webp';
-import heroActivation from '../../assets/landing/hero/hero-activation-v2.webp';
-import eventWedding from '../../assets/landing/event-wedding.webp';
-import eventGala from '../../assets/landing/event-gala.webp';
-import eventBirthday from '../../assets/landing/event-birthday.webp';
-import boothPortrait from '../../assets/landing/booth-portrait.webp';
+import { samplePosts } from '../theme/samplePhotos';
 
-const SAMPLE_URLS = [
-  heroWedding, heroGala, heroBirthday, heroConference, heroTradeshow, heroActivation,
-  eventWedding, eventGala, eventBirthday, boothPortrait,
-];
-
-/** Stand-in moments for an event that has none yet, so the preview still shows the look. */
-export function samplePosts(n = 30): Post[] {
-  return Array.from({ length: n }, (_, i) => ({
-    id: `sample-${i}`,
-    created_at: new Date(0).toISOString(),
-    image_url: SAMPLE_URLS[i % SAMPLE_URLS.length],
-    media_type: 'image',
-    duration_ms: null,
-    message: null,
-    guest_name: null,
-    experience_id: null,
-    challenge_id: null,
-    session_id: null,
-    approved: true,
-    hidden: false,
-    width: null,
-    height: null,
-  }));
-}
+export { samplePosts };
 
 function rgb(hex: string): string {
   const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());

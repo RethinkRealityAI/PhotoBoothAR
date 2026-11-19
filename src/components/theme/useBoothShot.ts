@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Post } from '../../types';
 import { transformedUrl } from '../../lib/mediaUrl';
-import { heroFrameUrl, STRIP_SAMPLE_H, STRIP_SAMPLE_W, stripPanelCrop, stripShots } from '../../lib/scenePage';
+import { boothShowcase, heroFrameUrl, type ShowcaseCard, STRIP_SAMPLE_H, STRIP_SAMPLE_W, stripPanelCrop, stripShots } from '../../lib/scenePage';
 import { buildCatalog } from '../../lib/catalog';
 import { effectiveOpeningLookId } from '../../lib/openingLook';
 import { useEvent } from '../../events/EventContext';
@@ -109,26 +109,39 @@ export function useBoothShot(photos: readonly Post[]): BoothShot {
   return shot;
 }
 
-/**
- * The frame drawn over the booth preview (scenePage.heroFrameUrl over the
- * booth's own catalogue). Reads the store only: the caller's page fetches
- * the experiences, preset overrides and wall settings.
- */
-export function useHeroFrameUrl(): string | undefined {
+/** The booth's own catalogue, from the store only: the caller's page fetches
+ *  the experiences, preset overrides and wall settings. */
+function useBoothCatalog() {
   const { config } = useEvent();
-  const wallDefault = useStore((s) => s.wallSettings.defaultExperienceId);
   const experiences = useStore((s) => s.experiences);
   const linkedGlobals = useStore((s) => s.linkedGlobals);
   const experiencesLoaded = useStore((s) => s.experiencesLoaded);
   const presetOverrides = useStore((s) => s.presetOverrides);
-  return useMemo(() => {
-    const catalog = buildCatalog(
+  return useMemo(
+    () => buildCatalog(
       config.arContent,
       experiencesLoaded ? experiences : [],
       presetOverrides,
       experiencesLoaded ? linkedGlobals : [],
       true,
-    );
-    return heroFrameUrl(catalog, effectiveOpeningLookId(wallDefault, config.defaultExperienceId));
-  }, [config.arContent, config.defaultExperienceId, experiences, experiencesLoaded, linkedGlobals, presetOverrides, wallDefault]);
+    ),
+    [config.arContent, experiences, experiencesLoaded, linkedGlobals, presetOverrides],
+  );
+}
+
+/** The frame drawn over the booth preview (scenePage.heroFrameUrl). */
+export function useHeroFrameUrl(): string | undefined {
+  const { config } = useEvent();
+  const wallDefault = useStore((s) => s.wallSettings.defaultExperienceId);
+  const catalog = useBoothCatalog();
+  return useMemo(
+    () => heroFrameUrl(catalog, effectiveOpeningLookId(wallDefault, config.defaultExperienceId)),
+    [catalog, config.defaultExperienceId, wallDefault],
+  );
+}
+
+/** The looks floating round the booth preview (scenePage.boothShowcase). */
+export function useBoothShowcase(max = 6): ShowcaseCard[] {
+  const catalog = useBoothCatalog();
+  return useMemo(() => boothShowcase(catalog, max), [catalog, max]);
 }

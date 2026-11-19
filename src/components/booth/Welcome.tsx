@@ -17,6 +17,7 @@ import { useStore } from '../../store';
 import { resolveScene } from '../../lib/sceneThemes';
 import SceneBackdrop from '../theme/SceneBackdrop';
 import LiveWallField from '../theme/LiveWallField';
+import { WALL_FIELD_SAMPLES } from '../theme/samplePhotos';
 import BoothViewfinder from '../theme/BoothViewfinder';
 import PageBorder from '../theme/PageBorder';
 import { useBoothShot, useHeroFrameUrl } from '../theme/useBoothShot';
@@ -59,6 +60,8 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
   const tone = scene?.tone ?? 'dark';
   const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
   const wallPhotos = useMemo(() => wallFieldPhotos(posts), [posts]);
+  // Until the first photo lands the wall shows stand-ins, never bare glass.
+  const fieldPhotos = wallPhotos.length > 0 ? wallPhotos : WALL_FIELD_SAMPLES;
   const latest = useMemo(() => recentWallPhotos(posts, 4), [posts]);
   const shot = useBoothShot(wallPhotos);
   const frameUrl = useHeroFrameUrl();
@@ -76,7 +79,7 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
     >
       {/* Opaque and full-bleed, so the booth's stage box never shows through. */}
       {scene ? <SceneBackdrop scene={scene} /> : <EventBackground density={44} sparkle={0.7} />}
-      <LiveWallField photos={wallPhotos} fresh={NO_FRESH} />
+      <LiveWallField photos={fieldPhotos} fresh={NO_FRESH} />
       {config.scene?.border ? <PageBorder border={config.scene.border} /> : <SplashFrame />}
 
       <div className="relative z-40 h-full overflow-y-auto overflow-x-hidden">
