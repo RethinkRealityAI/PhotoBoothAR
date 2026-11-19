@@ -558,6 +558,79 @@ describe('face-triggered effects (W7-D)', () => {
     expect(payload.config?.layers?.[0].id).toBe(sticker.id);
   });
 
+  it('round-trips animate + beam targets through regenerated ids, and re-saves them pointing at real layers', () => {
+    const crown = createObject3D('model', { assetUrl: 'blob:c', name: 'Crown' });
+    const wand = createObject3D('model', { assetUrl: 'blob:w', name: 'Wand', handAnchor: 'grip' });
+    const draft: StudioDraft = {
+      ...initialDraft('3d_attachment'),
+      objects: [crown, wand],
+      selectedId: crown.id,
+      triggers: [
+        { id: 'a1', source: 'smile', action: { type: 'animate', objectId: crown.id, preset: 'spin' } },
+        { id: 'b1', source: 'fistClench', action: { type: 'beam', style: 'energy', objectId: wand.id } },
+        { id: 'b2', source: 'wink', action: { type: 'beam', style: 'optic' } },
+      ],
+    };
+    const urls = resolver({ [crown.id]: 'https://cdn/c.glb', [wand.id]: 'https://cdn/w.glb' });
+    const first = draftToPayload(draft, urls, null);
+    const reloaded = experienceToDraft(expFromPayload(first))!;
+    const byId = new Map(reloaded.triggers.map((t) => [t.id, t.action]));
+    expect(byId.get('a1')).toEqual({ type: 'animate', objectId: reloaded.objects[0].id, preset: 'spin' });
+    expect(byId.get('b1')).toEqual({ type: 'beam', style: 'energy', objectId: reloaded.objects[1].id });
+    expect(byId.get('b2')).toEqual({ type: 'beam', style: 'optic' });
+
+    // Save again (what "Edit in Studio" → publish does): every named id must be
+    // a layer id in the new payload, which is what the booth looks up.
+    const again = draftToPayload(reloaded, existingUrlResolver(reloaded)!, null);
+    const layerIds = new Set((again.config?.layers ?? []).map((l) => l.id));
+    const saved = (again.config?.triggers ?? []) as Array<{ action: { objectId?: string } }>;
+    expect(saved).toHaveLength(3);
+    for (const t of saved) {
+      if (t.action.objectId !== undefined) expect(layerIds.has(t.action.objectId)).toBe(true);
+    }
+  });
+
+  it('drops an animate whose piece is gone; a beam whose emitter is gone keeps firing from the default', () => {
+    const exp = baseExp({
+      kind: '3d_attachment',
+      asset_url: 'https://cdn/c.glb',
+      config: {
+        anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+        triggers: [
+          { id: 'anim', source: 'smile', action: { type: 'animate', objectId: 'gone', preset: 'pop' } },
+          { id: 'beam', source: 'wink', action: { type: 'beam', style: 'sparkle', objectId: 'gone' } },
+        ],
+      },
+    });
+    const draft = experienceToDraft(exp)!;
+    expect(draft.triggers.map((t) => t.id)).toEqual(['beam']);
+    expect(draft.triggers[0].action).toEqual({ type: 'beam', style: 'sparkle' });
+  });
+
+  it('a lone 3D piece with an animate trigger forces config.layers so the target id is stable', () => {
+    const crown = createObject3D('model', { assetUrl: 'blob:c', name: 'Crown' });
+    const draft: StudioDraft = {
+      ...initialDraft('3d_attachment'),
+      objects: [crown],
+      selectedId: crown.id,
+      triggers: [{ id: 'a', source: 'smile', action: { type: 'animate', objectId: crown.id, preset: 'shake' } }],
+    };
+    const payload = draftToPayload(draft, resolver({ [crown.id]: 'https://cdn/c.glb' }), null);
+    expect(payload.config?.layers?.map((l) => l.id)).toEqual([crown.id]);
+  });
+
+  it('a lone 3D piece with an emitter-less beam keeps the byte-identical singular path', () => {
+    const crown = createObject3D('model', { assetUrl: 'blob:c', name: 'Crown' });
+    const draft: StudioDraft = {
+      ...initialDraft('3d_attachment'),
+      objects: [crown],
+      selectedId: crown.id,
+      triggers: [{ id: 'b', source: 'wink', action: { type: 'beam', style: 'optic' } }],
+    };
+    const payload = draftToPayload(draft, resolver({ [crown.id]: 'https://cdn/c.glb' }), null);
+    expect(payload.config?.layers).toBeUndefined();
+  });
+
   it('garbage in config.triggers is ignored (parseTriggers guard)', () => {
     const exp = baseExp({ kind: 'shader', config: { shader: { shaderId: 'vhs' }, triggers: 'not-an-array' as unknown } });
     expect(experienceToDraft(exp)!.triggers).toEqual([]);
