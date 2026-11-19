@@ -112,7 +112,6 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     { id: 'ar-gala', name: 'Gala cover', category: 'frame', url: `${F}gala-magazine-cover.png`, opening: { top: 0.318, bottom: 0.906, left: 0.074, right: 0.926 } },
     { id: 'ar-holly', name: 'Holly crown', category: 'prop', url: `${P}holly-crown.glb`, fit: { width: 0.36, at: [0, 0.31, 0], align: 'base' } },
     { id: 'ar-rudolph', name: 'Rudolph nose', category: 'prop', url: `${P}rudolph-nose.glb`, fit: { width: 0.075, at: [0, 0.185, 0.215], align: 'centre' } },
-    { id: 'ar-elf-ears', name: 'Elf ears', category: 'prop', url: `${P}elf-ears.glb`, fit: { width: 0.6, at: [0, 0.22, 0], align: 'centre' } },
     { id: 'ar-snowflake', name: 'Snowflake tiara', category: 'prop', url: `${P}snowflake-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' } },
     { id: 'ar-prismatic', name: 'Prismatic', category: 'filter', url: 'tint:prismatic' },
     { id: 'ar-aurora', name: 'Aurora', category: 'filter', url: 'tint:#34D399' },
