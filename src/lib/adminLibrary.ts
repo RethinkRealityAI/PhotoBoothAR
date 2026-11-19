@@ -87,6 +87,45 @@ export function setLibraryItemState(
   return adminApi('set_library_item_state', { id, state });
 }
 
+/* ── Library workshop: edit in the full Studio (migration 046) ─────────── */
+
+/** The admin's private workshop event (created on first use). */
+export function ensureLibraryWorkshop(): Promise<AdminResult<{ eventUuid: string; slug: string }>> {
+  return adminApi('ensure_library_workshop');
+}
+
+/** Copy a library item into the workshop as an editable scene (or reopen the
+ *  admin's earlier copy). Open it at /host/events/<eventUuid>/studio?id=<sceneId>. */
+export function openLibraryItemInWorkshop(
+  itemId: string,
+): Promise<AdminResult<{ eventUuid: string; sceneId: string; reused: boolean }>> {
+  return adminApi('open_library_item_in_workshop', { itemId });
+}
+
+/** The newest published version in a scene's version chain. */
+export interface WorkshopLineage {
+  itemId: string;
+  name: string;
+  tags: LibraryTags;
+  version: number;
+  nextVersion: number;
+  categoryId: string | null;
+  keywords: string[];
+  listed: boolean;
+  state: LibraryState;
+}
+
+/** null lineage = publishing this scene makes a brand-new library item. */
+export function fetchWorkshopLineage(experienceId: string): Promise<AdminResult<{ lineage: WorkshopLineage | null }>> {
+  return adminApi('get_workshop_lineage', { experienceId });
+}
+
+/** Where the Studio opens a workshop scene (or a blank one when no scene). */
+export function workshopStudioPath(eventUuid: string, sceneId?: string): string {
+  const base = `/host/events/${encodeURIComponent(eventUuid)}/studio`;
+  return sceneId !== undefined && sceneId !== '' ? `${base}?id=${encodeURIComponent(sceneId)}` : base;
+}
+
 /* ── Bulk 3D import drafts (/admin/library/import) ─────────────────────── */
 
 export interface LibraryDraftRow {
@@ -235,6 +274,7 @@ export function libraryErrorText(code: string): string {
     case 'slug_taken': return 'A category with that name already exists.';
     case 'slug_immutable': return 'A category’s web name cannot change after it is made.';
     case 'too_many_categories': return 'That is the most categories the library holds (300).';
+    case 'event_cap': return 'Your organisation is at its event limit, so the workshop could not be made. Archive an old event and try again.';
     case 'forbidden': return 'This account is not a platform admin.';
     case 'unauthorized': return 'Your session has expired. Sign in again.';
     // A dropped connection says nothing about whether the server finished, so

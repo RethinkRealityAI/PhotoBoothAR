@@ -53,6 +53,11 @@ export interface LibraryMeta {
   publishedBy: string;
   listed: boolean;
   tags: LibraryTags;
+  /** The version chain this row belongs to: every version of one piece shares
+   *  it, whichever scene each was published from (a Studio workshop copy, the
+   *  original host scene, a bulk import). Absent on rows published before
+   *  lineage existed — always read it through lineageOf(), never directly. */
+  lineageId?: string;
 }
 
 export type LibraryState = 'listed' | 'retired' | 'withdrawn';
@@ -126,7 +131,22 @@ export function readLibraryMeta(config: unknown): LibraryMeta | null {
     // Same reading as the host picker: only an explicit `false` unlists.
     listed: lib.listed !== false,
     tags: normalizeLibraryTags(lib.tags).tags,
+    // Only a well-formed uuid: the value is matched in a PostgREST filter.
+    ...(isUuid(lib.lineageId) ? { lineageId: lib.lineageId } : {}),
   };
+}
+
+/**
+ * The version chain a library row belongs to. Rows written before lineage
+ * existed fall back to the scene they were published from, and a row with
+ * neither (a bulk import) is the root of its own chain. Always a uuid, so it is
+ * safe to put in a filter.
+ */
+export function lineageOf(row: { id: string; config: unknown }): string {
+  const lib: Record<string, unknown> = isRecord(row.config) && isRecord(row.config.library) ? row.config.library : {};
+  if (isUuid(lib.lineageId)) return lib.lineageId;
+  if (isUuid(lib.sourceExperienceId)) return lib.sourceExperienceId;
+  return row.id;
 }
 
 /**
@@ -297,6 +317,9 @@ export function buildLibraryRow(
     listed: boolean;
     version: number;
     sourceExperienceId: string;
+    /** The chain this version joins (lineageOf the previous version, or the
+     *  source scene for a first publish). Omitted = no lineage key written. */
+    lineageId?: string;
     publishedBy: string;
     publishedAt: string;
     origin: string;
@@ -311,6 +334,7 @@ export function buildLibraryRow(
     publishedBy: opts.publishedBy,
     listed: opts.listed,
     tags: opts.tags,
+    ...(isUuid(opts.lineageId) ? { lineageId: opts.lineageId } : {}),
   };
   return {
     id: opts.newId,

@@ -20,21 +20,24 @@
  * platform-admin and audits it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   BookImage, Box, Check, ChevronDown, ChevronRight, FolderTree, ImagePlus, LayoutGrid, List, Loader2, Maximize2,
-  RefreshCw, Search, Sparkles, Tag, Upload, Wand2, X,
+  Plus, RefreshCw, Search, Sparkles, Tag, Upload, Wand2, X,
 } from 'lucide-react';
 import {
   bulkUpdateLibraryItems,
+  ensureLibraryWorkshop,
   fetchEventModels,
   fetchLibraryCategories,
   fetchLibraryDrafts,
   fetchLibraryItems,
   libraryErrorText,
+  openLibraryItemInWorkshop,
   publishLibraryItem,
   setLibraryItemState,
   updateLibraryItemMeta,
+  workshopStudioPath,
   type BulkLibraryEdit,
   type EventModelRow,
   type LibraryItemRow,
@@ -323,6 +326,10 @@ interface DetailProps {
   onSaveLibrary: (item: CmsItem, patch: { name: string; tags: LibraryTags; categoryId: string | null; keywords: string[] }) => Promise<boolean>;
   onState: (item: CmsItem, to: StateChangeTarget) => void;
   onAddEvent: (item: CmsItem, opts: { name: string; categoryId: string | null; picture?: File }) => Promise<void>;
+  /** Opens a workshop copy of a library item in the full Studio. */
+  onEditInStudio: (item: CmsItem) => void;
+  /** The id being opened in the Studio ('new' for a blank one), else null. */
+  opening: string | null;
   onClose?: () => void;
 }
 
@@ -382,6 +389,25 @@ function DetailPanel(p: DetailProps) {
         </>
       ) : (
         <>
+          {item.source === 'library' && (
+            <div className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                disabled={p.opening !== null}
+                onClick={() => p.onEditInStudio(item)}
+                className={PRIMARY_BTN}
+              >
+                {p.opening === item.id
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+                  : <Wand2 className="w-3.5 h-3.5" aria-hidden />}
+                {p.opening === item.id ? 'Opening the Studio…' : 'Edit in Studio'}
+              </button>
+              <p className="font-sans text-[11px] text-brand-muted/55 leading-snug">
+                Opens a copy in your private workshop. Publishing it makes a new version; events using this one keep it.
+              </p>
+            </div>
+          )}
+
           <label className="block">
             <span className={LABEL}>Name</span>
             <input value={name} maxLength={LIBRARY_NAME_MAX} onChange={(e) => setName(e.target.value)} className={`${FIELD} mt-1`} />
@@ -534,6 +560,9 @@ export default function SharedLibrary() {
   const [pending, setPending] = useState<{ item: CmsItem; to: StateChangeTarget } | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<Progress>(null);
+  const navigate = useNavigate();
+  // A library item id, or 'new', while the Studio workshop is being opened.
+  const [opening, setOpening] = useState<string | null>(null);
 
   const setView = (v: 'grid' | 'list') => { setViewState(v); writeView(v); };
 
@@ -775,6 +804,36 @@ export default function SharedLibrary() {
     push(`Filed ${done} item${done === 1 ? '' : 's'}${failed > 0 ? `, ${failed} failed` : ''}.`, failed > 0 ? 'error' : 'success');
   };
 
+  /* ── Studio workshop ─────────────────────────────────────────────── */
+
+  // The Studio only edits event scenes, so both of these go through the admin's
+  // private workshop event (admin-api, migration 046). Nothing here changes a
+  // library row: an edit reaches hosts only when it is published from the
+  // Studio, as a new version.
+  const editInStudio = async (item: CmsItem) => {
+    if (opening !== null) return;
+    setOpening(item.id);
+    const { data, error: err } = await openLibraryItemInWorkshop(item.id);
+    if (err !== null || data === null) {
+      setOpening(null);
+      push(`Could not open it in the Studio. ${libraryErrorText(err ?? 'internal')}`, 'error');
+      return;
+    }
+    navigate(workshopStudioPath(data.eventUuid, data.sceneId));
+  };
+
+  const newInStudio = async () => {
+    if (opening !== null) return;
+    setOpening('new');
+    const { data, error: err } = await ensureLibraryWorkshop();
+    if (err !== null || data === null) {
+      setOpening(null);
+      push(`Could not open the Studio. ${libraryErrorText(err ?? 'internal')}`, 'error');
+      return;
+    }
+    navigate(workshopStudioPath(data.eventUuid));
+  };
+
   /* ── Render ──────────────────────────────────────────────────────── */
 
   const librarySelected = selectedItems.filter((i) => i.source === 'library');
@@ -795,6 +854,8 @@ export default function SharedLibrary() {
       onSaveLibrary={saveLibrary}
       onState={(item, to) => setPending({ item, to })}
       onAddEvent={addEvent}
+      onEditInStudio={(item) => void editInStudio(item)}
+      opening={opening}
     />
   );
 
@@ -816,6 +877,18 @@ export default function SharedLibrary() {
               <FolderTree className="w-3.5 h-3.5" aria-hidden /> Categories
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => void newInStudio()}
+            disabled={opening !== null}
+            title="Build a new library piece from scratch in the Studio, in your private workshop"
+            className={SOFT_BTN}
+          >
+            {opening === 'new'
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+              : <Plus className="w-3.5 h-3.5" aria-hidden />}
+            New experience
+          </button>
           <Link to="/admin/library/import" className={PRIMARY_BTN}>
             <Upload className="w-3.5 h-3.5" aria-hidden /> Upload 3D
           </Link>

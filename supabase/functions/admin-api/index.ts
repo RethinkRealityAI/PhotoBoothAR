@@ -61,6 +61,18 @@
  *                              audited; metadata only, never rendering content
  *   set_library_item_state   → { data: { id, state, linkCount } }
  *                              (args: { id, state: listed|retired|withdrawn|deleted }) — audited
+ * Library workshop (migration 046) — edit a library item in the full Studio. The
+ * Studio is event-scoped (slug-keyed load/save/uploads under tenant RLS), so each
+ * admin gets a private draft event in an org they own, and an item is COPIED into
+ * it as an ordinary scene. publish_library_item on that copy makes version N+1 of
+ * the SAME chain (config.library.lineageId; library.ts lineageOf):
+ *   ensure_library_workshop       → { data: { eventUuid, slug } } — audited when created;
+ *                                   409 event_cap when the admin's org is at 032's event cap
+ *   open_library_item_in_workshop → { data: { eventUuid, sceneId, reused } } (args: { itemId })
+ *                                   — reuses this admin's earlier copy of the item; audited when created
+ *   get_workshop_lineage          → { data: { lineage: null | { itemId, name, tags, version,
+ *                                   nextVersion, categoryId, keywords, listed, state } } }
+ *                                   (args: { experienceId })
  *
  * 400 { error:'invalid_json'|'invalid_args'|'cannot_remove_self'|'cannot_remove_last_admin'|
  *       'unknown_action'|'invalid_name'|'invalid_tags'|'not_event_owned'|'thumbnail_required'|
@@ -92,6 +104,7 @@ import {
   buildLibraryRow,
   collectAssetKeys,
   libraryStateOf,
+  lineageOf,
   needsThumbnail,
   nextLibraryVersion,
   normalizeLibraryName,
@@ -100,6 +113,7 @@ import {
   planLibraryCopies,
   planStateChange,
   readLibraryMeta,
+  stripLibraryMeta,
   ASSETS_BUCKET_NAME,
 } from './library.ts';
 import {
@@ -1488,21 +1502,21 @@ async function publishLibraryItem(
   const origin = (Deno.env.get('SUPABASE_URL') ?? '').replace(/\/+$/, '');
   if (!origin) throw new Error('SUPABASE_URL missing');
 
-  // Earlier versions published from this same scene → this one is version N+1.
-  const { data: prior, error: priorErr } = await sb
-    .from('experiences')
-    .select('id, config, is_published, created_at, library_category_id, library_keywords')
-    .eq('is_global', true)
-    .eq('config->library->>sourceExperienceId', experienceId)
-    .order('created_at', { ascending: false })
-    .limit(REGISTRY_CAP);
-  if (priorErr) throw priorErr;
-  const version = nextLibraryVersion((prior ?? []).map((p) => p.config));
-  // A new version stays on the shelf the previous one was filed on unless the
-  // caller says otherwise.
-  const latest = (prior ?? [])[0];
+  // Which version chain this scene publishes into. A workshop copy of a library
+  // item (migration 046) continues THAT item's chain; any other scene is the
+  // root of its own, keyed on its id — what versioning always keyed on.
+  const lineage = await workshopLineageOf(sb, experienceId) ?? experienceId;
+  // Earlier versions in the chain → this one is version N+1.
+  const prior = await lineageVersions(sb, lineage);
+  const version = nextLibraryVersion(prior.map((p) => p.config));
+  // A new version stays on the shelf (category, keywords, collection, position)
+  // the previous one was filed on unless the caller says otherwise.
+  const latest = prior[0];
   const categoryId = cat.given ? cat.id : ((latest?.library_category_id as string | null) ?? null);
   const itemKeywords = keywords ?? (Array.isArray(latest?.library_keywords) ? latest.library_keywords as string[] : []);
+  const latestLib = (latest?.config as Record<string, unknown> | null)?.library as Record<string, unknown> | undefined;
+  const collection = typeof latestLib?.collection === 'string' ? latestLib.collection : null;
+  const sortOrder = typeof latest?.sort_order === 'number' ? latest.sort_order : 0;
 
   const srcRow = {
     kind: src.kind as string,
@@ -1545,13 +1559,19 @@ async function publishLibraryItem(
       listed,
       version,
       sourceExperienceId: experienceId,
+      lineageId: lineage,
       publishedBy: actorUserId,
       publishedAt: new Date().toISOString(),
       origin,
       mapping: new Map(plan.map((p) => [p.from, p.to] as [string, string])),
     });
+    const rowConfig = row.config as Record<string, unknown>;
     const { error: insErr } = await sb.from('experiences').insert({
       ...row,
+      config: collection === null
+        ? rowConfig
+        : { ...rowConfig, library: { ...(rowConfig.library as Record<string, unknown>), collection } },
+      sort_order: sortOrder,
       library_category_id: categoryId,
       library_keywords: itemKeywords,
     });
@@ -1567,7 +1587,7 @@ async function publishLibraryItem(
   const retired: string[] = [];
   const retireFailed: string[] = [];
   if (listed) {
-    for (const p of prior ?? []) {
+    for (const p of prior) {
       if (p.is_published !== true || readLibraryMeta(p.config)?.listed === false) continue;
       const { error } = await sb
         .from('experiences')
@@ -1584,7 +1604,7 @@ async function publishLibraryItem(
   }
 
   await auditLog(sb, actorUserId, 'publish_library_item', 'experience', newId, {
-    sourceExperienceId: experienceId, version, files: copied.length, listed, retired, retireFailed,
+    sourceExperienceId: experienceId, lineageId: lineage, version, files: copied.length, listed, retired, retireFailed,
     categoryId, keywords: itemKeywords, picture: pictureUrl !== null,
   });
   return json(200, { data: { id: newId, version, files: copied.length, retired, retireFailed } });
@@ -1686,6 +1706,281 @@ async function setLibraryItemState(
   const state = args.state as string;
   await auditLog(sb, actorUserId, 'set_library_item_state', 'experience', id, { from, to: state, linkCount });
   return json(200, { data: { id, state, linkCount } });
+}
+
+/* ── Library workshop (migration 046) ─────────────────────────────────────
+ * The Studio cannot open a global row (it loads, saves and uploads by event
+ * slug under tenant RLS), so an admin edits a library item through a COPY in a
+ * private "workshop" event of their own. library_workshop_scenes records which
+ * item and which version chain each copy came from; publish_library_item reads
+ * it so the copy publishes as version N+1 of that chain. Old versions are never
+ * touched (immutability), so events that linked them keep them. */
+
+const WORKSHOP_NAME = 'Library workshop';
+const WORKSHOP_SLUG_TRIES = 3;
+const LINEAGE_COLUMNS = 'id, name, config, is_published, created_at, sort_order, library_category_id, library_keywords';
+
+/** Every library version in a chain, newest first. `lineage` MUST be a
+ *  validated uuid: it is interpolated into a PostgREST `or` filter. Matches
+ *  rows stamped with the lineage, rows from before lineage existed (keyed on
+ *  their source scene) and the chain's root row itself. */
+async function lineageVersions(sb: Client, lineage: string): Promise<Array<Record<string, unknown>>> {
+  if (!UUID_RE.test(lineage)) throw new Error('lineage is not a uuid');
+  const { data, error } = await sb
+    .from('experiences')
+    .select(LINEAGE_COLUMNS)
+    .eq('is_global', true)
+    .or(`config->library->>lineageId.eq.${lineage},config->library->>sourceExperienceId.eq.${lineage},id.eq.${lineage}`)
+    .order('created_at', { ascending: false })
+    .limit(REGISTRY_CAP);
+  if (error) throw error;
+  return (data ?? []) as Array<Record<string, unknown>>;
+}
+
+/** The chain a workshop scene continues, or null for any other scene. */
+async function workshopLineageOf(sb: Client, experienceId: string): Promise<string | null> {
+  const { data, error } = await sb
+    .from('library_workshop_scenes')
+    .select('lineage_id')
+    .eq('experience_id', experienceId)
+    .maybeSingle();
+  if (error) throw error;
+  const l = data?.lineage_id;
+  return typeof l === 'string' && UUID_RE.test(l) ? l : null;
+}
+
+function randomHex8(): string {
+  const b = new Uint8Array(4);
+  crypto.getRandomValues(b);
+  return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+type WorkshopResult =
+  | { ok: true; eventUuid: string; slug: string; created: boolean }
+  | { ok: false; response: Response };
+
+/**
+ * The caller's private workshop event, created on first use.
+ *
+ * Found by `config.libraryWorkshop.owner = caller` in an org the caller is a
+ * member of. Created in an org the caller OWNS — never just any membership: a
+ * platform admin may be a member of a customer's org (to help them), and a
+ * workshop filed there would show up in that customer's events list. With no
+ * owned org, one is created exactly as create-event does (the on_org_created
+ * trigger, migration 011, enrols the owner). Lands as a 'deluxe' draft, as
+ * every admin-created event does (create-event step 3b); the service role
+ * passes 040's plan guard, and 032's per-org event cap still applies.
+ */
+async function ensureWorkshop(sb: Client, userId: string): Promise<WorkshopResult> {
+  const { data: mems, error: memErr } = await sb
+    .from('org_members')
+    .select('org_id')
+    .eq('user_id', userId)
+    .limit(REGISTRY_CAP);
+  if (memErr) throw memErr;
+  const memberOrgs = (mems ?? []).map((m) => m.org_id as string);
+
+  if (memberOrgs.length > 0) {
+    const { data: ev, error: evErr } = await sb
+      .from('events')
+      .select('id, slug')
+      .eq('config->libraryWorkshop->>owner', userId)
+      .in('org_id', memberOrgs)
+      // An ended/archived event renders the "This event has ended" screen
+      // instead of the Studio, so such a workshop is not reusable.
+      .in('status', ['draft', 'live'])
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (evErr) throw evErr;
+    if (ev) return { ok: true, eventUuid: ev.id as string, slug: ev.slug as string, created: false };
+  }
+
+  let orgId: string | null = null;
+  if (memberOrgs.length > 0) {
+    const { data: owned, error: ownErr } = await sb
+      .from('orgs')
+      .select('id')
+      .eq('owner_id', userId)
+      .in('id', memberOrgs)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (ownErr) throw ownErr;
+    orgId = (owned?.id as string | undefined) ?? null;
+  }
+  if (orgId === null) {
+    const { data: org, error: orgErr } = await sb
+      .from('orgs')
+      .insert({ name: WORKSHOP_NAME, owner_id: userId })
+      .select('id')
+      .single();
+    if (orgErr || !org) throw orgErr ?? new Error('org_insert_failed');
+    orgId = org.id as string;
+  }
+
+  for (let i = 0; i < WORKSHOP_SLUG_TRIES; i++) {
+    const slug = `library-workshop-${randomHex8()}`;
+    const { data: ev, error } = await sb
+      .from('events')
+      .insert({
+        org_id: orgId,
+        slug,
+        name: WORKSHOP_NAME,
+        event_type: 'party',
+        status: 'draft',
+        plan_tier: 'deluxe',
+        config: { libraryWorkshop: { owner: userId }, copy: { fullName: WORKSHOP_NAME } },
+      })
+      .select('id, slug')
+      .single();
+    if (!error && ev) return { ok: true, eventUuid: ev.id as string, slug: ev.slug as string, created: true };
+    const e = error as { code?: string; message?: string } | null;
+    if (e?.code === '23505') continue; // slug collision — roll again
+    if (e?.message === 'event_cap') return { ok: false, response: json(409, { error: 'event_cap' }) };
+    throw error ?? new Error('workshop_insert_failed');
+  }
+  throw new Error('workshop slug collided repeatedly');
+}
+
+async function ensureLibraryWorkshop(sb: Client, actorUserId: string): Promise<Response> {
+  const ws = await ensureWorkshop(sb, actorUserId);
+  if (!ws.ok) return ws.response;
+  if (ws.created) {
+    await auditLog(sb, actorUserId, 'create_library_workshop', 'event', ws.eventUuid, { slug: ws.slug });
+  }
+  return json(200, { data: { eventUuid: ws.eventUuid, slug: ws.slug } });
+}
+
+async function openLibraryItemInWorkshop(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const itemId = typeof args.itemId === 'string' ? args.itemId : '';
+  if (!UUID_RE.test(itemId)) return json(400, { error: 'invalid_args' });
+
+  const { data: item, error: itemErr } = await sb
+    .from('experiences')
+    .select('id, name, kind, asset_url, thumbnail_url, config, source')
+    .eq('id', itemId)
+    .eq('is_global', true)
+    .maybeSingle();
+  if (itemErr) throw itemErr;
+  if (!item) return json(404, { error: 'not_found' });
+  // A bulk-import draft is reviewed in /admin/library/import, not here.
+  if (isDraftConfig(item.config)) return json(409, { error: 'is_draft' });
+
+  const ws = await ensureWorkshop(sb, actorUserId);
+  if (!ws.ok) return ws.response;
+  if (ws.created) {
+    await auditLog(sb, actorUserId, 'create_library_workshop', 'event', ws.eventUuid, { slug: ws.slug });
+  }
+
+  // Reopen this admin's earlier copy of the item if it is still in their
+  // workshop (deleting the scene cascades its row away, migration 046).
+  const { data: links, error: linkErr } = await sb
+    .from('library_workshop_scenes')
+    .select('experience_id')
+    .eq('library_item_id', itemId)
+    .limit(REGISTRY_CAP);
+  if (linkErr) throw linkErr;
+  const linked = (links ?? []).map((l) => l.experience_id as string);
+  if (linked.length > 0) {
+    const { data: existing, error: exErr } = await sb
+      .from('experiences')
+      .select('id')
+      .in('id', linked)
+      .eq('event_id', ws.slug)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (exErr) throw exErr;
+    if (existing) {
+      return json(200, { data: { eventUuid: ws.eventUuid, sceneId: existing.id, reused: true } });
+    }
+  }
+
+  const lineage = lineageOf({ id: item.id as string, config: item.config });
+  // An ordinary event scene: keyed by the workshop SLUG (experiences.event_id
+  // is events.slug, never the uuid), no library block — the copy is not a
+  // library item and must not claim to be one. It points at the item's own
+  // library files; publishing copies them again into the new version's folder.
+  const { data: scene, error: insErr } = await sb
+    .from('experiences')
+    .insert({
+      name: item.name,
+      kind: item.kind,
+      asset_url: item.asset_url,
+      thumbnail_url: item.thumbnail_url,
+      config: stripLibraryMeta(item.config ?? {}),
+      source: typeof item.source === 'string' ? item.source : 'upload',
+      event_id: ws.slug,
+      is_global: false,
+      is_published: true,
+      featured: true,
+      sort_order: 0,
+    })
+    .select('id')
+    .single();
+  if (insErr || !scene) throw insErr ?? new Error('workshop_scene_insert_failed');
+  const sceneId = scene.id as string;
+
+  const { error: wsErr } = await sb.from('library_workshop_scenes').insert({
+    experience_id: sceneId,
+    library_item_id: itemId,
+    lineage_id: lineage,
+    created_by: actorUserId,
+  });
+  if (wsErr) {
+    // Without its row the copy would publish as an unrelated NEW item, so it
+    // must not survive. A failed cleanup leaves a plain workshop scene.
+    const { error: delErr } = await sb.from('experiences').delete().eq('id', sceneId).eq('event_id', ws.slug);
+    if (delErr) console.error('[admin-api] workshop scene cleanup failed', sceneId, delErr);
+    throw wsErr;
+  }
+
+  await auditLog(sb, actorUserId, 'open_library_item_in_workshop', 'experience', itemId, {
+    sceneId, workshop: ws.slug, lineageId: lineage,
+  });
+  return json(200, { data: { eventUuid: ws.eventUuid, sceneId, reused: false } });
+}
+
+/**
+ * What the Studio's publish dialog needs to say "this is version N+1 of X":
+ * the newest version in the scene's chain. A workshop copy continues its
+ * item's chain; any other scene is checked as the root of its own (a scene
+ * published before is versioned on its id), so the dialog tells the truth for
+ * a re-publish too. `lineage: null` = this publish makes a brand-new item.
+ */
+async function getWorkshopLineage(sb: Client, args: Record<string, unknown>): Promise<Response> {
+  const experienceId = typeof args.experienceId === 'string' ? args.experienceId : '';
+  if (!UUID_RE.test(experienceId)) return json(400, { error: 'invalid_args' });
+  const lineage = await workshopLineageOf(sb, experienceId) ?? experienceId;
+  const versions = await lineageVersions(sb, lineage);
+  if (versions.length === 0) return json(200, { data: { lineage: null } });
+
+  let newest = versions[0];
+  let newestVersion = readLibraryMeta(newest.config)?.version ?? 1;
+  for (const v of versions) {
+    const n = readLibraryMeta(v.config)?.version ?? 1;
+    if (n > newestVersion) { newest = v; newestVersion = n; }
+  }
+  const meta = readLibraryMeta(newest.config);
+  const state = libraryStateOf({ is_published: newest.is_published as boolean, config: newest.config });
+  return json(200, {
+    data: {
+      lineage: {
+        itemId: newest.id,
+        name: newest.name,
+        tags: meta?.tags ?? { occasions: [], colors: [], styles: [] },
+        version: newestVersion,
+        nextVersion: nextLibraryVersion(versions.map((v) => v.config)),
+        categoryId: (newest.library_category_id as string | null) ?? null,
+        keywords: Array.isArray(newest.library_keywords) ? newest.library_keywords : [],
+        listed: state === 'listed',
+        state,
+      },
+    },
+  });
 }
 
 /* ── Library taxonomy: categories + keywords (migration 045) ─────────────
@@ -2355,6 +2650,12 @@ Deno.serve(async (req: Request) => {
         return await updateLibraryItemMeta(sb, user.id, args);
       case 'set_library_item_state':
         return await setLibraryItemState(sb, user.id, args);
+      case 'ensure_library_workshop':
+        return await ensureLibraryWorkshop(sb, user.id);
+      case 'open_library_item_in_workshop':
+        return await openLibraryItemInWorkshop(sb, user.id, args);
+      case 'get_workshop_lineage':
+        return await getWorkshopLineage(sb, args);
       case 'list_library_categories':
         return await listLibraryCategories(sb);
       case 'save_library_category':

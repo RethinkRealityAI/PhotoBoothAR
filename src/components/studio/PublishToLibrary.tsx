@@ -13,9 +13,10 @@
  * The check is UX only; admin-api re-asserts platform admin on the request.
  */
 import { useEffect, useState } from 'react';
-import { BookImage } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { BookImage, Loader2 } from 'lucide-react';
 import { checkIsPlatformAdmin } from '../../lib/admin';
-import { libraryErrorText, publishLibraryItem } from '../../lib/adminLibrary';
+import { fetchWorkshopLineage, libraryErrorText, publishLibraryItem, type WorkshopLineage } from '../../lib/adminLibrary';
 import { LIBRARY_NAME_MAX, emptyLibraryTags, normalizeLibraryName, type LibraryTags } from '../../lib/libraryPublish';
 import Modal from '../ui/Modal';
 import Tooltip from '../ui/Tooltip';
@@ -37,7 +38,33 @@ export function PublishDialog({
   const [listed, setListed] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The version chain this scene publishes into (a workshop copy of a library
+  // item, or a scene published before). undefined = still asking; null = this
+  // publish makes a brand-new item.
+  const [lineage, setLineage] = useState<WorkshopLineage | null | undefined>(undefined);
+  const [lineageError, setLineageError] = useState<string | null>(null);
+  const [done, setDone] = useState<{ name: string; version: number; listed: boolean } | null>(null);
   const cleanName = normalizeLibraryName(name);
+
+  useEffect(() => {
+    let alive = true;
+    fetchWorkshopLineage(experienceId).then(({ data, error: err }) => {
+      if (!alive) return;
+      const found = err === null ? data?.lineage ?? null : null;
+      // An admin-api from before the workshop answers unknown_action: publish
+      // still works exactly as it always did, so that is not worth a warning.
+      setLineageError(err !== null && err !== 'unknown_action' ? err : null);
+      setLineage(found);
+      if (found !== null) {
+        // Carry the previous version's identity over. Its category and keywords
+        // are carried server-side (publish_library_item), so they are not sent.
+        setName(found.name);
+        setTags(found.tags);
+        setListed(found.listed);
+      }
+    });
+    return () => { alive = false; };
+  }, [experienceId]);
 
   const publish = async () => {
     if (cleanName === null) { setError(libraryErrorText('invalid_name')); return; }
@@ -60,16 +87,63 @@ export function PublishDialog({
     if (data.retireFailed.length > 0) {
       push('The previous version could not be retired, so both are listed. Retire the old one in Admin › Library.', 'error');
     }
-    onClose();
+    setDone({ name: cleanName, version: data.version, listed });
   };
 
+  const isUpdate = lineage !== undefined && lineage !== null;
+
+  if (done !== null) {
+    return (
+      <Modal title="Published" onClose={onClose} maxWidthClass="max-w-lg">
+        <p role="status" className="font-sans text-sm text-brand-fg mb-2 leading-relaxed">
+          “{done.name}” is in the library as version {done.version}.
+        </p>
+        <p className="font-sans text-xs text-brand-muted/70 mb-4 leading-relaxed">
+          {done.listed ? 'Hosts can pick it now.' : 'It is hidden from hosts until you list it.'}
+          {done.version > 1 ? ' Events using an earlier version keep theirs, unchanged.' : ''}
+        </p>
+        <div className="flex gap-2">
+          <Link
+            to="/admin/library"
+            className="flex-1 inline-flex items-center justify-center min-h-11 rounded-xl bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[10px] font-bold"
+          >
+            Open the library
+          </Link>
+          <button
+            onClick={onClose}
+            className="flex-1 min-h-11 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] font-label uppercase tracking-luxe text-[10px] text-brand-fg/80"
+          >
+            Keep editing
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
-    <Modal title="Publish to library" onClose={busy ? () => {} : onClose} maxWidthClass="max-w-lg" dismissOnScrim={false}>
-      <p className="font-sans text-xs text-brand-muted/70 mb-4 leading-relaxed">
-        This copies the saved scene into the shared library every host can pick from. Its files are copied too, so it
-        keeps working even if this event is deleted. Publishing this scene again later makes a new version and retires
-        this one — events already using it keep theirs, unchanged.
-      </p>
+    <Modal title={isUpdate ? 'Publish update' : 'Publish to library'} onClose={busy ? () => {} : onClose} maxWidthClass="max-w-lg" dismissOnScrim={false}>
+      {lineage === undefined ? (
+        <p role="status" className="flex items-center gap-2 font-sans text-xs text-brand-muted/70 mb-4">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Checking for earlier versions…
+        </p>
+      ) : isUpdate ? (
+        <p className="font-sans text-xs text-brand-muted/70 mb-4 leading-relaxed">
+          Updating <span className="text-brand-fg">“{lineage.name}”</span> — this publishes version {lineage.nextVersion};
+          events using v{lineage.version} keep it. Its category and keywords carry over.
+          {lineage.state !== 'listed' ? ` The current version is ${lineage.state}, so this one starts hidden unless you tick the box below.` : ''}
+        </p>
+      ) : (
+        <p className="font-sans text-xs text-brand-muted/70 mb-4 leading-relaxed">
+          This copies the saved scene into the shared library every host can pick from. Its files are copied too, so it
+          keeps working even if this event is deleted. Publishing this scene again later makes a new version and retires
+          this one — events already using it keep theirs, unchanged.
+        </p>
+      )}
+      {lineageError !== null && (
+        <p className="font-sans text-[11px] text-amber-300/90 mb-3 leading-relaxed">
+          Could not check for earlier versions ({libraryErrorText(lineageError)}). Publishing still versions it correctly.
+        </p>
+      )}
       <label className="block mb-4">
         <span className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">Name hosts will see</span>
         <input
@@ -102,10 +176,10 @@ export function PublishDialog({
       <div className="flex gap-2">
         <button
           onClick={() => void publish()}
-          disabled={busy || cleanName === null}
+          disabled={busy || cleanName === null || lineage === undefined}
           className="flex-1 min-h-11 rounded-xl bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[10px] font-bold glow-accent disabled:opacity-50"
         >
-          {busy ? 'Publishing…' : 'Publish'}
+          {busy ? 'Publishing…' : isUpdate ? 'Publish update' : 'Publish'}
         </button>
         <button
           onClick={onClose}
