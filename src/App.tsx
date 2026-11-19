@@ -15,12 +15,14 @@
  */
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
-// Eager: the marketing entry + auth/legal surfaces a first-time visitor hits.
-// Kept in the initial bundle so first paint doesn't wait on a chunk fetch.
+// Eager: the auth/legal surfaces a first-time visitor hits. Kept in the
+// initial bundle so first paint doesn't wait on a chunk fetch. The homepage
+// (BeamyPage, below) is lazy: it pulls the 3D stack, which must never reach
+// the eager entry.
 import EventProvider, { useEvent } from './events/EventContext';
 import { EVENT_ID } from './events/active';
 import ErrorBoundary from './components/ui/ErrorBoundary';
-import Landing from './pages/Landing';
+import { useNoIndex } from './pages/sales/components/pageMeta';
 import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
 import ForgotPassword from './pages/auth/ForgotPassword';
@@ -119,6 +121,18 @@ const BookPage = import.meta.env.VITE_EVENT
 const TryPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/sales/TryPage'));
+/** The homepage ("/"): Beamy's tour of the platform, brand v2. Same fold. */
+const BeamyPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/beamy/BeamyPage'));
+/** The previous homepage, kept at /classic (noindex, unlinked). Same fold. */
+const Landing = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/Landing'));
+/** Brand v2 living style guide (/brand, noindex). Same fold. */
+const BrandPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/brand/BrandPage'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -164,6 +178,19 @@ function EventIndexRedirect() {
 function RedirectToDefaultEvent() {
   const { pathname, search, hash } = useLocation();
   return <Navigate to={`/e/${DEFAULT_EVENT_SLUG}${pathname}${search}${hash}`} replace />;
+}
+
+/** /beamy was the homepage's preview address: it now lands on "/", query and hash kept (`/beamy?debug` → `/?debug`). */
+function RedirectToHome() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`/${search}${hash}`} replace />;
+}
+
+/** The previous homepage at /classic: reachable, never indexed. To restore it
+ *  as the homepage, route "/" to <Landing /> (not this wrapper). */
+function ClassicLanding() {
+  useNoIndex();
+  return <Landing />;
 }
 
 /** The guest routes, rendered inside an EventProvider. */
@@ -257,7 +284,8 @@ export default function App() {
                 <Route path="*" element={<EventIndexRedirect />} />
               </Route>
 
-              <Route path="/" element={<Landing />} />
+              <Route path="/" element={<BeamyPage />} />
+              <Route path="/classic" element={<ClassicLanding />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -276,6 +304,8 @@ export default function App() {
               <Route path="/pitch/:slug" element={<PitchPage />} />
               <Route path="/book/:ref" element={<BookPage />} />
               <Route path="/try/:kit" element={<TryPage />} />
+              <Route path="/beamy" element={<RedirectToHome />} />
+              <Route path="/brand" element={<BrandPage />} />
 
               {/* Host platform (session-gated) */}
               <Route path="/host" element={<HostLayout />}>

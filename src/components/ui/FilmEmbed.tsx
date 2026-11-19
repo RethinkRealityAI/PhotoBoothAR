@@ -5,7 +5,7 @@
  * Shared marketing film embed, hoisted out of Landing.tsx unchanged so every
  * public marketing surface (landing, guides) plays its films the same way.
  */
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 
 /**
@@ -27,12 +27,24 @@ import { Pause, Play } from 'lucide-react';
  *      the icon without any of them going through our click handler.
  *   2. `userPaused` is explicit and sticky: once a visitor pauses a film,
  *      scrolling away and back must NOT restart it. Pressing play clears it.
+ *
+ * Optional (additive; omitted = the behaviour above, unchanged):
+ *   • `hold` — keep the poster up and do not autoplay yet (a page that powers
+ *     the film on with its own moment, e.g. /beamy's projector); flipping it
+ *     to false starts the film if it is in view. The chip still plays it.
+ *   • `chipClassName` — the chip face's look (default: the platform's
+ *     `liquid-glass text-brand-fg`).
  */
-export default function FilmEmbed({ src, poster, label }: { src: string; poster: string; label: string }) {
+export default function FilmEmbed({ src, poster, label, hold = false, chipClassName }: {
+  src: string; poster: string; label: string; hold?: boolean; chipClassName?: string;
+}) {
   const ref = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const userPaused = useRef(false);
   const intersecting = useRef(false);
+  const holdRef = useRef(hold);
+  holdRef.current = hold;
+  const tryPlayRef = useRef<() => void>(() => undefined);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -43,7 +55,7 @@ export default function FilmEmbed({ src, poster, label }: { src: string; poster:
     el.addEventListener('pause', onPause);
 
     const tryPlay = () => {
-      if (userPaused.current || !intersecting.current) return;
+      if (userPaused.current || !intersecting.current || holdRef.current) return;
       void el.play().catch(() => { /* autoplay refused — the chip is the way in */ });
     };
     // NO prefers-reduced-motion gate here, deliberately (owner directive,
@@ -86,6 +98,7 @@ export default function FilmEmbed({ src, poster, label }: { src: string; poster:
       );
       io.observe(el);
     }
+    tryPlayRef.current = tryPlay;
     return () => {
       el.removeEventListener('play', onPlay);
       el.removeEventListener('pause', onPause);
@@ -96,6 +109,9 @@ export default function FilmEmbed({ src, poster, label }: { src: string; poster:
       io?.disconnect();
     };
   }, []);
+
+  // Released from a hold: start now if the film is in view.
+  useEffect(() => { if (!hold) tryPlayRef.current(); }, [hold]);
 
   // Branch on the ELEMENT, not on `playing` — the two can disagree for a frame,
   // and the element is the one that decides what actually happens.
@@ -133,7 +149,7 @@ export default function FilmEmbed({ src, poster, label }: { src: string; poster:
         aria-label={playing ? 'Pause film' : 'Play film'}
         className="absolute bottom-2 right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full opacity-55 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:bottom-2.5 sm:right-2.5"
       >
-        <span className="flex h-10 w-10 items-center justify-center rounded-full liquid-glass text-brand-fg">
+        <span className={`flex h-10 w-10 items-center justify-center rounded-full ${chipClassName ?? 'liquid-glass text-brand-fg'}`}>
           {playing ? (
             <Pause className="h-4 w-4 fill-current" />
           ) : (

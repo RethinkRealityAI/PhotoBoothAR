@@ -2,7 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * /admin/landing — CMS editor for the PLATFORM marketing landing page ("/").
+ * /admin/landing — CMS editor for the PREVIOUS marketing landing page, now at
+ * /classic (noindex). The homepage ("/") is BeamyPage, which reads
+ * lib/beamyAssets HOME_ASSET_DEFAULTS and none of this content.
  *
  * Draft/publish model: edits accumulate in a local draft, "Save draft" stores
  * it (singleton row, migration 030), "Publish" copies draft → published — the
@@ -331,13 +333,13 @@ export default function AdminLanding() {
             </div>
             <div className="ml-auto flex flex-wrap gap-2">
               <a
-                href="/"
+                href="/classic"
                 target="_blank"
                 rel="noreferrer"
                 className="pressable inline-flex items-center gap-1.5 min-h-11 px-4 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] font-label uppercase tracking-luxe text-[10px] text-brand-fg"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                View live page
+                View on /classic
               </a>
               <button
                 onClick={() => void onRevert()}

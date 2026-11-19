@@ -79,7 +79,7 @@ interface ParticleData {
  * attribute. Returns null on any unreadable-image path (no 2D context, or a
  * tainted canvas from a cross-origin shot) so the caller can bail cleanly.
  */
-function buildParticles(img: HTMLImageElement, from: Rect, to: Rect): ParticleData | null {
+function buildParticles(img: HTMLImageElement, from: Rect, to: Rect, palette: string[] = SPECTRUM): ParticleData | null {
   const count = GRID_W * GRID_H;
   if (count > MAX_PARTICLES) return null; // guard the cap if the grid is ever retuned
 
@@ -132,7 +132,7 @@ function buildParticles(img: HTMLImageElement, from: Rect, to: Rect): ParticleDa
 
   // Brand sprinkle: ~1 in 5 particles carries a Beamwall spectrum hue, so
   // even a white-on-white shot beams in colour instead of a plain smear.
-  const spectrumColors = SPECTRUM.map((hue) => new THREE.Color(hue));
+  const spectrumColors = palette.map((hue) => new THREE.Color(hue));
 
   let minProj = Infinity;
   let maxProj = -Infinity;
@@ -195,7 +195,7 @@ function buildParticles(img: HTMLImageElement, from: Rect, to: Rect): ParticleDa
   geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
 
   // White-hot core carries a faint beam-blue so the flare stays on-brand.
-  const hot = new THREE.Color('#ffffff').lerp(new THREE.Color(SPECTRUM[0]), 0.14);
+  const hot = new THREE.Color('#ffffff').lerp(new THREE.Color(palette[0]), 0.14);
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uProgress: { value: 0 },
@@ -353,12 +353,15 @@ export interface ParticleBeamProps {
   durationMs: number;
   /** Called once when the flight completes (NOT on unmount/cleanup). */
   onDone?: () => void;
+  /** Sprinkle hues; palette[0] tints the hot core. Default = the brand
+   *  spectrum (the landing). Brand v2 passes its calm beam palette. */
+  palette?: string[];
 }
 
 type Status = 'init' | 'ready' | 'failed';
 
 export default function ParticleBeam({
-  from, to, shot, durationMs, onDone,
+  from, to, shot, durationMs, onDone, palette = SPECTRUM,
 }: ParticleBeamProps): JSX.Element | null {
   const [status, setStatus] = useState<Status>('init');
   const dataRef = useRef<ParticleData | null>(null);
@@ -397,7 +400,7 @@ export default function ParticleBeam({
     img.onerror = fail;
     img.onload = () => {
       if (cancelled) return;
-      const built = buildParticles(img, from, to);
+      const built = buildParticles(img, from, to, palette);
       if (built === null) {
         fail();
         return;
