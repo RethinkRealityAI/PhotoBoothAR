@@ -91,6 +91,7 @@ import StatusPill from '../../components/ui/StatusPill';
 import LibraryTagPicker from '../../components/library/LibraryTagPicker';
 import { useToast } from '../../components/ui/Toast';
 import CategoryManager from '../../components/admin/library/CategoryManager';
+import TagManager from '../../components/admin/library/TagManager';
 import ModelViewerModal, { type ViewerTarget } from '../../components/admin/library/ModelViewerModal';
 import CategorySelect from '../../components/admin/library/CategorySelect';
 
@@ -555,6 +556,7 @@ export default function SharedLibrary() {
   const [mobileDetail, setMobileDetail] = useState(false);
   const [viewer, setViewer] = useState<ViewerTarget | null>(null);
   const [managing, setManaging] = useState(false);
+  const [managingTags, setManagingTags] = useState(false);
   const [autoSort, setAutoSort] = useState(false);
   const [bulkTags, setBulkTags] = useState<'add' | 'remove' | null>(null);
   const [pending, setPending] = useState<{ item: CmsItem; to: StateChangeTarget } | null>(null);
@@ -875,6 +877,11 @@ export default function SharedLibrary() {
           {taxonomyReady && (
             <button type="button" onClick={() => setManaging(true)} className={`${SOFT_BTN} hidden sm:inline-flex`}>
               <FolderTree className="w-3.5 h-3.5" aria-hidden /> Categories
+            </button>
+          )}
+          {taxonomyReady && (
+            <button type="button" onClick={() => setManagingTags(true)} className={`${SOFT_BTN} hidden sm:inline-flex`}>
+              <Tag className="w-3.5 h-3.5" aria-hidden /> Manage tags
             </button>
           )}
           <button
@@ -1294,6 +1301,15 @@ export default function SharedLibrary() {
 
       {managing && (
         <CategoryManager categories={categories} counts={ownCounts} onChange={setCategories} onClose={() => { setManaging(false); void load(); }} />
+      )}
+
+      {managingTags && (
+        <TagManager
+          rows={libRows}
+          selectedIds={selectedItems.filter((i) => i.source === 'library').map((i) => i.id)}
+          onChanged={() => void load()}
+          onClose={() => setManagingTags(false)}
+        />
       )}
 
       {autoSort && (
