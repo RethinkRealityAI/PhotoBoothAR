@@ -9,7 +9,7 @@
  * signage QR codes at this route so guests land on instructions, not a
  * camera permission prompt).
  */
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { Album, Camera, Images, Trophy, UploadCloud } from 'lucide-react';
 import { useEffect } from 'react';
@@ -22,6 +22,8 @@ import { useEntitlements } from '../lib/entitlements';
 
 export default function GuestWelcome() {
   const { config, basePath } = useEvent();
+  /** Arrived from the landing page's real QR code (its Easter egg): say hello. */
+  const fromLanding = new URLSearchParams(useLocation().search).get('from') === 'beamy-qr';
   const { videoEnabled } = useEntitlements();
   const {
     wallSettings, fetchWallSettings,
@@ -85,6 +87,12 @@ export default function GuestWelcome() {
     <div className="absolute inset-0 overflow-y-auto bg-noir-900">
       <EventBackground density={40} sparkle={0.6} />
       <div className="relative z-10 max-w-md mx-auto px-5 pt-safe-top [--safe-top:2.5rem] pb-safe-bottom [--safe-bottom:3.5rem] flex flex-col items-center gap-7">
+
+        {fromLanding && (
+          <p role="status" className="w-full glass rounded-2xl px-4 py-3 text-center font-sans text-[13px] leading-relaxed text-ivory">
+            Oh, you scanned it for real. Thanks for trying it out! This is a live demo event: step into the booth, then watch your shot land on the wall.
+          </p>
+        )}
 
         <div className="flex flex-col items-center gap-3 text-center animate-rise-in">
           <Emblem size={56} className="drop-shadow-[0_0_14px_rgba(var(--accent-rgb),0.4)]" />

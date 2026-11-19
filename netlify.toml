@@ -49,6 +49,19 @@
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
 
+# The previous homepage, kept reachable at /classic (unlinked): never indexed.
+# (/beamy, the new homepage's preview address, now redirects to "/" in the app.)
+[[headers]]
+  for = "/classic"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
+# Brand v2 style guide (/brand): internal reference, never indexed.
+[[headers]]
+  for = "/brand"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
 # Reps' public booking pages (/book/<ref>, migration 042): sent one-to-one,
 # never indexed.
 [[headers]]
