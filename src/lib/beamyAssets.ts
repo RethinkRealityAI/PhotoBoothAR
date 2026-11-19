@@ -102,14 +102,11 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
   ],
   arLooks: [
     { id: 'ar-wedding-cover', name: 'Wedding cover', category: 'frame', url: `${F}wedding-magazine-cover.png`, opening: { top: 0.242, bottom: 0.91, left: 0.13, right: 0.87 } },
-    // Window measured from the PNG's alpha below the monogram's line art (the
-    // strokes are see-through between lines, so the raw clear region reaches
-    // 0.156; a face that high would sit behind the "M").
-    { id: 'ar-monogram', name: 'Wedding monogram', category: 'frame', url: `${F}wedding-monogram-drop.png`, opening: { top: 0.433, bottom: 0.839, left: 0.056, right: 0.943 } },
+    { id: 'ar-sangeet', name: 'Sangeet arch', category: 'frame', url: `${F}cultural-mehndi-arch.png`, opening: { top: 0.172, bottom: 0.889, left: 0.071, right: 0.929 } },
     { id: 'ar-birthday', name: 'Birthday monogram', category: 'frame', url: `${F}birthday-monogram-corner.png`, opening: { top: 0.056, bottom: 0.946, left: 0.093, right: 0.915 } },
     { id: 'ar-countdown', name: 'New Year countdown', category: 'frame', url: `${F}nye-countdown.png`, opening: { top: 0.212, bottom: 0.812, left: 0.144, right: 0.863 } },
     { id: 'ar-asoebi', name: 'Aso ebi arch', category: 'frame', url: `${F}cultural-asoebi-arch.png`, opening: { top: 0.177, bottom: 0.89, left: 0, right: 1 } },
-    { id: 'ar-art-deco', name: 'Art deco mask', category: 'frame', url: `${F}gala-artdeco-mask.png`, opening: { top: 0.256, bottom: 0.723, left: 0.226, right: 0.778 } },
+    { id: 'ar-santa-cover', name: 'Holiday cover', category: 'frame', url: `${F}christmas-santa-cover.png`, opening: { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 } },
     { id: 'ar-holly', name: 'Holly crown', category: 'prop', url: `${P}holly-crown.glb`, fit: { width: 0.36, at: [0, 0.31, 0], align: 'base' } },
     { id: 'ar-snowflake', name: 'Snowflake tiara', category: 'prop', url: `${P}snowflake-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' } },
     { id: 'ar-elf', name: 'Elf hat', category: 'prop', url: `${P}elf-hat.glb`, fit: { width: 0.3, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 } },

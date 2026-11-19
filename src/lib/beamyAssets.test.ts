@@ -206,11 +206,16 @@ describe('beamyAssets', () => {
     expect(tall.top + tight.opening.bottom * tall.h).toBeGreaterThanOrEqual(tight.mouth + 0.12 * tight.heightPx - 0.5);
   });
 
-  it('calls only the face-oval frames small, and steps him into their window', () => {
-    const small = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'frame' && l.opening !== undefined && smallWindow(l.opening)).map((l) => l.id).sort();
-    // The floral arch's oval was swapped for the wedding monogram (a full-width window).
-    expect(small).toEqual(['ar-art-deco']);
+  it('ships no face-oval default frame, and steps him into a small (CMS) frame’s window', () => {
+    // The owner: a cutout must be "large enough for an actual face", so every
+    // bundled AR frame has a full portrait window (the ovals were swapped out).
+    const small = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'frame' && smallWindow(l.opening ?? DEFAULT_OPENING)).map((l) => l.id);
+    expect(small).toEqual([]);
+    // An override can still bring a face oval (the old floral arch's window):
+    // it is small, and he steps into it.
     const o = { top: 0.263, bottom: 0.637, left: 0.274, right: 0.73 };
+    expect(smallWindow(o)).toBe(true);
+    expect(smallWindow(DEFAULT_OPENING)).toBe(false);
     const box = { top: 391, bottom: 836, left: 8, right: 382 };
     const g = stepIntoFrame({ opening: o, box, mouthAt: 0.49 });
     // The frame takes the whole room under the picker, centred across.
