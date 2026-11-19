@@ -24,11 +24,14 @@ import {
   createLibraryDrafts,
   discardLibraryDrafts,
   fetchLibraryDrafts,
+  fetchLibraryItems,
   libraryErrorText,
   publishLibraryDrafts,
   updateLibraryDraft,
   type LibraryDraftRow,
+  type LibraryItemRow,
 } from '../../lib/adminLibrary';
+import { builtInModels, existingModelNamed, isLibrary3dKind, type PlatformModel } from '../../lib/platformModels';
 import {
   CLASSIFY_BATCH_MAX,
   IMPORT_BATCH_MAX,
@@ -64,6 +67,65 @@ interface QueueItem {
   fileName: string;
   status: QueueStatus;
   reason?: string;
+}
+
+/** What the 3D preview modal shows — a draft or any model already on the platform. */
+interface PreviewTarget {
+  title: string;
+  url: string;
+  note: string;
+}
+
+/** Built-in models never change at runtime. */
+const BUILT_IN = builtInModels();
+
+const LIBRARY_STATE_LABEL: Record<LibraryItemRow['state'], string> = {
+  listed: 'Listed',
+  retired: 'Retired',
+  withdrawn: 'Withdrawn',
+};
+
+/** A small square tile for a model already on the platform. */
+function ExistingTile({
+  name,
+  thumb,
+  swatch,
+  lines,
+  onPreview,
+  href,
+}: {
+  name: string;
+  thumb: string | null;
+  swatch: [string, string] | null;
+  lines: string[];
+  onPreview?: () => void;
+  href?: string;
+}) {
+  const art = thumb ? (
+    <img src={thumb} alt="" loading="lazy" className="w-full h-full object-contain" />
+  ) : swatch ? (
+    <span className="block w-full h-full" style={{ background: `linear-gradient(135deg, ${swatch[0]} 0 50%, ${swatch[1]} 50% 100%)` }} />
+  ) : (
+    <Box className="w-7 h-7 m-auto text-brand-muted/40" aria-hidden />
+  );
+  const frame = 'flex w-full aspect-square rounded-xl bg-white/[0.04] overflow-hidden items-center justify-center';
+  return (
+    <li className="glass rounded-2xl p-2 flex flex-col gap-2 min-w-0">
+      {onPreview ? (
+        <button onClick={onPreview} className={`pressable ${frame}`} aria-label={`Preview ${name} in 3D`}>{art}</button>
+      ) : href ? (
+        <Link to={href} className={`pressable ${frame}`} aria-label={`${name} in the Library`}>{art}</Link>
+      ) : (
+        <span className={frame}>{art}</span>
+      )}
+      <div className="min-w-0 px-1">
+        <p className="text-xs text-brand-fg truncate" title={name}>{name}</p>
+        {lines.map((l) => (
+          <p key={l} className="text-[11px] text-brand-muted/60 truncate">{l}</p>
+        ))}
+      </div>
+    </li>
+  );
 }
 
 const QUEUE_LABEL: Record<QueueStatus, string> = {
@@ -122,7 +184,10 @@ export default function LibraryImport() {
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<'all' | 'review'>('all');
-  const [preview, setPreview] = useState<LibraryDraftRow | null>(null);
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
+  /** Published library rows, for "Already on the platform". null = not loaded. */
+  const [libraryItems, setLibraryItems] = useState<LibraryItemRow[] | null>(null);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   const [tagEdit, setTagEdit] = useState<{ draft: LibraryDraftRow; tags: LibraryTags } | null>(null);
   const [confirm, setConfirm] = useState<'publish' | 'discard' | null>(null);
   const [busy, setBusy] = useState(false);
@@ -138,10 +203,15 @@ export default function LibraryImport() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const { data, error: err } = await fetchLibraryDrafts();
+    setLibraryError(null);
+    // The library list is separate on purpose: if it fails, the drafts (the
+    // work in progress) must still load, and the reverse.
+    const [drafted, listed] = await Promise.all([fetchLibraryDrafts(), fetchLibraryItems()]);
     setLoading(false);
-    if (err !== null || data === null) { setError(err ?? 'internal'); return; }
-    setDrafts(data.drafts);
+    if (listed.error !== null || listed.data === null) setLibraryError(listed.error ?? 'internal');
+    else setLibraryItems(listed.data.items.filter((i) => isLibrary3dKind(i.kind)));
+    if (drafted.error !== null || drafted.data === null) { setError(drafted.error ?? 'internal'); return; }
+    setDrafts(drafted.data.drafts);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -281,6 +351,21 @@ export default function LibraryImport() {
   const target = selectedIds.length > 0 ? selectedIds : [];
   const unlabelled = drafts.filter((d) => d.importMeta.classifiedBy === 'none').map((d) => d.id);
   const allVisibleSelected = visible.length > 0 && visible.every((d) => selected.has(d.id));
+  /** Names already taken on the platform, for the "already exists" hint on a draft. */
+  const platformNames = useMemo(
+    () => [...BUILT_IN.map((m) => m.name), ...(libraryItems ?? []).map((i) => i.name)],
+    [libraryItems],
+  );
+  const duplicateOf = (d: LibraryDraftRow): string | null =>
+    existingModelNamed(d.name, [...platformNames, ...drafts.filter((x) => x.id !== d.id).map((x) => x.name)]);
+  const openBuiltIn = (m: PlatformModel) =>
+    setPreview({
+      title: m.name,
+      url: m.url,
+      note: m.source === 'customisable'
+        ? 'Built into the app. Hosts recolour it and can add a name to it in the Studio.'
+        : 'Built into the app and ready on every host’s shelf.',
+    });
 
   const runBatches = async <T,>(ids: string[], fn: (batch: string[]) => Promise<T>): Promise<T[]> => {
     const out: T[] = [];
@@ -509,7 +594,12 @@ export default function LibraryImport() {
                 >
                   <div className="relative">
                     <button
-                      onClick={() => setPreview(d)}
+                      onClick={() =>
+                        setPreview({
+                          title: d.name,
+                          url: d.assetUrl,
+                          note: `Drag to turn it. It will start on the guest’s ${importCategory(d.importMeta.category).label.toLowerCase()} slot at a sensible size; fine placement can be adjusted per event in the Studio.`,
+                        })}
                       className="block w-full aspect-square rounded-xl bg-white/[0.04] overflow-hidden"
                       aria-label={`Preview ${d.name} in 3D`}
                     >
@@ -594,6 +684,15 @@ export default function LibraryImport() {
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden /> {w}
                     </p>
                   ))}
+                  {(() => {
+                    const dup = duplicateOf(d);
+                    return dup === null ? null : (
+                      <p className="text-[11px] text-amber-200/90 flex gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden />
+                        “{dup}” is already on the platform. Rename this one or discard it if it is the same model.
+                      </p>
+                    );
+                  })()}
                 </li>
               );
             })}
@@ -601,13 +700,64 @@ export default function LibraryImport() {
         </section>
       )}
 
+      {/* Everything that already exists, so the operator sees the whole shelf in one place */}
+      <section className="mt-10" aria-labelledby="existing-heading">
+        <h2 id="existing-heading" className="font-serif text-xl text-brand-fg">Already on the platform</h2>
+        <p className="text-xs text-brand-muted/60 mb-4">
+          {BUILT_IN.length + (libraryItems?.length ?? 0)} 3D models hosts can use today. Models a host makes for their own
+          event stay private to them and are not listed here.
+        </p>
+
+        <h3 className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-2">
+          Shared library{libraryItems ? ` · ${libraryItems.length}` : ''}
+        </h3>
+        {libraryError !== null ? (
+          <LoadError what="the shared library" code={libraryError} onRetry={() => void load()} />
+        ) : libraryItems === null ? (
+          <p className="text-sm text-brand-muted/60 py-3">Loading…</p>
+        ) : libraryItems.length === 0 ? (
+          <p className="text-sm text-brand-muted/60 py-3">Nothing published yet. Models you publish above appear here.</p>
+        ) : (
+          <ul className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-6">
+            {libraryItems.map((i) => (
+              <ExistingTile
+                key={i.id}
+                name={i.name}
+                thumb={i.thumbnailUrl}
+                swatch={null}
+                lines={[`${i.kind === 'composite' ? 'Scene' : 'Prop'} · ${LIBRARY_STATE_LABEL[i.state]}`]}
+                {...(i.kind === '3d_attachment' && i.assetUrl
+                  ? { onPreview: () => setPreview({ title: i.name, url: i.assetUrl as string, note: 'In the shared library. Retire or withdraw it from the Library page.' }) }
+                  : { href: '/admin/library' })}
+              />
+            ))}
+          </ul>
+        )}
+
+        <h3 className="mt-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-2">
+          Built into the app · {BUILT_IN.length}
+        </h3>
+        <p className="text-[11px] text-brand-muted/50 mb-2">These ship with the app itself, so they are changed in code rather than here.</p>
+        <ul className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-6">
+          {BUILT_IN.map((m) => (
+            <ExistingTile
+              key={m.id}
+              name={m.name}
+              thumb={m.thumb}
+              swatch={m.swatch}
+              lines={[
+                `${m.source === 'customisable' ? 'Customisable' : m.collection === 'christmas' ? 'Christmas' : 'Prop'} · ${m.sitsOn}`,
+              ]}
+              onPreview={() => openBuiltIn(m)}
+            />
+          ))}
+        </ul>
+      </section>
+
       {preview && (
-        <Modal title={preview.name} onClose={() => setPreview(null)} maxWidthClass="max-w-lg">
-          <ModelPreview url={preview.assetUrl} height={360} />
-          <p className="mt-3 text-xs text-brand-muted/70">
-            Drag to turn it. It will start on the guest’s {importCategory(preview.importMeta.category).label.toLowerCase()} slot
-            at a sensible size; fine placement can be adjusted per event in the Studio.
-          </p>
+        <Modal title={preview.title} onClose={() => setPreview(null)} maxWidthClass="max-w-lg">
+          <ModelPreview url={preview.url} height={360} />
+          <p className="mt-3 text-xs text-brand-muted/70">{preview.note}</p>
         </Modal>
       )}
 
