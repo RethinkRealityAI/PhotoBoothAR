@@ -24,8 +24,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  BookImage, Box, Check, ChevronDown, ChevronRight, FolderTree, ImagePlus, LayoutGrid, List, Loader2, Lock, Maximize2,
-  Plus, RefreshCw, Search, Sparkles, Tag, Upload, Wand2, X,
+  BookImage, Box, Check, ChevronDown, ChevronRight, FileUp, FolderTree, ImagePlus, LayoutGrid, List, Loader2, Lock, Maximize2,
+  Minimize2, Plus, RefreshCw, Search, Sparkles, Tag, Upload, Wand2, X,
 } from 'lucide-react';
 import {
   bulkUpdateLibraryItems,
@@ -100,6 +100,18 @@ import CategorySelect from '../../components/admin/library/CategorySelect';
 import { useHeldModel, useRenderedPictures } from '../../components/admin/library/useRenderedPictures';
 import AccessPicker, { accessSummary, sameAccess, type AccessValue } from '../../components/admin/library/AccessPicker';
 import { ModelPreview } from '../../components/studio/DirectorCards';
+import ModelSizeDetails from '../../components/admin/library/ModelSizeDetails';
+import OptimizeCompare from '../../components/admin/library/OptimizeCompare';
+import BulkOptimizeModal, { type BulkOptItem } from '../../components/admin/library/BulkOptimizeModal';
+import { glbFile, replaceModelFile, type ReplaceStep } from '../../lib/libraryImportBrowser';
+import {
+  BULK_OPTIMIZE_MAX,
+  canReplaceFile,
+  glbFileName,
+  replaceConsequence,
+  replaceOutcomeText,
+} from '../../lib/libraryReplace';
+import { OPTIMIZE_PRESETS, formatSaving, type OptimizeStats } from '../../lib/glbOptimizePlan';
 
 /* ── Shared styles ───────────────────────────────────────────────────── */
 
@@ -347,6 +359,12 @@ interface DetailProps {
   opening: string | null;
   /** Height of the live 3D view, in px (the side panel and the phone sheet differ). */
   previewHeight: number;
+  /** Opens the optimizer compare for this item's model. */
+  onOptimize: (item: CmsItem) => void;
+  /** A .glb was picked to replace this library prop's file. */
+  onReplaceFile: (item: CmsItem, file: File) => void;
+  /** Where a running replace of THIS item is, else null. */
+  replaceStep: string | null;
   onClose?: () => void;
 }
 
@@ -359,6 +377,8 @@ function DetailPanel(p: DetailProps) {
   const [showTags, setShowTags] = useState(false);
   const [access, setAccess] = useState<AccessValue>(() => accessOf(item));
   const fileRef = useRef<HTMLInputElement>(null);
+  const glbRef = useRef<HTMLInputElement>(null);
+  const replaceable = canReplaceFile(item);
 
   useEffect(() => {
     setName(item.source === 'event' ? tidyEventName(item.name) : item.name);
@@ -402,6 +422,35 @@ function DetailPanel(p: DetailProps) {
           Drag to spin. Pinch or scroll to zoom.
           {item.type === 'scene' ? ' Shows the scene’s 3D piece on its own.' : ''}
         </p>
+      )}
+      {item.modelUrl && (
+        <div className="flex flex-col gap-3">
+          <ModelSizeDetails key={item.modelUrl} url={item.modelUrl} onOptimize={() => p.onOptimize(item)} />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={p.busy || p.replaceStep !== null} onClick={() => p.onOptimize(item)} className={SOFT_BTN}>
+              <Minimize2 className="w-3.5 h-3.5" aria-hidden /> {item.source === 'builtin' ? 'Compare optimized' : 'Optimize'}
+            </button>
+            {replaceable && (
+              <>
+                <input
+                  ref={glbRef}
+                  type="file"
+                  accept=".glb,model/gltf-binary"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) p.onReplaceFile(item, f);
+                  }}
+                />
+                <button type="button" disabled={p.busy || p.replaceStep !== null} onClick={() => glbRef.current?.click()} className={SOFT_BTN}>
+                  {p.replaceStep !== null ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> : <FileUp className="w-3.5 h-3.5" aria-hidden />}
+                  {p.replaceStep ?? 'Replace file'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-brand-muted/70">
@@ -607,6 +656,14 @@ export default function SharedLibrary() {
   const navigate = useNavigate();
   // A library item id, or 'new', while the Studio workshop is being opened.
   const [opening, setOpening] = useState<string | null>(null);
+  // Optimize / replace a model (Features A + B): the item being compared, a
+  // picked replacement file waiting for its confirm, where a replace is, and
+  // the bulk-optimize batch.
+  const [optimizing, setOptimizing] = useState<CmsItem | null>(null);
+  const [replaceAsk, setReplaceAsk] = useState<{ item: CmsItem; file: File } | null>(null);
+  const [replaceOptimize, setReplaceOptimize] = useState(true);
+  const [replaceStep, setReplaceStep] = useState<{ id: string; label: string } | null>(null);
+  const [bulkOpt, setBulkOpt] = useState<{ items: BulkOptItem[]; skipped: number } | null>(null);
 
   const setView = (v: 'grid' | 'list') => { setViewState(v); writeView(v); };
 
@@ -795,28 +852,35 @@ export default function SharedLibrary() {
   };
 
   /** Copy one event piece in. Returns an error code, or null. */
-  const addOneEvent = async (item: CmsItem, opts: { name?: string; categoryId: string | null; picture?: File }): Promise<string | null> => {
+  const addOneEvent = async (item: CmsItem, opts: { name?: string; categoryId: string | null; picture?: File }): Promise<string | null> =>
+    (await addOneEventRow(item, opts)).error;
+
+  /** addOneEvent, also returning the new library item's id. */
+  const addOneEventRow = async (
+    item: CmsItem, opts: { name?: string; categoryId: string | null; picture?: File },
+  ): Promise<{ error: string | null; id?: string }> => {
+    const fail = (error: string) => ({ error });
     const row = eventRows.find((e) => e.id === item.id);
-    if (!row) return 'not_found';
+    if (!row) return fail('not_found');
     let thumbnailUrl: string | undefined;
     if (opts.picture) {
       const blob = await pictureFromFile(opts.picture);
-      if (!blob) return 'picture_unreadable';
+      if (!blob) return fail('picture_unreadable');
       thumbnailUrl = (await stagePicture(blob)) ?? undefined;
-      if (!thumbnailUrl) return 'picture_upload';
+      if (!thumbnailUrl) return fail('picture_upload');
     } else if (!row.thumbnailUrl) {
       const blob = await renderPicture(pictureSourceFor(row));
-      if (!blob) return 'needs_picture';
+      if (!blob) return fail('needs_picture');
       thumbnailUrl = (await stagePicture(blob)) ?? undefined;
-      if (!thumbnailUrl) return 'picture_upload';
+      if (!thumbnailUrl) return fail('picture_upload');
     }
     const name = normalizeLibraryName(opts.name ?? tidyEventName(row.name)) ?? 'Untitled piece';
-    const { error: err } = await publishLibraryItem({
+    const { data, error: err } = await publishLibraryItem({
       experienceId: row.id, name, tags: emptyLibraryTags(), listed: false,
       ...(taxonomyReady ? { categoryId: opts.categoryId, keywords: [] } : {}),
       ...(thumbnailUrl ? { thumbnailUrl } : {}),
     });
-    return err;
+    return err !== null || data === null ? fail(err ?? 'internal') : { error: null, id: data.id };
   };
 
   const eventErrorText = (code: string) =>
@@ -881,6 +945,78 @@ export default function SharedLibrary() {
     push(`Filed ${done} item${done === 1 ? '' : 's'}${failed > 0 ? `, ${failed} failed` : ''}.`, failed > 0 ? 'error' : 'success');
   };
 
+  /* ── Optimize + replace a model's file ───────────────────────────── */
+
+  const REPLACE_STEP_WORDS: Record<ReplaceStep, string> = {
+    checking: 'Checking the file…',
+    uploading: 'Uploading…',
+    replacing: 'Replacing…',
+  };
+
+  /** After a replace: re-read, and follow a new version so the panel shows it. */
+  const afterReplace = async (item: CmsItem, newId: string) => {
+    await load();
+    if (newId !== item.id) setActiveKey(`library:${newId}`);
+  };
+
+  /** "Use optimized" on a library prop: through the replace action. */
+  const applyOptimizedToLibrary = async (item: CmsItem, bytes: Uint8Array, stats: OptimizeStats): Promise<boolean> => {
+    const run = await replaceModelFile({ id: item.id, name: item.name }, glbFile(bytes, glbFileName(item.name)), { optimize: null });
+    if (!run.ok) { push(`${item.name}: ${run.reason}`, 'error'); return false; }
+    const out = replaceOutcomeText(item.name, run.result, formatSaving(stats.bytesBefore, stats.bytesAfter));
+    push(out.text, out.tone);
+    await afterReplace(item, run.result.id);
+    return true;
+  };
+
+  /**
+   * "Add optimized copy to library" on an event model. The host's event row
+   * is never touched: the piece is copied in through the usual add (hidden
+   * from hosts), then the NEW library item — which no event uses yet — gets
+   * the optimized file in place.
+   */
+  const addOptimizedEventCopy = async (item: CmsItem, bytes: Uint8Array, stats: OptimizeStats): Promise<boolean> => {
+    const name = tidyEventName(item.name);
+    const added = await addOneEventRow(item, { name, categoryId: item.categoryId });
+    if (added.error !== null || added.id === undefined) { push(eventErrorText(added.error ?? 'internal'), 'error'); return false; }
+    const run = await replaceModelFile({ id: added.id, name }, glbFile(bytes, glbFileName(name)), { optimize: null });
+    await load();
+    if (!run.ok) {
+      push(`Added “${name}” to the library, hidden from hosts, but with its original file: ${run.reason} Open it under Library and optimize it again.`, 'error');
+      return true;
+    }
+    const out = replaceOutcomeText(name, run.result, formatSaving(stats.bytesBefore, stats.bytesAfter));
+    push(out.tone === 'success'
+      ? `Added “${name}” to the library with the smaller file (${formatSaving(stats.bytesBefore, stats.bytesAfter)}), hidden from hosts for now.`
+      : out.text, out.tone);
+    setActiveKey(`library:${run.result.id}`);
+    return true;
+  };
+
+  /** The confirmed "Replace file": the same pipeline as an import, then replace. */
+  const runReplaceFile = async () => {
+    if (!replaceAsk || replaceStep !== null) return;
+    const { item, file } = replaceAsk;
+    setReplaceStep({ id: item.id, label: REPLACE_STEP_WORDS.checking });
+    const run = await replaceModelFile({ id: item.id, name: item.name }, file, {
+      optimize: replaceOptimize ? OPTIMIZE_PRESETS.balanced : null,
+      onStep: (s) => setReplaceStep({ id: item.id, label: REPLACE_STEP_WORDS[s] }),
+    });
+    setReplaceStep(null);
+    setReplaceAsk(null);
+    if (!run.ok) { push(`${item.name}: ${run.reason}`, 'error'); return; }
+    const out = replaceOutcomeText(item.name, run.result, run.original ? formatSaving(run.original.bytes, run.bytes) : undefined);
+    push(out.text, out.tone);
+    await afterReplace(item, run.result.id);
+  };
+
+  const openOptimize = (item: CmsItem) => {
+    if (!item.modelUrl) return;
+    // One dialog at a time: the phone's detail sheet closes for the compare.
+    setMobileDetail(false);
+    setOptimizing(item);
+  };
+
   /* ── Studio workshop ─────────────────────────────────────────────── */
 
   // The Studio only edits event scenes, so both of these go through the admin's
@@ -935,8 +1071,12 @@ export default function SharedLibrary() {
       onAddEvent={addEvent}
       onEditInStudio={(item) => void editInStudio(item)}
       opening={opening}
+      onOptimize={openOptimize}
+      onReplaceFile={(item, file) => { setReplaceOptimize(true); setReplaceAsk({ item, file }); }}
+      replaceStep={replaceStep?.id === active.id ? replaceStep.label : null}
     />
   );
+  const optimizableSelected = librarySelected.filter((i) => canReplaceFile(i));
 
   return (
     <div className="p-4 sm:p-6 md:p-8 max-w-[1440px] mx-auto pb-32">
@@ -1397,6 +1537,19 @@ export default function SharedLibrary() {
                   </button>
                 )}
                 <button type="button" disabled={busy} onClick={() => void runBulk({ categoryId: null }, 'Category cleared')} className={SOFT_BTN}>No category</button>
+                {optimizableSelected.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      const take = optimizableSelected.slice(0, BULK_OPTIMIZE_MAX);
+                      setBulkOpt({ items: take, skipped: librarySelected.length - take.length });
+                    }}
+                    className={SOFT_BTN}
+                  >
+                    <Minimize2 className="w-3.5 h-3.5" aria-hidden /> Optimize {Math.min(optimizableSelected.length, BULK_OPTIMIZE_MAX)}
+                  </button>
+                )}
               </>
             )}
             {eventSelected.length > 0 && (
@@ -1493,6 +1646,104 @@ export default function SharedLibrary() {
           }
           onConfirm={() => void applyState()}
           onCancel={() => setPending(null)}
+        />
+      )}
+
+      {optimizing && optimizing.modelUrl && (() => {
+        const it = optimizing;
+        const url = it.modelUrl as string;
+        const close = () => setOptimizing(null);
+        if (it.source === 'library' && canReplaceFile(it)) {
+          const c = replaceConsequence({ name: it.name, linkCount: it.linkCount, state: it.state }, capped);
+          return (
+            <OptimizeCompare
+              name={it.name}
+              modelUrl={url}
+              footNote={c.path === 'in_place'
+                ? 'Use optimized swaps this item’s file for the smaller one. No event uses it yet.'
+                : 'Use optimized adds the smaller file as a new version. Events keep the file they have.'}
+              confirm={{ lines: c.lines, label: c.path === 'in_place' ? 'Replace the file' : 'Add as a new version' }}
+              onUse={(bytes, stats) => applyOptimizedToLibrary(it, bytes, stats)}
+              onClose={close}
+            />
+          );
+        }
+        if (it.source === 'event' && !it.inLibrary) {
+          return (
+            <OptimizeCompare
+              name={it.name}
+              modelUrl={url}
+              useLabel="Add optimized copy to library"
+              footNote="The event’s own model is never changed. This copies it into the library with the smaller file instead."
+              confirm={{
+                lines: [
+                  `Copies “${tidyEventName(it.name)}” into the library with the smaller file, hidden from hosts until you choose Show to hosts.`,
+                  'The event keeps its own copy, unchanged.',
+                ],
+                label: 'Add optimized copy',
+              }}
+              onUse={(bytes, stats) => addOptimizedEventCopy(it, bytes, stats)}
+              onClose={close}
+            />
+          );
+        }
+        return (
+          <OptimizeCompare
+            name={it.name}
+            modelUrl={url}
+            footNote={it.source === 'builtin'
+              ? 'Built into the app: its file ships with the app’s code, so you can compare here but not change it.'
+              : it.source === 'event'
+                ? 'Already copied into the library. Optimize that copy from the Library tab; the event’s own model is never changed.'
+                : it.type === 'scene'
+                  ? 'This is a scene’s 3D piece. Only a single 3D prop can take a new file here; edit the scene in the Studio.'
+                  : 'Withdrawn items cannot take a new file. Show it to hosts first.'}
+            onClose={close}
+          />
+        );
+      })()}
+
+      {replaceAsk && (() => {
+        const { item, file } = replaceAsk;
+        const c = replaceConsequence({ name: item.name, linkCount: item.linkCount, state: item.state }, capped);
+        const working = replaceStep !== null;
+        return (
+          <ConfirmModal
+            title={`Replace the file of “${item.name}”?`}
+            tone="caution"
+            confirmLabel={c.path === 'in_place' ? 'Replace the file' : 'Add as a new version'}
+            busy={working}
+            body={
+              <>
+                <p className="mb-2">New file: <span className="text-brand-fg break-all">{file.name}</span></p>
+                {c.lines.map((l) => <p key={l} className="mb-2">{l}</p>)}
+                <label className="flex items-center gap-2 min-h-11 cursor-pointer text-brand-fg/85">
+                  <input
+                    type="checkbox"
+                    className="w-5 h-5 accent-[color:var(--color-accent)]"
+                    checked={replaceOptimize}
+                    disabled={working}
+                    onChange={(e) => setReplaceOptimize(e.target.checked)}
+                  />
+                  Optimize it first (recommended)
+                </label>
+                {working && <p className="mt-2 text-brand-fg" aria-live="polite">{replaceStep?.label}</p>}
+              </>
+            }
+            onConfirm={() => void runReplaceFile()}
+            onCancel={() => { if (!working) setReplaceAsk(null); }}
+          />
+        );
+      })()}
+
+      {bulkOpt && (
+        <BulkOptimizeModal
+          items={bulkOpt.items}
+          skipped={bulkOpt.skipped}
+          capped={capped}
+          onApplied={() => void load()}
+          onToast={push}
+          onClose={() => setBulkOpt(null)}
         />
       )}
     </div>
