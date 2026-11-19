@@ -61,16 +61,17 @@ import {
   STOPS, blendSlots, pageProgress, pinProgress, storyHeightVh, storyStep, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
-import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl } from '../../lib/beamyLooks';
+import { LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, heroTour, nextLook, preloadUrl } from '../../lib/beamyLooks';
 import { preloadModel } from '../../lib/glbCache';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker from './ArPicker';
 import {
-  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arTour, frameOnBeamy, demoQrUrl, smallWindow, stepIntoFrame, lookAction, selectedLooks, toBeamyLook, toggleLook,
-  type ArSelection, type HomeLook, type LookCategory,
+  DEFAULT_OPENING, arOrder, arTour, frameOnBeamy, demoQrUrl, smallWindow, stepIntoFrame, lookAction, selectedLooks, toBeamyLook, toggleLook,
+  type ArSelection, type HomeAssets, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
+import { useBeamyAssets } from './useBeamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
@@ -85,19 +86,17 @@ import cardsPoster from '../../assets/landing/cards-feature-poster.jpg';
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
 const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, Users, Briefcase, Gift };
-/* Asset slots come from lib/beamyAssets (HOME_ASSET_DEFAULTS); an undefined
-   media field there means the bundled file imported here. */
-const A = HOME_ASSET_DEFAULTS;
-const FILM_MEDIA: Record<FilmId, { src: string; poster: string; Icon: (p: BeamIconProps) => ReactNode }> = {
-  booth: { src: A.films.booth.video ?? boothFilm, poster: A.films.booth.poster ?? boothPoster, Icon: BoothIcon },
-  wall: { src: A.films.wall.video ?? wallFilm, poster: A.films.wall.poster ?? wallPoster, Icon: WallIcon },
-  challenges: { src: A.films.challenges.video ?? challengesFilm, poster: A.films.challenges.poster ?? challengesPoster, Icon: ChallengeIcon },
-  cards: { src: A.films.cards.video ?? cardsFilm, poster: A.films.cards.poster ?? cardsPoster, Icon: CardIcon },
-};
-/** The live walls' photos: an override needs more than one wall's worth. */
-const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
-/** The AR step's picker, in category order. */
-const AR_LOOKS = arOrder(A.arLooks);
+/* Asset slots come from useBeamyAssets (lib/beamyAssets HOME_ASSET_DEFAULTS
+   with the /admin/home-assets overrides laid over them); an undefined media
+   field there means the bundled file imported here. */
+function filmMedia(films: HomeAssets['films']): Record<FilmId, { src: string; poster: string; Icon: (p: BeamIconProps) => ReactNode }> {
+  return {
+    booth: { src: films.booth.video ?? boothFilm, poster: films.booth.poster ?? boothPoster, Icon: BoothIcon },
+    wall: { src: films.wall.video ?? wallFilm, poster: films.wall.poster ?? wallPoster, Icon: WallIcon },
+    challenges: { src: films.challenges.video ?? challengesFilm, poster: films.challenges.poster ?? challengesPoster, Icon: ChallengeIcon },
+    cards: { src: films.cards.video ?? cardsFilm, poster: films.cards.poster ?? cardsPoster, Icon: CardIcon },
+  };
+}
 /** How long each step of the AR auto tour holds (the tour stops for good at the first tap). */
 const AR_HOLD_MS = 3200;
 const AR_HOLD_REDUCED_MS = 5200;
@@ -216,6 +215,17 @@ export default function BeamyPage() {
   const phone = vp.w < PHONE_MAX;
   const wideHero = vp.w >= WIDE_HERO_MIN;
   const reduced = useReducedMotion();
+
+  const A = useBeamyAssets();
+  const FILM_MEDIA = useMemo(() => filmMedia(A.films), [A.films]);
+  /** The live walls' photos: an override needs more than one wall's worth. */
+  const PHOTO_POOL = useMemo(() => (A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL), [A.wallPhotos]);
+  /** The AR step's picker, in category order. */
+  const AR_LOOKS = useMemo(() => arOrder(A.arLooks), [A.arLooks]);
+  /** The hero's try-on tour: his greeting, then the hero looks. */
+  const BEAMY_LOOKS = useMemo(() => heroTour(A.heroLooks), [A.heroLooks]);
+  const beamyLooksRef = useRef(BEAMY_LOOKS);
+  beamyLooksRef.current = BEAMY_LOOKS;
 
   const [active, setActive] = useState<StopId>('hero');
   const [step, setStep] = useState(0);
@@ -423,7 +433,7 @@ export default function BeamyPage() {
 
   const lineFor = useCallback((id: StopId, a: Audience): string => {
     switch (id) {
-      case 'hero': return BEAMY_LOOKS[lookIxRef.current]?.line ?? HELLO;
+      case 'hero': return beamyLooksRef.current[lookIxRef.current]?.line ?? HELLO;
       case 'story': return STORY_COPY.heading;
       case 'films': return FILMS.find((f) => f.id === filmRef.current)?.beamy ?? FILMS[0].beamy;
       case 'pick': return GREETING;
@@ -873,7 +883,7 @@ export default function BeamyPage() {
     lastWorn.current = lookIx;
     let live = true;
     let hold = 0;
-    const advance = () => { if (live) setLookIx((k) => nextLook(k)); };
+    const advance = () => { if (live) setLookIx((k) => nextLook(k, BEAMY_LOOKS.length)); };
     // The hold starts once he is actually wearing it (a slow prop is never
     // skipped); a load that never settles still moves on.
     const stuck = window.setTimeout(advance, 15000);
@@ -885,11 +895,11 @@ export default function BeamyPage() {
       hold = window.setTimeout(advance, reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
     });
     // Warm the next look so the swap is instant.
-    const nx = preloadUrl(lookIx);
+    const nx = preloadUrl(lookIx, BEAMY_LOOKS);
     if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = nx; } }
     return () => { live = false; window.clearTimeout(stuck); window.clearTimeout(hold); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
-  }, [tryOn, lookIx, reduced]);
+  }, [tryOn, lookIx, reduced, BEAMY_LOOKS]);
 
   /* ── The story's AR step: the picker drives what he wears, ONE look per
      category, combined (lib/beamyAssets toggleLook): the prop on his head,
@@ -923,7 +933,15 @@ export default function BeamyPage() {
       setArTab(t.tab);
     }, reduced ? AR_HOLD_REDUCED_MS : AR_HOLD_MS);
     return () => window.clearInterval(id);
-  }, [arOn, arTouched, reduced]);
+  }, [arOn, arTouched, reduced, AR_LOOKS]);
+  // The admin's looks arrive after first paint: an untouched tour restarts on them.
+  useEffect(() => {
+    if (arTouched) return;
+    const t = arTour(arK.current, AR_LOOKS);
+    setArSel(t.sel);
+    setArTab(t.tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new look list restarts it
+  }, [AR_LOOKS]);
   /** The prop the AR step has on him (null = none); undefined = the step is not dressing him. */
   const arWorn = useRef<string | null | undefined>(undefined);
   useEffect(() => {
@@ -952,7 +970,7 @@ export default function BeamyPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- arTouched only gates the warm-up
-  }, [arOn, arSel]);
+  }, [arOn, arSel, AR_LOOKS]);
   // Effects: Power-Up style moments that repeat while the effect is on.
   const arFx = arSel.effect;
   useEffect(() => {
@@ -970,7 +988,7 @@ export default function BeamyPage() {
     run();
     const id = window.setInterval(run, a.fx === 'sparkles' ? 1300 : a.fx === 'beam' ? 2000 : 3400);
     return () => window.clearInterval(id);
-  }, [arOn, arFx]);
+  }, [arOn, arFx, AR_LOOKS]);
 
   /* Only the Skip chip skips the intro (or scrolling on). */
   const skipIntro = useCallback(() => {
@@ -1123,7 +1141,7 @@ export default function BeamyPage() {
       // has settled, a tap tries on the next look (with a little hop).
       if (introRunning) { b.sparkle('sparkle'); return; }
       logStep('look:tap');
-      setLookIx((k) => nextLook(k));
+      setLookIx((k) => nextLook(k, BEAMY_LOOKS.length));
       void b.play('Hop');
       return;
     }

@@ -64,7 +64,7 @@ import type { Rect } from '../../lib/beamGeometry';
 import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { snapshotPortrait } from '../../components/beamy/selfieFx';
-import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
+import { useBeamyAssets } from './useBeamyAssets';
 import { fitProp, type BeamyLook } from '../../lib/beamyLooks';
 
 export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle' | typeof SELFIE_CLIP;
@@ -1080,14 +1080,22 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalShadowMat, coneMat, coneGeo]);
   /* The decor props: real library assets, each fitted into a unit box and
      dropped into its holder once Beamy himself is on screen (they share the
-     glb cache with the hero try-on; masters are cloned, never disposed). */
+     glb cache with the hero try-on; masters are cloned, never disposed).
+     The admin's overrides (/admin/home-assets) can arrive after the first
+     drop: a holder whose prop changed swaps it, an unchanged one is kept. */
+  const sceneProps = useBeamyAssets().sceneProps;
   useEffect(() => {
     let live = true;
     const id = window.setTimeout(() => {
       CRYSTALS.forEach((c, i) => {
-        void loadModel(HOME_ASSET_DEFAULTS.sceneProps[i] ?? `${PROP_DIR}${c.prop}.glb`).then((master) => {
+        const src = sceneProps[i] ?? `${PROP_DIR}${c.prop}.glb`;
+        if (crystalRefs.current[i]?.userData.propSrc === src) return;
+        void loadModel(src).then((master) => {
           const holder = crystalRefs.current[i];
-          if (!live || holder === null || holder.children.length > 0) return;
+          if (!live || holder === null || holder.userData.propSrc === src) return;
+          // Clones share the cached master's geometry/materials: remove, never dispose.
+          holder.clear();
+          holder.userData.propSrc = src;
           const obj = master.clone(true);
           obj.updateMatrixWorld(true);
           const box = new THREE.Box3().setFromObject(obj);
@@ -1102,7 +1110,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       });
     }, 1200);
     return () => { live = false; window.clearTimeout(id); };
-  }, []);
+  }, [sceneProps]);
 
   /* The page reads its slots first, every frame, so the target he follows is
      this frame's (a separate loop could run after the render: a frame late). */

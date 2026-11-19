@@ -11,7 +11,7 @@
  * 0.12m above his feet, his crown tip at 0.48 in this space), so every clip
  * (hop, dance, drag-spin) carries the prop with him.
  */
-import { HOME_ASSET_DEFAULTS, toBeamyLook } from './beamyAssets';
+import { HOME_ASSET_DEFAULTS, toBeamyLook, type HomeLook } from './beamyAssets';
 
 /** Where a prop's fitted box is pinned on him. */
 export interface PropFit {
@@ -43,10 +43,17 @@ export interface BeamyLook {
  * The hero's tour: his greeting, then the hero looks from the one asset-slot
  * module (lib/beamyAssets HOME_ASSET_DEFAULTS.heroLooks), in order.
  */
-export const BEAMY_LOOKS: BeamyLook[] = [
-  { id: 'hello', name: 'Nothing yet', kind: 'none', line: 'Hi, I’m Beamy. Check out what I can do!' },
-  ...HOME_ASSET_DEFAULTS.heroLooks.map((l) => toBeamyLook(l)),
-];
+export const BEAMY_LOOKS: BeamyLook[] = heroTour(HOME_ASSET_DEFAULTS.heroLooks);
+
+/** The hero tour for a list of hero looks: his greeting, then each look he can
+ *  wear (a frame or prop; a filter/effect has nothing to put on him, so it is
+ *  skipped rather than shown as a blank step). */
+export function heroTour(looks: readonly HomeLook[]): BeamyLook[] {
+  return [
+    { id: 'hello', name: 'Nothing yet', kind: 'none', line: 'Hi, I’m Beamy. Check out what I can do!' },
+    ...looks.map((l) => toBeamyLook(l)).filter((l) => l.kind !== 'none'),
+  ];
+}
 
 /** How long each look holds before he tries on the next (ms). */
 export const LOOK_HOLD_MS = 4600;
