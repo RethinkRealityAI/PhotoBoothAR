@@ -950,15 +950,16 @@ export default function SharedLibrary() {
                 categories.length} categor${categories.length === 1 ? 'y' : 'ies'}`}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Icon-only on a phone so both editors stay reachable without overflow. */}
           {taxonomyReady && (
-            <button type="button" onClick={() => setManaging(true)} className={`${SOFT_BTN} hidden sm:inline-flex`}>
-              <FolderTree className="w-3.5 h-3.5" aria-hidden /> Categories
+            <button type="button" onClick={() => setManaging(true)} aria-label="Categories" className={SOFT_BTN}>
+              <FolderTree className="w-3.5 h-3.5" aria-hidden /> <span className="hidden sm:inline">Categories</span>
             </button>
           )}
           {taxonomyReady && (
-            <button type="button" onClick={() => setManagingTags(true)} className={`${SOFT_BTN} hidden sm:inline-flex`}>
-              <Tag className="w-3.5 h-3.5" aria-hidden /> Manage tags
+            <button type="button" onClick={() => setManagingTags(true)} aria-label="Manage tags" className={SOFT_BTN}>
+              <Tag className="w-3.5 h-3.5" aria-hidden /> <span className="hidden sm:inline">Manage tags</span>
             </button>
           )}
           <button
@@ -1021,10 +1022,10 @@ export default function SharedLibrary() {
             if (query.source !== 'builtin' && taxonomyReady && eventsWaiting > 0) {
               rows.push({
                 key: 'events',
-                text: `${eventsWaiting} piece${eventsWaiting === 1 ? '' : 's'} made in events ${eventsWaiting === 1 ? 'is' : 'are'} not in the library yet. Adding copies each one in with a picture, filed by what the event knows about it, hidden from hosts until you show it`,
+                text: `${eventsWaiting} piece${eventsWaiting === 1 ? '' : 's'} made in events ${eventsWaiting === 1 ? 'is' : 'are'} not in the library yet. Adding copies each in with a picture, filed for you and hidden from hosts until you show it`,
                 action: (
                   <span className="flex gap-1.5">
-                    {query.source !== 'event' && <button type="button" onClick={() => switchSource('event')} className={`${SOFT_BTN} hidden sm:inline-flex`}>See them</button>}
+                    {query.source !== 'event' && <button type="button" onClick={() => switchSource('event')} className={SOFT_BTN}>See them</button>}
                     <button type="button" disabled={busy} onClick={() => void addAllEvents()} className={PRIMARY_BTN}>
                       {busy && progress ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> : <Upload className="w-3.5 h-3.5" aria-hidden />}
                       Add all {eventsWaiting}
@@ -1043,9 +1044,9 @@ export default function SharedLibrary() {
                 {rows.length > 0 && (
                   <ul className="rounded-2xl bg-white/[0.03] border border-white/10 divide-y divide-white/[0.06]">
                     {rows.map((r) => (
-                      <li key={r.key} className="flex items-center justify-between gap-3 pl-4 pr-1.5 py-1">
+                      <li key={r.key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 px-4 sm:pr-1.5 py-2 sm:py-1">
                         <span className="font-sans text-xs text-brand-fg/85">{r.text}</span>
-                        <span className="shrink-0">{r.action}</span>
+                        <span className="shrink-0 self-end sm:self-auto">{r.action}</span>
                       </li>
                     ))}
                   </ul>
