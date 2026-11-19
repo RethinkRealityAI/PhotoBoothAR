@@ -77,6 +77,7 @@ import {
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
+import type { ArFxKind } from '../../lib/arFx';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
 import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
@@ -1165,24 +1166,21 @@ export default function BeamyPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- arTouched only gates the warm-up
   }, [arOn, arSel]);
-  // Effects: Power-Up style moments that repeat while the effect is on.
+  // Effects: the sparkle burst repeats on the stage while it is on; every
+  // other effect is drawn round him by ArFx (lib/arFx), and he never moves for one.
   const arFx = arSel.effect;
+  const arFxLook = arFx === undefined ? undefined : AR_LOOKS.find((x) => x.id === arFx);
+  const arFxAction = arFxLook !== undefined ? lookAction(arFxLook) : null;
+  const arFxKind: ArFxKind | null = arOn && arFxAction !== null && arFxAction.kind === 'fx' && arFxAction.fx !== 'sparkles' ? arFxAction.fx : null;
+  const arSparkles = arOn && arFxAction !== null && arFxAction.kind === 'fx' && arFxAction.fx === 'sparkles';
   useEffect(() => {
     const b = api.current;
-    if (b === null || !arOn || arFx === undefined) return;
-    const l = AR_LOOKS.find((x) => x.id === arFx);
-    const a = l !== undefined ? lookAction(l) : null;
-    if (a === null || a.kind !== 'fx') return;
-    const run = () => {
-      const w = b.where();
-      if (a.fx === 'sparkles') b.sparkle('burst');
-      else if (a.fx === 'beam') void b.zap({ x: w.x + w.heightPx * 0.9 * (w.x > window.innerWidth / 2 ? -1 : 1), y: w.y - w.heightPx * 1.25 }, 'mouth', 900);
-      else { void b.play('Dance'); b.sparkle('sparkle'); }
-    };
+    if (b === null || !arSparkles) return;
+    const run = () => b.sparkle('burst');
     run();
-    const id = window.setInterval(run, a.fx === 'sparkles' ? 1300 : a.fx === 'beam' ? 2000 : 3400);
+    const id = window.setInterval(run, 1300);
     return () => window.clearInterval(id);
-  }, [arOn, arFx]);
+  }, [arSparkles]);
 
   /* ── The booth hands over a shot: Beamy catches it, then beams it. ─── */
   const onBeam = useCallback((src: string) => {
@@ -1578,7 +1576,7 @@ export default function BeamyPage() {
   const storyScenes = (
     <>
       <StoryScenes step={step} live={active === 'story'} ids={storyIds} stacked={stacked} qrUrl={qrUrl} wallCentreRef={storyWallRef} seed={seed} beamyAt={beamyAt} onCue={onCue} />
-      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onWear={wearAr} active={inStoryAR} stacked={stacked} frameRef={arFrameRef} carRef={arCarRef} />
+      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onWear={wearAr} active={inStoryAR} stacked={stacked} frameRef={arFrameRef} carRef={arCarRef} fx={arFxKind} reduced={reduced} />
     </>
   );
   const story = (

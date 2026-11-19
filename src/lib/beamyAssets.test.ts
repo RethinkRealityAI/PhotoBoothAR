@@ -86,11 +86,12 @@ describe('beamyAssets', () => {
     expect(lookAction(f('filter', '/x.png'))).toEqual({ kind: 'media', url: '/x.png' });
     expect(lookAction(f('effect', 'https://cdn.example/fx.mp4')).kind).toBe('media');
     expect(lookAction(f('effect', 'javascript:alert(1)')).kind).toBe('none');
-    expect(lookAction(f('effect', 'fx:beam'))).toEqual({ kind: 'fx', fx: 'beam' });
+    expect(lookAction(f('effect', 'fx:snow'))).toEqual({ kind: 'fx', fx: 'snow' });
+    expect(lookAction(f('effect', 'fx:beam')).kind).toBe('none');
     expect(lookAction(f('effect', 'fx:explode')).kind).toBe('none');
     expect(lookAction(f('frame', '')).kind).toBe('none');
     expect(lookAction(f('frame', '/guides/frames/nye-countdown.png')).kind).toBe('frame');
-    expect(toBeamyLook(f('effect', 'fx:beam')).kind).toBe('none');
+    expect(toBeamyLook(f('effect', 'fx:snow')).kind).toBe('none');
   });
 
   it('orders the picker by category and auto-advances with a wrap', () => {
@@ -113,6 +114,20 @@ describe('beamyAssets', () => {
     expect(carousel(0, 3)).toEqual({ prev: 2, next: 1, after: null });
     expect(carousel(0, 2)).toEqual({ prev: null, next: 1, after: null });
     expect(carousel(0, 1)).toEqual({ prev: null, next: null, after: null });
+  });
+
+  it('labels the props tab "3D props", and offers 4 to 6 real photo-booth effects (no beam, no dance)', () => {
+    expect(AR_CATEGORIES.find((c) => c.id === 'prop')?.label).toBe('3D props');
+    expect(NONE_TITLE.prop).toBe('No 3D prop');
+    const fx = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'effect');
+    expect(fx.length).toBeGreaterThanOrEqual(4);
+    expect(fx.length).toBeLessThanOrEqual(6);
+    expect(fx.map((l) => l.name)).toContain('Sparkle burst');
+    for (const l of fx) {
+      expect(lookAction(l).kind, l.id).toBe('fx');
+      expect(l.name, l.id).not.toMatch(/beam|dance/i);
+    }
+    expect(new Set(fx.map((l) => l.url)).size).toBe(fx.length);
   });
 
   it('gives every category a carousel that starts on a None stop', () => {

@@ -1788,6 +1788,34 @@
     backdrop-filter: blur(14px) saturate(140%);
     box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 14px 26px -16px var(--bw-shadow);
   }
+  /* The None stop: a small glass chip with its label under it ("No frame"). */
+  .bw-ar-peek[data-kind="none"] {
+    top: 30%;
+    width: auto;
+    height: auto;
+    aspect-ratio: auto;
+    overflow: visible;
+    border-radius: 14px;
+    opacity: 0.92;
+    box-shadow: none;
+    animation: bw-ar-peek-in 520ms var(--bw-ease) both, bw-ar-bob 3.4s ease-in-out 520ms infinite;
+  }
+  .bw-ar-peek[data-kind="none"][data-side="next"] { left: calc(100% + 14px); transform: none; animation-delay: 0s, 1.2s; }
+  .bw-ar-peek[data-kind="none"][data-side="prev"] { right: calc(100% + 14px); transform: none; }
+  .bw-ar-peek[data-kind="none"]:hover { opacity: 1; }
+  .bw-ar-none { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 2px 4px; }
+  .bw-ar-none-chip { width: 40px; height: 40px; }
+  .bw-ar-none-label {
+    color: var(--bw-ink);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    text-shadow: 0 1px 8px rgba(10, 8, 40, 0.55);
+  }
+  /* The effect canvas (components/beamy/ArFx): over the frame and round him. */
+  .bw-ar-fx { position: absolute; left: -24%; top: -6%; width: 148%; height: 108%; pointer-events: none; }
   .bw-ar-orb[data-prop] { background-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
   .bw-ar-orb > .bw-ar-swatch { width: 74%; }
   .bw-ar-orb > img { width: 100%; height: 100%; object-fit: cover; }
@@ -1818,10 +1846,11 @@
   .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: 6px; }
   /* Phones, Frames tab: the frame fills the width, so the None orb would sit
      half off screen; it stays one arrow (or swipe) away instead. */
-  .bw-ar[data-stacked="true"] .bw-ar-car[data-tab="frame"][data-mode="frame"] > .bw-ar-peek[data-kind="orb"] { visibility: hidden; }
+  .bw-ar[data-stacked="true"] .bw-ar-car[data-tab="frame"][data-mode="frame"] > .bw-ar-peek[data-kind="none"] { visibility: hidden; }
   /* Around him (or a frame the page narrowed for them), the orbs and the
      arrows share the columns at his sides: orbs up by his head, arrows by his feet. */
   .bw-ar[data-stacked="true"] .bw-ar-car:not([data-tab="frame"]) .bw-ar-peek[data-kind="orb"] { top: 20%; width: clamp(52px, 13vw, 72px); }
+  .bw-ar[data-stacked="true"] .bw-ar-car:not([data-tab="frame"]) .bw-ar-peek[data-kind="none"] { top: 20%; }
   .bw-ar .bw-ar-car[data-mode="stand"] > .bw-ar-arrow,
   .bw-ar[data-stacked="true"] .bw-ar-car:not([data-tab="frame"]) > .bw-ar-arrow { top: 72%; }
   .bw-ar .bw-ar-car[data-mode="stand"] > .bw-ar-arrow[data-side="prev"],
@@ -2155,7 +2184,8 @@
 [data-brand="2"][data-content-motion="soft"] .bw-scene[data-on="true"] .bw-ks-spark { animation-iteration-count: 1; }
 [data-brand="2"][data-content-motion="soft"] .bw-ar-frame { animation-name: bw-fade; }
 /* The carousel's orbs hold still; its title fades in without the lift. */
-[data-brand="2"][data-content-motion="soft"] .bw-ar-peek[data-kind="orb"] { animation: bw-ar-peek-in 520ms var(--bw-ease) both; }
+[data-brand="2"][data-content-motion="soft"] .bw-ar-peek[data-kind="orb"],
+[data-brand="2"][data-content-motion="soft"] .bw-ar-peek[data-kind="none"] { animation: bw-ar-peek-in 520ms var(--bw-ease) both; }
 [data-brand="2"][data-content-motion="soft"] .bw-ar-title-text { animation-name: bw-fade; }
 [data-brand="2"][data-content-motion="soft"] .bw-film-line-text { animation-name: bw-fade; }
 /* The board's shine is ambient: gone under reduced motion; the climb stays (it is the story). */

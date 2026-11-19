@@ -15,12 +15,14 @@
  * A Look's `url` is a file for frames (a transparent 9:16 PNG) and props (a
  * library GLB). Filters and effects are built into the page, so their url
  * names the built-in: `tint:<css colour | prismatic>` and
- * `fx:<sparkles | beam | dance>` (see `lookAction`). An override filter or
+ * `fx:<sparkles | snow | confetti | hearts | notes | spotlight>` (see
+ * `lookAction`; lib/arFx draws all but sparkles). An override filter or
  * effect given as an image/clip url (what the CMS stores) shows that picture
  * on its tile.
  */
 import type { FilmId } from './brandLanding';
 import type { BeamyLook, PropFit } from './beamyLooks';
+import { AR_FX_KINDS, type ArFxKind } from './arFx';
 
 export type LookCategory = 'frame' | 'filter' | 'prop' | 'effect';
 
@@ -86,7 +88,7 @@ export const DEFAULT_FIT_BY_CATEGORY: Record<LookCategory, PropFit> = {
 /** The AR step's category tabs, in order. */
 export const AR_CATEGORIES: { id: LookCategory; label: string }[] = [
   { id: 'frame', label: 'Frames' },
-  { id: 'prop', label: 'Props' },
+  { id: 'prop', label: '3D props' },
   { id: 'filter', label: 'Filters' },
   { id: 'effect', label: 'Effects' },
 ];
@@ -120,9 +122,15 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     { id: 'ar-aurora', name: 'Aurora', category: 'filter', url: 'tint:#34D399' },
     { id: 'ar-neon', name: 'Neon pulse', category: 'filter', url: 'tint:#E879F9' },
     { id: 'ar-golden', name: 'Golden hour', category: 'filter', url: 'tint:#FFB547' },
+    // Photo-booth effects the platform sells: sparkles (the stage's own),
+    // snowfall (the Christmas pack), confetti and hearts (the booth's
+    // trigger bursts), music notes and stage lights for a party.
     { id: 'ar-sparkles', name: 'Sparkle burst', category: 'effect', url: 'fx:sparkles' },
-    { id: 'ar-beam', name: 'Light beam', category: 'effect', url: 'fx:beam' },
-    { id: 'ar-dance', name: 'Dance party', category: 'effect', url: 'fx:dance' },
+    { id: 'ar-snow', name: 'Snowfall', category: 'effect', url: 'fx:snow' },
+    { id: 'ar-confetti', name: 'Confetti', category: 'effect', url: 'fx:confetti' },
+    { id: 'ar-hearts', name: 'Hearts', category: 'effect', url: 'fx:hearts' },
+    { id: 'ar-notes', name: 'Music notes', category: 'effect', url: 'fx:notes' },
+    { id: 'ar-spotlight', name: 'Stage lights', category: 'effect', url: 'fx:spotlight' },
   ],
   // Full-colour library props around the hero (the old crown/halo/tiara GLBs
   // carry no material at all, so they rendered grey): a holly wreath, a
@@ -157,12 +165,14 @@ export type LookAction =
   | { kind: 'frame'; url: string }
   | { kind: 'prop'; url: string; fit: PropFit }
   | { kind: 'tint'; color: string }
-  | { kind: 'fx'; fx: 'sparkles' | 'beam' | 'dance' }
+  | { kind: 'fx'; fx: ArFx }
   /** A filter or effect given as a picture or clip (a CMS override): shown on its tile only. */
   | { kind: 'media'; url: string }
   | { kind: 'none' };
 
-const FX = new Set(['sparkles', 'beam', 'dance']);
+/** An effect: the stage's sparkle burst, or one lib/arFx draws. */
+export type ArFx = 'sparkles' | ArFxKind;
+const FX = new Set<string>(['sparkles', ...AR_FX_KINDS]);
 /** A colour the tint accepts: #rgb / #rrggbb, or the prismatic cycle. */
 const TINT_RE = /^(#[0-9a-f]{3}|#[0-9a-f]{6}|prismatic)$/i;
 
@@ -179,7 +189,7 @@ export function lookAction(l: HomeLook): LookAction {
   if (l.category === 'effect') {
     if (!u.startsWith('fx:')) return media();
     const f = u.slice(3);
-    return FX.has(f) ? { kind: 'fx', fx: f as 'sparkles' | 'beam' | 'dance' } : { kind: 'none' };
+    return FX.has(f) ? { kind: 'fx', fx: f as ArFx } : { kind: 'none' };
   }
   if (u === '') return { kind: 'none' };
   if (l.category === 'frame') return { kind: 'frame', url: u };
@@ -417,9 +427,9 @@ export function arTour(k: number, looks: HomeLook[]): { sel: ArSelection; tab: L
 }
 
 /** The AR carousels' "nothing on" stop, titled per category. */
-export const NONE_TITLE: Record<LookCategory, string> = { frame: 'No frame', prop: 'No prop', filter: 'No filter', effect: 'No effect' };
+export const NONE_TITLE: Record<LookCategory, string> = { frame: 'No frame', prop: 'No 3D prop', filter: 'No filter', effect: 'No effect' };
 /** What one item of a category is called (the carousel's arrow labels). */
-export const AR_NOUN: Record<LookCategory, string> = { frame: 'frame', prop: 'prop', filter: 'filter', effect: 'effect' };
+export const AR_NOUN: Record<LookCategory, string> = { frame: 'frame', prop: '3D prop', filter: 'filter', effect: 'effect' };
 
 /** A category's carousel stops: "None" (null) first, so it can always be taken off, then its looks in order. */
 export function arStops(looks: HomeLook[], cat: LookCategory): (HomeLook | null)[] {

@@ -6,7 +6,7 @@
  * decides what Beamy wears; this file is only the UI, floating on the scene
  * with no panel.
  *
- *   • A floating glass tab switcher: Frames, Props, Filters, Effects.
+ *   • A floating glass tab switcher: Frames, 3D props, Filters, Effects.
  *   • No tiles. In each category the asset itself is the carousel. The
  *     current stop is on Beamy. The stops before and after it peek in at its
  *     sides. Arrows, a tap on a peek, a sideways swipe or the arrow keys step
@@ -33,15 +33,18 @@
  * him.
  */
 import { useRef, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
-import { ChevronLeft, ChevronRight, CircleSlash, Music2, Sparkles, Zap, type LucideIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CircleSlash, Heart, Music, PartyPopper, Snowflake, Sparkles, Spotlight, type LucideIcon } from 'lucide-react';
 import {
-  AR_CATEGORIES, AR_NOUN, arStopIndex, arStops, arTitle, lookAction, lookThumb, selectedLooks,
-  type ArSelection, type HomeLook, type LookCategory,
+  AR_CATEGORIES, AR_NOUN, NONE_TITLE, arStopIndex, arStops, arTitle, lookAction, lookThumb, selectedLooks,
+  type ArFx, type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
+import type { ArFxKind } from '../../lib/arFx';
 import { AR_COPY } from '../../lib/beamyStory';
 import ShineText from '../../components/beamy/ShineText';
+import ArFxCanvas from '../../components/beamy/ArFx';
 
-const FX_ICONS: Record<string, LucideIcon> = { sparkles: Sparkles, beam: Zap, dance: Music2 };
+/** Each effect's line icon (no emoji). */
+const FX_ICONS: Record<ArFx, LucideIcon> = { sparkles: Sparkles, snow: Snowflake, confetti: PartyPopper, hearts: Heart, notes: Music, spotlight: Spotlight };
 
 /** A filter's swatch: its own colour as a flat disc (prismatic: three flat bands). */
 function Swatch({ color }: { color: string }) {
@@ -56,8 +59,16 @@ function Swatch({ color }: { color: string }) {
 }
 
 /** What a peek shows: the frame, an empty orb the stage fills with the prop, a swatch, an icon, or None. */
-function PeekFace({ stop }: { stop: HomeLook | null }) {
-  if (stop === null) return <span className="bw-ar-orb" aria-hidden><CircleSlash className="h-6 w-6" strokeWidth={1.6} /></span>;
+function PeekFace({ stop, cat }: { stop: HomeLook | null; cat: LookCategory }) {
+  // None: a small glass chip, its label under it ("No frame", "No 3D prop" ...).
+  if (stop === null) {
+    return (
+      <span className="bw-ar-none" aria-hidden>
+        <span className="bw-ar-orb bw-ar-none-chip"><CircleSlash className="h-[18px] w-[18px]" strokeWidth={1.7} /></span>
+        <span className="bw-ar-none-label">{NONE_TITLE[cat]}</span>
+      </span>
+    );
+  }
   const a = lookAction(stop);
   if (a.kind === 'frame') return <img src={a.url} alt="" draggable={false} />;
   if (a.kind === 'prop') return <span className="bw-ar-orb" data-prop aria-hidden />;
@@ -67,7 +78,7 @@ function PeekFace({ stop }: { stop: HomeLook | null }) {
   return <span className="bw-ar-orb" aria-hidden>{Icon !== null && <Icon className="h-6 w-6" strokeWidth={1.6} />}</span>;
 }
 
-export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stacked, frameRef, carRef }: {
+export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stacked, frameRef, carRef, fx, reduced }: {
   /** The picker's looks, in category order (lib/beamyAssets arOrder). */
   looks: HomeLook[];
   /** What he wears: one look id per category. */
@@ -83,6 +94,9 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
   frameRef: Ref<HTMLImageElement>;
   /** The carousel box; the page lays it over the frame, or around him. */
   carRef: Ref<HTMLDivElement>;
+  /** The effect drawn round him (lib/arFx), or null. */
+  fx: ArFxKind | null;
+  reduced: boolean;
 }) {
   const worn = selectedLooks(sel, looks);
   const frame = worn.find((l) => l.category === 'frame');
@@ -121,13 +135,13 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
         type="button"
         className="bw-ar-peek"
         data-side={side}
-        data-kind={a?.kind === 'frame' ? 'frame' : 'orb'}
+        data-kind={a?.kind === 'frame' ? 'frame' : s === null ? 'none' : 'orb'}
         data-prop-url={a?.kind === 'prop' ? a.url : undefined}
         tabIndex={-1}
         aria-label={s === null ? `Take the ${noun} off` : `Try ${s.name}`}
         onClick={() => onWear(tab, s)}
       >
-        <PeekFace stop={s} />
+        <PeekFace stop={s} cat={tab} />
       </button>
     );
   };
@@ -157,6 +171,8 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
         onPointerUp={onUp}
         onPointerCancel={() => { swipe.current = null; }}
       >
+        {/* The effect, drawn round him (never takes a tap). */}
+        {fx !== null && <ArFxCanvas kind={fx} reduced={reduced} className="bw-ar-fx" />}
         <p className="bw-ar-title" aria-hidden><ShineText key={title} text={title} className="bw-ar-title-text" /></p>
         {peek(-1)}
         {peek(1)}
