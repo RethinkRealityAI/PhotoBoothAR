@@ -40,6 +40,29 @@ export function snapshotPortrait(src: HTMLCanvasElement, head: { x: number; y: n
   return out.toDataURL('image/jpeg', 0.85);
 }
 
+/**
+ * A rect of a WebGL canvas (CSS px) as a 9:16 photo (360×640), over the same
+ * backdrop as the portrait: a framed selfie, the whole frame with him in its
+ * window. Throws if the canvas cannot be read (the caller keeps the card's
+ * face then). Call it in the same task as a render.
+ */
+export function snapshotRect(src: HTMLCanvasElement, r: { left: number; top: number; width: number; height: number }, cssW: number): string {
+  const k = src.width / Math.max(1, cssW);
+  const out = document.createElement('canvas');
+  out.width = 360;
+  out.height = 640;
+  const g = out.getContext('2d');
+  if (g === null) throw new Error('no 2d context');
+  const bg = g.createRadialGradient(180, 300, 10, 180, 340, 420);
+  bg.addColorStop(0, `rgb(${AMBER})`);
+  bg.addColorStop(0.45, `rgb(${PERIWINKLE})`);
+  bg.addColorStop(1, '#2b2f6b');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, out.width, out.height);
+  g.drawImage(src, r.left * k, r.top * k, r.width * k, r.height * k, 0, 0, out.width, out.height);
+  return out.toDataURL('image/jpeg', 0.85);
+}
+
 /** The flash overlay's background at a point; reduced motion = a dim, soft bloom. */
 export function flashGradient(x: number, y: number, reduced: boolean): string {
   const at = `${x.toFixed(0)}px ${y.toFixed(0)}px`;

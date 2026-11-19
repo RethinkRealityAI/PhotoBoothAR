@@ -62,9 +62,9 @@ import { SELFIE_CLIP, SELFIE_SPEED, selfieTimeline, type SelfieTimeline } from '
 import type { Rect } from '../../lib/beamGeometry';
 import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { snapshotPortrait } from '../../components/beamy/selfieFx';
+import { snapshotPortrait, snapshotRect } from '../../components/beamy/selfieFx';
 import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
-import { fitProp, type BeamyLook } from '../../lib/beamyLooks';
+import { fitProp, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
 
 export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle' | typeof SELFIE_CLIP;
 
@@ -93,6 +93,9 @@ export interface StageLayout {
   bubbleAway?: boolean;
   /** His tap target steps aside (mid-glide). Separate from the bubble: phones never show the bubble, but always take a tap. */
   hitAway?: boolean;
+  /** Where a worn frame stands (viewport px: its top-left and height, 9:16), placed by the page
+   *  (lib/beamyAssets frameOnBeamy). Absent = the frame's own geometry behind him. */
+  frameAt?: { left: number; top: number; h: number } | null;
   /** How long the page's last slot read took (ms), for the ?debug readout. */
   tickMs?: number;
 }
@@ -116,6 +119,8 @@ export interface SelfieFrame {
   heightPx: number;
   /** Beamy's own portrait, on the snap frame only (null if the canvas could not be read). */
   photo?: string | null;
+  /** He is wearing a placed frame: the photo is the whole frame (9:16), him inside its window. */
+  framed: boolean;
 }
 
 export interface BeamyApi {
@@ -451,6 +456,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const wornTopAt = (wn: { top: number; anchor: number }, k: number) => wn.anchor + (wn.top - wn.anchor) * k;
   const wearToken = useRef(0);
   const frameMesh = useRef<THREE.Mesh>(null);
+  /** The frame's window backdrop (the "photo" behind him): its fractions of the frame. */
+  const frameBack = useRef<THREE.Mesh>(null);
+  const frameOpening = useRef<{ top: number; bottom: number; left: number; right: number } | null>(null);
   const frameOn = useRef({ on: false, alpha: 0 });
   /** The frame's height and centre in his heights: smaller on phones, where he is small beside the wall. */
   const frameFit = useRef<{ h: number; c: number } | null>(null);
@@ -458,9 +466,17 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const wornLiftNow = () => {
     const wn = worn.current;
     const prop = wn === null ? 0 : Math.max(0, wornTopAt(wn, wn.k) - 1) * Math.min(1, wn.t);
+    const at = layoutRef.current.frameAt;
+    const hp = Math.max(1, layoutRef.current.heightPx * scale.current);
     const g = frameGeo();
-    const frame = Math.max(0, g.c + g.h / 2 - 1) * frameOn.current.alpha;
+    const top = at != null ? (pos.current.y - at.top) / hp : g.c + g.h / 2;
+    const frame = Math.max(0, top - 1) * frameOn.current.alpha;
     return Math.max(prop, frame);
+  };
+  /** The placed frame's rect while it is on (viewport px), else null. */
+  const framedRect = (): Rect | null => {
+    const at = layoutRef.current.frameAt;
+    return at != null && frameOn.current.on && frameOn.current.alpha > 0.5 ? { left: at.left, top: at.top, width: (at.h * 9) / 16, height: at.h } : null;
   };
 
   /* Load the rig once. The page owns the instance, so it is disposed here. */
@@ -898,43 +914,50 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         if (look === null || look.kind === 'none' || look.url === undefined) return Promise.resolve();
         const url = look.url;
         if (look.kind === 'frame') {
-          return loadFrameTexture(url).then((tex) => {
+          // A frame may bring a prop with it (the Christmas look: Holiday cover + antlers).
+          const prop = look.prop !== undefined ? wearProp(look.prop.url, look.prop.fit, tok) : Promise.resolve();
+          const frame = loadFrameTexture(url).then((tex) => {
             if (tok !== wearToken.current) return;
             frameFit.current = look.frame ?? null;
+            frameOpening.current = look.opening ?? null;
             frameMat.map = tex;
             frameMat.needsUpdate = true;
             frameOn.current.on = true;
           }, () => undefined);
+          return Promise.all([frame, prop]).then(() => undefined);
         }
         const fit = look.fit;
         if (fit === undefined) return Promise.resolve();
-        return loadModel(url).then((master) => {
-          if (tok !== wearToken.current) return;
-          // The body bone carries every clip (hop, dance, the drag-spin).
-          const bone = bodyBone.current;
-          if (bone === null) return;
-          const obj = master.clone(true);
-          obj.updateMatrixWorld(true);
-          const box = new THREE.Box3().setFromObject(obj);
-          const f = fitProp(box.min.toArray() as [number, number, number], box.max.toArray() as [number, number, number], fit);
-          obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 3; } });
-          obj.scale.multiplyScalar(f.scale);
-          // Tilt about the anchor itself: the holder sits ON the anchor.
-          obj.position.set(f.offset[0] - fit.at[0], f.offset[1] - fit.at[1], f.offset[2] - fit.at[2]);
-          const holder = new THREE.Group();
-          holder.add(obj);
-          holder.position.set(fit.at[0], fit.at[1], fit.at[2]);
-          holder.rotation.x = fit.tilt ?? 0;
-          holder.scale.setScalar(0.0001);
-          bone.add(holder);
-          // Its crown in his height units (body bone 0.12 above the feet, 0.6 tall)
-          // so the bubble can clear it.
-          const top = (0.12 + f.offset[1] + box.max.y * f.scale) / 0.6;
-          const anchor = (0.12 + fit.at[1]) / 0.6;
-          worn.current = { holder, t: 0, top: Number.isFinite(top) ? top : 1, anchor: Number.isFinite(anchor) ? anchor : 1, k: 1 };
-        }, () => undefined);
+        return wearProp(url, fit, tok);
       },
     };
+    /** Load a library prop and fit it onto his body bone (it pops in over `worn.t`). */
+    const wearProp = (url: string, fit: PropFit, tok: number): Promise<void> =>
+      loadModel(url).then((master) => {
+        if (tok !== wearToken.current) return;
+        // The body bone carries every clip (hop, dance, the party spin).
+        const bone = bodyBone.current;
+        if (bone === null) return;
+        const obj = master.clone(true);
+        obj.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(obj);
+        const f = fitProp(box.min.toArray() as [number, number, number], box.max.toArray() as [number, number, number], fit);
+        obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 3; } });
+        obj.scale.multiplyScalar(f.scale);
+        // Tilt about the anchor itself: the holder sits ON the anchor.
+        obj.position.set(f.offset[0] - fit.at[0], f.offset[1] - fit.at[1], f.offset[2] - fit.at[2]);
+        const holder = new THREE.Group();
+        holder.add(obj);
+        holder.position.set(fit.at[0], fit.at[1], fit.at[2]);
+        holder.rotation.x = fit.tilt ?? 0;
+        holder.scale.setScalar(0.0001);
+        bone.add(holder);
+        // Its crown in his height units (body bone 0.12 above the feet, 0.6 tall)
+        // so the bubble can clear it.
+        const top = (0.12 + f.offset[1] + box.max.y * f.scale) / 0.6;
+        const anchor = (0.12 + fit.at[1]) / 0.6;
+        worn.current = { holder, t: 0, top: Number.isFinite(top) ? top : 1, anchor: Number.isFinite(anchor) ? anchor : 1, k: 1 };
+      }, () => undefined);
     apiRef.current = api;
     return () => { apiRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs only
@@ -951,7 +974,27 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   }), []);
   /** The try-on frame: a transparent 9:16 PNG on a plane standing behind him. */
   const frameMat = useMemo(() => new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, opacity: 0, toneMapped: false }), []);
-  useEffect(() => () => { frameMat.dispose(); }, [frameMat]);
+  /** Behind him, filling the frame's window: a soft studio backdrop (amber glow into
+   *  periwinkle, as in his selfies), so the window reads as the photo and never shows
+   *  the wall or the copy through it. */
+  const frameBackMat = useMemo(() => {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 192;
+    const g = c.getContext('2d');
+    if (g !== null) {
+      const bg = g.createRadialGradient(64, 120, 6, 64, 110, 150);
+      bg.addColorStop(0, 'rgb(255,214,160)');
+      bg.addColorStop(0.42, 'rgb(150,156,255)');
+      bg.addColorStop(1, 'rgb(46,50,112)');
+      g.fillStyle = bg;
+      g.fillRect(0, 0, 128, 192);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0, toneMapped: false });
+  }, []);
+  useEffect(() => () => { frameMat.dispose(); frameBackMat.map?.dispose(); frameBackMat.dispose(); }, [frameMat, frameBackMat]);
   const floorMat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: BEAM_VERT,
     fragmentShader: FLOOR_FRAG,
@@ -1257,14 +1300,33 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const a = fo.alpha * presence * appear.current;
       fmesh.visible = a > 0.01 && shown.current;
       if (fmesh.visible) {
-        const wp = toWorld(pos.current);
-        // Feet just inside its lower edge; its masthead clears the bubble.
-        const g = frameGeo();
-        const fh = heightPx * g.h;
         const pop = reduced ? 1 : 0.92 + 0.08 * fo.alpha;
-        fmesh.position.set(wp.x, wp.y + heightPx * g.c, -160);
-        fmesh.scale.set(fh * 0.5625 * pop, fh * pop, 1);
+        const at = layout.frameAt;
+        if (at != null) {
+          // Placed by the page (frameOnBeamy): his face in its window.
+          const c = toWorld({ x: at.left + (at.h * 9) / 32, y: at.top + at.h / 2 });
+          fmesh.position.set(c.x, c.y, -160);
+          fmesh.scale.set(at.h * 0.5625 * pop, at.h * pop, 1);
+        } else {
+          const wp = toWorld(pos.current);
+          // Feet just inside its lower edge; its masthead clears the bubble.
+          const g = frameGeo();
+          const fh = heightPx * g.h;
+          fmesh.position.set(wp.x, wp.y + heightPx * g.c, -160);
+          fmesh.scale.set(fh * 0.5625 * pop, fh * pop, 1);
+        }
         frameMat.opacity = a;
+      }
+      // The window's backdrop rides the frame (a child: same transform, behind it).
+      const fb = frameBack.current;
+      const o = frameOpening.current;
+      if (fb !== null) {
+        fb.visible = fmesh.visible && o !== null;
+        if (fb.visible && o !== null) {
+          fb.position.set((o.left + o.right) / 2 - 0.5, 0.5 - (o.top + o.bottom) / 2, -20);
+          fb.scale.set(Math.max(0.01, o.right - o.left), Math.max(0.01, o.bottom - o.top), 1);
+          frameBackMat.opacity = a;
+        }
       }
     }
 
@@ -1282,13 +1344,15 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         pw.y += 0.05 * s; // the bone is the grip; the screen sits above it
         const hw = new THREE.Vector3();
         if (bodyBone.current) { bodyBone.current.getWorldPosition(hw); hw.y += 0.52 * s; } else hw.set(toWorld(pos.current).x, toWorld(pos.current).y + heightPx * 1.07, 0);
-        const frame: SelfieFrame = { t: run.t, tl: run.tl, phone: toScreen(pw), head: toScreen(hw), heightPx };
+        const fr = framedRect();
+        const frame: SelfieFrame = { t: run.t, tl: run.tl, phone: toScreen(pw), head: toScreen(hw), heightPx, framed: fr !== null };
         if (!run.snapped && run.t >= run.tl.cues.snap) {
           run.snapped = true;
           try {
-            // Render now so the drawing buffer is valid for this task: his own selfie.
+            // Render now so the drawing buffer is valid for this task: his own selfie
+            // (in a frame: the whole frame, him and what he wears in its window).
             state.gl.render(state.scene, state.camera);
-            frame.photo = snapshotPortrait(state.gl.domElement, frame.head, heightPx * 1.45, W);
+            frame.photo = fr !== null ? snapshotRect(state.gl.domElement, fr, W) : snapshotPortrait(state.gl.domElement, frame.head, heightPx * 1.45, W);
           } catch {
             frame.photo = null;
           }
@@ -1703,6 +1767,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       </group>
       <mesh ref={frameMesh} material={frameMat} visible={false} frustumCulled={false} renderOrder={1}>
         <planeGeometry args={[1, 1]} />
+        <mesh ref={frameBack} material={frameBackMat} visible={false} frustumCulled={false} renderOrder={0.5}>
+          <planeGeometry args={[1, 1]} />
+        </mesh>
       </mesh>
       {model !== null && (
         <group ref={rig}>

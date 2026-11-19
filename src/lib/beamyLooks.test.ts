@@ -5,18 +5,26 @@ import { BEAMY_LOOKS, fitProp, nextLook, preloadUrl } from './beamyLooks';
 import { EMOJI_RE } from './brandLanding';
 
 describe('beamyLooks', () => {
-  it('opens with the greeting, then real platform assets that exist in public/', () => {
-    expect(BEAMY_LOOKS[0].kind).toBe('none');
-    expect(BEAMY_LOOKS[0].line).toMatch(/Beamy/);
-    const worn = BEAMY_LOOKS.slice(1);
-    expect(worn.length).toBeGreaterThanOrEqual(4);
-    for (const l of worn) {
+  it('opens on the Christmas look (Holiday cover + antlers), then real platform assets that exist in public/', () => {
+    // The owner (v9): he lands already dressed for Christmas, the frame around
+    // him and the antlers on, and that is the selfie the wall receives.
+    const first = BEAMY_LOOKS[0];
+    expect(first.kind).toBe('frame');
+    expect(first.url).toMatch(/christmas-santa-cover\.png$/);
+    expect(first.prop?.url).toMatch(/reindeer-antlers\.glb$/);
+    expect(first.opening).toBeDefined();
+    expect(BEAMY_LOOKS.length).toBeGreaterThanOrEqual(4);
+    for (const l of BEAMY_LOOKS) {
       expect(l.url, l.id).toBeDefined();
       expect(existsSync(resolve(__dirname, '../../public', `.${l.url}`)), l.url).toBe(true);
+      if (l.prop !== undefined) expect(existsSync(resolve(__dirname, '../../public', `.${l.prop.url}`)), l.prop.url).toBe(true);
       if (l.kind === 'prop') expect(l.fit, l.id).toBeDefined();
     }
-    // One of each kind the owner asked to see: a crown, a hat, glasses, a frame.
-    for (const id of ['crown', 'hat', 'glasses', 'frame']) expect(BEAMY_LOOKS.map((l) => l.id)).toContain(id);
+    // Kept by the owner: the neon glasses and the antlers. Dropped (they read
+    // grey): the Santa hat, the Royal crown, and the material-less tiara.
+    const urls = BEAMY_LOOKS.flatMap((l) => [l.url, l.prop?.url]);
+    for (const keep of ['neon-shades.glb', 'reindeer-antlers.glb']) expect(urls.some((u) => u?.endsWith(keep)), keep).toBe(true);
+    for (const gone of ['santa-hat.glb', 'royal-crown.glb', 'queens-tiara.glb', 'halo-ring.glb']) expect(urls.some((u) => u?.endsWith(gone)), gone).toBe(false);
     expect(new Set(BEAMY_LOOKS.map((l) => l.id)).size).toBe(BEAMY_LOOKS.length);
   });
 
@@ -29,16 +37,20 @@ describe('beamyLooks', () => {
       expect(l.line, l.line).not.toMatch(/on[- ]site|in person|at your venue|technician|attendant/i);
     }
     expect(BEAMY_LOOKS.some((l) => /Snapchat and Instagram/.test(l.line))).toBe(true);
+    // The bubble invites a tap and a scroll, phone-safe ("Tap", never "Click").
+    expect(BEAMY_LOOKS.some((l) => /^Tap me/.test(l.line))).toBe(true);
+    expect(BEAMY_LOOKS.some((l) => /^Scroll/.test(l.line))).toBe(true);
+    for (const l of BEAMY_LOOKS) expect(l.line, l.line).not.toMatch(/\bclick/i);
   });
 
-  it('cycles through the worn looks, the greeting only once', () => {
+  it('cycles through every look, the Christmas one included', () => {
     const n = BEAMY_LOOKS.length;
     const seen = [0];
     let i = 0;
     for (let k = 0; k < n * 2; k++) { i = nextLook(i, n); seen.push(i); }
     expect(seen.slice(0, n)).toEqual(Array.from({ length: n }, (_, k) => k));
-    expect(seen.slice(1).includes(0)).toBe(false);
-    expect(nextLook(n - 1, n)).toBe(1);
+    expect(seen[n]).toBe(0);
+    expect(nextLook(n - 1, n)).toBe(0);
     expect(nextLook(0, 1)).toBe(0);
     expect(preloadUrl(0)).toBe(BEAMY_LOOKS[1].url);
   });

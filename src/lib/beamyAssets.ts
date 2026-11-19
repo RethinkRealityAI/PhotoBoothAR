@@ -38,6 +38,8 @@ export interface HomeLook {
   fit?: PropFit;
   /** A frame's see-through window, as fractions of the frame; absent = DEFAULT_OPENING. */
   opening?: FrameOpening;
+  /** A frame worn together with a library prop (GLB url); the prop sits where `fit` says. */
+  with?: string;
 }
 
 /** A frame's see-through window: fractions of the frame's height (top/bottom) and width (left/right). */
@@ -93,12 +95,13 @@ const F = '/guides/frames/';
 export const HOME_ASSET_DEFAULTS: HomeAssets = {
   films: { booth: {}, wall: {}, challenges: {}, cards: {} },
   heroLooks: [
-    { id: 'crown', name: 'Royal crown', category: 'prop', url: `${P}royal-crown.glb`, fit: { width: 0.32, at: [0, 0.31, 0], align: 'base' }, line: 'Real 3D filters, like this crown. Tap me for more!' },
-    { id: 'hat', name: 'Santa hat', category: 'prop', url: `${P}santa-hat.glb`, fit: { width: 0.29, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 }, line: 'Build your own filters, or customise any of ours.' },
-    { id: 'glasses', name: 'Neon shades', category: 'prop', url: `${P}neon-shades.glb`, fit: { width: 0.4, at: [0, 0.225, 0.19], align: 'centre' }, line: 'Got a design? Upload it, or ask us to make one.' },
-    { id: 'frame', name: 'Gala cover frame', category: 'frame', url: `${F}gala-magazine-cover.png`, line: 'Frames too, made in your event’s colours.' },
-    { id: 'antlers', name: 'Reindeer antlers', category: 'prop', url: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'A whole library of 3D props for your event.' },
-    { id: 'tiara', name: 'Tiara', category: 'prop', url: `${P}queens-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' }, line: 'Snapchat and Instagram in one, right in the browser.' },
+    // Christmas first: he lands, puts on the Holiday cover and the antlers, and
+    // that dressed-up selfie is the photo he beams to the wall.
+    { id: 'holiday', name: 'Holiday cover + antlers', category: 'frame', url: `${F}christmas-santa-cover.png`, opening: { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 }, with: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'Tap me to see more!' },
+    { id: 'glasses', name: 'Neon shades', category: 'prop', url: `${P}neon-shades.glb`, fit: { width: 0.4, at: [0, 0.225, 0.19], align: 'centre' }, line: 'Real 3D filters, right in the browser.' },
+    { id: 'elf', name: 'Elf hat', category: 'prop', url: `${P}elf-hat.glb`, fit: { width: 0.3, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 }, line: 'Scroll to see what I can do.' },
+    { id: 'tree', name: 'Christmas tree hat', category: 'prop', url: `${P}tree-hat.glb`, fit: { width: 0.27, at: [0, 0.33, 0], align: 'base' }, line: 'Snapchat and Instagram in one, right in the browser.' },
+    { id: 'antlers', name: 'Reindeer antlers', category: 'prop', url: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'Tap me for another look!' },
   ],
   arLooks: [
     { id: 'ar-wedding-cover', name: 'Wedding cover', category: 'frame', url: `${F}wedding-magazine-cover.png`, opening: { top: 0.242, bottom: 0.91, left: 0.13, right: 0.87 } },
@@ -106,11 +109,11 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     { id: 'ar-birthday', name: 'Birthday monogram', category: 'frame', url: `${F}birthday-monogram-corner.png`, opening: { top: 0.056, bottom: 0.946, left: 0.093, right: 0.915 } },
     { id: 'ar-countdown', name: 'New Year countdown', category: 'frame', url: `${F}nye-countdown.png`, opening: { top: 0.212, bottom: 0.812, left: 0.144, right: 0.863 } },
     { id: 'ar-asoebi', name: 'Aso ebi arch', category: 'frame', url: `${F}cultural-asoebi-arch.png`, opening: { top: 0.177, bottom: 0.89, left: 0, right: 1 } },
-    { id: 'ar-santa-cover', name: 'Holiday cover', category: 'frame', url: `${F}christmas-santa-cover.png`, opening: { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 } },
+    { id: 'ar-gala', name: 'Gala cover', category: 'frame', url: `${F}gala-magazine-cover.png`, opening: { top: 0.318, bottom: 0.906, left: 0.074, right: 0.926 } },
     { id: 'ar-holly', name: 'Holly crown', category: 'prop', url: `${P}holly-crown.glb`, fit: { width: 0.36, at: [0, 0.31, 0], align: 'base' } },
+    { id: 'ar-rudolph', name: 'Rudolph nose', category: 'prop', url: `${P}rudolph-nose.glb`, fit: { width: 0.075, at: [0, 0.185, 0.215], align: 'centre' } },
+    { id: 'ar-elf-ears', name: 'Elf ears', category: 'prop', url: `${P}elf-ears.glb`, fit: { width: 0.6, at: [0, 0.22, 0], align: 'centre' } },
     { id: 'ar-snowflake', name: 'Snowflake tiara', category: 'prop', url: `${P}snowflake-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' } },
-    { id: 'ar-elf', name: 'Elf hat', category: 'prop', url: `${P}elf-hat.glb`, fit: { width: 0.3, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 } },
-    { id: 'ar-halo', name: 'Halo', category: 'prop', url: `${P}halo-ring.glb`, fit: { width: 0.34, at: [0, 0.5, 0], align: 'centre' } },
     { id: 'ar-prismatic', name: 'Prismatic', category: 'filter', url: 'tint:prismatic' },
     { id: 'ar-aurora', name: 'Aurora', category: 'filter', url: 'tint:#34D399' },
     { id: 'ar-neon', name: 'Neon pulse', category: 'filter', url: 'tint:#E879F9' },
@@ -119,7 +122,10 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     { id: 'ar-beam', name: 'Light beam', category: 'effect', url: 'fx:beam' },
     { id: 'ar-dance', name: 'Dance party', category: 'effect', url: 'fx:dance' },
   ],
-  sceneProps: ['royal-crown', 'halo-ring', 'queens-tiara', 'royal-crown', 'halo-ring', 'queens-tiara', 'royal-crown'].map((n) => `${P}${n}.glb`),
+  // Full-colour library props around the hero (the old crown/halo/tiara GLBs
+  // carry no material at all, so they rendered grey): a holly wreath, a
+  // Christmas tree, an elf hat.
+  sceneProps: ['holly-crown', 'holly-crown', 'tree-hat', 'elf-hat', 'holly-crown', 'elf-hat', 'tree-hat'].map((n) => `${P}${n}.glb`),
   wallPhotos: [],
   demoEventSlug: 'demo',
   keepsakePhotos: [],
@@ -292,10 +298,13 @@ export function stepIntoFrame(i: { opening: FrameOpening; box: { top: number; bo
   };
 }
 
-/** A HomeLook as the stage's BeamyLook (frames/props only; others are not worn). */
+/** A HomeLook as the stage's BeamyLook (frames/props only; others are not worn). A frame's `with` prop rides along. */
 export function toBeamyLook(l: HomeLook, frame?: { h: number; c: number }): BeamyLook {
   const a = lookAction(l);
-  if (a.kind === 'frame') return { id: l.id, name: l.name, kind: 'frame', url: a.url, line: l.line ?? '', frame };
+  if (a.kind === 'frame') {
+    const w = l.with !== undefined && l.with.endsWith('.glb') ? { url: l.with, fit: lookFit({ ...l, category: 'prop' }) } : undefined;
+    return { id: l.id, name: l.name, kind: 'frame', url: a.url, line: l.line ?? '', frame, opening: l.opening ?? DEFAULT_OPENING, ...(w !== undefined ? { prop: w } : {}) };
+  }
   if (a.kind === 'prop') return { id: l.id, name: l.name, kind: 'prop', url: a.url, fit: a.fit, line: l.line ?? '' };
   return { id: l.id, name: l.name, kind: 'none', line: l.line ?? '' };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   AR_CATEGORIES, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, arOrder, arTour, carousel, categoryStart, demoQrUrl,
@@ -39,9 +39,33 @@ describe('beamyAssets', () => {
     }
   });
 
-  it('keeps the hero tour exactly the hero looks, after the greeting', () => {
-    expect(BEAMY_LOOKS.slice(1).map((l) => l.id)).toEqual(HOME_ASSET_DEFAULTS.heroLooks.map((l) => l.id));
-    expect(BEAMY_LOOKS.slice(1).every((l) => l.kind === 'prop' || l.kind === 'frame')).toBe(true);
+  it('keeps the hero tour exactly the hero looks', () => {
+    expect(BEAMY_LOOKS.map((l) => l.id)).toEqual(HOME_ASSET_DEFAULTS.heroLooks.map((l) => l.id));
+    expect(BEAMY_LOOKS.every((l) => l.kind === 'prop' || l.kind === 'frame')).toBe(true);
+  });
+
+  it('wears a frame’s `with` prop along with it, fitted like a prop', () => {
+    const holiday: HomeLook = { id: 'h', name: 'H', category: 'frame', url: '/guides/frames/christmas-santa-cover.png', with: '/models/props/reindeer-antlers.glb' };
+    const b = toBeamyLook(holiday);
+    expect(b.kind).toBe('frame');
+    expect(b.prop).toEqual({ url: '/models/props/reindeer-antlers.glb', fit: DEFAULT_FIT_BY_CATEGORY.prop });
+    expect(b.opening).toEqual(DEFAULT_OPENING);
+    // Only a GLB rides along; no `with`, no prop.
+    expect(toBeamyLook({ ...holiday, with: '/x.png' }).prop).toBeUndefined();
+    expect(toBeamyLook({ ...holiday, with: undefined }).prop).toBeUndefined();
+  });
+
+  it('decorates the hero with full-colour props only (no material-less GLBs)', () => {
+    // royal-crown / queens-tiara / halo-ring ship with no material: three
+    // draws them in its default grey. The owner: "make them proper nice assets".
+    for (const u of HOME_ASSET_DEFAULTS.sceneProps) {
+      expect(u, u).not.toMatch(/royal-crown|queens-tiara|halo-ring/);
+      // Read the GLB's JSON chunk: it must carry a material of its own.
+      const glb = readFileSync(pub(u));
+      const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8')) as { materials?: unknown[] };
+      expect(json.materials?.length ?? 0, u).toBeGreaterThan(0);
+    }
+    for (const l of [...HOME_ASSET_DEFAULTS.heroLooks, ...HOME_ASSET_DEFAULTS.arLooks]) expect(l.url, l.id).not.toMatch(/royal-crown|queens-tiara|halo-ring/);
   });
 
   it('falls back to the category’s fit when a look names none', () => {

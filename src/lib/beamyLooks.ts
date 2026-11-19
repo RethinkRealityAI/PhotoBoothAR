@@ -4,7 +4,7 @@
  *
  * beamyLooks — the hero's filter demo ON Beamy. Pure, DOM-free, tested in node.
  *
- * After the intro, Beamy tries on real platform assets one after another
+ * He lands in the first look (the Christmas one), then tries on real platform assets one after another
  * (library 3D props, a 2D frame from the guide pack), each with a short line
  * in his bubble; a tap on him moves to the next one. Props are fitted in his
  * `body` bone's space (metres, +y up, +z toward the viewer; the bone sits
@@ -37,16 +37,19 @@ export interface BeamyLook {
   line: string;
   /** A frame's height and centre in his heights (default: the hero's, see BeamyStage). */
   frame?: { h: number; c: number };
+  /** A frame's see-through window (fractions of the frame). */
+  opening?: { top: number; bottom: number; left: number; right: number };
+  /** A prop worn together with a frame (the hero's Christmas look: Holiday cover + antlers). */
+  prop?: { url: string; fit: PropFit };
 }
 
 /**
- * The hero's tour: his greeting, then the hero looks from the one asset-slot
- * module (lib/beamyAssets HOME_ASSET_DEFAULTS.heroLooks), in order.
+ * The hero's tour: the hero looks from the one asset-slot module (lib/
+ * beamyAssets HOME_ASSET_DEFAULTS.heroLooks), in order. The first is what he
+ * lands in and takes his selfie wearing (the Christmas look); the tour then
+ * cycles through all of them, the first included.
  */
-export const BEAMY_LOOKS: BeamyLook[] = [
-  { id: 'hello', name: 'Nothing yet', kind: 'none', line: 'Hi, I’m Beamy. Check out what I can do!' },
-  ...HOME_ASSET_DEFAULTS.heroLooks.map((l) => toBeamyLook(l)),
-];
+export const BEAMY_LOOKS: BeamyLook[] = HOME_ASSET_DEFAULTS.heroLooks.map((l) => toBeamyLook(l));
 
 /** How long each look holds before he tries on the next (ms). */
 export const LOOK_HOLD_MS = 4600;
@@ -56,14 +59,11 @@ export const LOOK_HOLD_REDUCED_MS = 7000;
 export const STORY_LOOK_HOLD_MS = 2600;
 export const STORY_LOOK_HOLD_REDUCED_MS = 5000;
 
-/**
- * The look after `i`. The greeting plays once: after the last look the
- * tour wraps to the first worn look, never back to "nothing".
- */
+/** The look after `i`, wrapping to the first. */
 export function nextLook(i: number, n: number = BEAMY_LOOKS.length): number {
   if (n <= 1) return 0;
   const k = i + 1;
-  return k >= n ? 1 : k;
+  return k >= n ? 0 : k;
 }
 
 /** The asset worth warming while `i` is up (the next look's file), or null. */

@@ -63,7 +63,7 @@ import {
   STOPS, blendSlots, pageProgress, pinProgress, storyHeightVh, storyStep, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
-import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl } from '../../lib/beamyLooks';
+import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, type BeamyLook } from '../../lib/beamyLooks';
 import { preloadModel } from '../../lib/glbCache';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 import StoryFx, { type FxState } from './StoryFx';
@@ -273,6 +273,11 @@ export default function BeamyPage() {
   const arFrameAt = useRef({ el: null as HTMLImageElement | null, t: 0, x: 0, tip: 0, mouth: 0, hp: 0, lift: 0, base: 0, mAt: 0.485 });
   /** The frame the AR step has picked (its window shapes where it stands). */
   const arFrameLook = useRef<HomeLook | undefined>(undefined);
+  /** The frame look he wears in the hero (the Christmas look), placed around him every frame; null = none. */
+  const heroFrame = useRef<BeamyLook | null>(null);
+  /** The hero look worn now (index into BEAMY_LOOKS; -1 = none) and whether the intro put it on. */
+  const lastWorn = useRef(-1);
+  const introWorn = useRef(false);
   const scrollTop = () => scrollerRef.current?.scrollTop ?? 0;
   const heroRef = useRef<HTMLElement | null>(null);
   const heroPanelRef = useRef<HTMLDivElement | null>(null);
@@ -588,6 +593,36 @@ export default function BeamyPage() {
         phone: isPhone,
         scroll: Math.min(sc.scrollTop, heroRef.current?.offsetHeight ?? vh),
       };
+      // The hero's frame look (the Christmas one) stands around him, placed
+      // like the AR step's (lib/beamyAssets frameOnBeamy: whole frame in its
+      // box, his face in the window, the antlers shrunk into it if they must)
+      // but from his slot's settled stand, so a hop or the selfie never swings
+      // it. Laptops: the box is the gap between the copy and the wall, so it
+      // never covers either; phones/tablets: the wall's row.
+      const hf = heroFrame.current;
+      const stApi = api.current;
+      let frameAt: StageLayout['frameAt'] = null;
+      if (hf !== null && stApi !== null && readyRef.current && (slotId === 'hero' || activeRef.current === 'hero')) {
+        const copyR = main.querySelector('[data-card-avoid]')?.getBoundingClientRect();
+        const wallR = heroWallColRef.current?.firstElementChild?.getBoundingClientRect();
+        const reg = rectOf(heroRegionRef.current);
+        const panelR = hp;
+        const box = vw >= WIDE_HERO_MIN && copyR !== undefined && wallR !== undefined && panelR !== null
+          ? { top: Math.max(panelR.top + 12, headerH + 8), bottom: panelR.top + panelR.height - 12, left: copyR.right + 12, right: wallR.left - 12 }
+          : reg !== null ? { top: Math.max(reg.top, headerH + 8), bottom: reg.top + reg.height, left: reg.left, right: reg.left + reg.width } : null;
+        if (box !== null && box.right - box.left > 40 && box.bottom - box.top > 40) {
+          const hpx = b.heightPx;
+          const g = frameOnBeamy({
+            x: b.x, tip: b.y - hpx * 1.02, mouth: b.y - hpx * arFrameAt.current.mAt, heightPx: hpx,
+            lift: stApi.wornLiftAt(1) * hpx, liftBase: stApi.wornLiftAt(0) * hpx,
+            opening: hf.opening ?? DEFAULT_OPENING, box,
+          });
+          frameAt = { left: g.left, top: g.top, h: g.h };
+          stApi.wornScale(g.propScale);
+          if (STEP_LOG) (window as unknown as { __beamyHeroFrame?: unknown }).__beamyHeroFrame = { ...g, box };
+        }
+      }
+      layoutRef.current.frameAt = frameAt;
       // Phones: the try-on caption rides just above whatever he wears, kept
       // inside the hero's free corner.
       const cap = lookCapRef.current;
@@ -792,8 +827,10 @@ export default function BeamyPage() {
       const card = cardRef.current;
       if (card === null || launched) return;
       const st = photoState(f.t, f.tl);
-      const cw = Math.max(44, f.heightPx * 0.3);
-      const ch = cw * 1.2;
+      // A framed selfie is the whole 9:16 frame (the card's photo window, 86% ×
+      // 74% of it, then holds 9:16); a plain one is a 4:5 portrait.
+      const cw = Math.max(44, f.heightPx * (f.framed ? 0.24 : 0.3));
+      const ch = cw * (f.framed ? (0.86 / 0.74) * (16 / 9) : 1.2);
       const x = clamp(f.phone.x, cw / 2 + 4, window.innerWidth - cw / 2 - 4);
       let y = Math.max(ch / 2 + 4, lerp(f.phone.y, f.phone.y - f.heightPx * 0.36, st.visible ? st.pop : 1));
       // Never across the copy (phones stack Beamy right under the subline).
@@ -840,6 +877,19 @@ export default function BeamyPage() {
         return;
       }
       say(HELLO);
+      // Christmas first: the Holiday cover goes up around him and the antlers
+      // pop on, then he takes the selfie in them (that photo goes to the wall).
+      const first = BEAMY_LOOKS[0];
+      if (first !== undefined && first.kind !== 'none') {
+        heroFrame.current = first.kind === 'frame' ? first : null;
+        lastWorn.current = 0;
+        introWorn.current = true;
+        await Promise.race([b.wear(first), wait(reduced ? 2500 : 4000)]);
+        if (!alive()) { setIntroRunning(false); return; }
+        logStep(`look:${first.id}:intro`);
+        b.sparkle('sparkle');
+        await wait(reduced ? 500 : 350);
+      }
       await runSelfie(alive);
       if (alive()) logStep('intro:done');
       setIntroRunning(false);
@@ -848,6 +898,11 @@ export default function BeamyPage() {
   }, [ready]);
   useEffect(() => {
     const id = window.setTimeout(() => setSlowModel(true), 4000);
+    // Warm the Christmas look so it is on him the moment he lands.
+    const first = BEAMY_LOOKS[0];
+    if (first?.prop !== undefined) void preloadModel(first.prop.url);
+    else if (first?.kind === 'prop' && first.url !== undefined) void preloadModel(first.url);
+    if (first?.kind === 'frame' && first.url !== undefined) { const im = new Image(); im.src = first.url; }
     return () => window.clearTimeout(id);
   }, []);
 
@@ -862,25 +917,34 @@ export default function BeamyPage() {
 
   const inStoryAR = active === 'story' && STORY_STEPS[step]?.id === 'prop';
   const tryOn = ready && !failed && arrival === 'done' && !introRunning && active === 'hero';
-  const lastWorn = useRef(-1);
   useEffect(() => {
     const b = api.current;
     if (b === null) return;
-    if (!tryOn) { if (lastWorn.current >= 0) { void b.wear(null); lastWorn.current = -1; } return; }
+    if (!tryOn) {
+      // The intro dresses him while tryOn is still off: leave that look on
+      // until the intro is over or he leaves the hero.
+      if (introRunning && activeRef.current === 'hero') return;
+      if (lastWorn.current >= 0) { void b.wear(null); lastWorn.current = -1; heroFrame.current = null; introWorn.current = false; }
+      return;
+    }
     const look = BEAMY_LOOKS[lookIx] ?? BEAMY_LOOKS[0];
     if (lastWorn.current >= 0 && lastWorn.current !== lookIx) b.sparkle('sparkle');
+    // The intro already put this one on: keep it (no second pop).
+    const kept = introWorn.current && lastWorn.current === lookIx;
+    introWorn.current = false;
     lastWorn.current = lookIx;
+    heroFrame.current = look.kind === 'frame' ? look : null;
     let live = true;
     let hold = 0;
     const advance = () => { if (live) setLookIx((k) => nextLook(k)); };
     // The hold starts once he is actually wearing it (a slow prop is never
     // skipped); a load that never settles still moves on.
     const stuck = window.setTimeout(advance, 15000);
-    void b.wear(look).then(() => {
+    void (kept ? Promise.resolve() : b.wear(look)).then(() => {
       if (!live) return;
       window.clearTimeout(stuck);
       logStep(`look:${look.id}`);
-      say(look.line, lookIx !== 0);
+      say(look.line, true);
       hold = window.setTimeout(advance, reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
     });
     // Warm the next look so the swap is instant.
@@ -888,7 +952,7 @@ export default function BeamyPage() {
     if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = nx; } }
     return () => { live = false; window.clearTimeout(stuck); window.clearTimeout(hold); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
-  }, [tryOn, lookIx, reduced]);
+  }, [tryOn, lookIx, reduced, introRunning, active]);
 
   /* ── The story's AR step: the picker drives what he wears, ONE look per
      category, combined (lib/beamyAssets toggleLook): the prop on his head,
@@ -1090,7 +1154,10 @@ export default function BeamyPage() {
     shots.forEach((s, n) => { out[SHOT_TILES[n]] = { src: s.src, key: `s${s.id}`, mine: true }; });
     return out;
   }, [shots]);
-  const heroPins = useMemo<Record<number, Pin>>(() => (heroPin === null ? {} : { [WALL_CENTRE]: heroPin }), [heroPin]);
+  /* Phones: his framed selfie stands over the wall's left half, so his photo
+     lands on the right column's middle tile, in full view. */
+  const heroTile = phone ? WALL_CENTRE + 1 : WALL_CENTRE;
+  const heroPins = useMemo<Record<number, Pin>>(() => (heroPin === null ? {} : { [heroTile]: heroPin }), [heroPin, heroTile]);
 
   const lookPills = (
     <FadeScroll
@@ -1203,7 +1270,7 @@ export default function BeamyPage() {
     <div className="bw-wall-mount bw-wall-glint h-full" style={{ ['--wall-yaw' as string]: wideHero ? '-7deg' : phone ? '0deg' : '-5deg' }}>
       <LiveWall
         key={heroRows}
-        pool={PHOTO_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} ripple={ripple} seed={seed}
+        pool={PHOTO_POOL} pins={heroPins} dim={introRunning} compact={!wideHero} centreRef={heroTileRef} centre={heroTile} ripple={ripple} seed={seed}
         rows={heroRows} fill
       />
     </div>
