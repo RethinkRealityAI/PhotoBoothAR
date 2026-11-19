@@ -61,7 +61,12 @@ export interface HomeLook {
   line?: string;
   /** Props only. Absent = the page's default fit for its category. */
   fit?: HomeLookFit;
+  /** Frames only: the see-through window as fractions of the frame (top/bottom of
+   *  its height, left/right of its width). Absent = the page's default window. */
+  opening?: HomeFrameOpening;
 }
+
+export interface HomeFrameOpening { top: number; bottom: number; left: number; right: number }
 
 export interface HomeAssets {
   films: Partial<Record<HomeFilmId, HomeFilm>>;
@@ -225,6 +230,15 @@ export function slugifyLookId(v: string): string {
   return v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 }
 
+function normalizeOpening(raw: unknown): HomeFrameOpening | undefined {
+  if (!isRecord(raw)) return undefined;
+  const [top, bottom, left, right] = [raw.top, raw.bottom, raw.left, raw.right].map((n) => num(n, 0, 1));
+  if (top === undefined || bottom === undefined || left === undefined || right === undefined) return undefined;
+  // A window must have area: a collapsed or inverted one would hide Beamy.
+  if (bottom - top < 0.05 || right - left < 0.05) return undefined;
+  return { top, bottom, left, right };
+}
+
 function normalizeLook(raw: unknown): HomeLook | null {
   if (!isRecord(raw)) return null;
   const category = HOME_LOOK_CATEGORIES.find((c) => c === raw.category);
@@ -237,6 +251,7 @@ function normalizeLook(raw: unknown): HomeLook | null {
   const thumb = resolveAssetUrl(raw.thumb, 'image');
   const line = text(raw.line, LINE_MAX);
   const fit = category === 'prop' ? normalizeFit(raw.fit) : undefined;
+  const opening = category === 'frame' ? normalizeOpening(raw.opening) : undefined;
   return {
     id,
     name,
@@ -245,6 +260,7 @@ function normalizeLook(raw: unknown): HomeLook | null {
     ...(thumb === undefined ? {} : { thumb }),
     ...(line === undefined ? {} : { line }),
     ...(fit === undefined ? {} : { fit }),
+    ...(opening === undefined ? {} : { opening }),
   };
 }
 

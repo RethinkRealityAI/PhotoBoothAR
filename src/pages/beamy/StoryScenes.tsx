@@ -25,7 +25,7 @@ import { Camera, Check, CircleCheck, Play, Trophy } from 'lucide-react';
 import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import type { StoryFxId } from '../../lib/brandLanding';
 import { STORY_SCENE, STORY_SEQ } from '../../lib/beamyStory';
-import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
+import { useBeamyAssets } from './useBeamyAssets';
 import { currentCue, nextChange, passAt, phaseAt, reached, type Sequence } from '../../lib/beamyMotion';
 import { WALL_CENTRE } from '../../lib/beamyWall';
 import { HERO_WEDDING } from '../../lib/landingAssets';
@@ -88,8 +88,10 @@ export default function StoryScenes({ step, live, ids, stacked, qrUrl, wallCentr
 }) {
   const S = STORY_SCENE;
   const on = (id: StoryFxId) => tf(ids[step] === id);
-  const photo = (k: number) => WALL_POOL[k % WALL_POOL.length];
-  const A = HOME_ASSET_DEFAULTS;
+  const A = useBeamyAssets();
+  /** The live wall's photos: an override needs more than one wall's worth (as the page's walls). */
+  const pool = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
+  const photo = (k: number) => pool[k % pool.length];
   const album = (k: number) => (A.keepsakePhotos !== undefined && A.keepsakePhotos.length >= 6 ? A.keepsakePhotos[k] : photo(seed + 4 + k * 3));
 
   const qrSeq = useSeq(live && ids[step] === 'qr', STORY_SEQ.qr);
@@ -225,7 +227,7 @@ export default function StoryScenes({ step, live, ids, stacked, qrUrl, wallCentr
     <div ref={wallBox} className="bw-scene bw-wl" data-on={on('wall')}>
       <Piece anchor="wall" tilt={-6} cls={stacked ? 'inset-x-[6%] top-[0%] h-[44%]' : 'right-[3%] top-[5%] bottom-[7%] w-[25%]'}>
         <div className="bw-wall-mount h-full" data-lit={tf(landed)} style={{ ['--wall-yaw' as string]: '0deg' }}>
-          <LiveWall key={stacked ? 3 : 4} pool={WALL_POOL} pins={wallPins} dim={false} compact={stacked} centreRef={wallCentreRef} ripple={wallRipple} seed={seed + 3} rows={stacked ? 3 : 4} fill />
+          <LiveWall key={stacked ? 3 : 4} pool={pool} pins={wallPins} dim={false} compact={stacked} centreRef={wallCentreRef} ripple={wallRipple} seed={seed + 3} rows={stacked ? 3 : 4} fill />
         </div>
       </Piece>
       <Piece d={0.14} tilt={7} cls={stacked ? 'left-[2%] bottom-[16%] w-[25%] max-w-[150px] aspect-[9/16]' : 'left-[9%] bottom-[9%] w-[14%] max-w-[210px] aspect-[9/16]'}>

@@ -203,3 +203,23 @@ describe('built-in tint: and fx: looks', () => {
     expect(tintSwatch('fx:beam')).toBeUndefined();
   });
 });
+
+describe('frame openings', () => {
+  const frame = (opening: unknown) => normalizeHomeAssets({ arLooks: [{ id: 'f', name: 'F', category: 'frame', url: '/guides/frames/nye-countdown.png', opening }] }).arLooks[0];
+  it('keeps a valid window on a frame', () => {
+    expect(frame({ top: 0.2, bottom: 0.8, left: 0.1, right: 0.9 }).opening).toEqual({ top: 0.2, bottom: 0.8, left: 0.1, right: 0.9 });
+  });
+  it('keeps a zero edge (0 is data, not missing)', () => {
+    expect(frame({ top: 0, bottom: 1, left: 0, right: 1 }).opening).toEqual({ top: 0, bottom: 1, left: 0, right: 1 });
+  });
+  it('drops collapsed, inverted, partial or out-of-range windows', () => {
+    expect(frame({ top: 0.5, bottom: 0.52, left: 0.1, right: 0.9 }).opening).toBeUndefined();
+    expect(frame({ top: 0.8, bottom: 0.2, left: 0.1, right: 0.9 }).opening).toBeUndefined();
+    expect(frame({ top: 0.2, bottom: 0.8, left: 0.1 }).opening).toBeUndefined();
+    expect(frame('nope').opening).toBeUndefined();
+  });
+  it('never puts a window on a non-frame', () => {
+    const l = normalizeHomeAssets({ arLooks: [{ id: 'p', name: 'P', category: 'prop', url: '/models/props/halo-ring.glb', opening: { top: 0.2, bottom: 0.8, left: 0.1, right: 0.9 } }] }).arLooks[0];
+    expect(l.opening).toBeUndefined();
+  });
+});
