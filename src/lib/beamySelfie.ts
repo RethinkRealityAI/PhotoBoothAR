@@ -83,6 +83,13 @@ const CUES: Record<SelfieCue, number> = {
  */
 export const REDUCED_GLIDE_S = 1.6;
 
+/**
+ * The landing page plays the Selfie clip this much faster than authored (the
+ * owner: a faster intro). Cue times stay in clip seconds; the stage advances
+ * the clip clock by `dt * SELFIE_SPEED`, so every cue keeps its beat.
+ */
+export const SELFIE_SPEED = 1.3;
+
 /** The full timeline, or its reduced-motion variant (no strobe; the photo glides rather than flies). */
 export function selfieTimeline(reducedMotion = false): SelfieTimeline {
   const c = CUES;

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   AR_CATEGORIES, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, arOrder, arTour, carousel, categoryStart, demoQrUrl,
-  DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, toBeamyLook, toggleLook, type HomeLook,
+  DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, smallWindow, stepIntoFrame, toBeamyLook, toggleLook, type HomeLook,
 } from './beamyAssets';
 import { BEAMY_LOOKS } from './beamyLooks';
 import { EMOJI_RE } from './brandLanding';
@@ -204,6 +204,33 @@ describe('beamyAssets', () => {
     expect(tall.top).toBeLessThanOrEqual(tight.tip - 284 * tall.propScale);
     expect(tall.top + tight.opening.top * tall.h).toBeLessThanOrEqual(tight.mouth - 0.2 * tight.heightPx + 0.5);
     expect(tall.top + tight.opening.bottom * tall.h).toBeGreaterThanOrEqual(tight.mouth + 0.12 * tight.heightPx - 0.5);
+  });
+
+  it('calls only the face-oval frames small, and steps him into their window', () => {
+    const small = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'frame' && l.opening !== undefined && smallWindow(l.opening)).map((l) => l.id).sort();
+    expect(small).toEqual(['ar-art-deco', 'ar-floral-arch']);
+    const o = { top: 0.263, bottom: 0.637, left: 0.274, right: 0.73 };
+    const box = { top: 391, bottom: 836, left: 8, right: 382 };
+    const g = stepIntoFrame({ opening: o, box, mouthAt: 0.49 });
+    // The frame takes the whole room under the picker, centred across.
+    expect(g.frame.top).toBe(391);
+    expect(g.frame.h).toBeCloseTo(445, 5);
+    const w = (g.frame.h * 9) / 16;
+    expect(g.frame.left + w / 2).toBeCloseTo(195, 5);
+    // His face fills the window's width and sits mid-window.
+    const winL = g.frame.left + o.left * w;
+    const winR = g.frame.left + o.right * w;
+    expect(g.stand.heightPx * 0.42).toBeCloseTo(winR - winL, 5);
+    expect(g.stand.x).toBeCloseTo((winL + winR) / 2, 5);
+    const mouth = g.stand.y - 0.49 * g.stand.heightPx;
+    const face = mouth - 0.06 * g.stand.heightPx;
+    expect(face).toBeCloseTo(g.frame.top + ((o.top + o.bottom) / 2) * g.frame.h, 5);
+    // Eyes to chin stay inside the window.
+    expect(mouth - 0.2 * g.stand.heightPx).toBeGreaterThanOrEqual(g.frame.top + o.top * g.frame.h);
+    expect(mouth + 0.12 * g.stand.heightPx).toBeLessThanOrEqual(g.frame.top + o.bottom * g.frame.h);
+    // A tall thin window: his height is capped by its height instead.
+    const thin = stepIntoFrame({ opening: { top: 0.4, bottom: 0.5, left: 0, right: 1 }, box, mouthAt: 0.49 });
+    expect(thin.stand.heightPx).toBeCloseTo((0.1 * thin.frame.h) / 0.4, 5);
   });
 
   it('points the real QR code at the demo event’s guest welcome, tagged', () => {

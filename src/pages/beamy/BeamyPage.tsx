@@ -50,7 +50,7 @@ import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../
 import { usePageTitle } from '../../lib/usePageTitle';
 import { useNoIndex } from '../sales/components/pageMeta';
 import type { Rect } from '../../lib/beamGeometry';
-import { REDUCED_GLIDE_S, flashOpacity, photoState } from '../../lib/beamySelfie';
+import { REDUCED_GLIDE_S, SELFIE_SPEED, flashOpacity, photoState } from '../../lib/beamySelfie';
 import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
 import { AUDIENCES, GREETING, HELLO, POKE_LINES, audienceById, type Audience, type AudienceIcon } from '../../lib/beamyTour';
 import {
@@ -69,7 +69,7 @@ import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker from './ArPicker';
 import {
-  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arTour, frameOnBeamy, demoQrUrl, lookAction, selectedLooks, toBeamyLook, toggleLook,
+  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arTour, frameOnBeamy, demoQrUrl, smallWindow, stepIntoFrame, lookAction, selectedLooks, toBeamyLook, toggleLook,
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
@@ -274,7 +274,7 @@ export default function BeamyPage() {
   const stageFrame = useRef<(() => void) | null>(null);
   /** The AR step's frame image (ArPicker); the glide places it on him every frame. */
   const arFrameRef = useRef<HTMLImageElement | null>(null);
-  const arFrameAt = useRef({ el: null as HTMLImageElement | null, t: 0, x: 0, tip: 0, mouth: 0, hp: 0, lift: 0, base: 0 });
+  const arFrameAt = useRef({ el: null as HTMLImageElement | null, t: 0, x: 0, tip: 0, mouth: 0, hp: 0, lift: 0, base: 0, mAt: 0.485 });
   /** The frame the AR step has picked (its window shapes where it stands). */
   const arFrameLook = useRef<HomeLook | undefined>(undefined);
   const scrollTop = () => scrollerRef.current?.scrollTop ?? 0;
@@ -355,10 +355,11 @@ export default function BeamyPage() {
   }, [phone, wideHero]);
 
   /* ── Hero layout: a big wall that fills its side, and Beamy ──
-     Laptops: the wall fills its column top to bottom (portrait tiles). Phones
-     and tablets: the wall takes the right ~60% of the row between the copy
-     and the CTAs (four rows when the row is tall), Beamy stands lower left
-     just in front of its corner. */
+     Laptops: the wall fills its column top to bottom (portrait tiles).
+     Tablets: the wall takes the right ~60% of the row between the copy and
+     the CTAs (four rows when the row is tall), Beamy stands lower left just
+     in front of its corner. Phones: the wall fills that row, he stands in
+     front of its lower-left corner. */
   const layoutHero = useCallback(() => {
     let next: HeroGeo;
     if (window.innerWidth >= WIDE_HERO_MIN) {
@@ -376,16 +377,22 @@ export default function BeamyPage() {
       const height = Math.max(320, gr.height - top * 2);
       next = { rows: height / width > 1.32 ? 4 : 3, wall: { top, width, height }, stand: null };
     } else if (window.innerWidth < PHONE_MAX) {
-      // Phones: stacked, never two squeezed columns. Beamy stands big on the
-      // top edge of a full-width wall; the CTAs follow below.
+      // Phones (the owner: "Beamy at the bottom in front, the wall larger
+      // behind him"): the wall fills the row from its top, full width, four
+      // rows once it is tall; Beamy stands at the row's bottom in front of
+      // it, over its lower-left corner (never over the centre tile, where
+      // his selfie lands). The CTAs follow below.
       const region = heroRegionRef.current;
       if (region === null) return;
       const rr = region.getBoundingClientRect();
-      const wallH = Math.round(clamp(rr.height * 0.46, 160, rr.width * 0.8));
-      // His feet sink 6px into the wall's frame so he reads as standing on it;
-      // 34px of headroom keeps the selfie's shades pop clear of the subline.
-      const h = Math.round(clamp(rr.height - wallH + 6 - 34, 96, 300));
-      next = { rows: 3, wall: null, stand: { h, x: Math.round(rr.width * 0.3) }, stackWallH: wallH };
+      // Sized by the row's width (it never changes when the Skip chip goes),
+      // so he stays a corner figure and never grows over the centre tile.
+      const h = Math.round(clamp(Math.min(rr.width * 0.5, rr.height * 0.45), 110, 220));
+      const wallH = Math.round(Math.max(160, rr.height - h * 0.28));
+      const rows = wallRows(rr.width, wallH, 8 + 12, 24 + 12 + 12);
+      // Arms out he is ~1.18× as wide as tall: his far hand stays within
+      // ~12px of the row's edge (inside the panel's padding).
+      next = { rows, wall: null, stand: { h, x: Math.round(Math.max(rr.width * 0.25, h * 0.59 - 12)) }, stackWallH: wallH };
     } else {
       const region = heroRegionRef.current;
       if (region === null) return;
@@ -546,6 +553,21 @@ export default function BeamyPage() {
         if (id === 'story') { pose.yaw = card.yaw; pose.fx = { [card.id]: 1 }; }
         samples.push({ id, rect: { left: r.left, top: r.top, width: r.width, height: r.height }, pose });
       });
+      // Phones, a face-oval frame on the AR step: the frame takes all the room
+      // under the picker and he steps into its window (lib/beamyAssets
+      // stepIntoFrame), standing there instead of in the story's CSS slot.
+      const arLook = arFrameLook.current;
+      let stepIn: ReturnType<typeof stepIntoFrame> | null = null;
+      if (vw < WIDE_HERO_MIN && card.id === 'prop' && arFrameRef.current !== null && arLook?.opening !== undefined && smallWindow(arLook.opening)) {
+        const tiles = main.querySelector('.bw-ar [data-fx-anchor="prop"]')?.getBoundingClientRect();
+        if (tiles !== undefined) stepIn = stepIntoFrame({ opening: arLook.opening, box: { top: tiles.bottom + 6, bottom: vh - 8, left: 8, right: vw - 8 }, mouthAt: arFrameAt.current.mAt });
+      }
+      const storySample = stepIn !== null ? samples.find((x) => x.id === 'story') : undefined;
+      if (stepIn !== null && storySample !== undefined) {
+        const s = stepIn.stand;
+        storySample.rect = { left: s.x - (s.heightPx * 1.1) / 2, top: s.y - s.heightPx, width: s.heightPx * 1.1, height: s.heightPx };
+        storySample.pose.fit = 1;
+      }
       const b = blendSlots(samples, vw, vh, isPhone);
       const slotId = (b.active >= 0 ? samples[b.active].id : activeRef.current) as StopId;
       const settled = b.share > 0.85;
@@ -647,6 +669,7 @@ export default function BeamyPage() {
         const fa = arFrameAt.current;
         const now = performance.now();
         const k = fa.el === fr ? 1 - Math.exp(-(now - fa.t) / 180) : 1;
+        const kSlow = 1 - Math.exp(-Math.max(0, now - fa.t) / 1500);
         fa.el = fr;
         fa.t = now;
         fa.x += (w.x - fa.x) * k;
@@ -655,11 +678,16 @@ export default function BeamyPage() {
         fa.hp += (w.heightPx - fa.hp) * k;
         fa.lift += (bw.wornLiftAt(1) * w.heightPx - fa.lift) * k;
         fa.base += (bw.wornLiftAt(0) * w.heightPx - fa.base) * k;
-        const g = frameOnBeamy({
-          x: fa.x, tip: fa.tip, mouth: fa.mouth, heightPx: fa.hp, lift: fa.lift, liftBase: fa.base,
-          opening: arFrameLook.current?.opening ?? DEFAULT_OPENING,
-          box: { top: headerH + 8, bottom: vh - 8, left: 8, right: window.innerWidth - 8 },
-        });
+        // His mouth's height over his feet, slowly (a dance never moves his stand).
+        if (w.heightPx > 1) fa.mAt += (clamp((w.y - m.y) / w.heightPx, 0.3, 0.7) - fa.mAt) * kSlow;
+        // Stepped into a face oval: the frame holds still, the prop keeps its size.
+        const g = stepIn !== null
+          ? { ...stepIn.frame, propScale: 1, fits: false, faceIn: true, stepIn: true }
+          : frameOnBeamy({
+            x: fa.x, tip: fa.tip, mouth: fa.mouth, heightPx: fa.hp, lift: fa.lift, liftBase: fa.base,
+            opening: arFrameLook.current?.opening ?? DEFAULT_OPENING,
+            box: { top: headerH + 8, bottom: vh - 8, left: 8, right: window.innerWidth - 8 },
+          });
         const tf = `translate(${g.left.toFixed(1)}px, ${g.top.toFixed(1)}px)`;
         if (fr.style.transform !== tf) { fr.style.transform = tf; fr.style.height = `${g.h.toFixed(1)}px`; }
         // The prop shrinks into the frame's window when it must (never pokes out of the frame).
@@ -727,9 +755,18 @@ export default function BeamyPage() {
     if (tile === null) { pendingSelfie.current = null; return; }
     // Reduced motion: the same trip, as a slow glide (no particles).
     logStep(`selfie:flight:${reducedRef.current ? 'glide' : 'particles'}`);
+    const ms = reducedRef.current ? REDUCED_GLIDE_S * 1000 : Math.round(1250 / SELFIE_SPEED);
+    // He turns to the wall and beams the shot onto it (reduced motion: he
+    // only turns; the glide is the trip); then back to you once it lands.
+    const b = api.current;
+    const at = { x: tile.left + tile.width / 2, y: tile.top + tile.height / 2 };
+    if (b !== null) {
+      if (reducedRef.current) b.face(at.x);
+      else { logStep('selfie:beam'); void b.zap(at, 'mouth', ms); }
+    }
     setFlight({
-      key: ++flightKey.current, from, to: tile, shot: photo, ms: reducedRef.current ? REDUCED_GLIDE_S * 1000 : 1250,
-      onDone: () => { setFlight(null); landSelfie(photo, onTry); },
+      key: ++flightKey.current, from, to: tile, shot: photo, ms,
+      onDone: () => { setFlight(null); api.current?.face(null); landSelfie(photo, onTry); },
     });
   }, [landSelfie]);
 
@@ -944,6 +981,7 @@ export default function BeamyPage() {
     const b = api.current;
     b?.skipArrival();
     b?.stopSelfie();
+    b?.stopBeam();
     hideSelfieFx();
     setArrival('done');
     setIntroRunning(false);
@@ -1328,11 +1366,11 @@ export default function BeamyPage() {
             {/* The wall fills the right ~60% of the row between the copy and the
                 CTAs; Beamy stands lower left, just in front of its corner. */}
             <div ref={heroRegionRef} className={`relative mt-3 flex-1 ${phone ? 'min-h-[300px]' : 'min-h-[200px]'}`}>
-              {/* Phones: a full-width wall along the bottom, Beamy standing big
-                  on its top edge. Tablets: the wall fills the right ~60% and he
+              {/* Phones: a full-width wall from the top, Beamy standing in
+                  front of its lower-left corner. Tablets: the wall fills the right ~60% and he
                   stands lower left, just in front of its corner. */}
               {phone ? (
-                <div className={`absolute inset-x-0 bottom-0 ${showContent ? 'bw-rise' : 'invisible'}`} style={{ ...i(2), height: heroGeo?.stackWallH ?? '50%' }}>{heroWall}</div>
+                <div className={`absolute inset-x-0 top-0 ${showContent ? 'bw-rise' : 'invisible'}`} style={{ ...i(2), height: heroGeo?.stackWallH ?? '80%' }}>{heroWall}</div>
               ) : (
                 <div className={`absolute bottom-0 right-0 top-0 w-[57%] ${showContent ? 'bw-rise' : 'invisible'}`} style={i(2)}>{heroWall}</div>
               )}
@@ -1340,7 +1378,7 @@ export default function BeamyPage() {
                 'absolute bottom-0',
                 { max: heroGeo.stand.h, bubble: false },
                 heroSlotChildren,
-                { left: heroGeo.stand.x - heroGeo.stand.h / 0.85 / 2, width: heroGeo.stand.h / 0.85, height: heroGeo.stand.h, bottom: heroGeo.stackWallH !== undefined ? heroGeo.stackWallH - 6 : 0 },
+                { left: heroGeo.stand.x - heroGeo.stand.h / 0.85 / 2, width: heroGeo.stand.h / 0.85, height: heroGeo.stand.h, bottom: 0 },
               )}
               {/* The floating bubble stays away from the hero here, so his
                   try-on line sits beside his head (phones) or over it, left
@@ -1352,7 +1390,7 @@ export default function BeamyPage() {
                   data-tail="left"
                   data-stack="true"
                   className="bw-bubble pointer-events-none absolute right-0 w-[44%] px-3 py-2 text-[13px] leading-[1.35]"
-                  style={{ bottom: heroGeo.stackWallH + heroGeo.stand.h * 0.56 }}
+                  style={{ bottom: heroGeo.stand.h * 0.56 }}
                 >{line}</p>
               ) : (
                 <p

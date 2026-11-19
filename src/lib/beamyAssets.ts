@@ -255,6 +255,43 @@ export function frameOnBeamy(i: {
   return { left, top: b.top, h: b.h, propScale: b.k, fits: b.fits, faceIn: b.faceIn };
 }
 
+/** A window under this share of its frame (width × height) is "small": a face oval, not a picture window. */
+export const SMALL_WINDOW_AREA = 0.35;
+/** His face, ear to ear, is about this share of his height: a window that wide is filled by it. */
+export const FACE_FILL_W = 0.42;
+
+export function smallWindow(o: FrameOpening): boolean {
+  return (o.right - o.left) * (o.bottom - o.top) < SMALL_WINDOW_AREA;
+}
+
+/**
+ * Phones, a small-window frame (a face oval): standing still, his face can
+ * only reach the oval of a small frame, which leaves dead space under the
+ * picker. Instead the frame takes all the room in `box` (its top on the
+ * box's top, centred across), and HE moves: sized so his face fills the
+ * window's width (never taller than the window), standing so his face sits
+ * mid-window. `mouthAt` = how far his mouth stands above his feet, in his
+ * heights (read live from the stage). A prop may sit behind the frame or
+ * above it. Returns the frame and the stand (feet x/y, height in px).
+ */
+export function stepIntoFrame(i: { opening: FrameOpening; box: { top: number; bottom: number; left: number; right: number }; mouthAt: number }): {
+  frame: { left: number; top: number; h: number };
+  stand: { x: number; y: number; heightPx: number };
+} {
+  const o = i.opening;
+  const h = Math.max(1, Math.min(i.box.bottom - i.box.top, ((i.box.right - i.box.left) * 16) / 9));
+  const w = (h * 9) / 16;
+  const left = (i.box.left + i.box.right) / 2 - w / 2;
+  const top = i.box.top;
+  const hp = Math.max(1, Math.min(((o.right - o.left) * w) / FACE_FILL_W, ((o.bottom - o.top) * h) / 0.4));
+  const face = top + ((o.top + o.bottom) / 2) * h;
+  const mouth = face + hp * 0.06;
+  return {
+    frame: { left, top, h },
+    stand: { x: left + ((o.left + o.right) / 2) * w, y: mouth + Math.max(0, i.mouthAt) * hp, heightPx: hp },
+  };
+}
+
 /** A HomeLook as the stage's BeamyLook (frames/props only; others are not worn). */
 export function toBeamyLook(l: HomeLook, frame?: { h: number; c: number }): BeamyLook {
   const a = lookAction(l);

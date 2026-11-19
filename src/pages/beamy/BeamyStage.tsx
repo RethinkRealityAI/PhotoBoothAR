@@ -59,7 +59,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { gltfLoader, loadModel } from '../../lib/glbCache';
 import { SPIN_PER_PX, nearestFront, spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
-import { SELFIE_CLIP, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
+import { SELFIE_CLIP, SELFIE_SPEED, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
 import type { Rect } from '../../lib/beamGeometry';
 import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -362,10 +362,12 @@ interface Mote {
   active: boolean;
 }
 
-const DROP_S = 0.9;
+const DROP_S = 0.7;
+/** After the drop the column fades out over this while the selfie starts. */
+const LINGER_S = 0.35;
 /** Reduced-motion arrival: the column fades in over this, he grows in, then it fades out. */
-const REDUCED_DROP_S = 0.8;
-const REDUCED_LINGER_S = 1.0;
+const REDUCED_DROP_S = 0.7;
+const REDUCED_LINGER_S = 0.6;
 const FLASH_S = 0.45;
 
 interface Reveal {
@@ -880,6 +882,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         void playOnce(SELFIE_CLIP);
         const action = current.current;
         if (action === null) return Promise.resolve(false);
+        action.timeScale = SELFIE_SPEED;
         return new Promise<boolean>((resolve) => {
           selfieRun.current = { t: 0, tl: selfieTimeline(reducedRef.current), snapped: false, action, onFrame, resolve };
         });
@@ -1220,7 +1223,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         // Reduced motion: no impact bloom; the soft column is the light.
         if (!reduced) flash.current = { t: 0, at: { x: pos.current.x, y: pos.current.y - heightPx * 0.42 }, sizePx: heightPx * 2.2 };
       }
-      if (ar.t >= dropS + (reduced ? REDUCED_LINGER_S : 0.6)) { arrival.current = null; ar.resolve(); }
+      if (ar.t >= dropS + (reduced ? REDUCED_LINGER_S : LINGER_S)) { arrival.current = null; ar.resolve(); }
     }
     if (shown.current && appear.current < 1) appear.current = Math.min(1, appear.current + dt / (reduced ? 0.9 : 0.5));
 
@@ -1323,7 +1326,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         selfieRun.current = null;
         run.resolve(false);
       } else {
-        run.t += dt;
+        run.t += dt * SELFIE_SPEED;
         const pw = new THREE.Vector3();
         if (phoneBone.current) phoneBone.current.getWorldPosition(pw); else pw.set(toWorld(pos.current).x - heightPx * 0.55, toWorld(pos.current).y + heightPx * 0.75, 0);
         pw.y += 0.05 * s; // the bone is the grip; the screen sits above it
@@ -1486,7 +1489,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         } else {
           const fall = clamp(ar.t / DROP_S, 0, 1);
           headY = topY + (pos.current.y - topY) * fall * fall;
-          const fade = ar.landed ? clamp(1 - (ar.t - DROP_S) / 0.5, 0, 1) : 1;
+          const fade = ar.landed ? clamp(1 - (ar.t - DROP_S) / LINGER_S, 0, 1) : 1;
           alpha = Math.min(1, ar.t / 0.12) * fade;
         }
         const a = toWorld({ x: pos.current.x, y: topY });
