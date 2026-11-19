@@ -715,19 +715,31 @@ export default function BeamyPage() {
         fa.t = now;
         fa.x += (w.x - fa.x) * k;
         fa.tip += (w.y - w.heightPx * 1.02 - fa.tip) * k;
-        fa.mouth += (m.y - fa.mouth) * k;
+        // His mouth's height over his feet, learnt slowly and only from poses
+        // near rest: a clip that stretches him (his entrance on this step
+        // lifts his mouth ~100px for a few seconds) must never move the frame.
+        if (w.heightPx > 1) {
+          const at = (w.y - m.y) / w.heightPx;
+          if (Math.abs(at - fa.mAt) < 0.08) fa.mAt += (clamp(at, 0.3, 0.7) - fa.mAt) * kSlow;
+        }
+        // The frame keys on where his mouth is at rest on his stand, not on
+        // the animated mouth (a hop or a stretch never swings it).
+        fa.mouth += (w.y - fa.mAt * w.heightPx - fa.mouth) * k;
         fa.hp += (w.heightPx - fa.hp) * k;
         fa.lift += (bw.wornLiftAt(1) * w.heightPx - fa.lift) * k;
         fa.base += (bw.wornLiftAt(0) * w.heightPx - fa.base) * k;
-        // His mouth's height over his feet, slowly (a dance never moves his stand).
-        if (w.heightPx > 1) fa.mAt += (clamp((w.y - m.y) / w.heightPx, 0.3, 0.7) - fa.mAt) * kSlow;
         // Stepped into a face oval: the frame holds still, the prop keeps its size.
+        const tilesEl = vw < WIDE_HERO_MIN ? main.querySelector('.bw-ar [data-fx-anchor="prop"]') : null;
+        const arTilesTop = tilesEl !== null ? Math.max(headerH + 8, tilesEl.getBoundingClientRect().top) : null;
         const g = stepIn !== null
           ? { ...stepIn.frame, propScale: 1, fits: false, faceIn: true, stepIn: true }
           : frameOnBeamy({
             x: fa.x, tip: fa.tip, mouth: fa.mouth, heightPx: fa.hp, lift: fa.lift, liftBase: fa.base,
             opening: arFrameLook.current?.opening ?? DEFAULT_OPENING,
-            box: { top: headerH + 8, bottom: vh - 8, left: 8, right: window.innerWidth - 8 },
+            // Phones/tablets: never higher than the tile row's top, so the
+            // frame stays under the caption and the tab switcher even while he
+            // glides in (the owner-approved p3b look; the carousel rides on it).
+            box: { top: arTilesTop ?? headerH + 8, bottom: vh - 8, left: 8, right: window.innerWidth - 8 },
           });
         const tf = `translate(${g.left.toFixed(1)}px, ${g.top.toFixed(1)}px)`;
         if (fr.style.transform !== tf) { fr.style.transform = tf; fr.style.height = `${g.h.toFixed(1)}px`; }
