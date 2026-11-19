@@ -14,7 +14,8 @@
  * re-checks platform-admin and audits it.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { BookImage, RefreshCw } from 'lucide-react';
+import { BookImage, RefreshCw, Upload } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import {
   fetchLibraryItems,
   libraryErrorText,
@@ -194,14 +195,22 @@ export default function SharedLibrary() {
               : `${items.length} item${items.length === 1 ? '' : 's'} · ${listedCount} listed for hosts`}
           </p>
         </div>
-        <button
-          onClick={() => void load()}
-          disabled={loading}
-          aria-label="Refresh"
-          className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            to="/admin/library/import"
+            className="pressable inline-flex items-center gap-1.5 rounded-full bg-foil text-[color:var(--on-accent)] px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold"
+          >
+            <Upload className="w-3.5 h-3.5" aria-hidden /> Bulk import 3D
+          </Link>
+          <button
+            onClick={() => void load()}
+            disabled={loading}
+            aria-label="Refresh"
+            className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </header>
 
       {error !== null && <LoadError what="the library" code={error} onRetry={() => void load()} />}
@@ -213,7 +222,8 @@ export default function SharedLibrary() {
           <p className="font-sans text-sm text-brand-muted/70 leading-relaxed">
             Open any event’s Studio, build a frame, filter or 3D prop, and save it. A{' '}
             <span className="text-brand-fg">Publish to library</span> button appears in the Studio’s top bar for
-            platform admins. Published items show up here, and every host can add them to their event.
+            platform admins. Published items show up here, and every host can add them to their event. Got a
+            folder of ready-made 3D models? Use <span className="text-brand-fg">Bulk import 3D</span> above.
           </p>
         </div>
       ) : (

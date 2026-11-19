@@ -10,6 +10,7 @@
 import { adminApi, type AdminResult } from './admin';
 import type { LibraryState, LibraryTags, StateChangeTarget } from './libraryPublish';
 import type { ExperienceKind } from '../types';
+import type { Classification, ImportMeta } from './libraryImport';
 
 export interface LibraryItemRow {
   id: string;
@@ -72,6 +73,65 @@ export function setLibraryItemState(
   return adminApi('set_library_item_state', { id, state });
 }
 
+/* ── Bulk 3D import drafts (/admin/library/import) ─────────────────────── */
+
+export interface LibraryDraftRow {
+  id: string;
+  name: string;
+  assetUrl: string;
+  thumbnailUrl: string | null;
+  config: Record<string, unknown>;
+  tags: LibraryTags;
+  importMeta: ImportMeta;
+  createdAt: string;
+}
+
+export function fetchLibraryDrafts(): Promise<AdminResult<{ drafts: LibraryDraftRow[]; total: number }>> {
+  return adminApi('list_library_drafts');
+}
+
+export interface DraftCreateItem {
+  id: string;
+  name: string;
+  assetUrl: string;
+  thumbnailUrl: string;
+  config: Record<string, unknown>;
+  tags: LibraryTags;
+  importMeta: ImportMeta;
+}
+
+type BatchFailure = { id: string; error: string };
+
+export function createLibraryDrafts(items: DraftCreateItem[]): Promise<AdminResult<{ created: string[]; failed: BatchFailure[] }>> {
+  return adminApi('create_library_drafts', { items });
+}
+
+export function updateLibraryDraft(args: {
+  id: string;
+  name?: string;
+  tags?: LibraryTags;
+  config?: Record<string, unknown>;
+  importMeta?: ImportMeta;
+}): Promise<AdminResult<{ id: string }>> {
+  return adminApi('update_library_draft', { ...args });
+}
+
+export type ClassifyResult =
+  | { id: string; ok: true; classification: Classification; error?: undefined }
+  | { id: string; ok: false; error: string; classification?: undefined };
+
+export function classifyLibraryDrafts(ids: string[]): Promise<AdminResult<{ results: ClassifyResult[] }>> {
+  return adminApi('classify_library_drafts', { ids });
+}
+
+export function publishLibraryDrafts(ids: string[]): Promise<AdminResult<{ published: string[]; failed: BatchFailure[] }>> {
+  return adminApi('publish_library_drafts', { ids });
+}
+
+export function discardLibraryDrafts(ids: string[]): Promise<AdminResult<{ discarded: string[]; filesFailed: string[] }>> {
+  return adminApi('discard_library_drafts', { ids });
+}
+
 /** Operator-facing copy for the codes these actions return. */
 export function libraryErrorText(code: string): string {
   switch (code) {
@@ -85,6 +145,17 @@ export function libraryErrorText(code: string): string {
     case 'same_state': return 'It is already in that state.';
     case 'has_links': return 'Events still use it, so it cannot be deleted. Retire or withdraw it instead.';
     case 'unlist_first': return 'Retire or withdraw it before deleting.';
+    case 'unknown_action': return 'The server does not have bulk import yet — the admin-api update still needs deploying.';
+    case 'is_draft': return 'That item is still a draft. Publish or discard it from Bulk import.';
+    case 'invalid_asset': return 'The uploaded file is not where the import expected it. Try importing it again.';
+    case 'invalid_config': return 'The model’s placement data was rejected. Try importing it again.';
+    case 'already_exists': return 'It was already imported.';
+    case 'insert_failed': case 'update_failed': return 'The database refused the change. Try again.';
+    case 'thumbnail_unreadable': return 'Its thumbnail could not be read, so the AI could not look at it.';
+    case 'ai_not_configured': return 'AI labelling is not set up (no Gemini key on the server). Label these by hand.';
+    case 'ai_key_invalid': return 'The Gemini key was rejected. Label these by hand, or fix the key.';
+    case 'ai_quota': return 'The AI is rate-limited right now. Wait a minute and try again.';
+    case 'ai_unavailable': return 'The AI did not answer for this one. Try again, or label it by hand.';
     case 'forbidden': return 'This account is not a platform admin.';
     case 'unauthorized': return 'Your session has expired. Sign in again.';
     // A dropped connection says nothing about whether the server finished, so
