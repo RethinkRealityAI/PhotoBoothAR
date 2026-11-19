@@ -523,7 +523,7 @@ export default function AdminHomeAssets() {
             </div>
             <div className="ml-auto flex flex-wrap gap-2">
               <a
-                href="/beamy"
+                href="/"
                 target="_blank"
                 rel="noreferrer"
                 className="pressable inline-flex items-center gap-1.5 min-h-11 px-4 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] font-label uppercase tracking-luxe text-[10px] text-brand-fg"
