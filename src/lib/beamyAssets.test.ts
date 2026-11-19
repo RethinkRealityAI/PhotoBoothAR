@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  AR_CATEGORIES, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, arOrder, carousel, categoryStart, demoQrUrl,
-  lookAction, lookFit, lookThumb, nextAr, toBeamyLook, type HomeLook,
+  AR_CATEGORIES, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, arOrder, arTour, carousel, categoryStart, demoQrUrl,
+  lookAction, lookFit, lookThumb, nextAr, selectedLooks, toBeamyLook, toggleLook, type HomeLook,
 } from './beamyAssets';
 import { BEAMY_LOOKS } from './beamyLooks';
 import { EMOJI_RE } from './brandLanding';
@@ -89,6 +89,53 @@ describe('beamyAssets', () => {
     expect(carousel(0, 3)).toEqual({ prev: 2, next: 1, after: null });
     expect(carousel(0, 2)).toEqual({ prev: null, next: 1, after: null });
     expect(carousel(0, 1)).toEqual({ prev: null, next: null, after: null });
+  });
+
+  it('wears one look per category, combined, and a second tap takes it off', () => {
+    const o = arOrder(HOME_ASSET_DEFAULTS.arLooks);
+    const first = (c: HomeLook['category'], k = 0) => o.filter((l) => l.category === c)[k];
+    let sel = toggleLook({}, first('frame'));
+    sel = toggleLook(sel, first('prop'));
+    sel = toggleLook(sel, first('filter'));
+    sel = toggleLook(sel, first('effect'));
+    expect(selectedLooks(sel, o).map((l) => l.category)).toEqual(['frame', 'prop', 'filter', 'effect']);
+    // Another pick in the same category replaces it, never stacks two.
+    sel = toggleLook(sel, first('prop', 1));
+    expect(sel.prop).toBe(first('prop', 1).id);
+    expect(selectedLooks(sel, o).filter((l) => l.category === 'prop')).toHaveLength(1);
+    // A tap on what he is wearing takes it off; the others stay on.
+    sel = toggleLook(sel, first('frame'));
+    expect(sel.frame).toBeUndefined();
+    expect(selectedLooks(sel, o).map((l) => l.category)).toEqual(['prop', 'filter', 'effect']);
+    // Pure: the input selection is never changed.
+    const before = { frame: first('frame').id };
+    toggleLook(before, first('frame'));
+    expect(before).toEqual({ frame: first('frame').id });
+    // Stale or mis-filed ids are dropped.
+    expect(selectedLooks({ frame: 'gone', prop: first('frame').id }, o)).toEqual([]);
+  });
+
+  it('tours by building a look up one category at a time, then a fresh one', () => {
+    const o = arOrder(HOME_ASSET_DEFAULTS.arLooks);
+    const cats = (k: number) => Object.keys(arTour(k, o).sel).sort();
+    expect(arTour(0, o).tab).toBe('frame');
+    expect(cats(0)).toEqual(['frame']);
+    expect(cats(1)).toEqual(['frame', 'prop']);
+    expect(cats(2)).toEqual(['filter', 'frame', 'prop']);
+    expect(cats(3)).toEqual(['effect', 'filter', 'frame', 'prop']);
+    expect(arTour(3, o).tab).toBe('effect');
+    // The next round starts over with each category's next item.
+    expect(cats(4)).toEqual(['frame']);
+    expect(arTour(4, o).sel.frame).toBe(o.filter((l) => l.category === 'frame')[1].id);
+    expect(arTour(4, o).sel.frame).not.toBe(arTour(0, o).sel.frame);
+    // Every step is a valid selection (one look per category, all real).
+    for (let k = 0; k < 40; k++) {
+      const t = arTour(k, o);
+      expect(selectedLooks(t.sel, o)).toHaveLength(Object.keys(t.sel).length);
+      expect(t.sel[t.tab]).toBeDefined();
+    }
+    expect(arTour(0, [])).toEqual({ sel: {}, tab: 'frame' });
+    expect(arTour(-3, o)).toEqual(arTour(0, o));
   });
 
   it('points the real QR code at the demo event’s guest welcome, tagged', () => {

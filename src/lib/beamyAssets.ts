@@ -173,6 +173,14 @@ export function lookAction(l: HomeLook): LookAction {
 /** The frame geometry the AR step uses (his heights): the frame stands behind him, a little taller than he is. */
 export const AR_FRAME_GEO = { h: 1.24, c: 0.62 } as const;
 
+/**
+ * The AR step's frame IN FRONT of him (a page image, not worn by the stage):
+ * `h` = its height in his heights; `mouth` = where his mouth sits, as a
+ * fraction of the frame from its top (a booth frame's window is made for a
+ * face there).
+ */
+export const AR_FRAME_FRONT = { h: 1.5, mouth: 0.48 } as const;
+
 /** A HomeLook as the stage's BeamyLook (frames/props only; others are not worn). */
 export function toBeamyLook(l: HomeLook, frame?: { h: number; c: number }): BeamyLook {
   const a = lookAction(l);
@@ -189,6 +197,46 @@ export function arOrder(looks: HomeLook[]): HomeLook[] {
 /** The first index of a category in an ordered list, or -1. */
 export function categoryStart(ordered: HomeLook[], cat: LookCategory): number {
   return ordered.findIndex((l) => l.category === cat);
+}
+
+/** The AR step's look: at most one pick per category (category → look id). */
+export type ArSelection = Partial<Record<LookCategory, string>>;
+
+/** A tap on a look: wears it (replacing its category's pick), or takes it off when it was already on. */
+export function toggleLook(sel: ArSelection, l: HomeLook): ArSelection {
+  const out = { ...sel };
+  if (out[l.category] === l.id) delete out[l.category];
+  else out[l.category] = l.id;
+  return out;
+}
+
+/** The picked looks in category order; an id no longer in `looks` (or in the wrong category) is dropped. */
+export function selectedLooks(sel: ArSelection, looks: HomeLook[]): HomeLook[] {
+  return AR_CATEGORIES.flatMap((c) => {
+    const id = sel[c.id];
+    const l = id === undefined ? undefined : looks.find((x) => x.id === id && x.category === c.id);
+    return l === undefined ? [] : [l];
+  });
+}
+
+/**
+ * The AR step's auto tour (it runs until the visitor's first tap): step `k`
+ * builds a look one category at a time (a frame, then a prop on top, then a
+ * filter, then an effect), and the next round starts a fresh look from each
+ * category's next item. Returns the selection and the tab to show.
+ */
+export function arTour(k: number, looks: HomeLook[]): { sel: ArSelection; tab: LookCategory } {
+  const cats = AR_CATEGORIES.map((c) => c.id).filter((id) => looks.some((l) => l.category === id));
+  if (cats.length === 0) return { sel: {}, tab: 'frame' };
+  const kk = Math.max(0, Math.floor(k));
+  const round = Math.floor(kk / cats.length);
+  const upto = kk % cats.length;
+  const sel: ArSelection = {};
+  for (let j = 0; j <= upto; j++) {
+    const inCat = looks.filter((l) => l.category === cats[j]);
+    sel[cats[j]] = inCat[round % inCat.length].id;
+  }
+  return { sel, tab: cats[upto] };
 }
 
 /** Auto-advance: the next look, wrapping to the first. */

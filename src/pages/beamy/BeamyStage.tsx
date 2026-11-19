@@ -798,18 +798,30 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         return new Promise<void>((resolve) => { arrival.current = { t: 0, landed: false, resolve }; });
       },
       sparkle(level) {
-        if (reducedRef.current) return;
+        // A sparkle is feedback, and the AR step's "Sparkle burst" is a look
+        // the visitor picked: reduced motion softens it (fewer motes, a
+        // shorter reach, no flash) and never drops it.
+        const soft = reducedRef.current;
         const h = layoutRef.current.heightPx * scale.current;
         const cx = pos.current.x;
         const cy = pos.current.y - h * 0.55;
-        const n = level === 'burst' ? 44 : 12;
+        const burst = level === 'burst';
+        const n = burst ? (soft ? 22 : 40) : (soft ? 6 : 12);
+        const reach = soft ? 0.7 : 1;
         for (let i = 0; i < n; i++) {
           const a = Math.random() * Math.PI * 2;
-          const r = h * (level === 'burst' ? 0.55 + Math.random() * 0.45 : 0.35 + Math.random() * 0.25);
+          const r = h * reach * (burst ? 0.55 + Math.random() * 0.5 : 0.35 + Math.random() * 0.25);
           emitMote(cx + Math.cos(a) * h * 0.15, cy + Math.sin(a) * h * 0.15, cx + Math.cos(a) * r, cy + Math.sin(a) * r,
-            0.5 + Math.random() * 0.35, -Math.random() * 0.08, 0);
+            0.55 + Math.random() * 0.35, -Math.random() * 0.08, 0);
         }
-        if (level === 'burst') flash.current = { t: 0, at: { x: cx, y: cy }, sizePx: h * 1.6 };
+        if (!burst) return;
+        // A second, wider ring a beat later: the burst reads as a burst.
+        for (let i = 0; i < (soft ? 0 : 24); i++) {
+          const a = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
+          const r = h * (1.0 + Math.random() * 0.25);
+          emitMote(cx, cy, cx + Math.cos(a) * r, cy + Math.sin(a) * r, 0.7 + Math.random() * 0.2, -0.16, 0);
+        }
+        if (!soft) flash.current = { t: 0, at: { x: cx, y: cy }, sizePx: h * 1.8 };
       },
       spin() {
         if (reducedRef.current) return;

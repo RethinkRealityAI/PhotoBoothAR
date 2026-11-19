@@ -68,7 +68,10 @@ import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, ty
 import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker from './ArPicker';
-import { AR_FRAME_GEO, HOME_ASSET_DEFAULTS, arOrder, demoQrUrl, lookAction, nextAr, toBeamyLook } from '../../lib/beamyAssets';
+import {
+  AR_FRAME_FRONT, HOME_ASSET_DEFAULTS, arOrder, arTour, demoQrUrl, lookAction, selectedLooks, toBeamyLook, toggleLook,
+  type ArSelection, type HomeLook, type LookCategory,
+} from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
@@ -96,10 +99,9 @@ const FILM_MEDIA: Record<FilmId, { src: string; poster: string; Icon: (p: BeamIc
 const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
 /** The AR step's picker, in category order. */
 const AR_LOOKS = arOrder(A.arLooks);
-/** How long each AR look holds on the auto tour, and how long a tap pauses it. */
+/** How long each step of the AR auto tour holds (the tour stops for good at the first tap). */
 const AR_HOLD_MS = 3200;
 const AR_HOLD_REDUCED_MS = 5200;
-const AR_IDLE_MS = 8000;
 /** Skipping the picker tours as the most common host. */
 const DEFAULT_AUDIENCE = audienceById('family') ?? AUDIENCES[0];
 /** Room above Beamy's head kept free for his speech bubble (slots that show it). */
@@ -270,6 +272,9 @@ export default function BeamyPage() {
   const backdropRef = useRef<HTMLDivElement | null>(null);
   /** The stage calls this first in each of its frames (see the glide below). */
   const stageFrame = useRef<(() => void) | null>(null);
+  /** The AR step's frame image (ArPicker); the glide places it on him every frame. */
+  const arFrameRef = useRef<HTMLImageElement | null>(null);
+  const arFrameAt = useRef<{ el: HTMLImageElement | null; t: number; x: number; y: number; h: number }>({ el: null, t: 0, x: 0, y: 0, h: 0 });
   const scrollTop = () => scrollerRef.current?.scrollTop ?? 0;
   const heroRef = useRef<HTMLElement | null>(null);
   const heroPanelRef = useRef<HTMLDivElement | null>(null);
@@ -627,6 +632,27 @@ export default function BeamyPage() {
       const night = (Math.round(nightV * 20) / 20).toFixed(2);
       if (sc.style.getPropertyValue('--bw-night-mix') !== night) sc.style.setProperty('--bw-night-mix', night);
       if (hero !== null && hs !== null && !reducedRef.current && hero.style.getPropertyValue('--hs') !== hs) hero.style.setProperty('--hs', hs);
+      // The AR step's frame stands in front of him, his mouth where a booth
+      // frame expects a face (the stage's own numbers: no DOM read). It eases
+      // after him, so a dance or a hop never swings it; a new frame snaps.
+      const fr = arFrameRef.current;
+      const bw = api.current;
+      if (fr !== null && bw !== null && readyRef.current) {
+        const w = bw.where();
+        const m = bw.mouth();
+        const fa = arFrameAt.current;
+        const now = performance.now();
+        const k = fa.el === fr ? 1 - Math.exp(-(now - fa.t) / 180) : 1;
+        fa.el = fr;
+        fa.t = now;
+        fa.x += (w.x - fa.x) * k;
+        fa.y += (m.y - fa.y) * k;
+        fa.h += (w.heightPx * AR_FRAME_FRONT.h - fa.h) * k;
+        // Never below the fold: a frame cut off at the bottom reads as broken.
+        const top = Math.min(fa.y - fa.h * AR_FRAME_FRONT.mouth, window.innerHeight - fa.h - 8);
+        const tf = `translate(${(fa.x - fa.h * (9 / 32)).toFixed(1)}px, ${top.toFixed(1)}px)`;
+        if (fr.style.transform !== tf) { fr.style.transform = tf; fr.style.height = `${fa.h.toFixed(1)}px`; }
+      }
       layoutRef.current.tickMs = performance.now() - t0;
     };
     const tick = () => {
@@ -813,49 +839,75 @@ export default function BeamyPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
   }, [tryOn, lookIx, reduced]);
 
-  /* ── The story's AR step: the picker drives what he wears. It tours every
-     look on its own (frames, props, filters, effects); any tap switches him
-     at once and pauses the tour, which carries on AR_IDLE_MS later. ── */
-  const [arIx, setArIx] = useState(0);
-  const arPausedUntil = useRef(0);
+  /* ── The story's AR step: the picker drives what he wears, ONE look per
+     category, combined (lib/beamyAssets toggleLook): the prop on his head,
+     the filter as his tint, the effect on a loop, and the frame in front of
+     him (ArPicker draws it; the stage never wears it here). Until the first
+     tap it tours on its own, building a look up one category at a time
+     (arTour); any tap or tab ends the tour for good. ── */
+  const [arSel, setArSel] = useState<ArSelection>(() => arTour(0, AR_LOOKS).sel);
+  const [arTab, setArTab] = useState<LookCategory>(() => arTour(0, AR_LOOKS).tab);
+  const [arTouched, setArTouched] = useState(false);
+  const arK = useRef(0);
   const arOn = ready && !failed && arrival === 'done' && inStoryAR;
-  const pickAr = useCallback((i: number) => {
-    arPausedUntil.current = performance.now() + AR_IDLE_MS;
-    logStep(`ar:pick:${AR_LOOKS[i]?.id ?? i}`);
-    setArIx(i);
+  const toggleAr = useCallback((l: HomeLook) => {
+    logStep(`ar:pick:${l.id}`);
+    setArTouched(true);
+    setArTab(l.category);
+    setArSel((s) => toggleLook(s, l));
+  }, []);
+  const tabAr = useCallback((c: LookCategory) => {
+    logStep(`ar:tab:${c}`);
+    setArTouched(true);
+    setArTab(c);
   }, []);
   useEffect(() => {
-    if (!arOn) return;
+    if (!arOn || arTouched) return;
     const id = window.setInterval(() => {
-      if (performance.now() >= arPausedUntil.current) setArIx((k) => nextAr(k, AR_LOOKS.length));
+      arK.current += 1;
+      const t = arTour(arK.current, AR_LOOKS);
+      setArSel(t.sel);
+      setArTab(t.tab);
     }, reduced ? AR_HOLD_REDUCED_MS : AR_HOLD_MS);
     return () => window.clearInterval(id);
-  }, [arOn, reduced]);
-  const arWorn = useRef(false);
+  }, [arOn, arTouched, reduced]);
+  /** The prop the AR step has on him (null = none); undefined = the step is not dressing him. */
+  const arWorn = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     const b = api.current;
     if (b === null) return;
     if (!arOn) {
-      if (arWorn.current) { arWorn.current = false; void b.wear(null); b.tint(null); }
+      if (arWorn.current !== undefined) { arWorn.current = undefined; void b.wear(null); b.tint(null); }
       return;
     }
-    const l = AR_LOOKS[arIx];
-    if (l === undefined) return;
-    if (arWorn.current) b.sparkle('sparkle');
-    arWorn.current = true;
-    const a = lookAction(l);
-    logStep(`ar:${l.id}`);
-    b.tint(a.kind === 'tint' ? a.color : null);
-    void b.wear(a.kind === 'frame' || a.kind === 'prop' ? toBeamyLook(l, a.kind === 'frame' ? AR_FRAME_GEO : undefined) : null);
-    // Warm the next file so the swap is instant.
-    const nx = AR_LOOKS[nextAr(arIx, AR_LOOKS.length)];
-    if (nx !== undefined) {
-      const na = lookAction(nx);
-      if (na.kind === 'prop') void preloadModel(na.url);
-      else if (na.kind === 'frame') { const im = new Image(); im.src = na.url; }
+    const worn = selectedLooks(arSel, AR_LOOKS);
+    const prop = worn.find((l) => l.category === 'prop');
+    const filter = worn.find((l) => l.category === 'filter');
+    const fa = filter !== undefined ? lookAction(filter) : null;
+    logStep(`ar:${worn.map((l) => l.id).join('+') || 'none'}`);
+    if (arWorn.current !== undefined) b.sparkle('sparkle');
+    b.tint(fa !== null && fa.kind === 'tint' ? fa.color : null);
+    const pid = prop?.id ?? null;
+    if (arWorn.current !== pid) void b.wear(prop !== undefined ? toBeamyLook(prop) : null);
+    arWorn.current = pid;
+    // Warm the tour's next files so the swap is instant.
+    if (!arTouched) {
+      for (const n of selectedLooks(arTour(arK.current + 1, AR_LOOKS).sel, AR_LOOKS)) {
+        const na = lookAction(n);
+        if (na.kind === 'prop') void preloadModel(na.url);
+        else if (na.kind === 'frame') { const im = new Image(); im.src = na.url; }
+      }
     }
-    if (a.kind !== 'fx') return;
-    // Effects: Power-Up style moments that repeat while the effect is on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- arTouched only gates the warm-up
+  }, [arOn, arSel]);
+  // Effects: Power-Up style moments that repeat while the effect is on.
+  const arFx = arSel.effect;
+  useEffect(() => {
+    const b = api.current;
+    if (b === null || !arOn || arFx === undefined) return;
+    const l = AR_LOOKS.find((x) => x.id === arFx);
+    const a = l !== undefined ? lookAction(l) : null;
+    if (a === null || a.kind !== 'fx') return;
     const run = () => {
       const w = b.where();
       if (a.fx === 'sparkles') b.sparkle('burst');
@@ -865,7 +917,7 @@ export default function BeamyPage() {
     run();
     const id = window.setInterval(run, a.fx === 'sparkles' ? 1300 : a.fx === 'beam' ? 2000 : 3400);
     return () => window.clearInterval(id);
-  }, [arOn, arIx]);
+  }, [arOn, arFx]);
 
   /* Only the Skip chip skips the intro (or scrolling on). */
   const skipIntro = useCallback(() => {
@@ -1320,34 +1372,43 @@ export default function BeamyPage() {
   // Phones and portrait tablets stack the scene above him; wide screens set it round him.
   const stacked = phone || vp.w < WIDE_HERO_MIN;
   const storyIds = STORY_STEPS.map((s) => s.id);
+  /** His slot in the story. */
+  const storySlotCls = stacked ? 'bottom-[1%] left-[15%] right-[15%] h-[46%]' : 'bottom-[3%] left-[30%] right-[30%] h-[58%]';
   const qrUrl = demoQrUrl(window.location.origin, A.demoEventSlug ?? 'demo');
+  const storyDots = (
+    <div className="bw-cap-dots" role="group" aria-label="Steps">
+      {STORY_STEPS.map((s, k) => (
+        <button key={s.id} type="button" aria-label={`Step ${k + 1}: ${s.title}`} aria-current={k === step ? 'step' : undefined} onClick={() => goStep(k)}><span /></button>
+      ))}
+    </div>
+  );
   const storyCaption = (
-    <div className={`bw-glass-card bw-pane ${stacked ? 'px-4 pb-1.5 pt-3.5' : 'w-[min(420px,34vw)] px-6 pb-2.5 pt-5'}`}>
-      <p className={`bw-eyebrow after:hidden ${stacked ? 'text-[12px]' : ''}`}>{STORY_COPY.eyebrow}</p>
+    <div className={`bw-glass-card bw-pane ${stacked ? 'px-4 pb-3 pt-1.5' : 'w-[min(420px,34vw)] px-6 pb-2.5 pt-5'}`}>
+      {/* Phones: the eyebrow and the step dots share one header row (a shorter card). */}
+      <div className={stacked ? 'flex items-center justify-between gap-2' : ''}>
+        <p className={`bw-eyebrow after:hidden ${stacked ? 'text-[12px]' : ''}`}>{STORY_COPY.eyebrow}</p>
+        {stacked && <div className="-mr-2">{storyDots}</div>}
+      </div>
       <h2 id="h-story" className="sr-only">{STORY_COPY.heading}</h2>
       {/* Every step stays in the document; only the active one shows. */}
-      <ol className="bw-cap-steps mt-2.5">
+      <ol className={`bw-cap-steps ${stacked ? 'mt-0.5' : 'mt-2.5'}`}>
         {STORY_STEPS.map((s, k) => (
           <li key={s.id} data-active={k === step ? 'true' : 'false'}>
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center ${stacked ? 'gap-2.5' : 'gap-3'}`}>
               <span className="bw-story-num" aria-hidden>{String(k + 1).padStart(2, '0')}</span>
-              <h3 className={`bw-h3 min-w-0 ${stacked ? 'text-[18px] leading-tight' : ''}`}>{s.title}</h3>
+              <h3 className={`bw-h3 min-w-0 ${stacked ? 'text-[17px] leading-tight' : ''}`}>{s.title}</h3>
             </div>
-            <p className={`bw-small mt-1.5 ${stacked ? '' : 'pl-12'}`}>{s.body}</p>
+            <p className={`bw-small ${stacked ? 'mt-1 text-[13px] leading-snug' : 'mt-1.5 pl-12'}`}>{s.body}</p>
           </li>
         ))}
       </ol>
-      <div className={`bw-cap-dots ${stacked ? 'mt-1' : 'mt-2 pl-12'}`} role="group" aria-label="Steps">
-        {STORY_STEPS.map((s, k) => (
-          <button key={s.id} type="button" aria-label={`Step ${k + 1}: ${s.title}`} aria-current={k === step ? 'step' : undefined} onClick={() => goStep(k)}><span /></button>
-        ))}
-      </div>
+      {!stacked && <div className="mt-2 pl-12">{storyDots}</div>}
     </div>
   );
   const storyScenes = (
     <>
       <StoryScenes step={step} live={active === 'story'} ids={storyIds} stacked={stacked} qrUrl={qrUrl} wallCentreRef={storyWallRef} seed={seed} beamyAt={beamyAt} onCue={onCue} />
-      <ArPicker looks={AR_LOOKS} ix={arIx} onPick={pickAr} active={inStoryAR} stacked={stacked} />
+      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onToggle={toggleAr} active={inStoryAR} stacked={stacked} frameRef={arFrameRef} />
     </>
   );
   const story = (
@@ -1359,14 +1420,14 @@ export default function BeamyPage() {
             {/* The scene rises above his head; he stands big below it. */}
             <div className="relative mx-auto mt-3 min-h-0 w-full max-w-[640px] flex-1">
               {storyScenes}
-              <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-[1%] left-[15%] right-[15%] h-[46%]" />
+              <div data-slot="story" data-bubble="none" aria-hidden className={`absolute ${storySlotCls}`} />
             </div>
           </div>
         ) : (
           <div className="relative mx-auto h-full max-w-[1480px]">
             {storyScenes}
             {/* Big and centred; the scene stands on both sides of him and above. */}
-            <div data-slot="story" data-bubble="none" aria-hidden className="absolute bottom-[3%] left-[30%] right-[30%] h-[58%]" />
+            <div data-slot="story" data-bubble="none" aria-hidden className={`absolute ${storySlotCls}`} />
             <div className="absolute left-[clamp(24px,4vw,64px)] top-[clamp(16px,3.5vh,36px)] z-10">{storyCaption}</div>
           </div>
         )}

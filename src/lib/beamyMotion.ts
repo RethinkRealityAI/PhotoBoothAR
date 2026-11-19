@@ -45,7 +45,7 @@ export function motionAttrs(reduced: boolean): { 'data-content-motion': MotionLe
  * media block must never name one of these (the test enforces it).
  */
 export const CONTENT_MOTION_CLASSES = [
-  'bw-qr-', 'bw-scene-scan', 'bw-ch-', 'bw-ks-', 'bw-kb', 'bw-scene-track', 'bw-seq', 'bw-wl-',
+  'bw-qr-', 'bw-scene-scan', 'bw-ch-', 'bw-ks-', 'bw-kb', 'bw-scene-track', 'bw-seq', 'bw-wl-', 'bw-ar-',
 ] as const;
 
 /* ── The story's sequencer ─────────────────────────────────────────────
