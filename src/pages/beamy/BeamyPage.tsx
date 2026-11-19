@@ -65,6 +65,8 @@ import {
 } from '../../lib/beamyScroll';
 import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, type BeamyLook } from '../../lib/beamyLooks';
 import { preloadModel } from '../../lib/glbCache';
+import { ambientFor } from '../../lib/ambientFx';
+import AmbientFx from '../../components/beamy/AmbientFx';
 import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, type StageLayout } from './BeamyStage';
 import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
@@ -1317,6 +1319,10 @@ export default function BeamyPage() {
         <div className="bw-glass" aria-hidden />
         <div aria-hidden className="bw-hero-back" style={{ borderRadius: radius }} />
         <div aria-hidden className="bw-hero-floor" style={{ borderRadius: `0 0 ${radius}px ${radius}px` }} />
+        {/* Ambient decor for the look he wears: snow for Christmas, glints for a party (never takes a tap). */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden" style={{ borderRadius: radius }}>
+          <AmbientFx kind={ambientFor(BEAMY_LOOKS[lookIx]?.id)} reduced={reduced} className="block h-full w-full" />
+        </div>
         {wideHero ? (
           <div ref={heroGridRef} className={`relative grid h-full items-center gap-6 px-[clamp(28px,3.4vw,64px)] ${vp.w < 1280 ? 'grid-cols-[minmax(0,1.5fr)_minmax(0,0.6fr)_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1.36fr)_minmax(0,0.74fr)_minmax(0,1.1fr)]'}`}>
             <div data-card-avoid data-bubble-left className={`relative z-10 flex flex-col ${showContent ? 'bw-rise' : 'invisible'}`}>
