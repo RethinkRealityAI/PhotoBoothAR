@@ -196,8 +196,8 @@ export const STORY_COPY = {
 export const KEEPSAKE_PROMISE = {
   /** The How it works step body (80 chars max, no dashes). */
   step: 'Guests get their keepsake film after the event, a link they can keep and share.',
-  /** What Beamy says over the keepsake film. */
-  beamy: 'And after the event, everyone gets a digital keepsake.',
+  /** What Beamy says over the keepsake film (his speech bubble on its tab). */
+  beamy: 'Aww, I’m keeping this one forever.',
 } as const;
 
 export type StoryFxId = 'qr' | 'prop' | 'wall' | 'medal' | 'keepsake';
@@ -228,13 +228,13 @@ export type FilmId = 'booth' | 'wall' | 'challenges' | 'cards';
 /**
  * The four feature films, with the original landing's eyebrow, title and ONE
  * hook each (the films carry the detail as in-video callouts, so the copy
- * never pre-states them), plus what Beamy says while he projects each one.
+ * never pre-states them), plus Beamy's speech-bubble line on each tab.
  */
 export const FILMS: { id: FilmId; eyebrow: string; title: string; line: string; beamy: string }[] = (
   [
-    ['booth', 'Watch this. Every phone becomes the booth.'],
-    ['wall', 'And this is where every shot lands.'],
-    ['challenges', 'Want the room to mingle? Give them a mission.'],
+    ['booth', 'I hope I’m catching my good angle.'],
+    ['wall', 'That’s me, third row, waving.'],
+    ['challenges', 'I’m very competitive. I would definitely win this.'],
     ['cards', KEEPSAKE_PROMISE.beamy],
   ] as const
 ).map(([id, beamy]) => {

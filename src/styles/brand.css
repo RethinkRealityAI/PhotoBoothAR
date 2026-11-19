@@ -1009,6 +1009,41 @@
       0 34px 80px -34px rgba(255, 197, 107, 0.45);
   }
   .bw-film[data-lit="true"]::after { opacity: 0; animation: bw-power 700ms linear both; }
+  /* /beamy's films: ONE fixed 16:9 box whatever the film (a remounted video
+     has no size until its metadata loads, which used to collapse the box to
+     its padding for a frame on every tab switch). */
+  .bw-film-fixed > * { aspect-ratio: 16 / 9; }
+  .bw-film-fixed video { width: 100%; height: 100%; object-fit: cover; }
+  .bw-film-caption { min-height: 3.1em; }
+  /* Beamy's line per film: a bubble of fixed height, its tail at him. */
+  .bw-film-line { display: flex; align-items: flex-end; justify-content: center; height: 104px; margin: 0 0 6px; }
+  .bw-film-line[data-phone="true"] { height: auto; min-height: 68px; align-items: center; justify-content: flex-start; margin: 14px 0 0; }
+  .bw-film-line-text {
+    position: relative;
+    max-width: 100%;
+    padding: 10px 16px;
+    border-radius: var(--bw-radius-bubble);
+    background-color: rgba(246, 245, 255, 0.80);
+    -webkit-backdrop-filter: blur(16px) saturate(130%);
+    backdrop-filter: blur(16px) saturate(130%);
+    color: var(--bw-on-light);
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.4;
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 16px 36px -18px var(--bw-shadow);
+    animation: bw-ar-title-in 420ms var(--bw-ease) both;
+  }
+  .bw-film-line[data-phone="false"] .bw-film-line-text::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    width: 18px;
+    height: 9px;
+    transform: translateX(-50%);
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+    background-color: rgba(246, 245, 255, 0.80);
+  }
   .bw-film-chip {
     background-color: rgba(26, 23, 64, 0.62);
     -webkit-backdrop-filter: blur(10px);
@@ -2122,6 +2157,7 @@
 /* The carousel's orbs hold still; its title fades in without the lift. */
 [data-brand="2"][data-content-motion="soft"] .bw-ar-peek[data-kind="orb"] { animation: bw-ar-peek-in 520ms var(--bw-ease) both; }
 [data-brand="2"][data-content-motion="soft"] .bw-ar-title-text { animation-name: bw-fade; }
+[data-brand="2"][data-content-motion="soft"] .bw-film-line-text { animation-name: bw-fade; }
 /* The board's shine is ambient: gone under reduced motion; the climb stays (it is the story). */
 [data-brand="2"][data-content-motion="soft"] .bw-ch-row::after { animation: none; opacity: 0; }
 [data-brand="2"][data-content-motion="soft"] .bw-ch-medal { animation-iteration-count: 1; }

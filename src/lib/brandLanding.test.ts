@@ -132,6 +132,10 @@ describe('copy', () => {
       expect(f.line.length, f.id).toBeGreaterThan(0);
     }
     expect(FILM_EYEBROW).toEqual({ cards: 'Digital keepsakes' });
+    // Beamy says his own short line on every film tab (one speech bubble, no repeats).
+    for (const f of FILMS) expect(f.beamy.length, f.id).toBeGreaterThan(0);
+    for (const f of FILMS) expect(f.beamy.length, f.id).toBeLessThanOrEqual(60);
+    expect(new Set(FILMS.map((f) => f.beamy)).size).toBe(FILMS.length);
     // Step bodies stay short (about two lines on a card), each with its own effect.
     expect(STORY_STEPS.length).toBeGreaterThanOrEqual(3);
     expect(STORY_STEPS.length).toBeLessThanOrEqual(5);

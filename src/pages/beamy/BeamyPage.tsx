@@ -40,7 +40,7 @@ import {
   type CSSProperties, type HTMLAttributes, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, Check, Lock } from 'lucide-react';
+import { Camera, Check, Clapperboard, Lock } from 'lucide-react';
 import { Briefcase, Cake, ClipboardList, Gift, Users, type LucideIcon } from 'lucide-react';
 import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
@@ -93,12 +93,37 @@ const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, 
 /* Asset slots come from lib/beamyAssets (HOME_ASSET_DEFAULTS); an undefined
    media field there means the bundled file imported here. */
 const A = HOME_ASSET_DEFAULTS;
-const FILM_MEDIA: Record<FilmId, { src: string; poster: string; Icon: (p: BeamIconProps) => ReactNode }> = {
-  booth: { src: A.films.booth.video ?? boothFilm, poster: A.films.booth.poster ?? boothPoster, Icon: BoothIcon },
-  wall: { src: A.films.wall.video ?? wallFilm, poster: A.films.wall.poster ?? wallPoster, Icon: WallIcon },
-  challenges: { src: A.films.challenges.video ?? challengesFilm, poster: A.films.challenges.poster ?? challengesPoster, Icon: ChallengeIcon },
-  cards: { src: A.films.cards.video ?? cardsFilm, poster: A.films.cards.poster ?? cardsPoster, Icon: CardIcon },
+/**
+ * One tab of "See it in motion". The list below is the whole section: the
+ * tab row, the 16:9 film box (fixed size, so a switch never moves the page)
+ * and Beamy's speech-bubble line all read it. To add a tab, import its clip
+ * and poster at the top of this file and append ONE entry to FILM_TABS:
+ *   { key: 'virtual', label: 'Virtual celebrations', video: virtualFilm,
+ *     poster: virtualPoster, line: 'Beamy’s line for it' }
+ * `title` + `hook` (the caption under the film) and `Icon` are optional.
+ */
+interface FilmTab {
+  key: string;
+  label: string;
+  video: string;
+  poster: string;
+  /** Beamy's speech-bubble line while this film is on. */
+  line: string;
+  title?: string;
+  hook?: string;
+  Icon?: (p: BeamIconProps) => ReactNode;
+}
+/** A tab from the shared film copy (lib/brandLanding FILMS) and its bundled media (a CMS override wins). */
+const filmTab = (id: FilmId, video: string, poster: string, Icon: FilmTab['Icon']): FilmTab => {
+  const f = FILMS.find((x) => x.id === id);
+  return { key: id, label: f?.eyebrow ?? id, title: f?.title, hook: f?.line, line: f?.beamy ?? '', video: A.films[id]?.video ?? video, poster: A.films[id]?.poster ?? poster, Icon };
 };
+const FILM_TABS: FilmTab[] = [
+  filmTab('booth', boothFilm, boothPoster, BoothIcon),
+  filmTab('wall', wallFilm, wallPoster, WallIcon),
+  filmTab('challenges', challengesFilm, challengesPoster, ChallengeIcon),
+  filmTab('cards', cardsFilm, cardsPoster, CardIcon),
+];
 /** The live walls' photos: an override needs more than one wall's worth. */
 const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
 /** The AR step's picker, in category order. */
@@ -221,17 +246,15 @@ export default function BeamyPage() {
 
   const [active, setActive] = useState<StopId>('hero');
   const [step, setStep] = useState(0);
-  const [film, setFilm] = useState<FilmId>('booth');
-  /* Films and the audience options wait, hidden, until Beamy arrives and
-     beams them in (instantly shown without WebGL or under reduced motion). */
-  const [filmsLit, setFilmsLit] = useState(false);
+  const [film, setFilm] = useState<string>(FILM_TABS[0].key);
+  /* The audience options wait, hidden, until Beamy arrives and beams them
+     in (instantly shown without WebGL or under reduced motion). The films
+     are simply there: no projector, so a tab switch never moves anything. */
   const [pickLit, setPickLit] = useState(false);
   const pickLitRef = useRef(false);
   pickLitRef.current = pickLit;
-  const filmsLitRef = useRef(false);
-  filmsLitRef.current = filmsLit;
-  /** When each has been on screen since (0 = not now), for the never-wait fallback. */
-  const seenAt = useRef({ films: 0, pick: 0 });
+  /** When the options have been on screen since (0 = not now), for the never-wait fallback. */
+  const seenAt = useRef({ pick: 0 });
   const pickGridRef = useRef<HTMLDivElement | null>(null);
   const [picked, setPicked] = useState<Audience | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -324,7 +347,6 @@ export default function BeamyPage() {
   filmRef.current = film;
   /** What the story is doing with Beamy right now (so a step is entered once). */
   const storyOn = useRef<{ step: number; held: boolean }>({ step: -1, held: false });
-  const projecting = useRef(false);
   const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.6 }, heightPx: 180 });
   const decorRef = useRef<StageDecor>({ panel: null, stand: null, phone, scroll: 0 });
   const fxRef = useRef<FxState>({ weights: {}, spot: null });
@@ -436,7 +458,7 @@ export default function BeamyPage() {
     switch (id) {
       case 'hero': return BEAMY_LOOKS[lookIxRef.current]?.line ?? HELLO;
       case 'story': return STORY_COPY.heading;
-      case 'films': return FILMS.find((f) => f.id === filmRef.current)?.beamy ?? FILMS[0].beamy;
+      case 'films': return (FILM_TABS.find((f) => f.key === filmRef.current) ?? FILM_TABS[0]).line;
       case 'pick': return GREETING;
       case 'try': return a.lines.snap;
       case 'pricing': return pricingSection().line;
@@ -728,27 +750,17 @@ export default function BeamyPage() {
       const inStory = slotId === 'story' && b.share > 0.8;
       if (inStory && storyOn.current.step !== sStep) storyEnterRef.current(sStep);
       else if (!inStory && storyOn.current.step >= 0) storyLeaveRef.current();
-      // Films and options he beams in: shown anyway once on screen for a moment,
+      // Options he beams in: shown anyway once on screen for a moment,
       // whether or not he got there (a stop that never settles, a slow stage).
+      // (The films never wait on him: he stands beside them and talks.)
       const now = performance.now();
-      const lightAfterLook = (el: HTMLElement | null, key: 'films' | 'pick', lit: boolean, light: () => void) => {
-        if (lit || el === null) return;
-        const q = el.getBoundingClientRect();
-        if (q.top > vh * 0.85 || q.bottom < headerH + 40) { seenAt.current[key] = 0; return; }
-        // Phones have no films slot (he never projects there): the film just appears.
-        if (key === 'films' && isPhone) { light(); return; }
-        if (seenAt.current[key] === 0) seenAt.current[key] = now;
-        else if (now - seenAt.current[key] > 1800) light();
-      };
-      lightAfterLook(filmFrameRef.current, 'films', filmsLitRef.current, () => setFilmsLit(true));
-      lightAfterLook(pickGridRef.current, 'pick', pickLitRef.current, () => setPickLit(true));
-      // The films: a soft projector cone onto the frame while he stands beside it.
-      const bApi = api.current;
-      const inFilms = slotId === 'films' && b.share > 0.8 && readyRef.current && bApi !== null;
-      // Phones: the film sits below the heading, so no cone across it; it just appears.
-      if (inFilms && isPhone) { if (!filmsLitRef.current) setFilmsLit(true); }
-      else if (inFilms && !projecting.current) { projecting.current = true; void bApi?.project(() => rectOf(filmFrameRef.current), 'mouth', !reducedRef.current).then(() => setFilmsLit(true)); }
-      else if (!inFilms && projecting.current) { projecting.current = false; bApi?.stopProject(); }
+      const pg = pickGridRef.current;
+      if (!pickLitRef.current && pg !== null) {
+        const q = pg.getBoundingClientRect();
+        if (q.top > vh * 0.85 || q.bottom < headerH + 40) seenAt.current.pick = 0;
+        else if (seenAt.current.pick === 0) seenAt.current.pick = now;
+        else if (now - seenAt.current.pick > 1800) setPickLit(true);
+      }
       if (settled && slotId !== activeRef.current) onStopRef.current(slotId);
       // Header progress, the colour journey, the hero's scroll depth: read…
       const y = sc.scrollTop;
@@ -1049,7 +1061,6 @@ export default function BeamyPage() {
      Leaving the hero takes it off; coming back puts it on again. ────── */
   // Beamed-in content never waits on him for long: no stage, or a slow one,
   // shows it anyway (the glide tick lights it after a short look; see seenAt).
-  const filmsOn = filmsLit || failed || reduced;
   const pickOn = pickLit || failed || reduced;
 
   const inStoryAR = active === 'story' && STORY_STEPS[step]?.id === 'prop';
@@ -1598,40 +1609,58 @@ export default function BeamyPage() {
     </section>
   );
 
-  /* ── The films: one frame, four films; Beamy projects whichever is on ── */
-  const cur = FILMS.find((f) => f.id === film) ?? FILMS[0];
-  const media = FILM_MEDIA[cur.id];
+  /* ── The films: one fixed 16:9 frame, a tab per film (FILM_TABS); Beamy
+     stands beside it and says a line for each. Nothing here moves on a
+     switch: the box keeps its size and the bubble its height. ── */
+  const cur = FILM_TABS.find((f) => f.key === film) ?? FILM_TABS[0];
   // Straight on from the story (its pinned panel already ends on open space),
   // so the films start right under it, like the options do after them. Phones
   // give it no slot of its own: a second Beamy box above the heading was a
   // blank screen while he dissolved between two slots. He stays in the story
   // until the film fills the screen, then stands above the options.
   const filmsClass = `bw-sec relative mx-auto w-full max-w-[1320px] ${phone ? 'px-5 pb-14 pt-4' : 'px-[clamp(40px,6vw,104px)] pb-[clamp(88px,13vh,150px)] pt-[clamp(8px,2vh,24px)]'}`;
+  // His line, in a bubble of fixed height (its tail points at him; on phones,
+  // where he is not here, it sits over the film).
+  const filmLine = (
+    <p data-film-line className="bw-film-line" data-phone={phone ? 'true' : 'false'} aria-live="polite">
+      <span key={cur.key} className="bw-film-line-text">{cur.line}</span>
+    </p>
+  );
   const films = (
     <section id="films" data-stop="films" aria-labelledby="h-films" className={filmsClass}>
-      {split('right', phone ? null : stand('films', -0.5, 'h-[min(400px,50vh)] w-full max-w-[280px]'), (
+      {split('right', phone ? null : (
+        <div className="flex w-full max-w-[280px] flex-col items-center">
+          {filmLine}
+          <div data-slot="films" data-yaw={-0.5} data-bubble="none" aria-hidden className="aspect-[1.1] max-h-[46vh] w-full" />
+        </div>
+      ), (
         <>
           <div className="bw-in">
             <h2 id="h-films" className="bw-h2">{FILMS_COPY.heading}</h2>
           </div>
           <div role="group" aria-label="Pick a film" className="bw-in mt-5 flex flex-wrap gap-2" style={i(1)}>
-            {FILMS.map((f) => {
-              const M = FILM_MEDIA[f.id];
+            {FILM_TABS.map((f) => {
+              const Icon = f.Icon;
+              const on = film === f.key;
               return (
-                <button key={f.id} type="button" className="bw-glass-chip bw-pane-chip" aria-pressed={film === f.id} onClick={() => { setFilm(f.id); say(f.beamy); logStep(`film:${f.id}`); }}>
-                  <M.Icon size={18} from={film === f.id ? '#2B2A8C' : '#FFFFFF'} to={film === f.id ? '#5B4BE0' : '#C9CCFF'} />
-                  {f.eyebrow}
+                <button key={f.key} type="button" className="bw-glass-chip bw-pane-chip" aria-pressed={on} onClick={() => { setFilm(f.key); logStep(`film:${f.key}`); }}>
+                  {Icon !== undefined
+                    ? <Icon size={18} from={on ? '#2B2A8C' : '#FFFFFF'} to={on ? '#5B4BE0' : '#C9CCFF'} />
+                    : <Clapperboard className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden />}
+                  {f.label}
                 </button>
               );
             })}
           </div>
-          {/* Beamy's projector lands first, then the film appears in its light. */}
-          <div className="bw-beam-in" data-beam={filmsOn ? 'lit' : 'wait'}>
-            <div ref={filmFrameRef} data-film-frame data-lit="true" className="bw-in bw-film bw-thick-frame mt-6" style={i(2)}>
-              <FilmEmbed key={cur.id} src={media.src} poster={media.poster} label={`${cur.title}: feature film`} chipClassName="bw-film-chip" />
-            </div>
-            <p className="bw-small mt-4 max-w-[56ch]"><span className="font-semibold" style={{ color: 'var(--bw-ink)' }}>{cur.title}.</span> {cur.line}</p>
+          {phone && filmLine}
+          <div ref={filmFrameRef} data-film-frame data-lit="true" className={`bw-in bw-film bw-film-fixed bw-thick-frame ${phone ? 'mt-3' : 'mt-6'}`} style={i(2)}>
+            <FilmEmbed key={cur.key} src={cur.video} poster={cur.poster} label={`${cur.title ?? cur.label}: feature film`} chipClassName="bw-film-chip" />
           </div>
+          {(cur.title !== undefined || cur.hook !== undefined) && (
+            <p className="bw-small bw-film-caption mt-4 max-w-[56ch]">
+              {cur.title !== undefined && <span className="font-semibold" style={{ color: 'var(--bw-ink)' }}>{cur.title}.</span>} {cur.hook}
+            </p>
+          )}
         </>
       ))}
     </section>
