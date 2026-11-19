@@ -71,6 +71,12 @@ describe('queryCms', () => {
     expect(ids(queryCms(items, q({ sort: 'most-used' }), cats))).toEqual(['frame', 'santa', 'crown']);
     expect(ids(queryCms(items, q({ sort: 'oldest' }), cats))).toEqual(['crown', 'santa', 'frame']);
   });
+
+  it('narrows to pieces limited to chosen customers', () => {
+    const withPrivate = [...items, item({ id: 'vip', name: 'VIP Crown', access: 'orgs', accessOrgs: [{ id: 'o1', name: 'Acme' }] })];
+    expect(ids(queryCms(withPrivate, q({ hostOnly: true }), cats))).toEqual(['vip']);
+    expect(ids(queryCms(withPrivate, q(), cats))).toContain('vip');
+  });
 });
 
 describe('cmsCounts', () => {

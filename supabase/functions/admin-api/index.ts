@@ -1365,7 +1365,7 @@ const LIBRARY_MAX_FILES = 40;
 const LINK_PAGE = 1000;
 /** Stop counting links past this many rows and say so, rather than scan forever. */
 const LINK_SCAN_MAX = 100_000;
-const LIBRARY_COLUMNS = 'id, name, kind, asset_url, thumbnail_url, config, is_published, sort_order, source, created_at, library_category_id, library_keywords';
+const LIBRARY_COLUMNS = 'id, name, kind, asset_url, thumbnail_url, config, is_published, sort_order, source, created_at, library_category_id, library_keywords, library_access';
 
 async function libraryLinkCounts(
   sb: Client, ids: string[],
@@ -1429,6 +1429,7 @@ async function listLibraryItems(sb: Client): Promise<Response> {
   if (error) throw error;
   const rows = data ?? [];
   const { counts, capped } = await libraryLinkCounts(sb, rows.map((r) => r.id as string));
+  const accessOf = await libraryAccessOrgs(sb, rows.filter((r) => r.library_access === 'orgs').map((r) => r.id as string));
   const items = rows.map((r) => {
     const meta = readLibraryMeta(r.config);
     return {
@@ -1452,9 +1453,64 @@ async function listLibraryItems(sb: Client): Promise<Response> {
         : null,
       createdAt: r.created_at,
       modelUrl: previewModelUrl(r.kind as string, r.asset_url as string | null, r.config),
+      access: r.library_access === 'orgs' ? 'orgs' : 'everyone',
+      accessOrgs: accessOf.get(r.id as string) ?? [],
     };
   });
   return json(200, { data: { items, total: count ?? items.length, linkCountsCapped: capped } });
+}
+
+/** Chosen orgs (id + name) of each host-only item (migration 048). */
+async function libraryAccessOrgs(
+  sb: Client, ids: string[],
+): Promise<Map<string, Array<{ id: string; name: string }>>> {
+  const out = new Map<string, Array<{ id: string; name: string }>>();
+  if (ids.length === 0) return out;
+  const { data, error } = await sb
+    .from('library_item_access')
+    .select('experience_id, org_id, orgs(name)')
+    .in('experience_id', ids);
+  if (error) throw error;
+  for (const r of data ?? []) {
+    const org = (Array.isArray(r.orgs) ? r.orgs[0] : r.orgs) as { name?: string } | null;
+    const list = out.get(r.experience_id as string) ?? [];
+    list.push({ id: r.org_id as string, name: typeof org?.name === 'string' ? org.name : 'Unnamed customer' });
+    out.set(r.experience_id as string, list);
+  }
+  for (const list of out.values()) list.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+const ACCESS_ORGS_MAX = 50;
+
+/**
+ * Who may use library items: every host, or only the chosen customers (orgs).
+ * One atomic call (admin_set_library_access, service-role only) sets the mode
+ * and REPLACES the org list on every id; the database enforces it for hosts
+ * and guests (048's restrictive policies).
+ */
+async function setLibraryAccess(sb: Client, actorUserId: string, args: Record<string, unknown>): Promise<Response> {
+  const ids = idList(args.ids, BULK_MAX);
+  if (!ids) return json(400, { error: 'invalid_args' });
+  const access = args.access;
+  if (access !== 'everyone' && access !== 'orgs') return json(400, { error: 'invalid_args' });
+  let orgIds: string[] = [];
+  if (access === 'orgs') {
+    const list = idList(args.orgIds, ACCESS_ORGS_MAX);
+    if (!list) return json(400, { error: 'orgs_required' });
+    orgIds = list;
+  }
+  const { data, error } = await sb.rpc('admin_set_library_access', { p_ids: ids, p_access: access, p_orgs: orgIds });
+  if (error) {
+    if (/unknown_org/.test(error.message ?? '')) return json(400, { error: 'unknown_org' });
+    if (/orgs_required/.test(error.message ?? '')) return json(400, { error: 'orgs_required' });
+    throw error;
+  }
+  const updated = typeof data === 'number' ? data : 0;
+  await auditLog(sb, actorUserId, 'set_library_access', 'experience', ids.length === 1 ? ids[0] : null, {
+    ids, access, orgIds, updated,
+  });
+  return json(200, { data: { updated, notFound: ids.length - updated } });
 }
 
 async function publishLibraryItem(
@@ -1520,6 +1576,13 @@ async function publishLibraryItem(
   const latestLib = (latest?.config as Record<string, unknown> | null)?.library as Record<string, unknown> | undefined;
   const collection = typeof latestLib?.collection === 'string' ? latestLib.collection : null;
   const sortOrder = typeof latest?.sort_order === 'number' ? latest.sort_order : 0;
+  // A host-only piece stays host-only: the new version starts with the same
+  // chosen customers. Inserted as 'orgs' FIRST, so a failure copying the list
+  // leaves it visible to nobody rather than to everyone.
+  const inheritsAccess = latest?.library_access === 'orgs';
+  const inheritedOrgs = inheritsAccess
+    ? (await libraryAccessOrgs(sb, [latest.id as string])).get(latest.id as string)?.map((o) => o.id) ?? []
+    : [];
 
   const srcRow = {
     kind: src.kind as string,
@@ -1577,11 +1640,21 @@ async function publishLibraryItem(
       sort_order: sortOrder,
       library_category_id: categoryId,
       library_keywords: itemKeywords,
+      library_access: inheritsAccess ? 'orgs' : 'everyone',
     });
     if (insErr) throw insErr;
   } catch (err) {
     await cleanup();
     throw err;
+  }
+  let accessCopyFailed = false;
+  if (inheritedOrgs.length > 0) {
+    const { error } = await sb.from('library_item_access')
+      .insert(inheritedOrgs.map((org_id) => ({ experience_id: newId, org_id })));
+    if (error) {
+      console.error('[admin-api] copy library access failed', newId, error);
+      accessCopyFailed = true;
+    }
   }
 
   // The new version is live; retire the listed older ones so hosts see one
@@ -1609,8 +1682,9 @@ async function publishLibraryItem(
   await auditLog(sb, actorUserId, 'publish_library_item', 'experience', newId, {
     sourceExperienceId: experienceId, lineageId: lineage, version, files: copied.length, listed, retired, retireFailed,
     categoryId, keywords: itemKeywords, picture: pictureUrl !== null,
+    access: inheritsAccess ? { orgIds: inheritedOrgs, copyFailed: accessCopyFailed } : 'everyone',
   });
-  return json(200, { data: { id: newId, version, files: copied.length, retired, retireFailed } });
+  return json(200, { data: { id: newId, version, files: copied.length, retired, retireFailed, accessCopyFailed } });
 }
 
 async function updateLibraryItemMeta(
@@ -1721,7 +1795,7 @@ async function setLibraryItemState(
 
 const WORKSHOP_NAME = 'Library workshop';
 const WORKSHOP_SLUG_TRIES = 3;
-const LINEAGE_COLUMNS = 'id, name, config, is_published, created_at, sort_order, library_category_id, library_keywords';
+const LINEAGE_COLUMNS = 'id, name, config, is_published, created_at, sort_order, library_category_id, library_keywords, library_access';
 
 /** Every library version in a chain, newest first. `lineage` MUST be a
  *  validated uuid: it is interpolated into a PostgREST `or` filter. Matches
@@ -2676,6 +2750,8 @@ Deno.serve(async (req: Request) => {
         return await deleteLibraryCategory(sb, user.id, args);
       case 'bulk_update_library_items':
         return await bulkUpdateLibraryItems(sb, user.id, args);
+      case 'set_library_access':
+        return await setLibraryAccess(sb, user.id, args);
       case 'list_event_models':
         return await listEventModels(sb);
       case 'list_library_drafts':

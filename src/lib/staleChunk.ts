@@ -26,3 +26,18 @@ export function isStaleChunkError(e: unknown): boolean {
 
 export const STALE_APP_MESSAGE =
   'Beamwall was updated after this page was opened, so this part of the page is out of date. Reload the page and try again.';
+
+/** Minimum gap between two automatic reloads, so a truly missing file cannot loop. */
+export const STALE_RELOAD_COOLDOWN_MS = 30_000;
+
+/**
+ * Should a failed lazy chunk quietly reload the page? Only on surfaces where a
+ * reload loses nothing a person cannot redo: never mid-event for a guest (the
+ * booth, the wall, a card being written, a beamed demo shot) — those keep
+ * their own fallbacks and error screens — and never twice inside the cooldown.
+ */
+export function shouldReloadForStaleChunk(pathname: string, lastReloadAt: number | null, now: number): boolean {
+  if (/^\/(e|beam|c)(\/|$)/.test(pathname)) return false;
+  if (lastReloadAt !== null && Number.isFinite(lastReloadAt) && now - lastReloadAt < STALE_RELOAD_COOLDOWN_MS) return false;
+  return true;
+}

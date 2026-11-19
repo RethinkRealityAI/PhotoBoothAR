@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  BookImage, Box, Check, ChevronDown, ChevronRight, FolderTree, ImagePlus, LayoutGrid, List, Loader2, Maximize2,
+  BookImage, Box, Check, ChevronDown, ChevronRight, FolderTree, ImagePlus, LayoutGrid, List, Loader2, Lock, Maximize2,
   Plus, RefreshCw, Search, Sparkles, Tag, Upload, Wand2, X,
 } from 'lucide-react';
 import {
@@ -37,6 +37,7 @@ import {
   libraryErrorText,
   openLibraryItemInWorkshop,
   publishLibraryItem,
+  setLibraryAccess,
   setLibraryItemState,
   updateLibraryItemMeta,
   workshopStudioPath,
@@ -96,6 +97,7 @@ import CategoryManager from '../../components/admin/library/CategoryManager';
 import ModelViewerModal, { type ViewerTarget } from '../../components/admin/library/ModelViewerModal';
 import CategorySelect from '../../components/admin/library/CategorySelect';
 import { useHeldModel, useRenderedPictures } from '../../components/admin/library/useRenderedPictures';
+import AccessPicker, { accessSummary, sameAccess, type AccessValue } from '../../components/admin/library/AccessPicker';
 import { ModelPreview } from '../../components/studio/DirectorCards';
 
 /* ── Shared styles ───────────────────────────────────────────────────── */
@@ -166,8 +168,12 @@ function libraryToCms(r: LibraryItemRow): CmsItem {
     version: r.version,
     modelUrl: r.modelUrl ?? (r.kind === '3d_attachment' ? r.assetUrl : null),
     inLibrary: true,
+    access: r.access === 'orgs' ? 'orgs' : 'everyone',
+    accessOrgs: r.accessOrgs ?? [],
   };
 }
+
+const accessOf = (i: CmsItem): AccessValue => ({ access: i.access === 'orgs' ? 'orgs' : 'everyone', orgs: [...(i.accessOrgs ?? [])] });
 
 /* ── Small pieces ────────────────────────────────────────────────────── */
 
@@ -319,6 +325,8 @@ function CategoryNav({
 
 /* ── Detail panel ────────────────────────────────────────────────────── */
 
+interface LibraryPatch { name: string; tags: LibraryTags; categoryId: string | null; keywords: string[]; access: AccessValue }
+
 interface DetailProps {
   item: CmsItem;
   categories: LibraryCategory[];
@@ -327,7 +335,9 @@ interface DetailProps {
   capped: boolean;
   eventRow: EventModelRow | null;
   onView: (item: CmsItem) => void;
-  onSaveLibrary: (item: CmsItem, patch: { name: string; tags: LibraryTags; categoryId: string | null; keywords: string[] }) => Promise<boolean>;
+  onSaveLibrary: (item: CmsItem, patch: LibraryPatch) => Promise<boolean>;
+  /** The server knows who-can-use-it (admin-api with migration 048). */
+  accessReady: boolean;
   onState: (item: CmsItem, to: StateChangeTarget) => void;
   onAddEvent: (item: CmsItem, opts: { name: string; categoryId: string | null; picture?: File }) => Promise<void>;
   /** Opens a workshop copy of a library item in the full Studio. */
@@ -346,6 +356,7 @@ function DetailPanel(p: DetailProps) {
   const [keywords, setKeywords] = useState<string[]>(item.keywords);
   const [tags, setTags] = useState<LibraryTags>(item.tags);
   const [showTags, setShowTags] = useState(false);
+  const [access, setAccess] = useState<AccessValue>(() => accessOf(item));
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -353,11 +364,13 @@ function DetailPanel(p: DetailProps) {
     setCategoryId(item.categoryId);
     setKeywords(item.keywords);
     setTags(item.tags);
+    setAccess(accessOf(item));
   }, [item]);
 
   const dirty = item.source === 'library' && (
     name !== item.name || categoryId !== item.categoryId ||
-    keywords.join(',') !== item.keywords.join(',') || JSON.stringify(tags) !== JSON.stringify(item.tags)
+    keywords.join(',') !== item.keywords.join(',') || JSON.stringify(tags) !== JSON.stringify(item.tags) ||
+    !sameAccess(access, accessOf(item))
   );
   const pic = p.eventRow ? pictureSourceFor(p.eventRow) : null;
   const needsUpload = item.source === 'event' && !item.thumb && pic?.kind === 'none';
@@ -459,6 +472,13 @@ function DetailPanel(p: DetailProps) {
             </div>
           )}
 
+          {item.source === 'library' && p.accessReady && (
+            <div>
+              <span className={LABEL}>Who can use it</span>
+              <div className="mt-1"><AccessPicker value={access} onChange={setAccess} disabled={p.busy} /></div>
+            </div>
+          )}
+
           {item.source === 'library' && (
             <div>
               <button type="button" onClick={() => setShowTags((s) => !s)} className="flex items-center gap-1.5 min-h-11 text-left" aria-expanded={showTags}>
@@ -480,7 +500,7 @@ function DetailPanel(p: DetailProps) {
               <button
                 type="button"
                 disabled={!dirty || p.busy}
-                onClick={() => void p.onSaveLibrary(item, { name, tags, categoryId, keywords })}
+                onClick={() => void p.onSaveLibrary(item, { name, tags, categoryId, keywords, access })}
                 className={`${PRIMARY_BTN} flex-1`}
               >
                 {p.busy ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
@@ -578,6 +598,7 @@ export default function SharedLibrary() {
   const [managing, setManaging] = useState(false);
   const [autoSort, setAutoSort] = useState(false);
   const [bulkTags, setBulkTags] = useState<'add' | 'remove' | null>(null);
+  const [bulkAccess, setBulkAccess] = useState(false);
   const [pending, setPending] = useState<{ item: CmsItem; to: StateChangeTarget } | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<Progress>(null);
@@ -667,6 +688,8 @@ export default function SharedLibrary() {
     [libRows, categories],
   );
   const eventsWaiting = eventRows.filter((e) => !e.inLibrary).length;
+  // admin-api from before migration 048 sends no `access`: hide the control.
+  const accessReady = libRows.some((r) => r.access !== undefined);
 
   const patchQuery = (p: Partial<CmsQuery>) => setQuery((q) => ({ ...q, ...p }));
   const switchSource = (source: CmsSourceFilter) => {
@@ -702,10 +725,15 @@ export default function SharedLibrary() {
     setLibRows((rows) => rows.map((r) => (ids.includes(r.id) ? f(r) : r)));
 
   const saveLibrary = async (
-    item: CmsItem, patch: { name: string; tags: LibraryTags; categoryId: string | null; keywords: string[] },
+    item: CmsItem, patch: LibraryPatch,
   ): Promise<boolean> => {
     const name = normalizeLibraryName(patch.name);
     if (name === null) { push(libraryErrorText('invalid_name'), 'error'); return false; }
+    const accessChanged = accessReady && !sameAccess(patch.access, accessOf(item));
+    if (accessChanged && patch.access.access === 'orgs' && patch.access.orgs.length === 0) {
+      push(libraryErrorText('orgs_required'), 'error');
+      return false;
+    }
     setBusy(true);
     const meta = await updateLibraryItemMeta({ id: item.id, name, tags: patch.tags });
     if (meta.error !== null) { setBusy(false); push(libraryErrorText(meta.error), 'error'); return false; }
@@ -719,12 +747,16 @@ export default function SharedLibrary() {
       if (remove.length > 0) edit.removeKeywords = remove;
       taxo = await bulkUpdateLibraryItems([item.id], edit);
     }
+    let acc: { error: string | null } = { error: null };
+    if (accessChanged) acc = await setLibraryAccess([item.id], patch.access.access, patch.access.orgs.map((o) => o.id));
     setBusy(false);
     patchLibRows([item.id], (r) => ({
       ...r, name, tags: patch.tags,
       ...(taxo.error === null ? { categoryId: patch.categoryId, keywords: patch.keywords } : {}),
+      ...(accessChanged && acc.error === null ? { access: patch.access.access, accessOrgs: patch.access.access === 'orgs' ? patch.access.orgs : [] } : {}),
     }));
     if (taxo.error !== null) { push(`Name saved, but the category or tags were not: ${libraryErrorText(taxo.error)}`, 'error'); return false; }
+    if (acc.error !== null) { push(`Saved, except who can use it: ${libraryErrorText(acc.error)}`, 'error'); return false; }
     push(`Saved “${name}”.`, 'success');
     return true;
   };
@@ -891,6 +923,7 @@ export default function SharedLibrary() {
       item={active}
       categories={categories}
       taxonomyReady={taxonomyReady}
+      accessReady={accessReady}
       busy={busy}
       capped={capped}
       eventRow={active.source === 'event' ? eventRows.find((e) => e.id === active.id) ?? null : null}
@@ -1106,6 +1139,16 @@ export default function SharedLibrary() {
                       </button>
                     );
                   })}
+                  {accessReady && (
+                    <button
+                      type="button"
+                      aria-pressed={query.hostOnly === true}
+                      onClick={() => patchQuery({ hostOnly: !query.hostOnly })}
+                      className={`${CHIP} ${query.hostOnly ? CHIP_ON : CHIP_OFF}`}
+                    >
+                      <Lock className="w-3 h-3" aria-hidden /> Chosen customers only
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -1203,6 +1246,12 @@ export default function SharedLibrary() {
                         >
                           <div className="relative aspect-square bg-[#05060B]">
                             <Thumb item={i} className="w-full h-full p-3" />
+                            {i.access === 'orgs' && (
+                              <span className="absolute left-2 bottom-2 max-w-[calc(100%-1rem)] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/65 backdrop-blur text-[10px] text-brand-fg/90">
+                                <Lock className="w-2.5 h-2.5 shrink-0" aria-hidden />
+                                <span className="truncate">{accessSummary(i.accessOrgs ?? [])}</span>
+                              </span>
+                            )}
                             {query.source === 'all' && i.source !== 'library' && (
                               <span className="absolute left-2 bottom-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur text-[10px] text-brand-fg/85">
                                 {i.source === 'builtin' ? 'Built in' : 'From an event'}
@@ -1334,6 +1383,11 @@ export default function SharedLibrary() {
                   </select>
                 )}
                 <button type="button" disabled={busy} onClick={() => setBulkTags('add')} className={SOFT_BTN}>Occasion, colour, style…</button>
+                {accessReady && (
+                  <button type="button" disabled={busy} onClick={() => setBulkAccess(true)} className={SOFT_BTN}>
+                    <Lock className="w-3.5 h-3.5" aria-hidden /> Who can use it…
+                  </button>
+                )}
                 <button type="button" disabled={busy} onClick={() => void runBulk({ categoryId: null }, 'Category cleared')} className={SOFT_BTN}>No category</button>
               </>
             )}
@@ -1366,6 +1420,26 @@ export default function SharedLibrary() {
           busy={busy}
           onApply={(picks) => void applyAutoSort(picks)}
           onClose={() => setAutoSort(false)}
+        />
+      )}
+
+      {bulkAccess && (
+        <BulkAccessModal
+          count={librarySelected.length}
+          busy={busy}
+          onApply={async (v) => {
+            const ids = librarySelected.map((i) => i.id);
+            setBusy(true);
+            const { data, error: err } = await setLibraryAccess(ids, v.access, v.orgs.map((o) => o.id));
+            setBusy(false);
+            if (err !== null || data === null) { push(libraryErrorText(err ?? 'internal'), 'error'); return; }
+            setBulkAccess(false);
+            await load();
+            push(v.access === 'everyone'
+              ? `${data.updated} item${data.updated === 1 ? '' : 's'} open to every host.`
+              : `${data.updated} item${data.updated === 1 ? '' : 's'} limited to ${accessSummary(v.orgs)}.`, 'success');
+          }}
+          onClose={() => setBulkAccess(false)}
         />
       )}
 
@@ -1487,6 +1561,34 @@ function BulkTagsModal({
       <div className="flex gap-2 mt-5">
         <button type="button" disabled={busy || n === 0} onClick={() => void onApply(tags)} className={`${PRIMARY_BTN} flex-1`}>
           {busy ? 'Saving…' : `${mode === 'add' ? 'Add' : 'Remove'} ${n}`}
+        </button>
+        <button type="button" disabled={busy} onClick={onClose} className={`${SOFT_BTN} flex-1`}>Cancel</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── Bulk who-can-use-it ─────────────────────────────────────────────── */
+
+function BulkAccessModal({
+  count, busy, onApply, onClose,
+}: {
+  count: number;
+  busy: boolean;
+  onApply: (v: AccessValue) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState<AccessValue>({ access: 'orgs', orgs: [] });
+  const blocked = value.access === 'orgs' && value.orgs.length === 0;
+  return (
+    <Modal title={`Who can use ${count} item${count === 1 ? '' : 's'}`} onClose={onClose} maxWidthClass="max-w-lg" dismissOnScrim={!busy && value.orgs.length === 0}>
+      <p className="font-sans text-xs text-brand-muted/65 leading-relaxed mb-4">
+        This replaces who can use each selected item. Hidden items stay hidden.
+      </p>
+      <AccessPicker value={value} onChange={setValue} disabled={busy} />
+      <div className="flex gap-2 mt-5">
+        <button type="button" disabled={busy || blocked} onClick={() => void onApply(value)} className={`${PRIMARY_BTN} flex-1`}>
+          {busy ? 'Saving…' : value.access === 'everyone' ? 'Open to every host' : `Limit to ${value.orgs.length || 'chosen'} customer${value.orgs.length === 1 ? '' : 's'}`}
         </button>
         <button type="button" disabled={busy} onClick={onClose} className={`${SOFT_BTN} flex-1`}>Cancel</button>
       </div>

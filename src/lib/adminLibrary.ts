@@ -35,7 +35,13 @@ export interface LibraryItemRow {
   createdAt?: string;
   /** A .glb the viewer can open (a prop's own, or a scene's first 3D layer). */
   modelUrl?: string | null;
+  /** Migration 048: every host, or only the chosen customers. Absent = everyone. */
+  access?: LibraryAccess;
+  accessOrgs?: AccessOrg[];
 }
+
+export type LibraryAccess = 'everyone' | 'orgs';
+export interface AccessOrg { id: string; name: string }
 
 export interface LibraryList {
   items: LibraryItemRow[];
@@ -219,6 +225,16 @@ export interface BulkLibraryEdit {
   removeTags?: Partial<LibraryTags>;
 }
 
+/**
+ * Who may use these library items: every host, or only the chosen customers
+ * (replaces the list). The database enforces it for hosts and guests.
+ */
+export function setLibraryAccess(
+  ids: string[], access: LibraryAccess, orgIds: string[],
+): Promise<AdminResult<{ updated: number; notFound: number }>> {
+  return adminApi('set_library_access', { ids, access, orgIds: access === 'orgs' ? orgIds : [] });
+}
+
 export function bulkUpdateLibraryItems(
   ids: string[], edit: BulkLibraryEdit,
 ): Promise<AdminResult<{ updated: string[]; failed: BatchFailure[] }>> {
@@ -270,7 +286,9 @@ export function libraryErrorText(code: string): string {
     case 'ai_quota': return 'The AI is rate-limited right now. Wait a minute and try again.';
     case 'ai_unavailable': return 'The AI did not answer for this one. Try again, or label it by hand.';
     case 'invalid_category': return 'That category no longer exists. Refresh and pick another.';
-    case 'invalid_keywords': return 'Keywords are letters and numbers, up to 32 characters each and 24 per item.';
+    case 'invalid_keywords': return 'Tags are letters and numbers, up to 32 characters each and 24 per item.';
+    case 'orgs_required': return 'Choose at least one customer, or let every host use it.';
+    case 'unknown_org': return 'One of those customers no longer exists. Reload and choose again.';
     case 'invalid_thumbnail': return 'The picture was not uploaded where the library expected it. Try again.';
     case 'category_too_deep': return 'Categories go two levels deep: a subcategory cannot have its own subcategories.';
     case 'category_has_children': return 'It has subcategories. Move or delete those first.';

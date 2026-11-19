@@ -85,6 +85,9 @@ export interface CmsItem {
   modelUrl: string | null;
   /** Event items: already copied into the library (by provenance). */
   inLibrary: boolean;
+  /** Library rows (migration 048): 'orgs' = only the chosen customers may use it. */
+  access?: 'everyone' | 'orgs';
+  accessOrgs?: ReadonlyArray<{ id: string; name: string }>;
 }
 
 export type CmsSort = 'newest' | 'oldest' | 'name' | 'most-used';
@@ -106,6 +109,8 @@ export interface CmsQuery {
   states: readonly LibraryState[];
   keyword: string | null;
   sort: CmsSort;
+  /** Only pieces limited to chosen customers. */
+  hostOnly?: boolean;
 }
 
 export function defaultCmsQuery(): CmsQuery {
@@ -177,6 +182,7 @@ export function queryCms(items: readonly CmsItem[], q: CmsQuery, categories: rea
     (q.types.length === 0 || q.types.includes(i.type)) &&
     (q.states.length === 0 || (i.state !== null && q.states.includes(i.state))) &&
     (q.keyword === null || i.keywords.includes(q.keyword)) &&
+    (q.hostOnly !== true || i.access === 'orgs') &&
     inCategory(i, q.category, categories) &&
     matchesText(i, q.text, categories),
   );
