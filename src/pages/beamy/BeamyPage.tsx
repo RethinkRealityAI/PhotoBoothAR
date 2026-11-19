@@ -78,6 +78,8 @@ import {
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
 import type { ArFxKind } from '../../lib/arFx';
+import VirtualCelebrations from './VirtualCelebrations';
+import { VC_COPY, VC_FILM } from '../../lib/beamyVirtual';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
 import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
@@ -87,6 +89,8 @@ import challengesFilm from '../../assets/landing/challenges-feature.mp4';
 import challengesPoster from '../../assets/landing/challenges-feature-poster.jpg';
 import cardsFilm from '../../assets/landing/cards-feature.mp4';
 import cardsPoster from '../../assets/landing/cards-feature-poster.jpg';
+import virtualFilm from '../../assets/landing/virtual-feature.mp4';
+import virtualPoster from '../../assets/landing/virtual-feature-poster.jpg';
 
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
@@ -94,6 +98,8 @@ const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, 
 /* Asset slots come from lib/beamyAssets (HOME_ASSET_DEFAULTS); an undefined
    media field there means the bundled file imported here. */
 const A = HOME_ASSET_DEFAULTS;
+/** The virtual celebrations tab's icon: a line gift, tinted like the beam icons. */
+const VirtualIcon = ({ size = 18, from, className }: BeamIconProps) => <Gift size={size} color={from} strokeWidth={1.75} className={className} aria-hidden />;
 /**
  * One tab of "See it in motion". The list below is the whole section: the
  * tab row, the 16:9 film box (fixed size, so a switch never moves the page)
@@ -124,6 +130,7 @@ const FILM_TABS: FilmTab[] = [
   filmTab('wall', wallFilm, wallPoster, WallIcon),
   filmTab('challenges', challengesFilm, challengesPoster, ChallengeIcon),
   filmTab('cards', cardsFilm, cardsPoster, CardIcon),
+  { key: 'virtual', label: VC_FILM.label, title: VC_FILM.title, hook: VC_FILM.hook, line: VC_FILM.beamy, video: virtualFilm, poster: virtualPoster, Icon: VirtualIcon },
 ];
 /** The live walls' photos: an override needs more than one wall's worth. */
 const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
@@ -459,6 +466,7 @@ export default function BeamyPage() {
       case 'try': return a.lines.snap;
       case 'pricing': return pricingSection().line;
       case 'start': return a.lines.go;
+      case 'virtual': return VC_COPY.beamy;
     }
   }, []);
 
@@ -1568,12 +1576,12 @@ export default function BeamyPage() {
           <div className="bw-in">
             <h2 id="h-films" className="bw-h2">{FILMS_COPY.heading}</h2>
           </div>
-          <div role="group" aria-label="Pick a film" className="bw-in mt-5 flex flex-wrap gap-2" style={i(1)}>
+          <div role="group" aria-label="Pick a film" className="bw-in bw-film-tabs mt-5 flex flex-wrap gap-2" style={i(1)}>
             {FILM_TABS.map((f) => {
               const Icon = f.Icon;
               const on = film === f.key;
               return (
-                <button key={f.key} type="button" className="bw-glass-chip bw-pane-chip" aria-pressed={on} onClick={() => { setFilm(f.key); logStep(`film:${f.key}`); }}>
+                <button key={f.key} type="button" className="bw-glass-chip bw-pane-chip" aria-pressed={on} onClick={(e) => { setFilm(f.key); logStep(`film:${f.key}`); if (phone) e.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' }); }}>
                   {Icon !== undefined
                     ? <Icon size={18} from={on ? '#2B2A8C' : '#FFFFFF'} to={on ? '#5B4BE0' : '#C9CCFF'} />
                     : <Clapperboard className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden />}
@@ -1864,6 +1872,8 @@ export default function BeamyPage() {
         {hero}
         {story}
         {films}
+        {/* Virtual celebrations (VirtualCelebrations.tsx): its own stop; he beams at the card when the link goes out. */}
+        <VirtualCelebrations phone={phone} wide={wideHero} beamyHere={active === 'virtual'} onBeam={(to) => { const b = api.current; if (b !== null && readyRef.current) void b.beam(to, undefined, 'mouth'); }} />
         {pick}
         {tryIt}
         {pricingSec}
