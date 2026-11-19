@@ -1111,6 +1111,7 @@ const RUN_THE_NIGHT: GuideDoc = {
       body: [
         'When the party is over, hit End on the event. The booth shuts to new photos immediately — anyone who scans the QR after that gets your thank-you screen instead of a camera, so give guests their last call before you press it.',
         'Later, once an old event is just taking up room in Your events, hit Archive. It slides into a collapsed Archived shelf at the bottom of the page and nothing is deleted — the wall, every photo, the keepsake cards and the credits you spent are all exactly where you left them, and one click brings it back.',
+        'Your plan keeps guest photos and videos for a set time, counted from the end of the event: 7 days on Free, 90 days on Essentials, a year on Premium and two years on Deluxe. The Dashboard shows the exact date under Your photos, with a Download everything button that saves the lot as a zip (a big event comes in a few parts). We email you two weeks before anything is removed, and nothing goes without that email.',
       ],
     },
     {
@@ -1307,7 +1308,7 @@ export const GUIDE_COVERAGE: {
     cardsStandard: { guide: 'run-the-night', note: 'Keepsake cards, after the night — contributing photos and messages.' },
     cardsPremiumRender: { guide: 'run-the-night', note: 'Keepsake cards / What things cost — the ≈30-credit film render.' },
     projectionMode: { guide: 'run-the-night', note: 'Set up the wall — Projection mode for an actual projector.' },
-    retentionDays: { guide: 'run-the-night', note: 'Keepsake cards, after the night — guests bulk-save before photos age out.' },
+    retentionDays: { guide: 'run-the-night', note: 'After the event — how long each plan keeps photos, the Dashboard date, Download everything and the reminder email.' },
     studio: { guide: 'use-the-studio', note: 'Opening prose — the Studio and Assets tabs are an add-on for teams and large organisations; every host gets Frames & filters.' },
   },
 };

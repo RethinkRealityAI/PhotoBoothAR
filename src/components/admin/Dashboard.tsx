@@ -25,6 +25,7 @@ import { useStudioBase } from './studioBase';
 import { useStudioAccess } from './studioAccess';
 import { copyText } from '../../lib/clipboard';
 import { useEntitlements } from '../../lib/entitlements';
+import MediaKeepPanel from './MediaKeepPanel';
 
 interface Stats {
   published: number;
@@ -326,7 +327,7 @@ export default function Dashboard({
   // The Studio add-on (studioAccess) — defaults to true, so legacy mounts and
   // any host who has it see the creator cards exactly as before.
   const { studio } = useStudioAccess();
-  const { basePath, eventUuid, status, config } = useEvent();
+  const { basePath, eventUuid, status, config, eventId } = useEvent();
   const { videoEnabled } = useEntitlements();
   const { stats, loading, reload } = useStats();
   const [going, setGoing] = useState(false);
@@ -456,6 +457,13 @@ export default function Dashboard({
             ))}
           </div>
         </section>
+
+        {/* How long the plan keeps the captures + Download everything (the
+            retention reminder email links here). Platform only: the frozen
+            legacy admin stays byte-identical. */}
+        {platformStudio && eventUuid && (
+          <MediaKeepPanel eventId={eventId} eventUuid={eventUuid} eventName={copy.fullName} />
+        )}
 
         {/* Action cards */}
         <section>
