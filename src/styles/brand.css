@@ -1697,53 +1697,78 @@
   .bw-ar-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 999px; background-color: var(--bw-core); box-shadow: 0 0 8px rgba(255, 197, 107, 0.8); }
   .bw-ar-swatch { display: flex; width: 62%; aspect-ratio: 1; overflow: hidden; border-radius: 999px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7); }
   .bw-ar-swatch > span { flex: 1; }
-  /* The frame stands on him: the page sets its height and translate every
-     frame from where the stage draws him (lib/beamyAssets frameOnBeamy). */
-  .bw-ar-frame {
-    position: fixed;
-    left: 0;
-    top: 0;
-    height: 0;
-    width: auto;
-    max-width: none;
-    aspect-ratio: 9 / 16;
-    pointer-events: none;
-    transform-origin: 50% 100%;
-    filter: drop-shadow(0 18px 28px rgba(10, 8, 40, 0.45));
-    animation: bw-ar-frame-in 560ms var(--bw-ease) both;
-  }
-  /* The carousel: the page lays this box exactly over the worn frame
-     (data-mode frame, 9:16) or around him (stand: the page sets its width
-     and height), so the stops before and after peek in at its sides and the
-     arrows sit on its edges. Only the peeks and the arrows take taps; the
-     box passes everything else through to the page. */
+  /* The carousel: ONE fixed 9:16 box, the AR stage (the page places it from
+     lib/beamyAssets arStage and never moves it within the step). The worn
+     frame fills it in front of him; the stops before and after peek at its
+     sides; arrows on its edges. Only the peeks and the arrows take taps; the
+     box passes everything else through to the page. It is a size container,
+     so the peeks place themselves from its width (cqw). */
   .bw-ar-car {
+    --ar-orb: clamp(56px, 4.6vw, 84px);
+    --ar-gap: 16px;
     position: fixed;
     left: 0;
     top: 0;
     height: 0;
     aspect-ratio: 9 / 16;
+    container-type: size;
     pointer-events: none;
     touch-action: pan-y;
-    perspective: 900px;
-    transform-origin: 50% 100%;
+    perspective: 1000px;
   }
-  .bw-ar-peek {
-    position: absolute;
-    top: 14%;
-    height: 72%;
-    aspect-ratio: 9 / 16;
-    padding: 0;
-    border-radius: 10px;
-    overflow: hidden;
-    opacity: 0.6;
-    pointer-events: auto;
-    box-shadow: 0 24px 40px -22px rgba(10, 8, 40, 0.8);
-    transition: opacity 200ms ease;
-    animation: bw-ar-peek-in 520ms var(--bw-ease) both;
-  }
-  .bw-ar-car[data-mode="stand"] { aspect-ratio: auto; }
+  .bw-ar[data-stacked="true"] .bw-ar-car { --ar-orb: clamp(44px, 12vw, 56px); --ar-gap: -16px; }
   .bw-ar-car:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.75); outline-offset: 8px; border-radius: 18px; }
+  /* A track: every stop of one category stays mounted; a step only changes
+     each stop's place (data-at: 0 = on him, -1/1 = the peeks, -2/2 =
+     parked out of sight), so the incoming stop glides into place while the
+     outgoing one glides out to its peek in ONE continuous transition. */
+  .bw-ar-track { position: absolute; inset: 0; pointer-events: none; }
+  .bw-ar-item {
+    position: absolute;
+    padding: 0;
+    pointer-events: none;
+    transition:
+      transform 640ms cubic-bezier(0.22, 0.8, 0.24, 1),
+      opacity 520ms var(--bw-ease),
+      border-radius 640ms var(--bw-ease),
+      box-shadow 640ms var(--bw-ease);
+    will-change: transform, opacity;
+    animation: bw-ar-peek-in 420ms var(--bw-ease) backwards;
+  }
+  .bw-ar-track[data-show="true"] > .bw-ar-item:is([data-at="1"], [data-at="-1"]) { pointer-events: auto; }
+  .bw-ar-item:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+  /* Frames: the frame image, fitted (letterboxed) in the stage's box. */
+  .bw-ar-item[data-kind="frame"] { inset: 0; overflow: hidden; border-radius: 10px; box-shadow: 0 24px 40px -22px rgba(10, 8, 40, 0.8); transform-origin: 50% 50%; }
+  .bw-ar-item[data-kind="frame"] > img { width: 100%; height: 100%; object-fit: contain; }
+  .bw-ar-item[data-kind="frame"][data-at="0"] { overflow: visible; border-radius: 0; box-shadow: none; filter: drop-shadow(0 18px 28px rgba(10, 8, 40, 0.45)); }
+  /* The peeks: 0.6 of the stage, sitting low (laptops: clear of the switcher under the story card). */
+  .bw-ar-item[data-kind="frame"][data-at="1"] { transform: translate(calc(80% + 14px), 14%) rotateY(-24deg) scale(0.6); opacity: 0.6; }
+  .bw-ar-item[data-kind="frame"][data-at="-1"] { transform: translate(calc(-80% - 14px), 14%) rotateY(24deg) scale(0.6); opacity: 0.6; }
+  .bw-ar-item[data-kind="frame"][data-at="2"] { transform: translate(calc(160% + 28px), 14%) rotateY(-30deg) scale(0.5); opacity: 0; }
+  .bw-ar-item[data-kind="frame"][data-at="-2"] { transform: translate(calc(-160% - 28px), 14%) rotateY(30deg) scale(0.5); opacity: 0; }
+  .bw-ar-track[data-show="true"] > .bw-ar-item[data-kind="frame"]:is([data-at="1"], [data-at="-1"]):hover { opacity: 0.85; }
+  /* Props, filters, effects and None: small floating orbs at his sides,
+     bobbing gently; the current one glides onto him and fades as he puts it
+     on. A prop's orb is see-through: the stage draws the real GLB in it. */
+  .bw-ar-item:is([data-kind="orb"], [data-kind="none"]) {
+    left: calc(50% - var(--ar-orb) / 2);
+    /* Desktop: below the arrows, well clear of the tab switcher above-left. */
+    top: 62%;
+    width: var(--ar-orb);
+    opacity: 0.92;
+  }
+  .bw-ar-item[data-kind="orb"] { aspect-ratio: 1; border-radius: 999px; }
+  /* Orbs and the None chip float in front of the frames (a label may overlap a frame's edge). */
+  .bw-ar-item:is([data-kind="orb"], [data-kind="none"]) { z-index: 1; }
+  .bw-ar-track[data-show="true"] > .bw-ar-item:is([data-kind="orb"], [data-kind="none"]):is([data-at="1"], [data-at="-1"]) { animation: bw-ar-peek-in 420ms var(--bw-ease) backwards, bw-ar-bob 3.4s ease-in-out 420ms infinite; }
+  .bw-ar-item:is([data-kind="orb"], [data-kind="none"])[data-at="1"] { transform: translateX(calc(50cqw + var(--ar-gap) + 50%)); }
+  .bw-ar-item:is([data-kind="orb"], [data-kind="none"])[data-at="-1"] { transform: translateX(calc(-50cqw - var(--ar-gap) - 50%)); }
+  .bw-ar-item:is([data-kind="orb"], [data-kind="none"])[data-at="2"] { transform: translateX(calc(50cqw + var(--ar-gap) + 150%)) scale(0.8); opacity: 0; }
+  .bw-ar-item:is([data-kind="orb"], [data-kind="none"])[data-at="-2"] { transform: translateX(calc(-50cqw - var(--ar-gap) - 150%)) scale(0.8); opacity: 0; }
+  .bw-ar-item:is([data-kind="orb"], [data-kind="none"])[data-at="0"] { transform: translateY(-20%) scale(0.3); opacity: 0; }
+  .bw-ar-track[data-show="true"] > .bw-ar-item:is([data-kind="orb"], [data-kind="none"]):is([data-at="1"], [data-at="-1"]):hover { opacity: 1; }
+  /* A track whose tab is off shows only what he wears (the worn frame). */
+  .bw-ar-track[data-show="false"] > .bw-ar-item:not([data-at="0"]) { opacity: 0; }
   /* Its title, above it: the frame's celebration, or the look's name, in the
      shared shimmer (ShineText: a solid fill, light on the outline only). */
   .bw-ar-title { position: absolute; left: 50%; bottom: calc(100% + 6px); margin: 0; translate: -50% 0; pointer-events: none; white-space: nowrap; }
@@ -1756,25 +1781,6 @@
     color: var(--bw-ink);
     animation: bw-ar-title-in 420ms var(--bw-ease) both;
   }
-  .bw-ar-peek > img { width: 100%; height: 100%; object-fit: cover; }
-  .bw-ar-peek:hover { opacity: 0.85; }
-  /* Props, filters, effects and None: small floating orbs at his sides,
-     bobbing gently. A prop's orb is see-through; the stage draws the real
-     GLB floating in it. */
-  .bw-ar-peek[data-kind="orb"] {
-    top: 30%;
-    width: clamp(56px, 4.6vw, 84px);
-    height: auto;
-    aspect-ratio: 1;
-    overflow: visible;
-    border-radius: 999px;
-    opacity: 0.92;
-    box-shadow: none;
-    animation: bw-ar-peek-in 520ms var(--bw-ease) both, bw-ar-bob 3.4s ease-in-out 520ms infinite;
-  }
-  .bw-ar-peek[data-kind="orb"][data-side="next"] { left: calc(100% + 16px); transform: none; animation-delay: 0s, 1.2s; }
-  .bw-ar-peek[data-kind="orb"][data-side="prev"] { right: calc(100% + 16px); transform: none; }
-  .bw-ar-peek[data-kind="orb"]:hover { opacity: 1; }
   .bw-ar-orb {
     display: grid;
     place-items: center;
@@ -1788,40 +1794,31 @@
     backdrop-filter: blur(14px) saturate(140%);
     box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 14px 26px -16px var(--bw-shadow);
   }
-  /* The None stop: a small glass chip with its label under it ("No frame"). */
-  .bw-ar-peek[data-kind="none"] {
-    top: 30%;
-    width: auto;
-    height: auto;
-    aspect-ratio: auto;
-    overflow: visible;
-    border-radius: 14px;
-    opacity: 0.92;
-    box-shadow: none;
-    animation: bw-ar-peek-in 520ms var(--bw-ease) both, bw-ar-bob 3.4s ease-in-out 520ms infinite;
-  }
-  .bw-ar-peek[data-kind="none"][data-side="next"] { left: calc(100% + 14px); transform: none; animation-delay: 0s, 1.2s; }
-  .bw-ar-peek[data-kind="none"][data-side="prev"] { right: calc(100% + 14px); transform: none; }
-  .bw-ar-peek[data-kind="none"]:hover { opacity: 1; }
-  .bw-ar-none { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 2px 4px; }
+  /* The None stop: a small refined glass chip, its label under it ("No frame"). */
+  .bw-ar-none { display: flex; flex-direction: column; align-items: center; gap: 6px; }
   .bw-ar-none-chip { width: 40px; height: 40px; }
+  .bw-ar[data-stacked="true"] .bw-ar-none-chip { width: 36px; height: 36px; }
+  /* Phone: the label wraps under its chip so "No frame" never runs off the screen edge. */
+  .bw-ar[data-stacked="true"] .bw-ar-none-label { white-space: normal; text-align: center; max-width: 62px; padding: 3px 6px; }
+  /* A small glass pill, so the label reads over any frame (white ones too). */
   .bw-ar-none-label {
     color: var(--bw-ink);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    line-height: 1.1;
+    line-height: 1.15;
     letter-spacing: 0.02em;
     white-space: nowrap;
-    text-shadow: 0 1px 8px rgba(10, 8, 40, 0.55);
+    padding: 3px 8px;
+    border-radius: 10px;
+    background: rgba(18, 14, 52, 0.55);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
   }
   /* The effect canvas (components/beamy/ArFx): over the frame and round him. */
-  .bw-ar-fx { position: absolute; left: -24%; top: -6%; width: 148%; height: 108%; pointer-events: none; }
+  .bw-ar-fx { position: absolute; left: -24%; top: -6%; width: 148%; height: 108%; pointer-events: none; animation: bw-ar-peek-in 600ms var(--bw-ease) backwards; }
   .bw-ar-orb[data-prop] { background-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
   .bw-ar-orb > .bw-ar-swatch { width: 74%; }
   .bw-ar-orb > img { width: 100%; height: 100%; object-fit: cover; }
-  .bw-ar-peek:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
-  .bw-ar-peek[data-side="next"] { left: calc(100% + 14px); transform: rotateY(-24deg); transform-origin: 0 50%; }
-  .bw-ar-peek[data-side="prev"] { right: calc(100% + 14px); transform: rotateY(24deg); transform-origin: 100% 50%; }
   .bw-ar-car > .bw-ar-arrow {
     position: absolute;
     top: 50%;
@@ -1841,22 +1838,15 @@
   .bw-ar-car > .bw-ar-arrow:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
   .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: -22px; }
   .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: -22px; }
-  /* Phones: the frame nearly fills the width, so the arrows step inside its edges. */
+  /* Phones: the stage nearly fills the width, so the arrows step inside its
+     edges, low by his feet (the orbs float by his head), on every tab. */
+  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow { top: 74%; }
   .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: 6px; }
   .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: 6px; }
-  /* Phones, Frames tab: the frame fills the width, so the None orb would sit
-     half off screen; it stays one arrow (or swipe) away instead. */
-  .bw-ar[data-stacked="true"] .bw-ar-car[data-tab="frame"][data-mode="frame"] > .bw-ar-peek[data-kind="none"] { visibility: hidden; }
-  /* Around him (or a frame the page narrowed for them), the orbs and the
-     arrows share the columns at his sides: orbs up by his head, arrows by his feet. */
-  .bw-ar[data-stacked="true"] .bw-ar-car:not([data-tab="frame"]) .bw-ar-peek[data-kind="orb"] { top: 20%; width: clamp(52px, 13vw, 72px); }
-  .bw-ar[data-stacked="true"] .bw-ar-car:not([data-tab="frame"]) .bw-ar-peek[data-kind="none"] { top: 20%; }
-  .bw-ar .bw-ar-car[data-mode="stand"] > .bw-ar-arrow,
-  .bw-ar[data-stacked="true"] .bw-ar-car:not([data-tab="frame"]) > .bw-ar-arrow { top: 72%; }
-  .bw-ar .bw-ar-car[data-mode="stand"] > .bw-ar-arrow[data-side="prev"],
-  .bw-ar[data-stacked="true"] .bw-ar-car:not([data-tab="frame"]) > .bw-ar-arrow[data-side="prev"] { left: auto; right: calc(100% + 14px); }
-  .bw-ar .bw-ar-car[data-mode="stand"] > .bw-ar-arrow[data-side="next"],
-  .bw-ar[data-stacked="true"] .bw-ar-car:not([data-tab="frame"]) > .bw-ar-arrow[data-side="next"] { right: auto; left: calc(100% + 14px); }
+  .bw-ar[data-stacked="true"] .bw-ar-item:is([data-kind="orb"], [data-kind="none"]) { top: 20%; }
+  /* Laptops: the switcher under the story card, there only while the AR step is up. */
+  .bw-ar-tabs-under { margin-top: 20px; opacity: 0; visibility: hidden; transition: opacity 240ms ease, visibility 0s linear 260ms; }
+  .bw-ar-tabs-under[data-on="true"] { opacity: 1; visibility: visible; transition: opacity 600ms var(--bw-ease) 300ms, visibility 0s; }
 
   /* ── How it works, challenges (cue-driven, see STORY_SEQ.medal): the
      alert pings, Ada's selfie lands with a flash, "Sent by Ada", the alert
@@ -2182,10 +2172,9 @@
    order, just gentler. Never "straight to the last frame". */
 [data-brand="2"][data-content-motion="soft"] .bw-scene[data-on="true"] .bw-ch-bell,
 [data-brand="2"][data-content-motion="soft"] .bw-scene[data-on="true"] .bw-ks-spark { animation-iteration-count: 1; }
-[data-brand="2"][data-content-motion="soft"] .bw-ar-frame { animation-name: bw-fade; }
+[data-brand="2"][data-content-motion="soft"] .bw-ar-item { transition-duration: 380ms, 380ms, 380ms, 380ms; }
 /* The carousel's orbs hold still; its title fades in without the lift. */
-[data-brand="2"][data-content-motion="soft"] .bw-ar-peek[data-kind="orb"],
-[data-brand="2"][data-content-motion="soft"] .bw-ar-peek[data-kind="none"] { animation: bw-ar-peek-in 520ms var(--bw-ease) both; }
+[data-brand="2"][data-content-motion="soft"] .bw-ar-track[data-show="true"] > .bw-ar-item:is([data-kind="orb"], [data-kind="none"]):is([data-at="1"], [data-at="-1"]) { animation: bw-ar-peek-in 420ms var(--bw-ease) backwards; }
 [data-brand="2"][data-content-motion="soft"] .bw-ar-title-text { animation-name: bw-fade; }
 [data-brand="2"][data-content-motion="soft"] .bw-film-line-text { animation-name: bw-fade; }
 /* The board's shine is ambient: gone under reduced motion; the climb stays (it is the story). */

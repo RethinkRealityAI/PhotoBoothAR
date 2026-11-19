@@ -538,6 +538,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   /** What he is wearing: a fitted prop on his body bone (popping in over `t`), a frame behind him. */
   /** The worn prop: its pop-in `t`, its crown `top` and seat `anchor` in his heights, and its scale `k`. */
   const worn = useRef<{ holder: THREE.Group; t: number; top: number; anchor: number; k: number } | null>(null);
+  /** Props he just took off: each shrinks away over ~0.26s instead of vanishing (never a pop). */
+  const leaving = useRef<{ holder: THREE.Group; t: number; s0: number }[]>([]);
   const wornTopAt = (wn: { top: number; anchor: number }, k: number) => wn.anchor + (wn.top - wn.anchor) * k;
   const wearToken = useRef(0);
   const frameMesh = useRef<THREE.Mesh>(null);
@@ -997,7 +999,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       wear(look) {
         const tok = ++wearToken.current;
         const old = worn.current;
-        if (old !== null) { old.holder.removeFromParent(); worn.current = null; }
+        if (old !== null) { leaving.current.push({ holder: old.holder, t: 0, s0: old.holder.scale.x }); worn.current = null; }
         frameOn.current.on = false;
         if (look === null || look.kind === 'none' || look.url === undefined) return Promise.resolve();
         const url = look.url;
@@ -1380,6 +1382,13 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const pop = wn.t >= 1 ? 1 : reduced ? wn.t : easeOutBack(wn.t);
       const sc = Math.max(0.0001, pop * wn.k);
       if (wn.holder.scale.x !== sc) wn.holder.scale.setScalar(sc);
+    }
+    const lv = leaving.current;
+    for (let i = lv.length - 1; i >= 0; i--) {
+      const o = lv[i];
+      o.t = Math.min(1, o.t + dt / 0.26);
+      o.holder.scale.setScalar(Math.max(0.0001, o.s0 * (1 - o.t) * (1 - o.t)));
+      if (o.t >= 1) { o.holder.removeFromParent(); lv.splice(i, 1); }
     }
     const fo = frameOn.current;
     fo.alpha = fo.on ? fo.alpha + (1 - fo.alpha) * Math.min(1, dt * 5) : Math.max(0, fo.alpha - dt * 4);

@@ -21,16 +21,18 @@
  *         (the page passes each `[data-prop-url]` peek's box to it);
  *       - filters: a flat swatch orb;
  *       - effects: an icon orb.
- *   • The worn frame stands IN FRONT of him: a DOM image over him, so its
- *     transparent window shows him through it. The page places the frame
- *     and the carousel box every frame from the stage's numbers. The box
- *     sits over the frame when he wears one (data-mode "frame"), otherwise
- *     around him (data-mode "stand").
+ *   • ONE fixed stage (lib/beamyAssets arStage): the page lays the carousel
+ *     box on it and he stands in it, the same size and place on every tab
+ *     and item. The worn frame fills that box IN FRONT of him (a DOM image,
+ *     so its transparent window shows him through it).
+ *   • Each category is a track whose stops all stay mounted; a step only
+ *     changes each stop's place, so the incoming one glides into place as
+ *     the outgoing one glides out to its peek (no jump cut).
  *
  * The picker only takes input while its step is up (`active`). Otherwise it
  * is inert and faded, so keyboard focus never lands on an invisible control.
  * `stacked` covers phones and portrait tablets, where the switcher sits above
- * him.
+ * him; on laptops the page renders ArTabs under the story card.
  */
 import { useRef, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
 import { ChevronLeft, ChevronRight, CircleSlash, Heart, Music, PartyPopper, Snowflake, Sparkles, Spotlight, type LucideIcon } from 'lucide-react';
@@ -78,7 +80,80 @@ function PeekFace({ stop, cat }: { stop: HomeLook | null; cat: LookCategory }) {
   return <span className="bw-ar-orb" aria-hidden>{Icon !== null && <Icon className="h-6 w-6" strokeWidth={1.6} />}</span>;
 }
 
-export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stacked, frameRef, carRef, fx, reduced }: {
+/** A stop's place on a track, as a signed distance from the current stop (wrapping; the shorter way round). */
+function offset(i: number, cur: number, n: number): number {
+  const d = (((i - cur) % n) + n) % n;
+  return d > n / 2 ? d - n : d;
+}
+/** The CSS position a track item takes: -1/1 the peeks, 0 on him, ±2 parked out of sight. */
+const place = (d: number) => String(Math.max(-2, Math.min(2, d)));
+
+/**
+ * One carousel track: EVERY stop of a category stays mounted, each keyed by
+ * its look, and only its place changes (data-at), so a step is one smooth
+ * CSS transition: the incoming stop glides in from its peek while the
+ * outgoing one glides out to the other side (brand.css .bw-ar-item).
+ */
+function Track({ cat, stops, cur, show, noun, onWear }: {
+  cat: LookCategory;
+  stops: (HomeLook | null)[];
+  cur: number;
+  /** Peeks visible (this tab is on); the frames track always shows the worn frame. */
+  show: boolean;
+  noun: string;
+  onWear: (c: LookCategory, stop: HomeLook | null) => void;
+}) {
+  const n = stops.length;
+  return (
+    <div className="bw-ar-track" data-cat={cat} data-show={show ? 'true' : 'false'}>
+      {stops.map((s, i) => {
+        const d = n > 1 ? offset(i, cur, n) : 0;
+        // Two stops: the other one peeks on the right only.
+        const at = n === 2 && d === -1 ? 1 : d;
+        const a = s !== null ? lookAction(s) : null;
+        const kind = a?.kind === 'frame' ? 'frame' : s === null ? 'none' : 'orb';
+        const peek = show && Math.abs(at) === 1;
+        return (
+          <button
+            key={s?.id ?? 'none'}
+            type="button"
+            className="bw-ar-item bw-ar-peek"
+            data-at={place(at)}
+            data-side={at < 0 ? 'prev' : at > 0 ? 'next' : 'on'}
+            data-kind={kind}
+            data-prop-url={a?.kind === 'prop' && peek ? a.url : undefined}
+            tabIndex={-1}
+            aria-hidden={peek ? undefined : true}
+            aria-label={s === null ? `Take the ${noun} off` : `Try ${s.name}`}
+            onClick={peek ? () => onWear(cat, s) : undefined}
+          >
+            <PeekFace stop={s} cat={cat} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The glass tab switcher (Frames, 3D props, Filters, Effects): inside the picker on phones, under the story card on laptops. */
+export function ArTabs({ sel, tab, onTab, className = '' }: { sel: ArSelection; tab: LookCategory; onTab: (c: LookCategory) => void; className?: string }) {
+  return (
+    <div role="group" aria-label="Kinds of looks" className={`bw-ar-tabs ${className}`}>
+      {AR_CATEGORIES.map((c) => {
+        const on = sel[c.id] !== undefined;
+        return (
+          <button key={c.id} type="button" className="bw-ar-tab" aria-pressed={tab === c.id} onClick={() => onTab(c.id)}>
+            {c.label}
+            {on && <span className="bw-ar-dot" aria-hidden />}
+            {on && <span className="sr-only"> (one on)</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stacked, carRef, fx, reduced }: {
   /** The picker's looks, in category order (lib/beamyAssets arOrder). */
   looks: HomeLook[];
   /** What he wears: one look id per category. */
@@ -89,18 +164,15 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
   /** Wear a carousel stop in its category (null = take that category off). */
   onWear: (c: LookCategory, stop: HomeLook | null) => void;
   active: boolean;
+  /** Phones and portrait tablets: the switcher sits above him, in here. Laptops: the page puts ArTabs under the story card. */
   stacked: boolean;
-  /** The frame image; the page places it on him every frame. */
-  frameRef: Ref<HTMLImageElement>;
-  /** The carousel box; the page lays it over the frame, or around him. */
+  /** The carousel box; the page lays it on the fixed AR stage (lib/beamyAssets arStage). */
   carRef: Ref<HTMLDivElement>;
   /** The effect drawn round him (lib/arFx), or null. */
   fx: ArFxKind | null;
   reduced: boolean;
 }) {
   const worn = selectedLooks(sel, looks);
-  const frame = worn.find((l) => l.category === 'frame');
-  const frameUrl = frame !== undefined ? lookAction(frame) : null;
   // This tab's carousel: None first, then its looks; the stop he wears is current.
   const stops = arStops(looks, tab);
   const n = stops.length;
@@ -109,6 +181,9 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
   const step = (d: number) => { if (n > 1) onWear(tab, stops[at(d)]); };
   const noun = AR_NOUN[tab];
   const title = arTitle(tab, stops[cur] ?? null);
+  // The frames track is always there: it shows the worn frame on every tab.
+  const frameStops = arStops(looks, 'frame');
+  const frameCur = arStopIndex(sel, looks, 'frame');
   const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
   const onDown = (e: ReactPointerEvent<HTMLDivElement>) => { swipe.current = { x: e.clientX, y: e.clientY, id: e.pointerId }; };
   const onUp = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -124,42 +199,15 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
       step(e.key === 'ArrowRight' ? 1 : -1);
     }
   };
-  const peek = (d: -1 | 1) => {
-    if (n < 2 || (n === 2 && d === -1)) return null;
-    const s = stops[at(d)];
-    const a = s !== null ? lookAction(s) : null;
-    const side = d < 0 ? 'prev' : 'next';
-    return (
-      <button
-        key={`${side}-${s?.id ?? 'none'}`}
-        type="button"
-        className="bw-ar-peek"
-        data-side={side}
-        data-kind={a?.kind === 'frame' ? 'frame' : s === null ? 'none' : 'orb'}
-        data-prop-url={a?.kind === 'prop' ? a.url : undefined}
-        tabIndex={-1}
-        aria-label={s === null ? `Take the ${noun} off` : `Try ${s.name}`}
-        onClick={() => onWear(tab, s)}
-      >
-        <PeekFace stop={s} cat={tab} />
-      </button>
-    );
-  };
-  // Over the worn frame, else around him.
-  const mode = frameUrl !== null && frameUrl.kind === 'frame' ? 'frame' : 'stand';
 
   return (
     <div className="bw-ar" data-on={active ? 'true' : 'false'} inert={!active} data-stacked={stacked ? 'true' : 'false'}>
-      {/* The frame he wears stands in front of him (placed by the page). */}
-      {frameUrl !== null && frameUrl.kind === 'frame' && (
-        <img key={frame?.id} ref={frameRef} className="bw-ar-frame" src={frameUrl.url} alt="" aria-hidden draggable={false} />
-      )}
-      {/* The carousel, laid over the frame or around him by the page: the title
-          above, the stops before and after peeking at its sides, arrows on its edges. */}
+      {/* The carousel, on the fixed AR stage (placed by the page): the worn
+          frame fills it, in front of him; the title above; the stops before
+          and after peek at its sides; arrows on its edges. */}
       <div
         ref={carRef}
         className="bw-ar-car"
-        data-mode={mode}
         data-tab={tab}
         data-fx-anchor="prop"
         role="group"
@@ -171,11 +219,11 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
         onPointerUp={onUp}
         onPointerCancel={() => { swipe.current = null; }}
       >
-        {/* The effect, drawn round him (never takes a tap). */}
-        {fx !== null && <ArFxCanvas kind={fx} reduced={reduced} className="bw-ar-fx" />}
+        <Track cat="frame" stops={frameStops} cur={frameCur} show={tab === 'frame'} noun={AR_NOUN.frame} onWear={onWear} />
+        {/* The effect, drawn round him and over the frame (never takes a tap). */}
+        {fx !== null && <ArFxCanvas key={fx} kind={fx} reduced={reduced} className="bw-ar-fx" />}
+        {tab !== 'frame' && <Track key={tab} cat={tab} stops={stops} cur={cur} show noun={noun} onWear={onWear} />}
         <p className="bw-ar-title" aria-hidden><ShineText key={title} text={title} className="bw-ar-title-text" /></p>
-        {peek(-1)}
-        {peek(1)}
         {n > 1 && (
           <>
             <button type="button" className="bw-ar-arrow" data-side="prev" aria-label={`${AR_COPY.prev} ${noun}`} onClick={() => step(-1)}><ChevronLeft className="h-5 w-5" strokeWidth={1.8} aria-hidden /></button>
@@ -183,23 +231,14 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
           </>
         )}
       </div>
-      {/* The switcher: above him on phones, lower left on wide screens. */}
-      <div className={stacked ? 'absolute inset-x-0 top-0 z-[2] mx-auto max-w-[460px]' : 'absolute bottom-[6%] left-[clamp(24px,4vw,64px)] z-[2] w-[min(372px,31vw)]'}>
-        <p className="sr-only">{AR_COPY.line}</p>
-        <p className="sr-only" aria-live="polite">{worn.length > 0 ? `Beamy is wearing: ${worn.map((l) => l.name).join(', ')}` : 'Beamy is wearing nothing yet'}</p>
-        <div role="group" aria-label="Kinds of looks" className={`bw-ar-tabs ${stacked ? 'mx-auto' : ''}`}>
-          {AR_CATEGORIES.map((c) => {
-            const on = sel[c.id] !== undefined;
-            return (
-              <button key={c.id} type="button" className="bw-ar-tab" aria-pressed={tab === c.id} onClick={() => onTab(c.id)}>
-                {c.label}
-                {on && <span className="bw-ar-dot" aria-hidden />}
-                {on && <span className="sr-only"> (one on)</span>}
-              </button>
-            );
-          })}
+      <p className="sr-only">{AR_COPY.line}</p>
+      <p className="sr-only" aria-live="polite">{worn.length > 0 ? `Beamy is wearing: ${worn.map((l) => l.name).join(', ')}` : 'Beamy is wearing nothing yet'}</p>
+      {/* Phones: the switcher above him. (Laptops: the page puts ArTabs under the story card.) */}
+      {stacked && (
+        <div className="absolute inset-x-0 top-0 z-[2] mx-auto max-w-[460px]">
+          <ArTabs sel={sel} tab={tab} onTab={onTab} className="mx-auto" />
         </div>
-      </div>
+      )}
     </div>
   );
 }
