@@ -8,15 +8,22 @@
  */
 import type { BeamyLook } from './beamyLooks';
 import { AR_FRAME_GEO, HOME_ASSET_DEFAULTS, arOrder, toBeamyLook } from './beamyAssets';
+import { sequence, type Sequence } from './beamyMotion';
 
 /** The scenes' words. Decorative (the caption panel carries each step's text). */
 export const STORY_SCENE = {
-  qr: { event: 'Ada & Tunde’s wedding', scan: 'Point your camera', hint: 'No app needed', real: 'Scan it for real', tabs: ['Frame', 'Effect', '3D'] as const },
-  wall: { sent: 'Sent to the wall' },
+  qr: {
+    /** The event's splash screen, written on the phone after the scan. */
+    welcome: 'Welcome to', couple: 'Ade & Tunji’s', booth: 'immersive wedding booth', start: 'Tap to start',
+    scan: 'Point your camera', hint: 'No app needed', real: 'Scan it for real',
+  },
+  wall: { captured: 'Photo captured', sent: 'Sent to the wall' },
   medal: {
     eyebrow: 'New challenge alert',
     mission: 'Selfie with the bride',
     points: '+50 pts',
+    doneEyebrow: 'Challenge complete',
+    done: 'Ada completed the challenge',
     board: 'Leaderboard',
     /** The board before the shot lands; the sender then jumps to #1 with the mission's points. */
     rows: [['Table 4', 40], ['The Okafors', 30], ['Uncle Femi', 20]] as [string, number][],
@@ -31,10 +38,33 @@ export const STORY_SCENE = {
 export function storySceneLines(): string[] {
   const s = STORY_SCENE;
   return [
-    s.qr.event, s.qr.scan, s.qr.hint, s.qr.real, ...s.qr.tabs, s.wall.sent, s.medal.eyebrow, s.medal.mission, s.medal.points, s.medal.board,
+    s.qr.welcome, s.qr.couple, s.qr.booth, s.qr.start, s.qr.scan, s.qr.hint, s.qr.real, s.wall.captured, s.wall.sent,
+    s.medal.eyebrow, s.medal.mission, s.medal.points, s.medal.doneEyebrow, s.medal.done, s.medal.board,
     ...s.medal.rows.map((r) => r[0]), s.medal.sender, s.medal.sent, s.keepsake.album, s.keepsake.count, s.keepsake.film, s.keepsake.making,
   ];
 }
+
+/**
+ * Each scene's order (ms after its step comes up). Pieces appear only at
+ * their cue, so a scene unfolds as a story, never all at once:
+ *   qr       the code waits; a glass phone glides over it and hovers (the
+ *            code shows through); it scans; the code dissolves into it; the
+ *            phone turns solid on the event's splash; it steps aside and the
+ *            real code comes back to be scanned for real.
+ *   wall     the phone flashes (a shot); "Photo captured"; that photo flies
+ *            to Beamy; he catches it; he beams it; it lands on the wall.
+ *            Loops with the next guest's shot.
+ *   medal    the alert; Ada's selfie; "Sent by Ada"; the alert turns into
+ *            "Ada completed the challenge"; the board appears; Ada climbs
+ *            to #1 with the points.
+ *   keepsake the album; its photos fly into the film; it makes itself; it plays.
+ */
+export const STORY_SEQ = {
+  qr: sequence([['hover', 500], ['scan', 1700], ['dissolve', 3000], ['splash', 3600], ['rest', 5600]]),
+  wall: sequence([['flash', 700], ['toast', 1200], ['fly', 2200], ['receive', 3200], ['beam', 3800], ['land', 5100]], 8600),
+  medal: sequence([['alert', 400], ['photo', 1500], ['sent', 2600], ['done', 3700], ['board', 4800], ['rank', 5600]]),
+  keepsake: sequence([['album', 300], ['fly', 1300], ['making', 1800], ['play', 4800]]),
+} satisfies Record<'qr' | 'wall' | 'medal' | 'keepsake', Sequence>;
 
 /** The wearable looks of the AR step's picker (its frames and props), in picker order. None repeats the hero's. */
 export const STORY_LOOKS: BeamyLook[] = arOrder(HOME_ASSET_DEFAULTS.arLooks)

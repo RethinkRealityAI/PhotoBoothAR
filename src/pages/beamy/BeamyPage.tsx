@@ -68,7 +68,7 @@ import BeamyStage, { type BeamyApi, type BeamyClip, type Pt, type StageDecor, ty
 import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker from './ArPicker';
-import { AR_FRAME_GEO, HOME_ASSET_DEFAULTS, arOrder, demoQrUrl, lookAction, lookThumb as assetThumb, nextAr, toBeamyLook } from '../../lib/beamyAssets';
+import { AR_FRAME_GEO, HOME_ASSET_DEFAULTS, arOrder, demoQrUrl, lookAction, nextAr, toBeamyLook } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
 
 import boothFilm from '../../assets/landing/booth-feature.mp4';
@@ -110,7 +110,6 @@ const SELFIE_HOLD_MS = 12000;
 const PHONE_MAX = 768;
 const WIDE_HERO_MIN = 1024;
 /** How often Beamy beams a shot to the story's mini wall while that step is up. */
-const WALL_BEAM_MS = 5200;
 /** A pointer held still this long hands Beamy back to his section's own look. */
 const GAZE_IDLE_MS = 1800;
 const NIGHT: Record<StopId, number> = Object.fromEntries(STOPS.map((s) => [s.id, s.night])) as Record<StopId, number>;
@@ -283,7 +282,6 @@ export default function BeamyPage() {
   const viewfinderRef = useRef<HTMLDivElement | null>(null);
   const storyRef = useRef<HTMLElement | null>(null);
   const storyWallRef = useRef<HTMLDivElement | null>(null);
-  const [storyRipple, setStoryRipple] = useState(0);
   const filmFrameRef = useRef<HTMLDivElement | null>(null);
   /** The centre tile of whichever wall the next photo flies to. */
   const heroTileRef = useRef<HTMLDivElement | null>(null);
@@ -437,13 +435,13 @@ export default function BeamyPage() {
     const r = rectOf(storyWallRef.current);
     if (b === null || r === null || !readyRef.current) return;
     logStep('story:wall:beam');
-    void b.beam(centre(r), () => setStoryRipple((k) => k + 1), 'mouth');
+    void b.beam(centre(r), undefined, 'mouth');
   };
   /**
    * A story step became active while the story holds Beamy: his clip, and
    * he lights his step's scene. The AR step dresses him (the try-on effect),
-   * the wall step beams shots onto the wall, every other step he projects
-   * onto its main piece as it materialises.
+   * the wall step's own timeline has him catch and beam each shot (onCue),
+   * every other step he projects onto its main piece as it materialises.
    */
   const storyEnter = (i: number): boolean => {
     const b = api.current;
@@ -454,7 +452,7 @@ export default function BeamyPage() {
     b.stopBeam();
     b.stopProject();
     if (s.id === 'prop') void b.play('Hop');
-    else if (s.id === 'wall') beamToWall();
+    else if (s.id === 'wall') { /* the wall's own timeline drives him (onCue) */ }
     else {
       void b.play(s.clip as BeamyClip);
       const id = s.id;
@@ -473,15 +471,18 @@ export default function BeamyPage() {
   storyEnterRef.current = storyEnter;
   const storyLeaveRef = useRef(storyLeave);
   storyLeaveRef.current = storyLeave;
-  /* The mini wall step keeps beaming, calmly, while it is up. */
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      const s = storyOn.current.step;
-      if (s >= 0 && STORY_STEPS[s]?.id === 'wall') beamToWall();
-    }, WALL_BEAM_MS);
-    return () => window.clearInterval(id);
+  /* A story scene's cue (StoryScenes' timelines): Beamy acts on the wall
+     step's beats; the challenge ends with him celebrating. */
+  const onCue = useCallback((scene: string, cue: string) => {
+    const b = api.current;
+    logStep(`seq:${scene}:${cue}`);
+    if (b === null || !readyRef.current) return;
+    if (scene === 'wall' && cue === 'receive') { void b.play('Hop'); b.sparkle('sparkle'); }
+    else if (scene === 'wall' && cue === 'beam') beamToWall();
+    else if (scene === 'medal' && cue === 'rank') b.sparkle('sparkle');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only
   }, []);
+  const beamyAt = useCallback(() => (readyRef.current && api.current !== null ? api.current.mouth() : null), []);
 
   const onStop = (id: StopId) => {
     activeRef.current = id;
@@ -783,15 +784,6 @@ export default function BeamyPage() {
   const pickOn = pickLit || failed || reduced;
 
   const inStoryAR = active === 'story' && STORY_STEPS[step]?.id === 'prop';
-  /* The challenge step's selfie: Beamy photobombs it with his own portrait,
-     taken once he has settled into the step (null keeps the selfie alone). */
-  const inMedal = active === 'story' && STORY_STEPS[step]?.id === 'medal';
-  const [portrait, setPortrait] = useState<string | null>(null);
-  useEffect(() => {
-    if (!inMedal || !ready || failed || portrait !== null) return;
-    const id = window.setTimeout(() => setPortrait(api.current?.portrait() ?? null), 600);
-    return () => window.clearTimeout(id);
-  }, [inMedal, ready, failed, portrait]);
   const tryOn = ready && !failed && arrival === 'done' && !introRunning && active === 'hero';
   const lastWorn = useRef(-1);
   useEffect(() => {
@@ -1354,7 +1346,7 @@ export default function BeamyPage() {
   );
   const storyScenes = (
     <>
-      <StoryScenes step={step} ids={storyIds} stacked={stacked} qrUrl={qrUrl} boothFrame={assetThumb({ url: '/guides/frames/wedding-monogram-drop.png' })} beamyPortrait={portrait} ripple={storyRipple} wallCentreRef={storyWallRef} seed={seed} />
+      <StoryScenes step={step} live={active === 'story'} ids={storyIds} stacked={stacked} qrUrl={qrUrl} wallCentreRef={storyWallRef} seed={seed} beamyAt={beamyAt} onCue={onCue} />
       <ArPicker looks={AR_LOOKS} ix={arIx} onPick={pickAr} active={inStoryAR} stacked={stacked} />
     </>
   );

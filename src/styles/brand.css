@@ -1352,6 +1352,16 @@
       filter 760ms ease calc(300ms + var(--d, 0s)),
       visibility 0s;
   }
+  /* A piece with its own cue (StoryScenes' timelines): hidden until its
+     cue starts, then it materialises at once (no entry stagger). */
+  .bw-scene[data-on="true"] > [data-seq="off"] {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(18px) scale(0.92);
+    filter: brightness(1.8) blur(8px);
+    transition: opacity 200ms ease, transform 240ms ease, filter 240ms ease, visibility 0s linear 240ms;
+  }
+  .bw-scene[data-on="true"] > [data-seq="on"] { transition-delay: 0s; }
   .bw-float { transform-style: preserve-3d; animation: bw-float 7s ease-in-out infinite alternate; }
   .bw-scene-card,
   .bw-scene-tile {
@@ -1486,7 +1496,6 @@
     height: 100%;
     object-fit: cover;
     opacity: 0;
-    animation: bw-kb 9s linear infinite;
   }
   .bw-scene-play {
     position: absolute;
@@ -1507,46 +1516,117 @@
     inset: 0;
     transform-origin: 0 50%;
     background-color: #FFFFFF;
-    animation: bw-prog 9s linear infinite;
+    transform: scaleX(0);
   }
 
-  /* ── How it works, step 1: ONE real code. A phone comes down over it and
-     scans, the code dissolves into the phone, the phone opens the event's
-     booth, the code comes back (a 10s loop). Hovering the code holds it. ── */
-  .bw-qr-card { pointer-events: auto; cursor: pointer; }
-  .bw-scene[data-on="true"] .bw-qr-card { animation: bw-qr-card 10s ease 0.9s infinite both; }
-  .bw-scene[data-on="true"] .bw-qr-phone { animation: bw-qr-phone 10s var(--bw-ease) 0.9s infinite both; }
-  .bw-scene[data-on="true"] .bw-qr-booth { animation: bw-qr-booth 10s ease 0.9s infinite both; }
-  .bw-qr:has(.bw-qr-card:hover) .bw-qr-card,
-  .bw-qr:has(.bw-qr-card:hover) .bw-qr-phone,
-  .bw-qr:has(.bw-qr-card:hover) .bw-qr-booth { animation-play-state: paused; }
-  .bw-qr-cam { position: absolute; inset: 0; background-color: #0E0C2E; }
+  /* ── How it works, step 1: ONE real code (it opens the demo event). A
+     glass phone glides over it and hovers (the code shows through), scans,
+     the code dissolves into it, the phone turns solid on the event's splash,
+     then steps back beside the code, which returns to be scanned for real.
+     data-hover/scan/gone/splash/rest are the cues (lib/beamyStory STORY_SEQ). ── */
+  .bw-qrs { position: relative; width: 100%; height: 100%; }
+  .bw-qr-card {
+    position: absolute;
+    display: block;
+    padding: 4.5%;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: opacity 520ms ease, transform 620ms var(--bw-ease), filter 620ms ease;
+  }
+  .bw-qrs[data-stacked="false"] .bw-qr-card { left: 2%; bottom: 4%; width: 50%; max-width: 230px; }
+  .bw-qrs[data-stacked="true"] .bw-qr-card { left: 3%; top: 14%; width: 40%; max-width: 200px; }
+  .bw-qr-code { display: block; padding: 7%; border-radius: 12px; background-color: #FFFFFF; }
+  .bw-qrs[data-gone="true"][data-rest="false"] .bw-qr-card { opacity: 0; transform: scale(0.84); filter: brightness(2.2) blur(6px); }
+  .bw-qrs[data-rest="true"] .bw-qr-card { transition-delay: 450ms; }
+  .bw-qr-phone {
+    position: absolute;
+    aspect-ratio: 9 / 18.5;
+    container-type: inline-size;
+    padding: 3.4%;
+    border-radius: 15% / 7.4%;
+    background-color: rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.78), 0 0 30px -8px rgba(165, 171, 255, 0.55);
+    opacity: 0;
+    transform: translate(18%, -6%) rotate(6deg);
+    transition: opacity 500ms ease, transform 1100ms var(--bw-ease), background-color 500ms ease, box-shadow 500ms ease;
+  }
+  .bw-qrs[data-stacked="false"] .bw-qr-phone { right: 0; top: 0; height: 62%; }
+  .bw-qrs[data-stacked="true"] .bw-qr-phone { right: 4%; top: 0; height: 100%; }
+  .bw-qrs[data-hover="true"] .bw-qr-phone { opacity: 1; transform: translate(var(--hx, 0px), var(--hy, 0px)) scale(var(--hs, 1)); }
+  .bw-qrs[data-splash="true"] .bw-qr-phone {
+    background-color: #15123F;
+    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.3), 0 34px 64px -26px rgba(10, 8, 40, 0.8), 0 0 46px -12px rgba(165, 171, 255, 0.5);
+  }
+  .bw-qrs[data-rest="true"] .bw-qr-phone { transform: none; }
+  .bw-qr-screen {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    border-radius: 12% / 5.8%;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  }
+  .bw-qr-notch { position: absolute; top: 2.6%; left: 50%; width: 30%; height: 3.2%; transform: translateX(-50%); border-radius: 999px; background-color: rgba(14, 12, 46, 0.85); }
   .bw-qr-brackets {
     position: absolute;
-    left: 18%;
-    right: 18%;
-    top: 27%;
+    left: 14%;
+    right: 14%;
+    top: 50%;
     aspect-ratio: 1;
-    border: 2px solid rgba(255, 255, 255, 0.92);
+    transform: translateY(-50%);
+    border: 2px solid #FFFFFF;
     border-radius: 12px;
+    opacity: 0;
+    transition: opacity 300ms ease;
     -webkit-mask: linear-gradient(#000 0 0) 0 0 / 32% 32% no-repeat, linear-gradient(#000 0 0) 100% 0 / 32% 32% no-repeat, linear-gradient(#000 0 0) 0 100% / 32% 32% no-repeat, linear-gradient(#000 0 0) 100% 100% / 32% 32% no-repeat;
     mask: linear-gradient(#000 0 0) 0 0 / 32% 32% no-repeat, linear-gradient(#000 0 0) 100% 0 / 32% 32% no-repeat, linear-gradient(#000 0 0) 0 100% / 32% 32% no-repeat, linear-gradient(#000 0 0) 100% 100% / 32% 32% no-repeat;
   }
-  .bw-qr-cam .bw-scene-scan { left: 20%; right: 20%; animation-name: bw-qr-scanline; }
-  .bw-qr-booth { position: absolute; inset: 0; opacity: 0; background-color: #2E2A92; }
-  .bw-qr-dock {
+  .bw-qrs[data-hover="true"][data-splash="false"] .bw-qr-brackets { opacity: 1; }
+  .bw-qr-sweep {
+    position: absolute;
+    left: 16%;
+    right: 16%;
+    top: 30%;
+    height: 2px;
+    border-radius: 2px;
+    background-color: #FFC56B;
+    box-shadow: 0 0 12px 3px rgba(255, 197, 107, 0.85);
+    opacity: 0;
+  }
+  .bw-qrs[data-scan="true"][data-gone="false"] .bw-qr-sweep { opacity: 1; animation: bw-qr-sweep 0.65s ease-in-out infinite alternate; }
+  .bw-qr-glow { position: absolute; inset: 0; background-color: #FFFFFF; opacity: 0; }
+  .bw-qrs[data-gone="true"] .bw-qr-glow { animation: bw-qr-glow 0.9s ease-out both; }
+  .bw-qr-splash { position: absolute; inset: 0; opacity: 0; transition: opacity 600ms ease; }
+  .bw-qrs[data-splash="true"] .bw-qr-splash { opacity: 1; }
+  .bw-qr-veil { position: absolute; inset: 0; background-image: linear-gradient(180deg, rgba(14, 12, 46, 0.15) 0%, rgba(14, 12, 46, 0.2) 40%, rgba(14, 12, 46, 0.86) 72%, rgba(14, 12, 46, 0.94) 100%); }
+  .bw-qr-words {
     position: absolute;
     inset: auto 0 0 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8%;
-    padding: 9% 0 8%;
-    background-color: rgba(14, 12, 46, 0.72);
+    padding: 0 9% 11%;
+    text-align: center;
+    color: #FFFFFF;
   }
-  .bw-qr-tab { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.8); }
-  .bw-qr-tab[data-on="true"] { color: #FFC56B; }
-  .bw-qr-shutter { width: 26%; aspect-ratio: 1; border-radius: 999px; box-shadow: inset 0 0 0 3px #FFFFFF, inset 0 0 0 6px rgba(14, 12, 46, 0.72), inset 0 0 0 40px rgba(255, 255, 255, 0.92); }
+  .bw-qr-words > * { opacity: 0; transform: translateY(8px); transition: opacity 500ms ease, transform 600ms var(--bw-ease); }
+  .bw-qrs[data-splash="true"] .bw-qr-words > * { opacity: 1; transform: none; }
+  .bw-qrs[data-splash="true"] .bw-qr-words > :nth-child(2) { transition-delay: 160ms; }
+  .bw-qrs[data-splash="true"] .bw-qr-words > :nth-child(3) { transition-delay: 300ms; }
+  .bw-qrs[data-splash="true"] .bw-qr-words > :nth-child(4) { transition-delay: 520ms; }
+  .bw-qrs[data-splash="true"] .bw-qr-words > :nth-child(5) { transition-delay: 640ms; }
+  .bw-qr-welcome { font-size: max(10px, 7cqw); font-weight: 500; letter-spacing: 0.02em; color: rgba(255, 255, 255, 0.86); }
+  .bw-qr-couple { margin-top: 1cqw; font-family: var(--bw-font-display, inherit); font-size: max(13px, 12.5cqw); font-weight: 700; line-height: 1.02; letter-spacing: -0.01em; }
+  .bw-qr-booth { margin-top: 1.5cqw; font-size: max(10px, 7.4cqw); font-weight: 600; line-height: 1.15; color: #FFE2A6; }
+  .bw-qr-start {
+    margin-top: 7cqw;
+    padding: 3.5cqw 9cqw;
+    border-radius: 999px;
+    font-size: max(10px, 6.6cqw);
+    font-weight: 700;
+    color: #1A1740;
+    background-color: #FFFFFF;
+  }
+  .bw-qr-hint { margin-top: 3cqw; font-size: max(10px, 5.6cqw); color: rgba(255, 255, 255, 0.72); }
 
   /* ── How it works, step 2: the AR picker (real buttons) and the frames
      carousel round Beamy. ── */
@@ -1612,37 +1692,33 @@
   .bw-ar-peek[data-side="after"] { left: calc(50% + var(--bh) * 0.86); height: calc(var(--bh) * 0.66); bottom: calc(var(--bh) * 0.24); opacity: 0.4; transform: rotateY(-34deg); transform-origin: 0 50%; }
   .bw-ar-peek[data-side="prev"] { right: calc(50% + var(--bh) * 0.62); transform: rotateY(26deg); transform-origin: 100% 50%; z-index: 1; }
 
-  /* ── How it works, challenges: the alert pings, the guest's shot lands
-     (Beamy photobombing in a veil), who sent it, then the board re-sorts
-     and the sender climbs to #1 with the mission's points. Once per entry;
-     it holds the last frame. Rows are 32px + 6px apart (--pitch). ── */
+  /* ── How it works, challenges (cue-driven, see STORY_SEQ.medal): the
+     alert pings, Ada's selfie lands with a flash, "Sent by Ada", the alert
+     turns into "Ada completed the challenge", the board appears and Ada
+     climbs to #1 with the points. Rows are 32px + 6px apart (--pitch). ── */
   .bw-ch-ranks, .bw-ch-board { display: grid; gap: 6px; --pitch: 38px; }
   .bw-ch-ranks > li { display: grid; place-items: center; height: 32px; }
-  .bw-ch-row { height: 32px; padding-block: 0; }
+  .bw-ch-row { height: 32px; padding-block: 0; transition: transform 800ms var(--bw-ease), background-color 500ms ease 500ms; }
   .bw-ch-row[data-move="up"] { position: relative; z-index: 1; }
+  .bw-ch-board[data-rank="true"] .bw-ch-row[data-move="down"] { transform: translateY(var(--pitch)); }
+  .bw-ch-board[data-rank="true"] .bw-ch-row[data-move="up"] { transform: translateY(calc(var(--pitch) * -3)); background-color: rgba(255, 197, 107, 0.34); }
   .bw-ch-pts { display: inline-grid; }
-  .bw-ch-pts > span { grid-area: 1 / 1; text-align: right; }
-  .bw-ch-pts > span:last-child { opacity: 0; }
-  .bw-ch-bomb {
-    position: absolute;
-    left: 5%;
-    bottom: 4%;
-    width: 46%;
-    aspect-ratio: 1;
-    border-radius: 999px;
-    box-shadow: 0 0 0 2.5px #FFFFFF, 0 10px 22px -10px rgba(10, 8, 40, 0.8);
-  }
-  .bw-ch-bomb { overflow: visible; }
-  .bw-ch-bomb > img { width: 100%; height: 100%; border-radius: 999px; object-fit: cover; object-position: 50% 26%; transform: scale(1.5); clip-path: circle(33.4% at 50% 50%); }
-  .bw-ch-veil { position: absolute; left: 18%; top: -16%; width: 64%; opacity: 0.9; }
+  .bw-ch-pts > span { grid-area: 1 / 1; text-align: right; transition: opacity 300ms ease, transform 400ms var(--bw-ease); }
+  .bw-ch-pts > span:last-child { opacity: 0; transform: translateY(6px) scale(1.4); }
+  .bw-ch-board[data-rank="true"] .bw-ch-pts > span:first-child { opacity: 0; transform: translateY(-6px); }
+  .bw-ch-board[data-rank="true"] .bw-ch-pts > span:last-child { opacity: 1; transform: none; transition-delay: 300ms; }
+  .bw-ch-alert { display: grid; }
+  .bw-ch-state { grid-area: 1 / 1; transition: opacity 400ms ease, transform 500ms var(--bw-ease); }
+  .bw-ch-donestate { opacity: 0; transform: translateY(8px); }
+  .bw-ch-alert[data-done="true"] .bw-ch-state:first-child { opacity: 0; transform: translateY(-8px); }
+  .bw-ch-alert[data-done="true"] .bw-ch-donestate { opacity: 1; transform: none; }
+  .bw-ch-check { color: #0E3B2A; background-color: #6EE7B7; }
+  .bw-ch-alert[data-done="true"] .bw-ch-check { animation: bw-ch-ping-ok 1s ease-out 2 both; }
+  [data-seq="on"] .bw-ch-bell { animation: bw-ch-ping 1.1s ease-out 0.2s 2 both; }
   .bw-ch-flash { position: absolute; inset: 0; background-color: #FFFFFF; opacity: 0; pointer-events: none; }
-  .bw-scene[data-on="true"] .bw-ch-bell { animation: bw-ch-ping 1.1s ease-out 0.7s 2 both; }
-  .bw-scene[data-on="true"] .bw-ch-flash { animation: bw-ch-flash 0.7s ease-out 1.2s both; }
-  .bw-scene[data-on="true"] .bw-ch-sent { animation: bw-ch-sent 0.5s var(--bw-ease) 2.4s both; }
-  .bw-scene[data-on="true"] .bw-ch-row[data-move="down"] { animation: bw-ch-down 0.8s var(--bw-ease) 3.6s both; }
-  .bw-scene[data-on="true"] .bw-ch-row[data-move="up"] { animation: bw-ch-up 0.8s var(--bw-ease) 3.6s both, bw-ch-win 0.6s ease 4.2s both; }
-  .bw-scene[data-on="true"] .bw-ch-pts > span:first-child { animation: bw-ch-out 0.3s ease 3.3s both; }
-  .bw-scene[data-on="true"] .bw-ch-pts > span:last-child { animation: bw-ch-in 0.4s var(--bw-ease) 3.35s both; }
+  .bw-ch-photo[data-flash="true"] .bw-ch-flash { animation: bw-ch-flash 0.7s ease-out 0.15s both; }
+  .bw-ch-sent { opacity: 0; transform: translateY(8px) scale(0.9); transition: opacity 400ms ease, transform 500ms var(--bw-ease); }
+  .bw-ch-sent[data-seq="on"] { opacity: 1; transform: none; }
 
   /* ── How it works, keepsake: album and wall photos fly into the film, it
      finishes making itself, then plays (and keeps playing). ── */
@@ -1668,9 +1744,74 @@
   .bw-ks-spark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 999px; color: #1A1740; background-color: rgba(255, 255, 255, 0.88); }
   .bw-ks-bar { position: relative; display: block; width: 100%; height: 3px; margin-top: 10px; overflow: hidden; border-radius: 3px; background-color: rgba(255, 255, 255, 0.25); }
   .bw-ks-bar > span { position: absolute; inset: 0; transform: scaleX(0); transform-origin: 0 50%; background-color: #FFC56B; }
-  .bw-scene[data-on="true"] .bw-ks-spark { animation: bw-ch-ping 0.9s ease-out 1.3s 4 both; }
-  .bw-scene[data-on="true"] .bw-ks-bar > span { animation: bw-ks-bar 3.4s ease-in-out 1s both; }
-  .bw-scene[data-on="true"] .bw-ks-making { animation: bw-ks-done 0.6s ease 4.6s both; }
+  .bw-ks-making { transition: opacity 600ms ease, visibility 0s linear 600ms; }
+  .bw-ks-film[data-making="true"] .bw-ks-spark { animation: bw-ch-ping 0.9s ease-out 3 both; }
+  .bw-ks-film[data-making="true"] .bw-ks-bar > span { transform: scaleX(1); transition: transform 2800ms ease-in-out; }
+  .bw-ks-film[data-play="true"] .bw-ks-making { opacity: 0; visibility: hidden; }
+  .bw-ks-film[data-play="true"] .bw-kb { animation: bw-kb 9s linear infinite; }
+  .bw-ks-film[data-play="true"] .bw-kb:first-child { animation-delay: -0.4s; }
+  .bw-ks-film[data-play="true"] .bw-scene-track > span { animation: bw-prog 9s linear infinite; }
+
+  /* ── How it works, every shot beams (cue-driven, STORY_SEQ.wall): the
+     phone flashes, "Photo captured", that photo flies to Beamy, he catches
+     it and beams it, and it lands on the wall's centre tile, lit. ── */
+  .bw-wl-screen { container-type: inline-size; }
+  .bw-wl-shot { transition: opacity 300ms ease; }
+  .bw-wl-screen[data-gone="true"] .bw-wl-shot { opacity: 0.25; }
+  .bw-wl-flash { position: absolute; inset: 0; border-radius: inherit; background-color: #FFFFFF; opacity: 0; }
+  .bw-wl-screen[data-flash="true"] .bw-wl-flash { animation: bw-ch-flash 0.6s ease-out both; }
+  .bw-wl-shutter {
+    position: absolute;
+    left: 50%;
+    bottom: 6%;
+    width: 22%;
+    aspect-ratio: 1;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 2px #FFFFFF, inset 0 0 0 4px rgba(14, 12, 46, 0.6), inset 0 0 0 40px rgba(255, 255, 255, 0.9);
+  }
+  .bw-wl-screen[data-flash="true"] .bw-wl-shutter { animation: bw-wl-press 0.35s ease-out both; }
+  .bw-wl-toast {
+    position: absolute;
+    left: 50%;
+    top: 8%;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 9px 5px 5px;
+    white-space: nowrap;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #1A1740;
+    background-color: rgba(246, 245, 255, 0.96);
+    box-shadow: 0 10px 22px -10px rgba(10, 8, 40, 0.7);
+    opacity: 0;
+    transform: translate(-50%, -10px) scale(0.92);
+    transition: opacity 300ms ease, transform 420ms var(--bw-ease);
+  }
+  .bw-wl-toast[data-seq="on"] { opacity: 1; transform: translate(-50%, 0); }
+  .bw-wl-tick { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 999px; color: #1A1740; background-color: #FFC56B; }
+  .bw-wl-fly {
+    position: absolute;
+    z-index: 3;
+    border-radius: 10px;
+    object-fit: cover;
+    box-shadow: 0 0 0 2px #FFFFFF, 0 12px 30px -10px rgba(10, 8, 40, 0.8);
+    animation: bw-wl-fly 0.95s cubic-bezier(0.5, 0, 0.25, 1) both;
+    transition: opacity 260ms ease;
+  }
+  .bw-wl-fly[data-caught="true"] { opacity: 0; }
+  /* The landed shot's tile lights up (outline + glow: the pin's inline box-shadow cannot override them). */
+  .bw-wl .bw-tile { transition: outline-color 400ms ease, filter 400ms ease, transform 500ms var(--bw-ease); outline: 2px solid transparent; outline-offset: 1px; }
+  .bw-wl .bw-wall-mount[data-lit="true"] .bw-tile:has(> img[alt="Your photo on the wall"]) {
+    position: relative;
+    z-index: 1;
+    outline-color: #FFFFFF;
+    filter: drop-shadow(0 0 12px rgba(255, 197, 107, 0.9));
+    transform: scale(1.06);
+  }
 }
 
 /* The bubble steps away while Beamy dissolves (hero ↔ dock). Unlayered so it
@@ -1724,56 +1865,37 @@
   40%, 100% { opacity: 0; transform: scale(1.14); }
 }
 @keyframes bw-prog { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-/* How it works, step 1 (10s loop): the code holds, then dissolves into the
-   phone as it finishes its scan, and comes back at the end. */
-@keyframes bw-qr-card {
-  0%, 40% { opacity: 1; transform: none; filter: none; }
-  47% { opacity: 0; transform: scale(0.8) translateY(-6%); filter: brightness(2.2) blur(6px); }
-  90% { opacity: 0; transform: scale(0.9); filter: blur(4px); }
-  97%, 100% { opacity: 1; transform: none; filter: none; }
+/* How it works, step 1: the scan line sweeps the code; the code's light flashes into the phone. */
+@keyframes bw-qr-sweep { from { top: 30%; } to { top: 68%; } }
+@keyframes bw-qr-glow { 0% { opacity: 0; } 25% { opacity: 0.85; } 100% { opacity: 0; } }
+/* Step 3: the shutter press; the shot's flight from the phone to Beamy. */
+@keyframes bw-wl-press { 50% { transform: translateX(-50%) scale(0.82); } }
+@keyframes bw-wl-fly {
+  0% { transform: none; }
+  20% { transform: translateY(-10%) scale(1.06) rotate(-3deg); }
+  100% { transform: translate(var(--dx), var(--dy)) scale(0.3) rotate(6deg); }
 }
-/* The phone: waits up and away, comes down over the code (scanning), lifts
-   upright to show the booth, then goes back. */
-@keyframes bw-qr-phone {
-  0%, 8% { transform: none; }
-  18%, 40% { transform: translate(-34%, 16%) rotate(-9deg) scale(0.94); }
-  52%, 88% { transform: translate(-4%, 2%) rotate(0deg) scale(1.03); }
-  98%, 100% { transform: none; }
+@keyframes bw-ch-ping-ok {
+  0% { box-shadow: 0 0 0 0 rgba(110, 231, 183, 0.75); }
+  100% { box-shadow: 0 0 0 16px rgba(110, 231, 183, 0); }
 }
-@keyframes bw-qr-booth {
-  0%, 44% { opacity: 0; }
-  50%, 88% { opacity: 1; }
-  94%, 100% { opacity: 0; }
-}
-@keyframes bw-qr-scanline { from { top: 28%; } to { top: 66%; } }
 @keyframes bw-peek-in { from { opacity: 0; } }
 @keyframes bw-ch-ping {
   0% { box-shadow: 0 0 0 0 rgba(255, 197, 107, 0.75); }
   100% { box-shadow: 0 0 0 16px rgba(255, 197, 107, 0); }
 }
 @keyframes bw-ch-flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
-@keyframes bw-ch-sent { from { opacity: 0; transform: translateY(8px) scale(0.9); } to { opacity: 1; transform: none; } }
-@keyframes bw-ch-down { from { transform: none; } to { transform: translateY(var(--pitch)); } }
-@keyframes bw-ch-up {
-  0% { transform: none; }
-  30% { transform: translateY(6px) scale(1.04); }
-  100% { transform: translateY(calc(var(--pitch) * -3)) scale(1); }
-}
-@keyframes bw-ch-win { to { background-color: rgba(255, 197, 107, 0.34); } }
-@keyframes bw-ch-out { to { opacity: 0; transform: translateY(-6px); } }
-@keyframes bw-ch-in { from { opacity: 0; transform: translateY(6px) scale(1.4); } to { opacity: 1; transform: none; } }
 @keyframes bw-ks-tile {
   0% { opacity: var(--o0, 1); transform: none; }
   12% { opacity: 1; transform: translateY(-6px) rotate(calc(var(--r) * 0.3)); }
   88% { opacity: 1; transform: translate(var(--dx), var(--dy)) rotate(var(--r)) scale(0.32); }
   100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--r)) scale(0.18); }
 }
-@keyframes bw-ks-bar { to { transform: scaleX(1); } }
-@keyframes bw-ks-done { to { opacity: 0; visibility: hidden; } }
-@keyframes bw-fade-loop {
-  0%, 40% { opacity: 1; }
-  47%, 90% { opacity: 0; }
-  97%, 100% { opacity: 1; }
+/* Soft content motion (reduced motion): the same keepsake film, crossfades only. */
+@keyframes bw-kb-soft {
+  0% { opacity: 0; }
+  6%, 33% { opacity: 1; }
+  40%, 100% { opacity: 0; }
 }
 /* The CTA beam: one turn round the pill's centre. */
 @keyframes bw-btn-orbit { from { transform: rotate(0turn); } to { transform: rotate(1turn); } }
