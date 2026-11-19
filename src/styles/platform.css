@@ -77,6 +77,15 @@
 
 :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) [data-surface="night"],
 [data-platform][data-surface="night"] {
+  /* Work screens sit a shade deeper (owner, 2026-11-19: "a bit darker to
+     break up the monotony") with the same blue → mauve travel. */
+  --pf-bg: #2A2878;
+  --pf-hue-blue: rgba(62, 98, 172, 0.86);
+  --pf-hue-blue-2: rgba(70, 104, 180, 0.45);
+  --pf-hue-deep: rgba(22, 20, 80, 0.84);
+  --pf-hue-mauve: rgba(112, 80, 148, 0.82);
+  --pf-hue-rose: rgba(134, 92, 150, 0.36);
+  --pf-surface: #262472;
   --pf-veil: rgba(44, 42, 132, 0.40);
   --pf-frost: rgba(255, 255, 255, 0.06);
   --pf-veil-strong: rgba(32, 30, 102, 0.66);
@@ -209,6 +218,32 @@
       0 18px 36px -22px var(--pf-shadow);
   }
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .liquid-glass::before { display: none; }
+
+  /* The lit rim on every glass surface (owner, 2026-11-19: "all the borders
+     should have the shimmering border ... so things lift off the page"): the
+     same light as the selected rim (.is-selected), held still. A still rim
+     on every card keeps a dense screen calm and costs no repaint; the moving
+     light is reserved for the thing that is selected. `.rim-glint` puts the
+     rim on any other surface (studio cards, tiles). */
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.glass, .glass-strong):not(.absolute, .fixed, .sticky) {
+    position: relative;
+  }
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.glass, .glass-strong, .liquid-glass, .liquid-glass-raised, .rim-glint)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    pointer-events: none;
+    background: conic-gradient(from 200deg at 50% 50%, rgba(255, 255, 255, 0.70) 0deg, rgba(var(--pf-accent-rgb), 0.45) 40deg, rgba(255, 255, 255, 0.10) 110deg, rgba(255, 255, 255, 0.06) 170deg, rgba(255, 214, 160, 0.30) 215deg, rgba(var(--pf-accent-rgb), 0.18) 260deg, rgba(255, 255, 255, 0.12) 300deg, rgba(255, 255, 255, 0.70) 360deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .rim-glint:not(.absolute, .fixed, .sticky) {
+    position: relative;
+  }
+  /* A selected glass card keeps the moving light (.is-selected wins). */
 
   /* Strong glass: sheets, modals, the rail. Deeper veil so dense text sits
      on a calmer ground. */
