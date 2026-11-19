@@ -60,7 +60,7 @@ import {
   startFacts, type Celebration, type FilmId, type Reaction, type StoryFxId,
 } from '../../lib/brandLanding';
 import {
-  STOPS, blendSlots, pageProgress, pinProgress, storyHeightVh, storyStep, weightedNight,
+  STOPS, blendSlots, pageProgress, pinProgress, storyEdgeOffsets, storyHeightVh, storySnapOffsets, storySnapOn, storyStep, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
 import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, type BeamyLook } from '../../lib/beamyLooks';
@@ -536,9 +536,11 @@ export default function BeamyPage() {
       // The story's step: progress through its pinned stretch (under the header).
       const st = storyRef.current;
       let sStep = stepRef.current;
+      let snapOn = false;
       if (st !== null) {
         const r = st.getBoundingClientRect();
         sStep = storyStep(pinProgress(r.top - headerH, r.height, vh - headerH), STORY_STEPS.length);
+        snapOn = storySnapOn(r.top, r.bottom, headerH, vh);
       }
       if (sStep !== stepRef.current) { stepRef.current = sStep; setStep(sStep); }
       const card = STORY_STEPS[sStep];
@@ -679,6 +681,9 @@ export default function BeamyPage() {
       if (cap !== null && capBottom !== null && cap.style.bottom !== capBottom) cap.style.bottom = capBottom;
       const bar = progressRef.current;
       if (bar !== null) bar.style.transform = `scaleX(${sp.toFixed(4)})`;
+      // Touch screens snap one step per swipe, only inside the pinned story (brand.css).
+      const snapAttr = snapOn ? 'on' : 'off';
+      if (sc.dataset.storySnap !== snapAttr) sc.dataset.storySnap = snapAttr;
       const bd = backdropRef.current;
       if (bd !== null) {
         if (!reducedRef.current) bd.style.setProperty('--bw-sp', sp.toFixed(4));
@@ -1379,6 +1384,16 @@ export default function BeamyPage() {
 
   /* ── The story: pinned, one card at a time, Beamy + one 3D effect beside him ── */
   const n = STORY_STEPS.length;
+  const [storySnaps, setStorySnaps] = useState<number[]>([]);
+  useLayoutEffect(() => {
+    const st = storyRef.current;
+    if (st === null) return;
+    const hh = headerRef.current?.offsetHeight ?? headerH;
+    const [a0, a1] = storyEdgeOffsets(st.offsetHeight, window.innerHeight, hh);
+    // The two ends first and last (snap-stop normal), the steps between (snap-stop always).
+    const next = [a0, ...storySnapOffsets(n, st.offsetHeight, window.innerHeight, hh), a1].map((v) => Math.round(v));
+    setStorySnaps((prev) => (prev.join() === next.join() ? prev : next));
+  }, [n, vp.w, vp.h, phone, headerH]);
   const goStep = (k: number) => {
     const sc = scrollerRef.current;
     const st = storyRef.current;
@@ -1436,6 +1451,10 @@ export default function BeamyPage() {
   );
   const story = (
     <section ref={storyRef} id="how" data-stop="story" aria-labelledby="h-story" className="bw-sec relative" style={{ height: `${storyHeightVh(n, phone)}vh` }}>
+      {/* Touch screens: one snap anchor mid-step (lib/beamyScroll
+          storySnapOffsets). With scroll-snap-stop (brand.css, coarse pointers
+          only) a momentum flick stops at the next step instead of flying past it. */}
+      {storySnaps.map((top, k) => <span key={k} aria-hidden className={k === 0 || k === storySnaps.length - 1 ? 'bw-story-snap bw-story-edge' : 'bw-story-snap'} style={{ top }} />)}
       <div className="sticky overflow-hidden" style={{ top: 'var(--bw-header-h)', height: 'calc(100svh - var(--bw-header-h))' }}>
         {stacked ? (
           <div className="flex h-full flex-col px-4 pb-3 pt-3 sm:px-8">

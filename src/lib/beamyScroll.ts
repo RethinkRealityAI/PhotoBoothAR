@@ -286,6 +286,38 @@ export function storyStep(progress: number, n: number): number {
   return clamp(Math.floor(progress * n), 0, Math.max(0, n - 1));
 }
 
+/**
+ * Phones: where each story step's snap anchor sits inside the pinned section
+ * (px from the section's top). A native momentum flick on a phone easily
+ * travels further than one step's 75vh stretch, so it could fly from step 1
+ * past step 2 into step 3; with `scroll-snap-stop: always` on these anchors
+ * the browser stops a swipe at the next step, every time (mandatory snapping,
+ * on only inside the pinned stretch: storySnapOn). Anchor k sits where
+ * the page reads the middle of step k: aligned to the viewport's top (snap
+ * start, no scroll padding), the section's top is at `-a`, so the page's
+ * `pinProgress(-a - headerH, h, vpH - headerH)` is exactly (k + 0.5) / n.
+ */
+export function storySnapOffsets(n: number, sectionH: number, vpH: number, headerH: number): number[] {
+  const run = Math.max(1, sectionH - (vpH - headerH));
+  return Array.from({ length: Math.max(0, n) }, (_, k) => ((k + 0.5) / n) * run - headerH);
+}
+
+/** The pinned stretch's two ends as snap anchors (progress 0 and 1), so a swipe can always leave the story. */
+export function storyEdgeOffsets(sectionH: number, vpH: number, headerH: number): [number, number] {
+  const run = Math.max(1, sectionH - (vpH - headerH));
+  return [-headerH, run - headerH];
+}
+
+/**
+ * Snapping is on only strictly inside the pinned stretch (its top above the
+ * header line and its bottom below the fold). At either end, and anywhere
+ * else on the page, scrolling is free: mandatory snapping with nothing ahead
+ * would otherwise hold the visitor in place.
+ */
+export function storySnapOn(top: number, bottom: number, headerH: number, vpH: number): boolean {
+  return top < headerH - 1 && bottom > vpH + 1;
+}
+
 /** Header progress: how far down the page, 0..1. */
 export function pageProgress(scrollY: number, docH: number, vpH: number): number {
   return clamp(scrollY / Math.max(1, docH - vpH), 0, 1);

@@ -2004,3 +2004,17 @@
 [data-brand="2"][data-content-motion="soft"] .bw-scene[data-on="true"] .bw-ch-bell,
 [data-brand="2"][data-content-motion="soft"] .bw-scene[data-on="true"] .bw-ks-spark { animation-iteration-count: 1; }
 [data-brand="2"][data-content-motion="soft"] .bw-ar-frame { animation-name: bw-fade; }
+
+/* How it works, touch screens: one native snap stop mid-step (the anchors
+   come from lib/beamyScroll storySnapOffsets). A momentum flick on a phone
+   used to fly from step 1 past step 2 into step 3; `scroll-snap-stop:
+   always` makes every swipe stop at the next step. Snapping is on only
+   strictly inside the pinned stretch (the page sets data-story-snap, lib/
+   beamyScroll storySnapOn); its two end anchors let a swipe leave, and the
+   rest of the page never snaps. */
+@media (pointer: coarse) {
+  [data-brand="2"].bw-scroll[data-story-snap="on"] { scroll-snap-type: y mandatory; }
+  [data-brand="2"] .bw-story-snap { scroll-snap-align: start; scroll-snap-stop: always; }
+  [data-brand="2"] .bw-story-snap.bw-story-edge { scroll-snap-stop: normal; }
+}
+[data-brand="2"] .bw-story-snap { position: absolute; left: 0; width: 1px; height: 1px; pointer-events: none; opacity: 0; }

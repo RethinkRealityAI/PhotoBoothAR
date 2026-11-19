@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DPR_CALM_S, DT_MAX, GLIDE_DT_MAX, JUMP_VH, SIGMA, STOPS, blendSlots, governDpr, damp, dampAngle, followStep, glideStep, pageProgress, pinProgress,
-  poseInSlot, slotWeight, stopIndex, storyHeightVh, storyStep, weightedNight, type GlidePt, type SlotSample,
+  poseInSlot, slotWeight, stopIndex, storyEdgeOffsets, storyHeightVh, storySnapOffsets, storySnapOn, storyStep, weightedNight, type GlidePt, type SlotSample,
 } from './beamyScroll';
 
 const VW = 1440;
@@ -232,5 +232,42 @@ describe('the stage pixel budget', () => {
     expect(s.dpr).toBe(1.25);
     expect(governDpr(1.5, 60, 1.5, 10).dpr).toBe(1.5);
     expect(governDpr(1.25, 50, 1.5, 3)).toEqual({ dpr: 1.25, calm: 0 });
+  });
+
+  it('puts one phone snap anchor in the middle of every story step', () => {
+    // 390×844 phone: header 64, five steps at 75vh.
+    for (const [vh, header] of [[844, 64], [915, 72], [667, 60]]) {
+      const n = 5;
+      const h = (storyHeightVh(n, true) / 100) * vh;
+      const a = storySnapOffsets(n, h, vh, header);
+      expect(a).toHaveLength(n);
+      a.forEach((off, k) => {
+        // Snapped (anchor top at the viewport top): the page reads step k, mid-step.
+        const p = pinProgress(-off - header, h, vh - header);
+        expect(p).toBeCloseTo((k + 0.5) / n, 9);
+        expect(storyStep(p, n)).toBe(k);
+        // Inside the section, increasing, evenly spaced: one stop per step.
+        expect(off).toBeGreaterThan(0);
+        expect(off).toBeLessThan(h);
+        if (k > 0) expect(off - a[k - 1]).toBeCloseTo((h - (vh - header)) / n, 9);
+      });
+    }
+    expect(storySnapOffsets(0, 1000, 800, 64)).toEqual([]);
+  });
+
+  it('snaps only strictly inside the pinned stretch, with an anchor at each end to leave by', () => {
+    const vh = 844, header = 64, n = 5;
+    const h = (storyHeightVh(n, true) / 100) * vh;
+    const [start, end] = storyEdgeOffsets(h, vh, header);
+    expect(pinProgress(-start - header, h, vh - header)).toBe(0);
+    expect(pinProgress(-end - header, h, vh - header)).toBe(1);
+    // Snapped on an end anchor, snapping is off: the next swipe leaves freely.
+    expect(storySnapOn(-start, -start + h, header, vh)).toBe(false);
+    expect(storySnapOn(-end, -end + h, header, vh)).toBe(false);
+    // Every step anchor is strictly inside: snapping holds a flick to one step.
+    for (const a of storySnapOffsets(n, h, vh, header)) expect(storySnapOn(-a, -a + h, header, vh)).toBe(true);
+    // Above or below the story: off.
+    expect(storySnapOn(300, 300 + h, header, vh)).toBe(false);
+    expect(storySnapOn(-h, 0, header, vh)).toBe(false);
   });
 });
