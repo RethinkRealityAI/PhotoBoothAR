@@ -114,11 +114,9 @@ export function pokeStep(s: PokeState, now: number): { level: PokeLevel; count: 
   return { level, count, state: { count: level === 'party' ? 0 : count, lastAt: now } };
 }
 
-/* ── Drag to spin ──────────────────────────────────────────────────────── */
+/* ── The party spin (a tap reaction: he spins, then settles to front) ──── */
 
 export interface Spin { angle: number; vel: number; }
-/** Radians per CSS px dragged. */
-export const SPIN_PER_PX = 0.012;
 const TAU = Math.PI * 2;
 
 /** The "front" Beamy settles to: the nearest whole turn. */
@@ -127,7 +125,7 @@ export function nearestFront(angle: number): number {
 }
 
 /**
- * Advance a released spin by `dt` seconds: friction bleeds the fling, then a
+ * Advance a spin by `dt` seconds: friction bleeds the fling, then a
  * damped spring pulls him round to the nearest front-facing angle.
  */
 export function spinStep(s: Spin, dt: number): Spin {
@@ -143,17 +141,6 @@ export function spinStep(s: Spin, dt: number): Spin {
 
 export function spinSettled(s: Spin): boolean {
   return Math.abs(s.angle - nearestFront(s.angle)) < 0.002 && Math.abs(s.vel) < 0.01;
-}
-
-/** Release velocity (rad/s) from the last pointer samples [px, ms]. */
-export function releaseVelocity(samples: { x: number; t: number }[]): number {
-  if (samples.length < 2) return 0;
-  const a = samples[0];
-  const b = samples[samples.length - 1];
-  const dt = (b.t - a.t) / 1000;
-  if (dt <= 0) return 0;
-  const v = ((b.x - a.x) * SPIN_PER_PX) / dt;
-  return Math.max(-30, Math.min(30, v));
 }
 
 /* ── Copy ──────────────────────────────────────────────────────────────── */

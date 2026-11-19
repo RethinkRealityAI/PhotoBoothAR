@@ -28,17 +28,19 @@
  *
  * Motion: content motion (the intro, his glide, beams, the story's effects)
  * plays for everyone, gently under reduced motion. Decorative motion
- * (pointer parallax and tilt, crystal bob) is off under reduced motion.
+ * (scroll parallax, decor bob, ambient particles) is off or softened under
+ * reduced motion. Nothing follows the pointer: the page and the scene alone
+ * decide where Beamy looks.
  *
  * Nothing a visitor captures leaves the device: the wall is component state.
  * Tokens/components come from src/styles/brand.css, scoped by data-brand="2".
  */
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
-  type CSSProperties, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode,
+  type CSSProperties, type HTMLAttributes, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, Check, Lock, Rotate3d } from 'lucide-react';
+import { Camera, Check, Lock } from 'lucide-react';
 import { Briefcase, Cake, ClipboardList, Gift, Users, type LucideIcon } from 'lucide-react';
 import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
@@ -54,7 +56,7 @@ import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
 import { AUDIENCES, GREETING, HELLO, POKE_LINES, audienceById, type Audience, type AudienceIcon } from '../../lib/beamyTour';
 import {
   FILMS, FILMS_COPY, FOOTER_LINKS, HERO, LOOKS, NAV_LINKS, PICK_COPY, POKE_IDLE, SIGNUP_PATH, START_COPY, STORY_COPY,
-  STORY_STEPS, TRY_COPY, beamyPlanCards, createReactionPicker, pickCelebration, pokeStep, pricingSection, releaseVelocity,
+  STORY_STEPS, TRY_COPY, beamyPlanCards, createReactionPicker, pickCelebration, pokeStep, pricingSection,
   startFacts, type Celebration, type FilmId, type Reaction, type StoryFxId,
 } from '../../lib/brandLanding';
 import {
@@ -110,9 +112,6 @@ const SELFIE_HOLD_MS = 12000;
 /** Breakpoints: phones stack Beamy above the copy; the three-column hero needs a laptop. */
 const PHONE_MAX = 768;
 const WIDE_HERO_MIN = 1024;
-/** How often Beamy beams a shot to the story's mini wall while that step is up. */
-/** A pointer held still this long hands Beamy back to his section's own look. */
-const GAZE_IDLE_MS = 1800;
 const NIGHT: Record<StopId, number> = Object.fromEntries(STOPS.map((s) => [s.id, s.night])) as Record<StopId, number>;
 
 const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
@@ -249,7 +248,6 @@ export default function BeamyPage() {
   const [cameraOn, setCameraOn] = useState(false);
   const [shots, setShots] = useState<{ id: number; src: string }[]>([]);
   const [flight, setFlight] = useState<Flight | null>(null);
-  const [dragHint, setDragHint] = useState(true);
   const [introRunning, setIntroRunning] = useState(false);
   const [heroPin, setHeroPin] = useState<Pin | null>(null);
   const [ripple, setRipple] = useState(0);
@@ -323,7 +321,6 @@ export default function BeamyPage() {
   const react = useRef(createReactionPicker(seed));
   const lastCelebration = useRef<Celebration | null>(null);
   const poke = useRef(POKE_IDLE);
-  const drag = useRef<{ id: number; x0: number; y0: number; dragging: boolean; samples: { x: number; t: number }[]; suppressClick: boolean } | null>(null);
 
   const typed = useTyped(line, reduced);
   /* The hero copy never waits for the model or the choreography. */
@@ -501,7 +498,6 @@ export default function BeamyPage() {
     setActive(id);
     logStep(`enter:${id}`);
     say(lineFor(id, audienceRef.current));
-    if (id !== 'hero') setDragHint(false);
     if (id !== 'try') setCameraOn(false);
     if (id === 'pick' && !pickLitRef.current) {
       const b = api.current;
@@ -580,6 +576,9 @@ export default function BeamyPage() {
         // The bubble speaks only where his slot left room for it (never on
         // phones, never in the story, never mid-glide).
         bubbleAway: isPhone || slotId === 'story' || slotId === 'films' || !settled,
+        // A tap on him works wherever he has settled, phones included (the
+        // bubble's rules above are about room for text, not about taps).
+        hitAway: !settled,
       };
       const hp = rectOf(heroPanelRef.current);
       const heroSlot = samples.find((x) => x.id === 'hero');
@@ -987,68 +986,6 @@ export default function BeamyPage() {
     if (p !== null) landSelfie(p, false);
   }, [begin, hideSelfieFx, landSelfie]);
 
-  /* Gaze + hero depth: the pointer on desktop (lerped CSS vars on the hero
-     for the parallax layers, the panel tilt, the wall turn and the sheen);
-     the last tap on touch turns his head, then back to you. The gaze is
-     global and never sticks: he follows a MOVING pointer anywhere on the
-     page, and a still pointer (GAZE_IDLE_MS) or any scroll hands him back
-     to the section's own pose. */
-  useEffect(() => {
-    let clear = 0;
-    let idle = 0;
-    let raf = 0;
-    const release = () => { window.clearTimeout(idle); api.current?.look(null); };
-    const cur = { x: 0, y: 0 };
-    const tgt = { x: 0, y: 0 };
-    const tick = () => {
-      raf = 0;
-      cur.x += (tgt.x - cur.x) * 0.08;
-      cur.y += (tgt.y - cur.y) * 0.08;
-      const h = heroRef.current;
-      if (h !== null) {
-        h.style.setProperty('--px', cur.x.toFixed(4));
-        h.style.setProperty('--py', cur.y.toFixed(4));
-        h.style.setProperty('--tilt-x', cur.x.toFixed(4));
-        h.style.setProperty('--sheen-dx', `${(cur.x * 18).toFixed(1)}%`);
-      }
-      if (Math.abs(tgt.x - cur.x) > 0.001 || Math.abs(tgt.y - cur.y) > 0.001) raf = window.requestAnimationFrame(tick);
-    };
-    const onMove = (e: PointerEvent) => {
-      if (e.pointerType !== 'mouse') return;
-      api.current?.look({ x: e.clientX, y: e.clientY });
-      window.clearTimeout(idle);
-      idle = window.setTimeout(release, GAZE_IDLE_MS);
-      // Decorative depth: held still under reduced motion.
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      tgt.x = clamp((e.clientX / Math.max(1, window.innerWidth)) * 2 - 1, -1, 1);
-      tgt.y = clamp((e.clientY / Math.max(1, window.innerHeight)) * 2 - 1, -1, 1);
-      if (raf === 0) raf = window.requestAnimationFrame(tick);
-    };
-    const onDown = (e: PointerEvent) => {
-      if (e.pointerType === 'mouse') return;
-      api.current?.look({ x: e.clientX, y: e.clientY });
-      window.clearTimeout(clear);
-      clear = window.setTimeout(() => api.current?.look(null), 1600);
-    };
-    const onLeave = () => { release(); tgt.x = 0; tgt.y = 0; if (raf === 0) raf = window.requestAnimationFrame(tick); };
-    // Scrolling moves him to another section: he takes that section's look.
-    const onScroll = () => release();
-    const sc = scrollerRef.current;
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerdown', onDown);
-    sc?.addEventListener('scroll', onScroll, { passive: true });
-    document.documentElement.addEventListener('mouseleave', onLeave);
-    return () => {
-      window.clearTimeout(clear);
-      window.clearTimeout(idle);
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerdown', onDown);
-      sc?.removeEventListener('scroll', onScroll);
-      document.documentElement.removeEventListener('mouseleave', onLeave);
-    };
-  }, []);
-
   /* ── The booth hands over a shot: Beamy catches it, then beams it. ─── */
   const onBeam = useCallback((src: string) => {
     logStep('try:shot');
@@ -1114,7 +1051,7 @@ export default function BeamyPage() {
     });
   };
 
-  /* ── Poke + drag on Beamy's own hit area (nothing else captures). ──── */
+  /* ── A tap on Beamy's own hit area (nothing else captures). ─────────── */
   const onPoke = () => {
     const b = api.current;
     if (b === null) return;
@@ -1129,6 +1066,7 @@ export default function BeamyPage() {
     }
     const r = pokeStep(poke.current, performance.now());
     poke.current = r.state;
+    logStep(`poke:${r.level}`);
     if (r.level === 'sparkle') {
       b.sparkle('sparkle');
       say(POKE_LINES[(r.count - 1) % 2]);
@@ -1145,37 +1083,6 @@ export default function BeamyPage() {
       void b.play('Dance');
     }
   };
-  const onHitDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
-    if (e.button !== 0) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dragging: false, samples: [{ x: e.clientX, t: performance.now() }], suppressClick: false };
-  };
-  const onHitMove = (e: ReactPointerEvent<HTMLButtonElement>) => {
-    const d = drag.current;
-    if (d === null || d.id !== e.pointerId) return;
-    const dx = e.clientX - d.x0;
-    if (!d.dragging && Math.hypot(dx, e.clientY - d.y0) > 6) { d.dragging = true; api.current?.dragStart(); setDragHint(false); }
-    if (!d.dragging) return;
-    api.current?.dragMove(dx);
-    const now = performance.now();
-    d.samples.push({ x: e.clientX, t: now });
-    while (d.samples.length > 2 && now - d.samples[0].t > 90) d.samples.shift();
-  };
-  const onHitUp = (e: ReactPointerEvent<HTMLButtonElement>) => {
-    const d = drag.current;
-    if (d === null || d.id !== e.pointerId) return;
-    if (d.dragging) {
-      api.current?.dragEnd(releaseVelocity(d.samples));
-      d.suppressClick = true;
-    }
-    d.dragging = false;
-  };
-  const onHitClick = () => {
-    const d = drag.current;
-    if (d !== null && d.suppressClick) { d.suppressClick = false; return; }
-    onPoke();
-  };
-
   /* ── Pieces ─────────────────────────────────────────────────────────── */
 
   const shotPins = useMemo(() => {
@@ -1307,14 +1214,6 @@ export default function BeamyPage() {
       <span aria-hidden className="bw-floor-pool" />
       {!ready && !failed && (
         <p className="bw-label pointer-events-none absolute inset-x-0 top-[55%] text-center">Beamy is on his way&hellip;</p>
-      )}
-      {wideHero && dragHint && ready && arrival === 'done' && !introRunning && (
-        <p
-          className="bw-label pointer-events-none absolute left-1/2 top-full mt-2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5"
-          style={{ color: 'var(--bw-ink)', background: 'rgba(26, 23, 64, 0.58)', WebkitBackdropFilter: 'blur(8px)', backdropFilter: 'blur(8px)', animation: reduced ? undefined : 'bw-fade 600ms var(--bw-ease) 900ms both' }}
-        >
-          <Rotate3d className="h-4 w-4" strokeWidth={1.5} aria-hidden /> Drag me
-        </p>
       )}
     </>
   );
@@ -1819,13 +1718,10 @@ export default function BeamyPage() {
         <button
           ref={hitRef}
           type="button"
-          onClick={onHitClick}
-          onPointerDown={onHitDown}
-          onPointerMove={onHitMove}
-          onPointerUp={onHitUp}
-          onPointerCancel={onHitUp}
-          aria-label="Poke Beamy (drag to spin him)"
-          className="bw-focus fixed left-0 top-0 z-[45] cursor-grab touch-pan-y rounded-full active:cursor-grabbing"
+          onClick={onPoke}
+          data-beamy-hit
+          aria-label="Tap Beamy"
+          className="bw-focus fixed left-0 top-0 z-[45] cursor-pointer touch-manipulation rounded-full"
           style={{ visibility: arrival === 'done' ? 'visible' : 'hidden' }}
         />
       )}

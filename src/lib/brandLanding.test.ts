@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CELEBRATIONS, EMOJI_RE, FILMS, FILM_EYEBROW, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
   createReactionPicker, landingCopy, nearestFront, pickCelebration, pickReaction, beamyPlanCards, planCards, pokeStep,
-  pricingSection, releaseVelocity, seededRandom, spinSettled, spinStep, startFacts,
+  pricingSection, seededRandom, spinSettled, spinStep, startFacts,
   type Moment, type PokeState, type Reaction, type Spin,
 } from './brandLanding';
 import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
@@ -81,11 +81,6 @@ describe('spin physics', () => {
       expect(spinSettled(s), JSON.stringify(start)).toBe(true);
       expect(Math.abs(s.angle - nearestFront(s.angle))).toBeLessThan(0.01);
     }
-  });
-  it('derives a bounded release velocity', () => {
-    expect(releaseVelocity([{ x: 0, t: 0 }])).toBe(0);
-    expect(releaseVelocity([{ x: 0, t: 0 }, { x: 100, t: 100 }])).toBeGreaterThan(0);
-    expect(releaseVelocity([{ x: 0, t: 0 }, { x: -100000, t: 10 }])).toBe(-30);
   });
 });
 

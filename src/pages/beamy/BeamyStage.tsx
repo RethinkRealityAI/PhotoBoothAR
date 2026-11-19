@@ -24,11 +24,10 @@
  * periwinkle with an amber-white core); sparks and motes use the same calm
  * palette, never the old seven-hue spectrum.
  *
- * Micro-interactions (all driven by the page through BeamyApi): `look` turns
- * his head/body toward the pointer (eyes are baked into the texture, so it is
- * a small turn plus a lid squint when the pointer is close); `drag*` spins him
- * around Y with inertia and a springy settle to front (spin physics are pure,
- * in lib/brandLanding); `sparkle`/`spin` escalate pokes; `drift` raises a hand
+ * Micro-interactions (all driven by the page through BeamyApi): his gaze and
+ * turn come from the page and the scene only (never the pointer); `sparkle`/
+ * `spin` escalate taps (the party spin settles to front with the pure physics
+ * in lib/brandLanding); `drift` raises a hand
  * and sends light motes to a card; `arrive` drops a beam from the top of the
  * viewport and he appears where it lands.
  *
@@ -42,8 +41,8 @@
  * Liquid-glass scene: a deep-indigo contact shadow grounds him; a few small
  * real library props (crown, halo, tiara: the platform's own assets)
  * sit around the hero's glass panel and his hero stand, reported through
- * `decorRef`; they bob slowly and parallax with the pointer and with the
- * scroll as the hero leaves (nearer = more). The
+ * `decorRef`; they bob slowly and parallax with the scroll as the hero
+ * leaves (nearer = more). The
  * `Selfie` clip plays HERE, on the one canvas: `selfie()` streams the phone
  * and head positions (and the snap-frame portrait) to the page's overlays.
  *
@@ -58,7 +57,7 @@ import { createPortal } from 'react-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { gltfLoader, loadModel } from '../../lib/glbCache';
-import { SPIN_PER_PX, nearestFront, spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
+import { spinSettled, spinStep, type Spin } from '../../lib/brandLanding';
 import { SELFIE_CLIP, SELFIE_SPEED, selfieTimeline, type SelfieTimeline } from '../../lib/beamySelfie';
 import type { Rect } from '../../lib/beamGeometry';
 import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } from '../../lib/beamyScroll';
@@ -92,6 +91,8 @@ export interface StageLayout {
   bubbleMaxY?: number;
   /** The bubble steps aside (he is crossing the page; it would trail over copy). */
   bubbleAway?: boolean;
+  /** His tap target steps aside (mid-glide). Separate from the bubble: phones never show the bubble, but always take a tap. */
+  hitAway?: boolean;
   /** How long the page's last slot read took (ms), for the ?debug readout. */
   tickMs?: number;
 }
@@ -155,12 +156,6 @@ export interface BeamyApi {
   sparkle(level: 'sparkle' | 'burst'): void;
   /** A celebratory spin (adds angular velocity). */
   spin(): void;
-  /** Gaze target in viewport px (null = look at the viewer). */
-  look(p: Pt | null): void;
-  /** Drag-to-spin, fed by the page's hit area (px since the drag started). */
-  dragStart(): void;
-  dragMove(dxPx: number): void;
-  dragEnd(velocity: number): void;
   /**
    * Play the Selfie clip here (no second canvas). `onFrame` runs every frame
    * of the clip so the page can draw the flash and the photo card; the snap
@@ -286,7 +281,7 @@ interface CrystalSpec {
   at: { panel: [number, number] } | { stand: [number, number]; lift?: number };
   /** Size as a fraction of min(panel width, height) (beside Beamy: of his height). */
   size: number;
-  /** 0 far … 1 near: how far it parallaxes with the pointer and the scroll. */
+  /** 0 far … 1 near: how far it parallaxes with the scroll. */
   depth: number;
   phone: boolean;
   /** Sits low enough to cast a faint contact shadow on the floor below it. */
@@ -306,7 +301,6 @@ const CRYSTALS: CrystalSpec[] = [
   { prop: 'queens-tiara', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false },
   { prop: 'royal-crown', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, shadow: true },
 ];
-const CRYSTAL_PARALLAX_PX = 22;
 
 /* ── Projector cone: origin → the near edge of a film frame ─────────────── */
 
@@ -397,17 +391,14 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const motesRef = useRef<THREE.Points>(null);
   const handBone = useRef<THREE.Object3D | null>(null);
   const handLocal = useRef(new THREE.Vector3(0, -0.12, 0));
-  const lids = useRef<THREE.Object3D[]>([]);
   const shown = useRef(!startHidden);
   const appear = useRef(startHidden ? 0 : 1);
   const arrival = useRef<{ t: number; landed: boolean; resolve: () => void } | null>(null);
   const flash = useRef<{ t: number; at: Pt; sizePx: number } | null>(null);
   const motes = useRef<Mote[]>(Array.from({ length: N_MOTES }, () => ({ t: 0, life: 1, x0: 0, y0: 0, x1: 0, y1: 0, bow: 0, active: false })));
-  const gazeTarget = useRef<Pt | null>(null);
-  const gaze = useRef({ yaw: 0, pitch: 0, near: 0 });
   /** The filter look: his light-coloured materials (with their own emissive), the target, the fade. */
   const tintS = useRef<{ mats: { m: THREE.MeshStandardMaterial; e: THREE.Color; c: THREE.Color; i: number }[]; target: string | null; mix: number; col: THREE.Color }>({ mats: [], target: null, mix: 0, col: new THREE.Color() });
-  const spinS = useRef<Spin & { dragging: boolean; base: number }>({ angle: 0, vel: 0, dragging: false, base: 0 });
+  const spinS = useRef<Spin>({ angle: 0, vel: 0 });
 
   const rig = useRef<THREE.Group>(null);
   const floor = useRef<THREE.Mesh>(null);
@@ -453,8 +444,6 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const reflRig = useRef<THREE.Group>(null);
   const reflect = useRef<{ root: THREE.Object3D; pairs: [THREE.Object3D, THREE.Object3D][]; floorY: { value: number }; fade: { value: number } } | null>(null);
   const [reflectObj, setReflectObj] = useState<THREE.Object3D | null>(null);
-  /** Pointer parallax, lerped (−1..1 on each axis). */
-  const parallax = useRef({ x: 0, y: 0 });
   const wrapEl = useRef<HTMLElement | null>(null);
   /** What he is wearing: a fitted prop on his body bone (popping in over `t`), a frame behind him. */
   /** The worn prop: its pop-in `t`, its crown `top` and seat `anchor` in his heights, and its scale `k`. */
@@ -504,9 +493,6 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           if ((o as THREE.Bone).isBone && o.name === 'body') bodyBone.current = o;
         });
         mouthNode.current = g.scene.getObjectByName('beam') ?? null;
-        // Lids are bones animated by every clip (scale.y 0.02 = open, 1 =
-        // shut); the frame loop nudges them after the mixer for the squint.
-        lids.current = ['lid.L', 'lid.R'].map((n) => g.scene.getObjectByName(n)).filter((o): o is THREE.Object3D => o !== undefined && !(o instanceof THREE.Mesh));
         // The waving hand: arm.R (Wave raises it). Its tip is the bound vertex
         // farthest from the shoulder, measured once in the bind pose.
         const arm = g.scene.getObjectByName('arm.R') ?? null;
@@ -834,26 +820,6 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       spin() {
         if (reducedRef.current) return;
         spinS.current.vel += 22;
-      },
-      look(p) {
-        gazeTarget.current = p === null ? null : { ...p };
-      },
-      dragStart() {
-        const s = spinS.current;
-        s.dragging = true;
-        s.vel = 0;
-        s.base = s.angle;
-      },
-      dragMove(dxPx) {
-        const s = spinS.current;
-        if (!s.dragging) return;
-        s.angle = s.base + dxPx * SPIN_PER_PX;
-      },
-      dragEnd(velocity) {
-        const s = spinS.current;
-        s.dragging = false;
-        if (reducedRef.current) { s.angle = nearestFront(s.angle); s.vel = 0; return; }
-        s.vel = velocity;
       },
       clearProp() {
         reveal.current?.resolve();
@@ -1227,17 +1193,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     }
     if (shown.current && appear.current < 1) appear.current = Math.min(1, appear.current + dt / (reduced ? 0.9 : 0.5));
 
-    /* Gaze: a small head/body turn toward the pointer (off under reduced motion). */
-    const gt = gazeTarget.current;
     const spinNow = spinS.current;
-    let gy = 0, gp = 0, near = 0;
-    if (gt !== null && !reduced && w === null && beamState.current === null && selfieRun.current === null && !spinNow.dragging) {
-      const dx = gt.x - pos.current.x;
-      const dy = gt.y - (pos.current.y - heightPx * 0.62);
-      gy = clamp(dx / 700, -1, 1) * 0.42;
-      gp = clamp(dy / 600, -1, 1) * 0.16;
-      near = clamp(1 - (Math.hypot(dx, dy) - heightPx * 0.35) / (heightPx * 0.6), 0, 1);
-    }
     /* The filter look: fade his body's glow toward the lens colour and back. */
     const tn = tintS.current;
     const tnWant = tn.target !== null ? 1 : 0;
@@ -1254,16 +1210,10 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         x.m.emissiveIntensity = Math.max(x.i, tn.mix);
       }
     }
-    const gz = gaze.current;
-    gz.yaw += (gy - gz.yaw) * Math.min(1, dt * 5);
-    gz.pitch += (gp - gz.pitch) * Math.min(1, dt * 5);
-    gz.near += (near - gz.near) * Math.min(1, dt * 6);
 
-    /* Drag spin: inertia, then a springy settle to front (pure physics). */
-    if (!spinNow.dragging) {
-      if (spinSettled(spinNow)) { spinNow.angle = 0; spinNow.vel = 0; }
-      else { const n = spinStep(spinNow, dt); spinNow.angle = n.angle; spinNow.vel = n.vel; }
-    }
+    /* The party spin: inertia, then a springy settle to front (pure physics). */
+    if (spinSettled(spinNow)) { spinNow.angle = 0; spinNow.vel = 0; }
+    else { const n = spinStep(spinNow, dt); spinNow.angle = n.angle; spinNow.vel = n.vel; }
 
     const s = heightPx / MODEL_H;
     const g = rig.current;
@@ -1277,8 +1227,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const k = appear.current;
       const sq = reduced || k >= 1 ? 0 : Math.sin(Math.PI * k) * (1 - k) * 0.55;
       g.scale.set(grow * (1 + sq * 0.35), grow * (1 - sq * 0.35), grow * (1 + sq * 0.35));
-      g.rotation.y = yaw.current + gz.yaw + spinNow.angle;
-      g.rotation.x = gz.pitch;
+      g.rotation.y = yaw.current + spinNow.angle;
+      g.rotation.x = 0;
       g.rotation.z = lean.current;
       g.visible = shown.current && presence > 0.01;
     }
@@ -1348,15 +1298,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       }
     }
 
-    /* Pointer parallax (lerped; static under reduced motion). */
     const dec = decorRef.current;
-    const par = parallax.current;
     const H = sizeRef.current.height;
-    const ptr = gazeTarget.current;
-    const tx = ptr !== null && !reduced ? clamp((ptr.x / Math.max(1, W)) * 2 - 1, -1, 1) : 0;
-    const ty = ptr !== null && !reduced ? clamp((ptr.y / Math.max(1, H)) * 2 - 1, -1, 1) : 0;
-    par.x += (tx - par.x) * Math.min(1, dt * 2.2);
-    par.y += (ty - par.y) * Math.min(1, dt * 2.2);
 
     /* His reflection on the glossy floor (desktop): copy every node of the
        real rig, then mirror the whole thing about his feet. */
@@ -1379,8 +1322,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
 
     /* Crystals: around the hero's panel, and around his hero stand at clearly
        different depths (behind him: small and hazy; in front: large and soft).
-       They bob slowly; nearer ones parallax more with the pointer and with the
-       scroll as the hero leaves. Static if reduced. */
+       They bob slowly; nearer ones parallax more with the scroll as the hero
+       leaves. Static if reduced. */
     const scrollPar = reduced ? 0 : dec.scroll;
     for (let i = 0; i < CRYSTALS.length; i++) {
       const m = crystalRefs.current[i];
@@ -1401,17 +1344,15 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         size = Math.min(panel.width, panel.height) * c.size * (dec.phone ? 0.75 : 1);
         x = panel.left + panel.width * c.at.panel[0];
         y = panel.top + panel.height * c.at.panel[1];
-        x += par.x * CRYSTAL_PARALLAX_PX * c.depth;
-        y += par.y * CRYSTAL_PARALLAX_PX * c.depth * 0.6;
       } else {
         if (stand === null) continue;
         // On the floor around his stand: behind him smaller (perspective), in
-        // front larger; the near one drifts WITH the pointer, the far ones against it.
+        // front larger.
         const back = c.at.stand[1] < 0;
         const k = back ? 0.82 : 1.06;
         size = stand.heightPx * c.size * k;
         floorY = stand.feet.y + c.at.stand[1] * stand.heightPx;
-        x = stand.feet.x + c.at.stand[0] * stand.heightPx + par.x * CRYSTAL_PARALLAX_PX * (back ? -0.35 : 0.6);
+        x = stand.feet.x + c.at.stand[0] * stand.heightPx;
         y = floorY - size * 0.32 - (c.at.lift ?? 0) * stand.heightPx * k;
       }
       // Scroll depth: nearer crystals leave faster than the page, far ones slower.
@@ -1444,12 +1385,6 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       } else {
         m.rotation.set(0.22, 0.6 + i, 0);
       }
-    }
-
-    /* Lids (after the mixer): squint when the pointer is close, wide open while dragged. */
-    for (const lid of lids.current) {
-      if (spinNow.dragging) lid.scale.y = 0.02;
-      else if (gz.near > 0.01) lid.scale.y = Math.max(lid.scale.y, 0.02 + gz.near * 0.42);
     }
 
     /* Beam quad: Beamy's own beam, or the entrance drop from the top. */
@@ -1732,7 +1667,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       hit.style.width = `${hw}px`;
       hit.style.height = `${heightPx}px`;
       hit.style.transform = `translate3d(${(pos.current.x - hw / 2).toFixed(1)}px, ${top.toFixed(1)}px, 0)`;
-      const away = presence < 0.6 || layout.bubbleAway === true ? 'none' : '';
+      const away = presence < 0.6 || layout.hitAway === true ? 'none' : '';
       if (hit.style.pointerEvents !== away) hit.style.pointerEvents = away;
     }
   });
