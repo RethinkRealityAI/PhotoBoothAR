@@ -56,14 +56,14 @@ export interface EventTemplate {
  * src/styles/platform.css via <html data-event-look="beamwall">.
  */
 export const BEAMWALL_LOOK_VARS: Record<string, string> = {
-  '--color-brand-bg': '#4840C6',
-  '--color-brand-surface': '#352FA6',
+  '--color-brand-bg': '#33318A',
+  '--color-brand-surface': '#2E2C7E',
   '--color-brand-fg': '#FFFFFF',
   '--color-brand-muted': 'rgba(255, 255, 255, 0.86)',
-  '--color-accent': '#FFFFFF',
-  '--color-accent-2': '#ECEBFF',
-  '--color-accent-3': '#DCDAFB',
-  '--accent-rgb': '255, 255, 255',
+  '--color-accent': '#D4D6FF',
+  '--color-accent-2': '#E4E5FF',
+  '--color-accent-3': '#BFC2FF',
+  '--accent-rgb': '212, 214, 255',
   '--on-accent': '#1A1740',
 };
 

@@ -407,7 +407,7 @@ export default function BoothControlDeck<T extends number>({
             aria-label="Photo mode"
             aria-pressed={mediaMode === 'photo' && !stripMode}
             className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-              mediaMode === 'photo' && !stripMode ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
+              mediaMode === 'photo' && !stripMode ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
             }`}
           >
             <CameraIcon className="h-3.5 w-3.5" />
@@ -420,7 +420,7 @@ export default function BoothControlDeck<T extends number>({
               aria-label="Photo strip — choose 2 or 3 shots"
               aria-pressed={mediaMode === 'photo' && stripMode}
               className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-                mediaMode === 'photo' && stripMode ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
+                mediaMode === 'photo' && stripMode ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
               }`}
             >
               <Film className="h-3.5 w-3.5" />
@@ -446,7 +446,7 @@ export default function BoothControlDeck<T extends number>({
               aria-label="Video mode"
               aria-pressed={mediaMode === 'video'}
               className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-                mediaMode === 'video' ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
+                mediaMode === 'video' ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
               }`}
             >
               <Video className="h-3.5 w-3.5" />
@@ -488,7 +488,7 @@ export default function BoothControlDeck<T extends number>({
                       onClick={() => { haptic('select'); onTimerSec(t); setTimerOpen(false); }}
                       className={`pressable h-11 w-11 rounded-xl font-label text-[10px] transition-colors ${
                         timerSec === t
-                          ? 'bg-foil text-[color:var(--on-accent)]'
+                          ? 'is-selected bg-foil text-[color:var(--on-accent)]'
                           : 'text-brand-muted/70 hover:text-brand-fg'
                       }`}
                     >

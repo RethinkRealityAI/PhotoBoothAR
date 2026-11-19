@@ -114,8 +114,8 @@ function PrintDeck({ deck, env }: { deck: DeckLike; env: DeckEnv }) {
 /** Brand v2 glass chip (.bw-glass-chip): indigo veil, hairline + top-left rim, white ink. */
 const chip =
   'bg-[rgba(26,23,64,0.18)] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.20),inset_1px_1px_0_rgba(255,255,255,0.24)] backdrop-blur-md transition hover:bg-[rgba(26,23,64,0.32)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
-/** Pressed (notes open): solid white, deep-indigo ink. */
-const chipOn = 'bg-[color:var(--bw-accent)] text-[color:var(--bw-on-accent)] shadow-[0_8px_20px_-12px_rgba(26,23,64,0.6)] transition active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
+/** Pressed (notes open): the same glass with the glimmering selected rim. */
+const chipOn = `is-selected ${chip}`;
 const iconBtn = `inline-flex h-11 w-11 items-center justify-center rounded-full ${chip} disabled:opacity-40`;
 
 export default function SlideDeck({

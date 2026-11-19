@@ -35,7 +35,7 @@ const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible
 const headerBtn =
   `inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-full px-4 text-[14px] font-semibold leading-none transition active:scale-[0.98] ${focusRing} sm:px-5`;
 /** Brand v2 primary: solid white pill, deep-indigo label. */
-const primaryPill = 'bg-[color:var(--bw-accent)] text-[color:var(--bw-on-accent)] shadow-[0_10px_24px_-12px_rgba(26,23,64,0.5)] hover:bg-[color:var(--bw-accent-hover)]';
+const primaryPill = 'bg-foil';
 const wordmark = 'font-[family-name:var(--bw-font-display)] font-[750] leading-none tracking-[-0.035em] text-white';
 const display = 'font-[family-name:var(--bw-font-display)] font-[720] tracking-[-0.022em] text-white';
 

@@ -123,7 +123,7 @@ export default function AdminLayout() {
               aria-label={label}
               title={label}
               className={({ isActive }) =>
-                `${railLink} ${isActive ? 'bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]'}`
+                `${railLink} ${isActive ? 'is-selected bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]'}`
               }
             >
               <span className="relative shrink-0">

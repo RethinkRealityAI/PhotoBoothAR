@@ -177,7 +177,7 @@ export default function HostLayout() {
     'pressable items-center gap-2.5 rounded-xl px-3 md:px-3.5 py-2.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[11px] transition-colors justify-center md:justify-start';
   const railLink = `flex ${railLinkBase}`;
   const railState = (isActive: boolean) =>
-    isActive ? 'bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]';
+    isActive ? 'is-selected bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]';
   // Rail items that move into the phone "More" menu: hidden below md only
   // (railLinkBase carries no display class, so `hidden md:flex` is unambiguous).
   const deskOnly = `hidden md:flex ${railLinkBase}`;

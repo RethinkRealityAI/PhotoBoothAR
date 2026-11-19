@@ -32,7 +32,7 @@ const cx = (...parts: (string | false | undefined)[]) => parts.filter(Boolean).j
 const WELL = 'bg-[rgba(26,23,64,0.30)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14)]';
 /** Quiet round/pill control: indigo veil, hairline rim, white ink. */
 const QUIET = 'bg-[rgba(26,23,64,0.24)] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)] transition hover:bg-[rgba(26,23,64,0.40)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white';
-const PRIMARY = 'bg-[color:var(--bw-accent)] text-[color:var(--bw-on-accent)] transition hover:bg-[color:var(--bw-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
+const PRIMARY = 'bg-foil transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
 const LABEL = 'text-[13px] font-medium text-white/80';
 
 const BACKDROPS = ['event-wedding', 'event-gala', 'event-birthday', 'event-activation', 'event-conference', 'event-tradeshow'];
@@ -73,7 +73,7 @@ function FramesShowcase() {
             onClick={() => { setTheme(i); setPaused(true); }}
             className={cx(
               'min-h-11 shrink-0 rounded-full px-4 text-[14px] font-medium',
-              i === theme ? PRIMARY : QUIET,
+              i === theme ? cx('is-selected', QUIET) : QUIET,
             )}
           >
             {t.theme}
@@ -290,7 +290,7 @@ export function ShowcaseModal({ items, start, onClose }: { items: SlideItem[]; s
         ref={panelRef}
         {...dialogProps}
         onClick={stop}
-        className="relative flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-[#352FA6] text-white shadow-[inset_1px_1px_0_rgba(255,255,255,0.40),inset_-1px_-1px_0_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.10),0_40px_100px_-30px_rgba(10,8,40,0.75)] sm:max-w-3xl sm:rounded-[28px]"
+        className="relative flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-[28px] bg-[color:var(--color-brand-surface)] text-white shadow-[inset_1px_1px_0_rgba(255,255,255,0.40),inset_-1px_-1px_0_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.10),0_40px_100px_-30px_rgba(10,8,40,0.75)] sm:max-w-3xl sm:rounded-[28px]"
       >
         <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-5 sm:px-7">
           <div className="min-w-0">

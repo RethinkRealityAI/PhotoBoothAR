@@ -1916,7 +1916,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 onClick={() => setTab(id)}
                 className={cn(
                   'flex-1 min-h-9 rounded-full font-label uppercase tracking-widest text-[10px] transition-colors',
-                  on ? 'bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/60 hover:text-brand-fg',
+                  on ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/60 hover:text-brand-fg',
                 )}
               >
                 {id === 'assets' ? 'Assets' : 'Scene'}

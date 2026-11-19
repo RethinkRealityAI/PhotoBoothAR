@@ -150,7 +150,7 @@ function ActionCard({ icon, title, description, onClick, accent, external }: Act
       onClick={onClick}
       className={`group w-full text-left rounded-2xl border p-5 transition-all duration-200 hover:scale-[1.02] ${
         accent
-          ? 'bg-foil border-gold-400/40 glow-accent text-noir-900'
+          ? 'is-selected bg-foil border-gold-400/40 glow-accent text-noir-900'
           : 'glass border-gold-400/15 hover:border-gold-400/35 hover:bg-gold-400/8'
       }`}
     >

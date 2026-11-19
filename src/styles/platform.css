@@ -19,12 +19,10 @@
  * see opts back OUT with `.event-theme` (restored from the --ev-* stash that
  * :root keeps of the event's own values).
  *
- * TWO SCENES, one family:
- *   bright (default) — the periwinkle field from /beamy, for marketing,
- *                      sign-in and the host app;
- *   night            — the midnight indigo from the /beamy journey, for dense
- *                      work screens (studio, admin, CRM), opted into with
- *                      `data-surface="night"` on that screen's root.
+ * ONE FIELD: the /beamy dusk (blue → indigo → mauve), everywhere. Dense work
+ *   screens (studio, admin, CRM) mark their root `data-surface="night"`,
+ *   which only deepens their glass a notch (the owner rejected a separate
+ *   near-black scene on 2026-11-19).
  * GUEST LOOK: a platform event (not a coded legacy one) whose config says
  * `look: "beamwall"` (the default for new events) gets this same look on its
  * guest surfaces via `<html data-event-look="beamwall">` (EventContext.tsx).
@@ -37,45 +35,52 @@
  * `data-surface` subtree re-resolve `--color-brand-bg` from its own scene.
  *
  * Brand rules this enforces: no gradient fills on buttons or text (bg-foil
- * becomes the solid white pill, text-foil becomes solid ink), no serif
- * (font-serif renders the display face, upright), glass edges are inset
- * light, never a gradient border.
+ * becomes the frosted glow pill, text-foil becomes solid ink), selected
+ * states are clear glass with a glimmering rim, never a white fill, no serif
+ * (font-serif renders the display face, upright), glass card edges are
+ * inset light.
  */
 
 /* ── Scenes ─────────────────────────────────────────────────────────── */
 
+/* ONE field everywhere (owner, 2026-11-19: "not just one purple colour"):
+   the /beamy dusk, sampled from the live page. Steel blue rises from the
+   left, the middle sinks to a deep indigo, a mauve-rose warms the lower
+   right. The work screens (data-surface="night") use the SAME field; only
+   their glass is a notch denser for dense text. */
 :root:not([data-event], [data-look="previous"]),
 :root[data-event-look="beamwall"],
 [data-platform] {
-  --pf-bg: var(--bw-bg);
-  --pf-bg-glow-1: var(--bw-bg-4);
-  --pf-bg-glow-2: var(--bw-bg-2);
-  --pf-bg-glow-3: var(--bw-bg-3);
+  --pf-bg: #33318A;
+  --pf-hue-blue: rgba(74, 112, 186, 0.92);
+  --pf-hue-blue-2: rgba(84, 120, 196, 0.55);
+  --pf-hue-deep: rgba(36, 32, 112, 0.78);
+  --pf-hue-mauve: rgba(128, 94, 160, 0.88);
+  --pf-hue-rose: rgba(150, 104, 160, 0.42);
   /* Opaque surface: native <select> popovers, solid fills. A notch deeper
      than the field so white ink keeps AA. */
-  --pf-surface: #352FA6;
+  --pf-surface: #2E2C7E;
   --pf-muted: rgba(255, 255, 255, 0.86);
-  /* Glass on this scene: indigo veil + milky frost (the /beamy card recipe). */
-  --pf-veil: var(--bw-card-veil);
-  --pf-frost: rgba(255, 255, 255, 0.10);
-  --pf-veil-strong: rgba(36, 32, 120, 0.46);
-  --pf-well: rgba(26, 23, 64, 0.22);
-  --pf-shadow: var(--bw-shadow);
+  /* Glass on this field: indigo veil + milky frost (the /beamy card recipe). */
+  --pf-veil: rgba(52, 52, 150, 0.30);
+  --pf-frost: rgba(255, 255, 255, 0.08);
+  --pf-veil-strong: rgba(36, 34, 112, 0.58);
+  --pf-well: rgba(20, 18, 64, 0.26);
+  --pf-shadow: rgba(16, 14, 58, 0.55);
+  /* The highlight: a pale periwinkle, never plain white. Selected things are
+     glass with a glimmering rim in this colour (.pf-glint below). */
+  --pf-accent: #D4D6FF;
+  --pf-accent-2: #E4E5FF;
+  --pf-accent-3: #BFC2FF;
+  --pf-accent-rgb: 212, 214, 255;
 }
 
 :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) [data-surface="night"],
 [data-platform][data-surface="night"] {
-  --pf-bg: var(--bw-night);
-  --pf-bg-glow-1: rgba(91, 75, 224, 0.34);
-  --pf-bg-glow-2: var(--bw-night-2);
-  --pf-bg-glow-3: rgba(124, 108, 247, 0.22);
-  --pf-surface: #1F1A63;
-  --pf-muted: rgba(255, 255, 255, 0.78);
-  --pf-veil: rgba(43, 42, 140, 0.30);
-  --pf-frost: rgba(255, 255, 255, 0.05);
-  --pf-veil-strong: rgba(24, 20, 82, 0.72);
-  --pf-well: rgba(8, 6, 30, 0.40);
-  --pf-shadow: rgba(4, 3, 20, 0.70);
+  --pf-veil: rgba(44, 42, 132, 0.40);
+  --pf-frost: rgba(255, 255, 255, 0.06);
+  --pf-veil-strong: rgba(32, 30, 102, 0.66);
+  --pf-well: rgba(16, 14, 54, 0.32);
 }
 
 /* ── Semantic tokens → brand v2 (declared on every scene root) ──────── */
@@ -91,13 +96,13 @@
   --color-ivory: var(--bw-ink);
   --color-champagne: var(--pf-muted);
 
-  /* The primary action is a solid white pill with deep-indigo ink, so the
-     "accent" on the platform IS white; its tints (rgba(var(--accent-rgb),a))
-     read as frost on the field. The warm core is kept for one highlight. */
-  --color-accent: var(--bw-accent);
-  --color-accent-2: var(--bw-accent-hover);
-  --color-accent-3: var(--bw-accent-pressed);
-  --accent-rgb: 255, 255, 255;
+  /* The accent is the pale periwinkle highlight: its tints
+     (rgba(var(--accent-rgb),a)) read as tinted glass and its rings as a
+     lit rim. The primary action is the landing's frosted glow pill. */
+  --color-accent: var(--pf-accent);
+  --color-accent-2: var(--pf-accent-2);
+  --color-accent-3: var(--pf-accent-3);
+  --accent-rgb: var(--pf-accent-rgb);
   --on-accent: var(--bw-on-accent);
 
   --font-sans: var(--bw-font-text);
@@ -108,16 +113,16 @@
      (an event theme remaps them the same way, see branding.ts). On the
      platform: gold = the white/lavender action family, noir = deep indigo
      ink and surfaces, so `text-noir-900` on a white pill stays legible. */
-  --color-gold-50: #FFFFFF;
-  --color-gold-100: #FFFFFF;
-  --color-gold-200: var(--bw-accent-hover);
-  --color-gold-300: var(--bw-accent-hover);
-  --color-gold-400: var(--bw-accent);
-  --color-gold-500: var(--bw-accent-pressed);
-  --color-gold-600: var(--bw-accent-pressed);
-  --color-gold-700: #C9C6F5;
-  --color-brand-gold: var(--bw-accent);
-  --color-brand-orange: var(--bw-accent-hover);
+  --color-gold-50: #F4F4FF;
+  --color-gold-100: #ECECFF;
+  --color-gold-200: var(--pf-accent-2);
+  --color-gold-300: var(--pf-accent-2);
+  --color-gold-400: var(--pf-accent);
+  --color-gold-500: var(--pf-accent-3);
+  --color-gold-600: var(--pf-accent-3);
+  --color-gold-700: #A9ADF5;
+  --color-brand-gold: var(--pf-accent);
+  --color-brand-orange: var(--pf-accent-2);
   --color-brand-text: var(--bw-ink);
   --color-noir-900: var(--bw-on-light);
   --color-noir-800: var(--bw-deep-2);
@@ -172,16 +177,20 @@
 /* ── Components ─────────────────────────────────────────────────────── */
 
 @layer utilities {
-  /* The scene: one hue family, soft tonal glows, a still grain on top. */
+  /* The field: blue from the left, deep indigo in the middle, mauve-rose
+     to the lower right, a still grain on top. Fixed, so a long page scrolls
+     over one field instead of stretching its glows into bands. */
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .app-bg {
-    background-color: var(--color-brand-bg);
+    background-color: var(--pf-bg);
     background-image:
       url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.06'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)'/%3E%3C/svg%3E"),
-      radial-gradient(60% 55% at 108% -12%, var(--pf-bg-glow-1), transparent 66%),
-      radial-gradient(55% 60% at 70% 62%, var(--pf-bg-glow-2), transparent 74%),
-      radial-gradient(45% 50% at -6% 108%, var(--pf-bg-glow-3), transparent 68%);
-    background-size: 200px 200px, auto, auto, auto;
-    background-attachment: scroll, fixed, fixed, fixed;
+      radial-gradient(42% 46% at 58% 46%, var(--pf-hue-deep), transparent 72%),
+      radial-gradient(58% 70% at 4% 26%, var(--pf-hue-blue), transparent 70%),
+      radial-gradient(36% 40% at 34% 18%, var(--pf-hue-blue-2), transparent 70%),
+      radial-gradient(52% 62% at 100% 100%, var(--pf-hue-mauve), transparent 72%),
+      radial-gradient(40% 50% at 96% 40%, var(--pf-hue-rose), transparent 72%);
+    background-size: 200px 200px, auto, auto, auto, auto, auto;
+    background-attachment: scroll, fixed, fixed, fixed, fixed, fixed;
   }
 
   /* Glass: the flat liquid-glass card (no extrusion, no bevel gradient). */
@@ -230,22 +239,66 @@
       0 8px 18px -14px var(--pf-shadow);
   }
 
-  /* Primary action fill: solid, never a gradient. */
-  /* Its ink is pinned too: older screens hard-code `text-white` on the fill
-     (written for a dark accent), which would be white on white here. */
+  /* Primary action: the landing's frosted glow pill (pale periwinkle face,
+     bright rim, lavender bloom), deep-indigo ink. Its ink is pinned because
+     older screens hard-code `text-white` on the fill. */
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .bg-foil {
     background-image: none;
-    background-color: var(--color-accent);
+    background-color: rgba(236, 235, 255, 0.94);
     color: var(--on-accent);
+    box-shadow:
+      inset 0 1px 0 #FFFFFF,
+      inset 0 -1px 0 rgba(140, 136, 230, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.22),
+      0 10px 28px -10px rgba(170, 166, 255, 0.75),
+      0 0 24px -8px rgba(255, 255, 255, 0.50);
   }
-  /* Same for icons inside an accent fill that carry their own text-white
-     (avatar dots, selected-tile checks). */
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.bg-foil, .bg-accent, [class*="bg-[color:var(--color-accent)]"]) .text-white,
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.bg-accent, [class*="bg-[color:var(--color-accent)]"]).text-white {
     color: var(--on-accent);
   }
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .bg-foil:hover:not(:disabled) {
-    background-color: var(--color-accent-2);
+    background-color: rgba(246, 245, 255, 0.98);
+    box-shadow:
+      inset 0 1px 0 #FFFFFF,
+      inset 0 -1px 0 rgba(140, 136, 230, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.34),
+      0 14px 34px -10px rgba(170, 166, 255, 0.90),
+      0 0 32px -6px rgba(255, 255, 255, 0.65);
+  }
+
+  /* SELECTED (a tab, a segment, the current step, a pressed toggle): never
+     a white fill. Clear glass with a glimmering rim: a soft light runs round
+     the border, so the rim is what says "this one". Opted into with
+     `.is-selected` (beside the fill an event theme still uses) or by an
+     accent-styled control that reports its own state through ARIA. */
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.is-selected, :is([aria-pressed="true"], [aria-selected="true"], [aria-current="page"], [aria-current="true"], [aria-current="step"]):is(.bg-foil, [class*="accent"])) {
+    background-image: none;
+    background-color: rgba(var(--pf-accent-rgb), 0.14);
+    color: var(--bw-ink);
+    box-shadow:
+      inset 0 0 0 1px rgba(var(--pf-accent-rgb), 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 0 18px -6px rgba(var(--pf-accent-rgb), 0.60);
+  }
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.is-selected, :is([aria-pressed="true"], [aria-selected="true"], [aria-current="page"], [aria-current="true"], [aria-current="step"]):is(.bg-foil, [class*="accent"])):not(.absolute, .fixed, .sticky) {
+    position: relative;
+  }
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.is-selected, :is([aria-pressed="true"], [aria-selected="true"], [aria-current="page"], [aria-current="true"], [aria-current="step"]):is(.bg-foil, [class*="accent"]))::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.5px;
+    pointer-events: none;
+    background: conic-gradient(from var(--pf-glint-angle), rgba(255, 255, 255, 0.10) 0deg, rgba(255, 255, 255, 0.95) 28deg, rgba(var(--pf-accent-rgb), 0.85) 52deg, rgba(255, 255, 255, 0.10) 96deg, rgba(255, 255, 255, 0.10) 180deg, rgba(255, 214, 160, 0.70) 214deg, rgba(255, 255, 255, 0.10) 250deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    animation: pf-glint 5.5s linear infinite;
+  }
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.is-selected, :is([aria-pressed="true"], [aria-selected="true"], [aria-current="page"], [aria-current="true"], [aria-current="step"]):is(.bg-foil, [class*="accent"])) :is(.text-white, [class*="text-noir"], [class*="on-accent"]) {
+    color: var(--bw-ink);
   }
 
   /* Gradient text is off-brand: solid ink, shimmer off. */
@@ -320,5 +373,21 @@
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .glow-gold,
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .glow-soft {
     box-shadow: 0 14px 32px -16px var(--pf-shadow);
+  }
+}
+
+/* The glimmer's travelling light (an animatable angle; browsers without
+   @property show the rim still, which reads the same). */
+@property --pf-glint-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes pf-glint {
+  to { --pf-glint-angle: 360deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.is-selected, [aria-pressed="true"], [aria-selected="true"], [aria-current])::after {
+    animation: none;
   }
 }

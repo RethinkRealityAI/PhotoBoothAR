@@ -345,7 +345,7 @@ function UploadInner() {
               {steps.map((s, i) => (
                 <div key={s.id} className="flex items-center gap-2">
                   <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-label uppercase tracking-luxe transition-colors ${
-                    i === stepIndex ? 'bg-foil text-[color:var(--on-accent)]' : i < stepIndex ? 'text-[color:var(--color-accent)]' : 'text-brand-muted/40'
+                    i === stepIndex ? 'is-selected bg-foil text-[color:var(--on-accent)]' : i < stepIndex ? 'text-[color:var(--color-accent)]' : 'text-brand-muted/40'
                   }`}>
                     <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] ${
                       i < stepIndex ? 'bg-[color:var(--color-accent)]/30' : i === stepIndex ? 'bg-black/20' : 'bg-white/10'

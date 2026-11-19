@@ -786,7 +786,7 @@ export default function Wall() {
                     onClick={() => setMode(tab.id)}
                     className={`pressable px-3.5 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
                       mode === tab.id
-                        ? 'bg-foil text-[color:var(--on-accent)] glow-accent'
+                        ? 'is-selected bg-foil text-[color:var(--on-accent)] glow-accent'
                         : 'text-champagne/60 hover:text-champagne'
                     }`}
                   >

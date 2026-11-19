@@ -79,7 +79,7 @@ const TILE = 'bg-white/[0.12] text-white shadow-[inset_0_0_0_1px_rgba(255,255,25
 const DROP = '0 30px 70px -34px rgba(22, 18, 78, 0.75)';
 /** A lighter glow of the same hue behind a hero picture. */
 const GLOW = 'radial-gradient(closest-side, rgba(134, 125, 240, 0.55), transparent)';
-const PRIMARY = 'bg-[color:var(--bw-accent)] text-[color:var(--bw-on-accent)] shadow-[0_10px_24px_-12px_rgba(26,23,64,0.5)] hover:bg-[color:var(--bw-accent-hover)] active:bg-[color:var(--bw-accent-pressed)]';
+const PRIMARY = 'bg-foil';
 const SECONDARY = 'border-[1.5px] border-white/70 bg-[rgba(26,23,64,0.12)] text-white hover:border-white hover:bg-[rgba(26,23,64,0.28)]';
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
 
@@ -183,7 +183,7 @@ function SlideImg({ k, env, className = '', fit = 'contain' }: {
   }
   // Scenes (and the dark-background Beamy renders): a soft radial mask lets
   // the picture's own black dissolve into the slide instead of a hard box,
-  // and a `lighten` blend over a patch of the pane's own colour (#4A43AE =
+  // and a `lighten` blend over a patch of the pane's own colour (#3B3C93 =
   // PANE over --bw-bg) drops that black out, so it never sits on the glass as
   // a dark halo. The patch is needed because the slide's entrance animation
   // isolates its content: there is no pane behind the picture to blend with.
@@ -197,7 +197,7 @@ function SlideImg({ k, env, className = '', fit = 'contain' }: {
           : { boxShadow: DROP }
       }
     >
-      {beamy && <div aria-hidden className="absolute inset-0 bg-[#4A43AE]" />}
+      {beamy && <div aria-hidden className="absolute inset-0 bg-[#3B3C93]" />}
       <img
         style={beamy ? { position: 'relative', mixBlendMode: 'lighten' } : undefined}
         src={img.src}
@@ -459,7 +459,7 @@ function How({ slide, env }: { slide: Slide; env: SlideEnv }) {
               <div className={cx('relative shrink-0', stage ? 'h-[230px] w-[230px]' : 'h-20 w-20')}>
                 {art !== undefined ? <SlideImg k={art} env={env} /> : null}
                 <span
-                  className={cx('absolute flex items-center justify-center rounded-full bg-[color:var(--bw-accent)] font-semibold tabular-nums text-[color:var(--bw-on-accent)] shadow-[0_8px_20px_-10px_rgba(26,23,64,0.6)]', stage ? '-left-1 top-2 h-11 w-11 text-[18px]' : '-left-1 -top-1 h-7 w-7 text-[13px]')}
+                  className={cx('absolute flex items-center justify-center rounded-full bg-[color:var(--bw-core)] font-semibold tabular-nums text-[color:var(--bw-on-accent)] shadow-[0_8px_20px_-10px_rgba(26,23,64,0.6)]', stage ? '-left-1 top-2 h-11 w-11 text-[18px]' : '-left-1 -top-1 h-7 w-7 text-[13px]')}
                   aria-hidden
                 >
                   {i + 1}

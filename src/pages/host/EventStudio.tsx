@@ -241,7 +241,7 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
                 onClick={() => setMode(m)}
                 disabled={mode === null || saving}
                 className={`px-3.5 py-1.5 rounded-full font-label uppercase tracking-luxe text-[11px] transition-all duration-200 ${
-                  mode === m ? 'bg-foil text-noir-900 glow-accent' : 'text-champagne/60 hover:text-champagne'
+                  mode === m ? 'is-selected bg-foil text-noir-900 glow-accent' : 'text-champagne/60 hover:text-champagne'
                 } disabled:opacity-50`}
               >
                 {m === 'post' ? 'Instant' : 'Approve first'}

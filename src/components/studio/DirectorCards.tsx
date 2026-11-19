@@ -184,7 +184,7 @@ function ActionButton({ onClick, disabled, children, tone = 'primary' }: {
 }) {
   const cls =
     tone === 'primary'
-      ? 'bg-foil text-white glow-accent'
+      ? 'is-selected bg-foil text-white glow-accent'
       : 'bg-white/[0.05] text-brand-muted/70 hover:text-brand-fg';
   return (
     <button
