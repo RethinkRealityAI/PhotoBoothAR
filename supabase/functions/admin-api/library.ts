@@ -5,8 +5,8 @@
  * vitest and run the same fixture suite against both copies. Change one, change
  * both — the test goes red otherwise.
  *
- * DEPLOY NOTE: admin-api now deploys as THREE files (index.ts, library.ts,
- * deno.json). A deploy missing this sibling is an import error at boot, i.e.
+ * DEPLOY NOTE: admin-api deploys as FIVE files (index.ts, library.ts,
+ * libraryImport.ts, taxonomy.ts, deno.json). A deploy missing this sibling is an import error at boot, i.e.
  * EVERY admin-api request 500s.
  */
 
