@@ -11,7 +11,7 @@
  *     what he already wears takes it off (lib/beamyAssets toggleLook);
  *   • the picked frame stands IN FRONT of him (a DOM image over him, so its
  *     transparent window shows him through it); the page places it on him
- *     every frame from the stage's own numbers (AR_FRAME_FRONT).
+ *     every frame from the stage's own numbers (frameOnBeamy).
  *
  * The tile area always reserves the biggest category's room, so switching
  * tabs never changes its height. Only interactive while its step is up

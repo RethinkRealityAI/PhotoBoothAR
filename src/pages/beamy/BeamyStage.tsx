@@ -178,6 +178,10 @@ export interface BeamyApi {
   wear(look: BeamyLook | null): Promise<void>;
   /** How far above his tip what he wears reaches now, in his heights (0 = nothing). */
   wornLift(): number;
+  /** How far above his tip the worn prop would reach at scale `k` (1 = as fitted, 0 = its anchor), fully on. */
+  wornLiftAt(k: number): number;
+  /** Shrink the worn prop about its anchor (1 = as fitted; a frame's window may need it smaller). */
+  wornScale(k: number): void;
   /** A colour filter over his body (a lens look): a CSS colour, 'prismatic' (a slow hue
    *  cycle), or null to take it off. Fades in and out. */
   tint(color: string | null): void;
@@ -451,7 +455,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const parallax = useRef({ x: 0, y: 0 });
   const wrapEl = useRef<HTMLElement | null>(null);
   /** What he is wearing: a fitted prop on his body bone (popping in over `t`), a frame behind him. */
-  const worn = useRef<{ holder: THREE.Group; t: number; top: number } | null>(null);
+  /** The worn prop: its pop-in `t`, its crown `top` and seat `anchor` in his heights, and its scale `k`. */
+  const worn = useRef<{ holder: THREE.Group; t: number; top: number; anchor: number; k: number } | null>(null);
+  const wornTopAt = (wn: { top: number; anchor: number }, k: number) => wn.anchor + (wn.top - wn.anchor) * k;
   const wearToken = useRef(0);
   const frameMesh = useRef<THREE.Mesh>(null);
   const frameOn = useRef({ on: false, alpha: 0 });
@@ -460,7 +466,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const frameGeo = () => frameFit.current ?? (decorRef.current.phone ? { h: 1.45, c: 0.62 } : { h: 1.7, c: 0.75 });
   const wornLiftNow = () => {
     const wn = worn.current;
-    const prop = wn === null ? 0 : Math.max(0, wn.top - 1) * Math.min(1, wn.t);
+    const prop = wn === null ? 0 : Math.max(0, wornTopAt(wn, wn.k) - 1) * Math.min(1, wn.t);
     const g = frameGeo();
     const frame = Math.max(0, g.c + g.h / 2 - 1) * frameOn.current.alpha;
     return Math.max(prop, frame);
@@ -904,6 +910,14 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         ar.resolve();
       },
       wornLift: () => wornLiftNow(),
+      wornLiftAt(k) {
+        const wn = worn.current;
+        return wn === null ? 0 : Math.max(0, wornTopAt(wn, k) - 1);
+      },
+      wornScale(k) {
+        const wn = worn.current;
+        if (wn !== null) wn.k = Math.min(1, Math.max(0.05, k));
+      },
       tint(color) {
         tintS.current.target = color;
       },
@@ -947,7 +961,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           // Its crown in his height units (body bone 0.12 above the feet, 0.6 tall)
           // so the bubble can clear it.
           const top = (0.12 + f.offset[1] + box.max.y * f.scale) / 0.6;
-          worn.current = { holder, t: 0, top: Number.isFinite(top) ? top : 1 };
+          const anchor = (0.12 + fit.at[1]) / 0.6;
+          worn.current = { holder, t: 0, top: Number.isFinite(top) ? top : 1, anchor: Number.isFinite(anchor) ? anchor : 1, k: 1 };
         }, () => undefined);
       },
     };
@@ -1276,9 +1291,11 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     /* The try-on: a prop pops onto his head (overshoot; a plain grow when
        reduced); a frame fades in behind him, sized to him, never turning. */
     const wn = worn.current;
-    if (wn !== null && wn.t < 1) {
-      wn.t = Math.min(1, wn.t + dt / 0.42);
-      wn.holder.scale.setScalar(Math.max(0.0001, reduced ? wn.t : easeOutBack(wn.t)));
+    if (wn !== null) {
+      if (wn.t < 1) wn.t = Math.min(1, wn.t + dt / 0.42);
+      const pop = wn.t >= 1 ? 1 : reduced ? wn.t : easeOutBack(wn.t);
+      const sc = Math.max(0.0001, pop * wn.k);
+      if (wn.holder.scale.x !== sc) wn.holder.scale.setScalar(sc);
     }
     const fo = frameOn.current;
     fo.alpha = fo.on ? fo.alpha + (1 - fo.alpha) * Math.min(1, dt * 5) : Math.max(0, fo.alpha - dt * 4);
@@ -1658,7 +1675,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     const top = pos.current.y - heightPx * 1.02;
     // A worn prop rises above his tip: the bubble rides above it, not on it.
     const wn2 = worn.current;
-    const lift = wn2 === null ? 0 : Math.max(0, wn2.top - 1) * Math.min(1, wn2.t);
+    const lift = wn2 === null ? 0 : Math.max(0, wornTopAt(wn2, wn2.k) - 1) * Math.min(1, wn2.t);
     const bubbleTop = top - heightPx * lift;
     const bubble = bubbleRef.current;
     if (bubble) {

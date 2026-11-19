@@ -36,7 +36,15 @@ export interface HomeLook {
   line?: string;
   /** Where a prop sits on him; absent = the category's default (DEFAULT_FIT_BY_CATEGORY). */
   fit?: PropFit;
+  /** A frame's see-through window, as fractions of the frame; absent = DEFAULT_OPENING. */
+  opening?: FrameOpening;
 }
+
+/** A frame's see-through window: fractions of the frame's height (top/bottom) and width (left/right). */
+export interface FrameOpening { top: number; bottom: number; left: number; right: number; }
+
+/** A frame override with no opening of its own: a typical portrait window. */
+export const DEFAULT_OPENING: FrameOpening = { top: 0.22, bottom: 0.86, left: 0.14, right: 0.86 };
 
 export interface HomeFilm { video?: string; poster?: string; }
 
@@ -93,12 +101,12 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     { id: 'tiara', name: 'Tiara', category: 'prop', url: `${P}queens-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' }, line: 'Snapchat and Instagram in one, right in the browser.' },
   ],
   arLooks: [
-    { id: 'ar-wedding-cover', name: 'Wedding cover', category: 'frame', url: `${F}wedding-magazine-cover.png` },
-    { id: 'ar-floral-arch', name: 'Floral arch', category: 'frame', url: `${F}wedding-arch-mask.png` },
-    { id: 'ar-birthday', name: 'Birthday monogram', category: 'frame', url: `${F}birthday-monogram-corner.png` },
-    { id: 'ar-countdown', name: 'New Year countdown', category: 'frame', url: `${F}nye-countdown.png` },
-    { id: 'ar-asoebi', name: 'Aso ebi arch', category: 'frame', url: `${F}cultural-asoebi-arch.png` },
-    { id: 'ar-art-deco', name: 'Art deco mask', category: 'frame', url: `${F}gala-artdeco-mask.png` },
+    { id: 'ar-wedding-cover', name: 'Wedding cover', category: 'frame', url: `${F}wedding-magazine-cover.png`, opening: { top: 0.242, bottom: 0.91, left: 0.13, right: 0.87 } },
+    { id: 'ar-floral-arch', name: 'Floral arch', category: 'frame', url: `${F}wedding-arch-mask.png`, opening: { top: 0.263, bottom: 0.637, left: 0.274, right: 0.73 } },
+    { id: 'ar-birthday', name: 'Birthday monogram', category: 'frame', url: `${F}birthday-monogram-corner.png`, opening: { top: 0.056, bottom: 0.946, left: 0.093, right: 0.915 } },
+    { id: 'ar-countdown', name: 'New Year countdown', category: 'frame', url: `${F}nye-countdown.png`, opening: { top: 0.212, bottom: 0.812, left: 0.144, right: 0.863 } },
+    { id: 'ar-asoebi', name: 'Aso ebi arch', category: 'frame', url: `${F}cultural-asoebi-arch.png`, opening: { top: 0.177, bottom: 0.89, left: 0, right: 1 } },
+    { id: 'ar-art-deco', name: 'Art deco mask', category: 'frame', url: `${F}gala-artdeco-mask.png`, opening: { top: 0.256, bottom: 0.723, left: 0.226, right: 0.778 } },
     { id: 'ar-holly', name: 'Holly crown', category: 'prop', url: `${P}holly-crown.glb`, fit: { width: 0.36, at: [0, 0.31, 0], align: 'base' } },
     { id: 'ar-snowflake', name: 'Snowflake tiara', category: 'prop', url: `${P}snowflake-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' } },
     { id: 'ar-elf', name: 'Elf hat', category: 'prop', url: `${P}elf-hat.glb`, fit: { width: 0.3, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 } },
@@ -173,13 +181,79 @@ export function lookAction(l: HomeLook): LookAction {
 /** The frame geometry the AR step uses (his heights): the frame stands behind him, a little taller than he is. */
 export const AR_FRAME_GEO = { h: 1.24, c: 0.62 } as const;
 
+/** The smallest a prop shrinks to so a frame's window can hold it (smaller reads as lost on him). */
+export const PROP_MIN_SCALE = 0.6;
+
+/** Lexicographic: is `a` ranked ahead of `b` (first differing entry larger)? */
+function ahead(a: number[], b: number[]): boolean {
+  for (let n = 0; n < a.length; n++) if (a[n] !== b[n]) return a[n] > b[n];
+  return false;
+}
+
 /**
- * The AR step's frame IN FRONT of him (a page image, not worn by the stage):
- * `h` = its height in his heights; `mouth` = where his mouth sits, as a
- * fraction of the frame from its top (a booth frame's window is made for a
- * face there).
+ * Where the AR step's frame stands IN FRONT of him (a page image; the stage
+ * never wears it), in viewport px, from where the stage draws him: his tip
+ * (head top), mouth, centre x and height, and how far his prop reaches above
+ * his tip at full size (`lift`) and shrunk to nothing (`liftBase`, its seat).
+ *
+ * Hard rules, always: (1) the whole frame inside the box (below the nav,
+ * above the fold); (2) its top edge never below the prop's top, so nothing
+ * pokes out of it. Within those it tries frame sizes and prop scales and
+ * keeps the best, ranked: his face (eyes to chin) in the window; then the
+ * prop fully in the window (`fits`); then the prop as big as it can stay
+ * (`propScale`, down to PROP_MIN_SCALE); then his face nearest the middle of
+ * the window. When nothing holds the prop, the frame's border crops it, as a
+ * tight booth frame crops a tall hat.
  */
-export const AR_FRAME_FRONT = { h: 1.5, mouth: 0.48 } as const;
+export function frameOnBeamy(i: {
+  tip: number; mouth: number; x: number; heightPx: number; lift: number; liftBase?: number;
+  opening: FrameOpening; box: { top: number; bottom: number; left: number; right: number };
+  minH?: number;
+}): { left: number; top: number; h: number; propScale: number; fits: boolean; faceIn: boolean } {
+  const o = i.opening;
+  const hp = Math.max(1, i.heightPx);
+  const lift = Math.max(0, i.lift);
+  const base = Math.min(lift, Math.max(0, i.liftBase ?? 0));
+  const liftAt = (k: number) => base + (lift - base) * k;
+  const pad = hp * 0.04;
+  // His face as the stage draws it, from the mouth node: eye tops ~0.2 of
+  // him above it, chin ~0.12 below, the face's middle just above it.
+  const eyes = i.mouth - hp * 0.2;
+  const chin = i.mouth + hp * 0.12;
+  const face = i.mouth - hp * 0.06;
+  const maxH = Math.max(1, Math.min(i.box.bottom - i.box.top, ((i.box.right - i.box.left) * 16) / 9));
+  const minH = Math.min(maxH, hp * (i.minH ?? 1.3));
+  const scales = lift - base > 0.5 ? [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, PROP_MIN_SCALE] : [1];
+  let best: { score: number[]; top: number; h: number; k: number; fits: boolean; faceIn: boolean } | null = null;
+  for (let s = 0; s <= 10; s++) {
+    const h = maxH - ((maxH - minH) * s) / 10;
+    for (const k of scales) {
+      const propTop = i.tip - liftAt(k);
+      // Hard: inside the box, and its top edge above the prop's top.
+      const lo = i.box.top;
+      const hi = Math.min(i.box.bottom - h, propTop);
+      if (lo > hi + 0.01) continue;
+      // His face in the window, and the prop in the window, as top ranges.
+      const fLo = chin - o.bottom * h;
+      const fHi = eyes - o.top * h;
+      const pHi = propTop - pad - o.top * h;
+      const clampTo = (v: number, a: number, b: number) => Math.min(Math.max(v, a), b);
+      let top = clampTo(face - ((o.top + o.bottom) / 2) * h, lo, hi);
+      const faceOk = Math.max(lo, fLo) <= Math.min(hi, fHi) + 0.01;
+      if (faceOk) top = clampTo(top, Math.max(lo, fLo), Math.min(hi, fHi));
+      const fits = faceOk && Math.max(lo, fLo) <= Math.min(hi, fHi, pHi) + 0.01;
+      if (fits) top = clampTo(top, Math.max(lo, fLo), Math.min(hi, fHi, pHi));
+      const off = Math.abs(top + ((o.top + o.bottom) / 2) * h - face) / hp;
+      const score = [faceOk ? 1 : 0, fits ? 1 : 0, k, -off, h / maxH];
+      if (best === null || ahead(score, best.score)) best = { score, top, h, k, fits, faceIn: faceOk };
+    }
+  }
+  const b = best ?? { top: i.box.top, h: maxH, k: scales[scales.length - 1], fits: false, faceIn: false };
+  const w = (b.h * 9) / 16;
+  const cx = i.x - ((o.left + o.right) / 2 - 0.5) * w;
+  const left = Math.min(Math.max(cx - w / 2, i.box.left), i.box.right - w);
+  return { left, top: b.top, h: b.h, propScale: b.k, fits: b.fits, faceIn: b.faceIn };
+}
 
 /** A HomeLook as the stage's BeamyLook (frames/props only; others are not worn). */
 export function toBeamyLook(l: HomeLook, frame?: { h: number; c: number }): BeamyLook {

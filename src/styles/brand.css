@@ -1721,7 +1721,7 @@
   .bw-ar-swatch { display: flex; width: 62%; aspect-ratio: 1; overflow: hidden; border-radius: 999px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7); }
   .bw-ar-swatch > span { flex: 1; }
   /* The frame stands on him: the page sets its height and translate every
-     frame from where the stage draws him (lib/beamyAssets AR_FRAME_FRONT). */
+     frame from where the stage draws him (lib/beamyAssets frameOnBeamy). */
   .bw-ar-frame {
     position: fixed;
     left: 0;

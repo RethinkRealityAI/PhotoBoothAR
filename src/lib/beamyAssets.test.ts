@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   AR_CATEGORIES, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, arOrder, arTour, carousel, categoryStart, demoQrUrl,
-  lookAction, lookFit, lookThumb, nextAr, selectedLooks, toBeamyLook, toggleLook, type HomeLook,
+  DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, toBeamyLook, toggleLook, type HomeLook,
 } from './beamyAssets';
 import { BEAMY_LOOKS } from './beamyLooks';
 import { EMOJI_RE } from './brandLanding';
@@ -136,6 +136,74 @@ describe('beamyAssets', () => {
     }
     expect(arTour(0, [])).toEqual({ sel: {}, tab: 'frame' });
     expect(arTour(-3, o)).toEqual(arTour(0, o));
+  });
+
+  it('gives every frame a real see-through window', () => {
+    for (const l of HOME_ASSET_DEFAULTS.arLooks.filter((x) => x.category === 'frame')) {
+      const o = l.opening ?? DEFAULT_OPENING;
+      expect(l.opening, l.id).toBeDefined();
+      expect(o.top, l.id).toBeGreaterThanOrEqual(0);
+      expect(o.bottom - o.top, l.id).toBeGreaterThan(0.3);
+      expect(o.right - o.left, l.id).toBeGreaterThan(0.3);
+      expect(o.bottom, l.id).toBeLessThanOrEqual(1);
+      expect(o.right, l.id).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('stands the frame on him: inside the box, nothing poking out, his face mid-window', () => {
+    const frames = HOME_ASSET_DEFAULTS.arLooks.filter((x) => x.category === 'frame');
+    // Beamy as the stage draws him at a phone, a laptop and a tight box; props from none to a tall hat.
+    const cases = [
+      { x: 195, tip: 470, mouth: 590, heightPx: 270, box: { top: 74, bottom: 836, left: 8, right: 382 } },
+      { x: 720, tip: 230, mouth: 470, heightPx: 460, box: { top: 92, bottom: 892, left: 8, right: 1432 } },
+      { x: 512, tip: 300, mouth: 450, heightPx: 330, box: { top: 92, bottom: 760, left: 8, right: 1016 } },
+    ];
+    for (const c of cases) {
+      for (const f of frames) {
+        for (const liftK of [0, 0.15, 0.5]) {
+          const lift = liftK * c.heightPx;
+          const r = frameOnBeamy({ ...c, lift, opening: f.opening ?? DEFAULT_OPENING });
+          const tag = `${f.id} ${c.x} lift ${liftK}`;
+          // 1: the whole frame inside the box.
+          expect(r.top, tag).toBeGreaterThanOrEqual(c.box.top - 0.01);
+          expect(r.top + r.h, tag).toBeLessThanOrEqual(c.box.bottom + 0.01);
+          expect(r.left, tag).toBeGreaterThanOrEqual(c.box.left - 0.01);
+          expect(r.left + (r.h * 9) / 16, tag).toBeLessThanOrEqual(c.box.right + 0.01);
+          // The prop only ever shrinks, never below the floor.
+          expect(r.propScale, tag).toBeGreaterThanOrEqual(PROP_MIN_SCALE);
+          expect(r.propScale, tag).toBeLessThanOrEqual(1);
+          const shown = lift * r.propScale;
+          // 2: never anything above its top edge (whenever the prop is in the box at all).
+          if (c.tip - shown >= c.box.top) expect(r.top, tag).toBeLessThanOrEqual(c.tip - shown + 0.01);
+          else expect(r.top, tag).toBe(c.box.top);
+          // When it fits, the window holds his head and the (shrunk) prop.
+          const o = f.opening ?? DEFAULT_OPENING;
+          if (r.fits) expect(r.top + o.top * r.h, tag).toBeLessThanOrEqual(c.tip - shown + 0.5);
+        }
+      }
+    }
+    // A roomy box and no prop: his face sits in the middle of the window.
+    const o = DEFAULT_OPENING;
+    const r = frameOnBeamy({ x: 500, tip: 400, mouth: 520, heightPx: 300, lift: 0, opening: o, box: { top: 0, bottom: 2000, left: 0, right: 2000 } });
+    expect(r.fits).toBe(true);
+    expect(r.top + ((o.top + o.bottom) / 2) * r.h).toBeCloseTo(520 - 18, 0);
+    expect(r.left + (r.h * 9) / 32).toBeCloseTo(500, 0);
+    expect(r.propScale).toBe(1);
+    // A tall hat in a tight box: the frame rises first, then the hat shrinks into the window.
+    const tight = { x: 720, tip: 393, mouth: 646, heightPx: 473, opening: HOME_ASSET_DEFAULTS.arLooks[0].opening ?? o, box: { top: 92, bottom: 892, left: 8, right: 1432 } };
+    const small = frameOnBeamy({ ...tight, lift: 60 });
+    const mid = frameOnBeamy({ ...tight, lift: 170 });
+    const tall = frameOnBeamy({ ...tight, lift: 284 });
+    expect(small.propScale).toBe(1);
+    expect(small.fits).toBe(true);
+    expect(mid.propScale).toBeLessThan(1);
+    expect(mid.fits).toBe(true);
+    // Too tall for this window even shrunk: it keeps its size, cropped by the frame's border,
+    // never out of the frame, and his face (eyes to chin) still in the window.
+    expect(tall.fits).toBe(false);
+    expect(tall.top).toBeLessThanOrEqual(tight.tip - 284 * tall.propScale);
+    expect(tall.top + tight.opening.top * tall.h).toBeLessThanOrEqual(tight.mouth - 0.2 * tight.heightPx + 0.5);
+    expect(tall.top + tight.opening.bottom * tall.h).toBeGreaterThanOrEqual(tight.mouth + 0.12 * tight.heightPx - 0.5);
   });
 
   it('points the real QR code at the demo event’s guest welcome, tagged', () => {

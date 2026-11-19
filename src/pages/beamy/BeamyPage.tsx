@@ -69,7 +69,7 @@ import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker from './ArPicker';
 import {
-  AR_FRAME_FRONT, HOME_ASSET_DEFAULTS, arOrder, arTour, demoQrUrl, lookAction, selectedLooks, toBeamyLook, toggleLook,
+  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arTour, frameOnBeamy, demoQrUrl, lookAction, selectedLooks, toBeamyLook, toggleLook,
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
@@ -274,7 +274,9 @@ export default function BeamyPage() {
   const stageFrame = useRef<(() => void) | null>(null);
   /** The AR step's frame image (ArPicker); the glide places it on him every frame. */
   const arFrameRef = useRef<HTMLImageElement | null>(null);
-  const arFrameAt = useRef<{ el: HTMLImageElement | null; t: number; x: number; y: number; h: number }>({ el: null, t: 0, x: 0, y: 0, h: 0 });
+  const arFrameAt = useRef({ el: null as HTMLImageElement | null, t: 0, x: 0, tip: 0, mouth: 0, hp: 0, lift: 0, base: 0 });
+  /** The frame the AR step has picked (its window shapes where it stands). */
+  const arFrameLook = useRef<HomeLook | undefined>(undefined);
   const scrollTop = () => scrollerRef.current?.scrollTop ?? 0;
   const heroRef = useRef<HTMLElement | null>(null);
   const heroPanelRef = useRef<HTMLDivElement | null>(null);
@@ -632,9 +634,11 @@ export default function BeamyPage() {
       const night = (Math.round(nightV * 20) / 20).toFixed(2);
       if (sc.style.getPropertyValue('--bw-night-mix') !== night) sc.style.setProperty('--bw-night-mix', night);
       if (hero !== null && hs !== null && !reducedRef.current && hero.style.getPropertyValue('--hs') !== hs) hero.style.setProperty('--hs', hs);
-      // The AR step's frame stands in front of him, his mouth where a booth
-      // frame expects a face (the stage's own numbers: no DOM read). It eases
-      // after him, so a dance or a hop never swings it; a new frame snaps.
+      // The AR step's frame stands in front of him (lib/beamyAssets
+      // frameOnBeamy: inside the viewport below the nav, nothing poking out
+      // of its top, his head and prop in its window, his face mid-window).
+      // From the stage's own numbers, no DOM read. The inputs ease after
+      // him, so a dance or a hop never swings it; a new frame snaps.
       const fr = arFrameRef.current;
       const bw = api.current;
       if (fr !== null && bw !== null && readyRef.current) {
@@ -646,12 +650,25 @@ export default function BeamyPage() {
         fa.el = fr;
         fa.t = now;
         fa.x += (w.x - fa.x) * k;
-        fa.y += (m.y - fa.y) * k;
-        fa.h += (w.heightPx * AR_FRAME_FRONT.h - fa.h) * k;
-        // Never below the fold: a frame cut off at the bottom reads as broken.
-        const top = Math.min(fa.y - fa.h * AR_FRAME_FRONT.mouth, window.innerHeight - fa.h - 8);
-        const tf = `translate(${(fa.x - fa.h * (9 / 32)).toFixed(1)}px, ${top.toFixed(1)}px)`;
-        if (fr.style.transform !== tf) { fr.style.transform = tf; fr.style.height = `${fa.h.toFixed(1)}px`; }
+        fa.tip += (w.y - w.heightPx * 1.02 - fa.tip) * k;
+        fa.mouth += (m.y - fa.mouth) * k;
+        fa.hp += (w.heightPx - fa.hp) * k;
+        fa.lift += (bw.wornLiftAt(1) * w.heightPx - fa.lift) * k;
+        fa.base += (bw.wornLiftAt(0) * w.heightPx - fa.base) * k;
+        const g = frameOnBeamy({
+          x: fa.x, tip: fa.tip, mouth: fa.mouth, heightPx: fa.hp, lift: fa.lift, liftBase: fa.base,
+          opening: arFrameLook.current?.opening ?? DEFAULT_OPENING,
+          box: { top: headerH + 8, bottom: vh - 8, left: 8, right: window.innerWidth - 8 },
+        });
+        const tf = `translate(${g.left.toFixed(1)}px, ${g.top.toFixed(1)}px)`;
+        if (fr.style.transform !== tf) { fr.style.transform = tf; fr.style.height = `${g.h.toFixed(1)}px`; }
+        // The prop shrinks into the frame's window when it must (never pokes out of the frame).
+        bw.wornScale(g.propScale);
+        if (STEP_LOG) (window as unknown as { __beamyAr?: unknown }).__beamyAr = { ...g, tip: fa.tip, mouth: fa.mouth, hp: fa.hp, lift: fa.lift, x: fa.x, hatTop: fa.tip - (fa.base + (fa.lift - fa.base) * g.propScale) };
+      } else if (bw !== null && arFrameAt.current.el !== null) {
+        // The frame came off: the prop goes back to its fitted size.
+        arFrameAt.current.el = null;
+        bw.wornScale(1);
       }
       layoutRef.current.tickMs = performance.now() - t0;
     };
@@ -850,6 +867,7 @@ export default function BeamyPage() {
   const [arTouched, setArTouched] = useState(false);
   const arK = useRef(0);
   const arOn = ready && !failed && arrival === 'done' && inStoryAR;
+  arFrameLook.current = selectedLooks(arSel, AR_LOOKS).find((l) => l.category === 'frame');
   const toggleAr = useCallback((l: HomeLook) => {
     logStep(`ar:pick:${l.id}`);
     setArTouched(true);
