@@ -374,7 +374,7 @@ export const COPILOT_TOOLS = {
       recipientName: { type: 'string', required: false, description: 'Who the card is for, when the host named them.', example: 'Maya' },
       cardTemplate: {
         type: 'enum', required: false, enum: CARD_TEMPLATE_IDS,
-        description: 'The card layout: storybook (pages), filmstrip (a strip of frames), polaroid (scattered prints) or carousel (a 3D photo ring); omit for storybook.',
+        description: 'The card layout: storybook (pages), filmstrip (a strip of frames), polaroid (scattered prints), carousel (a 3D photo ring) or constellation (every photo and video floating in 3D, joined by light); omit for storybook.',
         example: 'storybook',
       },
       deadline: {
