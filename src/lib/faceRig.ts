@@ -21,7 +21,8 @@
 import * as THREE from 'three';
 import { HeadAnchor } from '../types';
 import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
-import { faceInferenceMs, isFrameLockActive, isLegacyFaceSession, pollFaceEngine } from './faceEngine';
+import { SteadyPoseFilter } from './steadyPoseFilter';
+import { faceInferenceMs, getExtraFaces, isFrameLockActive, isLegacyFaceSession, pollFaceEngine } from './faceEngine';
 import type { FaceKeypoints, FaceSample } from './faceEngine/types';
 
 export interface AnchorPreset {
@@ -58,8 +59,8 @@ export const ANCHOR_MAP: Record<HeadAnchor, AnchorPreset> = Object.fromEntries(
  * construction): v1's eyes sat 1.17cm off the iris centres (landmarks 473/468;
  * canonical eye centre ±3.16, 2.63, ~3.5), v1's crown sits at the hairline
  * (landmark 10) rather than on top of the skull (occluder skull top y 10.3),
- * and v1's ears sit at tragus height where an earring hangs from the lobe
- * (contour points 361/132 at y −2.89). Every other anchor is the v1 value.
+ * and v1's ears sit at tragus height where an earring hangs from the lobe.
+ * Every other anchor is the v1 value.
  *
  * VERSIONED, never edited in place: v1 is what every saved scene and the three
  * frozen legacy events were placed against, so changing it would move them.
@@ -71,8 +72,15 @@ const ANCHOR_V2_OFFSETS: Partial<Record<HeadAnchor, [number, number, number]>> =
   crown: [0, 10.3, -0.5],
   leftEye: [3.16, 2.63, 3.5],
   rightEye: [-3.16, 2.63, 3.5],
-  leftEar: [7.5, -2.9, -1.5],
-  rightEar: [-7.5, -2.9, -1.5],
+  // The lobe as 8th Wall's ear model measures it on real guests (earPoints.ts
+  // EAR_LOBE_DEFAULT). The first v2 value (±7.5, −2.9, −1.5) was read off the
+  // canonical FACE mesh edge, which stops at the cheek: 2.4cm in front of a real
+  // lobe. Corrected IN PLACE on 2026-11-20, three days after v2 shipped, because
+  // every v2 ear piece is a library earring authored at offset 0 and all of them
+  // sat on the jaw. On an 8th Wall rig this is only the fallback: FaceRig rides
+  // the guest's tracked ears.
+  leftEar: [8.2, -2.3, -3.9],
+  rightEar: [-8.2, -2.3, -3.9],
 };
 
 export const ANCHOR_PRESETS_V2: AnchorPreset[] = ANCHOR_PRESETS.map((a) => {
@@ -356,7 +364,7 @@ interface SmoothState {
  * registered with it — any smoothing lag now shows as the prop trailing its
  * own frame. The filter is swapped for FRAMELOCK_* (see setFrameLockFilterProfile).
  */
-export type FrameLockFilterProfile = 'standard' | 'light' | 'bypass';
+export type FrameLockFilterProfile = 'standard' | 'light' | 'bypass' | 'steady';
 const FRAMELOCK_POS_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 0.5, dCutoff: 1.0 };
 const FRAMELOCK_ROT_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 2.0, dCutoff: 1.0 };
 /**
@@ -368,8 +376,16 @@ const FRAMELOCK_ROT_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 2.0, dCutoff:
  * price on a still face is +0.01-0.07px of anchor wobble. A still clip has no
  * sensor noise, so the phone test confirms this: the readout's jitter IS
  * the RAW pose, i.e. exactly what a bypassed rig shows. Revert = 'light'.
+ *
+ * 'steady' IS THE DEFAULT since the owner's phone test (2026-11-20: masks and
+ * glasses locked, hats jittery). Bypass shows raw depth and pitch/yaw noise,
+ * which is invisible at the face and amplified by a hat's lever arm; 'steady'
+ * keeps the face's image position raw and filters only depth and rotation
+ * about a face pivot (steadyPoseFilter.ts has the measurements). Revert =
+ * 'bypass' (this one constant).
  */
-let _lockProfile: FrameLockFilterProfile = 'bypass';
+let _lockProfile: FrameLockFilterProfile = 'steady';
+const _steady = new SteadyPoseFilter();
 /**
  * Which filter a frame-locked surface uses (see above); exported so the check
  * harness can A/B all three on one clip.
@@ -405,6 +421,7 @@ function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
     _sf.pos = new OneEuroVec3(lockOn && prof === 'light' ? FRAMELOCK_POS_LIGHT : POS_FILTER);
     _sf.quat = new OneEuroQuat(lockOn && prof === 'light' ? FRAMELOCK_ROT_LIGHT : ROT_FILTER);
     _sf.scale = new OneEuroVec3(SCALE_FILTER);
+    _steady.reset();
     _sfHas = false;
   }
   // A face lost for longer than the hold window snaps back in, never glides.
@@ -412,7 +429,9 @@ function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
     _sf.pos.reset();
     _sf.quat.reset();
     _sf.scale.reset();
+    _steady.reset();
   }
+  const steady = _sf.cfgKey === 'lock:steady';
   const bypass = _sf.cfgKey === 'lock:bypass';
   const dtSec = Math.min(Math.max(Number.isFinite(_sf.lastT) ? t - _sf.lastT : 0, 1), 100) / 1000;
   _sf.lastT = t;
@@ -422,6 +441,10 @@ function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
   if (bypass) {
     _sfPos.copy(_gPos);
     _sfQuat.copy(_gQuat);
+  } else if (steady) {
+    _steady.filter(_fpIn, _fqIn, dtSec, _fpOut, _fqOut);
+    _sfPos.set(_fpOut[0], _fpOut[1], _fpOut[2]);
+    _sfQuat.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
   } else {
     _sf.pos.filter(_fpIn, dtSec, _fpOut);
     _sf.quat.filter(_fqIn, dtSec, _fqOut);
@@ -431,6 +454,118 @@ function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
   _sf.scale.filter(_fsIn, dtSec, _fsOut);
   _sfScale.set(_fsOut[0], _fsOut[1], _fsOut[2]);
   _sfHas = true;
+}
+
+/* ── Extra faces (multi-face, platform 8th Wall only) ───────────────────────
+ * Faces tracked BESIDE the primary (faceEngine getExtraFaces) each get their
+ * OWN filter state, keyed by slot, stepped on the same NEW samples as the
+ * primary's shared filter and with the same profile choice (frame-locked:
+ * steady/bypass/light; unlocked: standard). A slot that changes person snaps.
+ * The primary's state above is untouched by any of this.
+ */
+interface ExtraPoseState {
+  id: number;
+  seen: number;
+  has: boolean;
+  lastT: number;
+  cfgKey: string;
+  steady: SteadyPoseFilter;
+  pos: OneEuroVec3;
+  quat: OneEuroQuat;
+  scale: OneEuroVec3;
+  outPos: THREE.Vector3;
+  outQuat: THREE.Quaternion;
+  outScale: THREE.Vector3;
+}
+const _extras: ExtraPoseState[] = [];
+const _xPos = new THREE.Vector3();
+const _xQuat = new THREE.Quaternion();
+const _xScale = new THREE.Vector3();
+const _xMat = new THREE.Matrix4();
+
+function extraState(slot: number): ExtraPoseState {
+  let st = _extras[slot - 1];
+  if (st === undefined) {
+    st = {
+      id: Number.NaN, seen: 0, has: false, lastT: Number.NaN, cfgKey: '',
+      steady: new SteadyPoseFilter(),
+      pos: new OneEuroVec3(POS_FILTER), quat: new OneEuroQuat(ROT_FILTER), scale: new OneEuroVec3(SCALE_FILTER),
+      outPos: new THREE.Vector3(), outQuat: new THREE.Quaternion(), outScale: new THREE.Vector3(1, 1, 1),
+    };
+    _extras[slot - 1] = st;
+  }
+  return st;
+}
+
+/** Step every extra face handed over with the primary sample just taken. Platform only. */
+function stepExtraFaces(): void {
+  const list = getExtraFaces();
+  if (list.length === 0) return;
+  const lock = isFrameLockActive();
+  const key = lock ? `lock:${_lockProfile}` : 'standard';
+  for (const e of list) {
+    if (!(e.slot >= 1) || !Number.isFinite(e.t)) continue;
+    const st = extraState(e.slot);
+    if (st.has && e.t <= st.lastT && st.id === e.id) continue; // already stepped
+    if (key !== st.cfgKey) {
+      st.cfgKey = key;
+      const light = lock && _lockProfile === 'light';
+      st.pos = new OneEuroVec3(light ? FRAMELOCK_POS_LIGHT : POS_FILTER);
+      st.quat = new OneEuroQuat(light ? FRAMELOCK_ROT_LIGHT : ROT_FILTER);
+      st.scale = new OneEuroVec3(SCALE_FILTER);
+      st.has = false;
+    }
+    // A different person in this slot, or a long gap: snap, never glide.
+    if (!st.has || st.id !== e.id || e.t - st.seen > HOLD_MS) {
+      st.pos.reset();
+      st.quat.reset();
+      st.scale.reset();
+      st.steady.reset();
+      st.lastT = Number.NaN;
+    }
+    st.id = e.id;
+    _xMat.fromArray(e.matrix);
+    _xMat.decompose(_xPos, _xQuat, _xScale); // raw, un-mirrored
+    const dtSec = Math.min(Math.max(Number.isFinite(st.lastT) ? e.t - st.lastT : 0, 1), 100) / 1000;
+    st.lastT = e.t;
+    st.seen = e.t;
+    _fpIn[0] = _xPos.x; _fpIn[1] = _xPos.y; _fpIn[2] = _xPos.z;
+    _fqIn[0] = _xQuat.x; _fqIn[1] = _xQuat.y; _fqIn[2] = _xQuat.z; _fqIn[3] = _xQuat.w;
+    _fsIn[0] = _xScale.x; _fsIn[1] = _xScale.y; _fsIn[2] = _xScale.z;
+    if (key === 'lock:bypass') {
+      st.outPos.copy(_xPos);
+      st.outQuat.copy(_xQuat);
+    } else if (key === 'lock:steady') {
+      st.steady.filter(_fpIn, _fqIn, dtSec, _fpOut, _fqOut);
+      st.outPos.set(_fpOut[0], _fpOut[1], _fpOut[2]);
+      st.outQuat.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
+    } else {
+      st.pos.filter(_fpIn, dtSec, _fpOut);
+      st.quat.filter(_fqIn, dtSec, _fqOut);
+      st.outPos.set(_fpOut[0], _fpOut[1], _fpOut[2]);
+      st.outQuat.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
+    }
+    st.scale.filter(_fsIn, dtSec, _fsOut);
+    st.outScale.set(_fsOut[0], _fsOut[1], _fsOut[2]);
+    st.has = true;
+  }
+}
+
+/**
+ * MULTI-FACE: put `group` on extra face `slot` (1..2), mirrored like
+ * updateHeadPose. Detection is NOT run here — the primary rig's updateHeadPose
+ * drives it, and the extras are stepped with each new primary sample. Returns
+ * false (hide) on a legacy session, for an empty slot, and after HOLD_MS
+ * without a sighting.
+ */
+export function updateExtraHeadPose(group: THREE.Object3D, slot: number, mirror: boolean): boolean {
+  if (isLegacyFaceSession()) return false;
+  const st = _extras[slot - 1];
+  if (st === undefined || !st.has || performance.now() - st.seen > HOLD_MS) return false;
+  group.position.set(mirror ? -st.outPos.x : st.outPos.x, st.outPos.y, st.outPos.z);
+  group.quaternion.set(st.outQuat.x, mirror ? -st.outQuat.y : st.outQuat.y, mirror ? -st.outQuat.z : st.outQuat.z, st.outQuat.w);
+  group.scale.copy(st.outScale);
+  return true;
 }
 
 /**
@@ -446,7 +581,9 @@ export function resetFaceRig(): void {
   _sf.pos.reset();
   _sf.quat.reset();
   _sf.scale.reset();
+  _steady.reset();
   _sf.lastT = Number.NaN;
+  for (const st of _extras) if (st !== undefined) st.has = false;
   _rigGen++;
   _faceKeypoints = null;
   if (_hasBlend) {
@@ -495,10 +632,14 @@ function detectIfDue(video: HTMLVideoElement, now: number) {
   _mat.fromArray(s.matrix);
   _mat.decompose(_gPos, _gQuat, _gScale); // raw, un-mirrored
   const prevSeen = _gSeen;
-  const hadFace = _gHas;
+  // Multi-face: a promoted primary is another PERSON — snap the filter, never glide across.
+  const hadFace = _gHas && s.subjectChanged !== true;
   _gSeen = s.t;
   _gHas = true;
-  if (!isLegacyFaceSession()) stepSharedFilter(s.t, prevSeen, hadFace);
+  if (!isLegacyFaceSession()) {
+    stepSharedFilter(s.t, prevSeen, hadFace);
+    stepExtraFaces();
+  }
   _rawPoseTap?.(s, _gPos, _gQuat);
   // Feed the head-fit estimator on every detection frame (~30/s). Pure
   // bookkeeping — a module ring write with no effect on the pose consumers

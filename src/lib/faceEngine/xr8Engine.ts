@@ -30,10 +30,12 @@
  * XR8 is a page-wide singleton: at most one engine may be alive (index.ts
  * guarantees it; this file enforces it).
  */
-import type { FaceEngine, FaceSample } from './types';
+import type { ExtraFace, FaceEngine, FaceSample } from './types';
 import { createXr8SessionManager, loadXr8, type Xr8Global, type Xr8SessionManager } from './xr8Session';
 import { xr8Keypoints, xr8LocalToHeadCm, xr8ToFaceMatrix, type Xr8Transform, type Xr8Uv, type Xr8Vec3 } from './xr8Pose';
 import { createXr8ExpressionState, resetXr8ExpressionState, xr8Expressions } from './xr8Expressions';
+import { createEarState, estimateEars, observeEars, resetEarState, type EarEstimate, type EarVec } from './earPoints';
+import { createFaceSlotState, faceSlotsLost, faceSlotsObserve, parseMaxFaces, resetFaceSlots } from './multiFace';
 import {
   analysedFrameAfterPass,
   analysedFrameHandOver,
@@ -50,6 +52,8 @@ export const XR8_SCAN_TIMEOUT_MS = 10_000;
 export const XR8_IDLE_AFTER_MS = 1_000;
 /** DetectGate spacing — the same ~30/s as MediaPipe's DETECT_INTERVAL_MS. */
 export const XR8_DETECT_INTERVAL_MS = 33;
+/** Multi-face: a slot whose id 8th Wall stopped reporting (without facelost) is freed after this. */
+export const XR8_FACE_STALE_MS = 1_000;
 
 /** The tracked mesh in the contract head frame (canonical cm), overwritten in place every frame. */
 export interface Xr8FaceMesh {
@@ -101,6 +105,25 @@ export interface Xr8EngineOptions {
   sameTickInference?: boolean;
   /** DetectGate spacing (default XR8_DETECT_INTERVAL_MS). */
   detectIntervalMs?: number;
+  /** 8th Wall's dedicated ear model (lobe / canal / helix per ear). Default XR8_ENABLE_EARS.
+   *  It can only be chosen BEFORE the pipeline runs: a later FaceController.configure is
+   *  ignored (measured), so it is an engine option, not a runtime switch. */
+  ears?: boolean;
+  /** FaceController maxDetections, 1..3 (multiFace.ts). Default 1. Like `ears`, it is read
+   *  only BEFORE the pipeline runs. Face 1 (the primary) drives every single-face API; the
+   *  others are handed over through getExtraFaces(). */
+  maxFaces?: number;
+}
+
+/** Ear tracking on by default: it is what puts earrings on the real ear (earPoints.ts). */
+export const XR8_ENABLE_EARS = true;
+/** Tester switch: `?ears=0` turns the ear model off for this page load (a phone
+ *  A/B for its cost). Grants nothing; anything else keeps the default. */
+function earsEnabledByUrl(): boolean {
+  try {
+    if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('ears') === '0') return false;
+  } catch { /* no location (tests) */ }
+  return XR8_ENABLE_EARS;
 }
 
 export interface Xr8FaceEngine extends FaceEngine {
@@ -114,6 +137,12 @@ export interface Xr8FaceEngine extends FaceEngine {
   getLatestFaceMesh(): Xr8FaceMesh | null;
   /** Static topology; null until init() has resolved. */
   getFaceMeshTopology(): Xr8FaceTopology | null;
+  /** This guest's ear lobes in the contract head frame (earPoints.ts); null when no face is
+   *  tracked. A fresh object per call. */
+  getEarEstimate(): EarEstimate | null;
+  /** The faces tracked beside the primary, handed over with the last sample poll() returned
+   *  (same frame). Empty with maxFaces 1, when only one face is tracked, and when none is. */
+  getExtraFaces(): readonly ExtraFace[];
   /**
    * OPTIONAL warm start: hand over the app's camera <video> before (or while) init() runs, so 8th
    * Wall starts on real frames instead of the black placeholder and the first pose does not wait
@@ -123,10 +152,17 @@ export interface Xr8FaceEngine extends FaceEngine {
 }
 
 interface FaceDetail {
+  /** 8th Wall's face id (xr-face.js: `id: face.getId()`); stable while tracked. */
+  id?: number;
   transform: Xr8Transform;
   vertices: Xr8Vec3[];
   uvsInCameraFrame: Xr8Uv[];
+  /** Named face-local points. The ear model's points (…Lobe/…Canal) are {0,0,0} while lost. */
+  attachmentPoints?: Record<string, { position?: Xr8Vec3 } | undefined>;
 }
+
+/** attachmentPoints read for the ears, in this order (left then right: lobe, canal, face edge). */
+const EAR_POINT_NAMES = ['leftLobe', 'leftCanal', 'leftEar', 'rightLobe', 'rightCanal', 'rightEar'] as const;
 interface ScanDetail {
   pointsPerDetection: number;
   indices: { a: number; b: number; c: number }[];
@@ -169,11 +205,31 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
   let latest: FaceSample | null = null;
   let fresh = false;
 
+  // MULTI-FACE (maxFaces > 1). Single-face keeps the exact pendingFace/pendingLost path above.
+  const maxFaces = parseMaxFaces(options.maxFaces) ?? 1;
+  const multi = maxFaces > 1;
+  const slots = createFaceSlotState(maxFaces - 1);
+  /** Every face reported this tick, by id (8th Wall dispatches one event per tracked face). */
+  const tickFaces = new Map<number, FaceDetail>();
+  const tickLost: number[] = [];
+  /** The primary was promoted: flag the next primary sample and forget per-person state. */
+  let subjectSwitched = false;
+  /** Extras computed with `latest` (same pass), and those handed over with the last poll. */
+  let latestExtras: readonly ExtraFace[] = [];
+  let handedExtras: readonly ExtraFace[] = [];
+  const NO_EXTRAS: readonly ExtraFace[] = [];
+  /** performance.now() each tracked id was last reported (multi only). */
+  const lastSeenById = new Map<number, number>();
+  const faceId = (d: FaceDetail | undefined): number => (d && typeof d.id === 'number' && Number.isFinite(d.id) ? d.id : 0);
+
   let topology: Xr8FaceTopology | null = null;
   let meshBuf = new Float32Array(0);
   const mesh: Xr8FaceMesh = { vertices: meshBuf, t: 0 };
   let meshValid = false;
   const expr = createXr8ExpressionState();
+  const ears = createEarState();
+  const earIn: Xr8Vec3[] = EAR_POINT_NAMES.map(() => ({ x: 0, y: 0, z: 0 }));
+  const earCm = new Float32Array(EAR_POINT_NAMES.length * 3);
   /** The draw canvas shows a real-video analysed frame (not the placeholder). */
   let frameValid = false;
   /** Pairs the drawn frame with the HANDED pose (analysedFrame.ts): the canvas is redrawn by every
@@ -213,7 +269,15 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     mesh.vertices = meshBuf;
   }
 
-  function onFace(d: FaceDetail, intrinsics: ArrayLike<number> | undefined, feed: unknown): void {
+  /** `pre`: the primary's matrix when the multi-face path already computed it; `extras`: the
+   *  other faces of the same pass, handed over with this sample. */
+  function onFace(
+    d: FaceDetail,
+    intrinsics: ArrayLike<number> | undefined,
+    feed: unknown,
+    pre: Float32Array | null = null,
+    extras: readonly { id: number; slot: number; matrix: Float32Array }[] = NO_EXTRAS,
+  ): void {
     if (!sm || !intrinsics || !(sm.source instanceof HTMLVideoElement)) return; // placeholder frames carry no face
     const now = performance.now();
     const analysed = sm.frameForTexture(feed);
@@ -221,7 +285,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     diag.stagedMs = analysed ? analysed.stagedMs : NaN;
     diag.emittedMs = now;
     diagValid = true;
-    const matrix = xr8ToFaceMatrix(d.transform, intrinsics, sm.size.width, sm.size.height, new Float32Array(16));
+    const matrix = pre ?? xr8ToFaceMatrix(d.transform, intrinsics, sm.size.width, sm.size.height, new Float32Array(16));
     if (matrix === null) return;
     const verts = d.vertices;
     if (verts && verts.length * 3 > meshBuf.length) {
@@ -233,15 +297,117 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     mesh.t = now;
     // A fresh object per sample (≤ ~30/s): consumers may hold on to a sample's map.
     const blendshapes = meshValid ? xr8Expressions(meshBuf, now, expr, {}) : null;
+    observeEarPoints(d.attachmentPoints, now);
     latest = { t: now, matrix, blendshapes, keypoints: d.uvsInCameraFrame ? xr8Keypoints(d.uvsInCameraFrame) : null };
+    if (subjectSwitched) {
+      latest.subjectChanged = true;
+      subjectSwitched = false;
+    }
+    latestExtras = extras.length === 0 ? NO_EXTRAS : extras.map((e) => ({ id: e.id, slot: e.slot, t: now, matrix: e.matrix }));
     fresh = true;
     passEmitT = now;
+  }
+
+  /** facefound / faceupdated. Single-face: the latest detail wins (the shipped behaviour). */
+  function onFaceEvent(d: FaceDetail | undefined): void {
+    if (!d) return;
+    if (multi) tickFaces.set(faceId(d), d);
+    else pendingFace = d;
+  }
+
+  /** The primary was lost and another tracked face promoted: what we knew is the old person's. */
+  function onSubjectSwitch(): void {
+    subjectSwitched = true;
+    meshValid = false;
+    resetXr8ExpressionState(expr);
+    resetEarState(ears);
+  }
+
+  /**
+   * MULTI-FACE update (maxFaces > 1): `faces` = every face reported this tick by id, `lost` =
+   * ids 8th Wall reported lost. The primary keeps the single-face contract; the others become
+   * extras of the same sample. Same frame rules as the single-face path in onUpdate.
+   */
+  function onFacesUpdate(
+    faces: Map<number, FaceDetail>,
+    lost: readonly number[],
+    processCpuResult: { facecontroller?: { intrinsics?: ArrayLike<number>; cameraFeedTexture?: unknown } } | undefined,
+    frameStartResult: { repeatFrame?: boolean } | undefined,
+  ): void {
+    if (lost.length > 0) {
+      for (const id of lost) lastSeenById.delete(id);
+      const hadPrimary = slots.primary !== null;
+      const r = faceSlotsLost(slots, lost);
+      if (r.primaryChanged) {
+        if (slots.primary === null) {
+          if (hadPrimary) onLost(); // nobody left: exactly the single-face "lost"
+        } else {
+          onSubjectSwitch();
+        }
+      }
+    }
+    if (!frameStartResult || frameStartResult.repeatFrame === true) return;
+    passDrew = true;
+    if (sm && sm.source instanceof HTMLVideoElement && processCpuResult?.facecontroller) frameValid = true;
+    if (faces.size === 0) return;
+    const intrinsics = processCpuResult?.facecontroller?.intrinsics;
+    if (!sm || !intrinsics || !(sm.source instanceof HTMLVideoElement)) return;
+    const matrices = new Map<number, Float32Array>();
+    const seen: { id: number; depthCm: number }[] = [];
+    for (const [id, d] of faces) {
+      const m = new Float32Array(16);
+      if (xr8ToFaceMatrix(d.transform, intrinsics, sm.size.width, sm.size.height, m) === null) continue;
+      matrices.set(id, m);
+      seen.push({ id, depthCm: -m[14] });
+    }
+    // A tracked id that stops being reported without a facelost (8th Wall restarted after a
+    // context loss) must not hold its slot forever: drop it after XR8_FACE_STALE_MS.
+    const now = performance.now();
+    for (const f of seen) lastSeenById.set(f.id, now);
+    const stale: number[] = [];
+    for (const id of [slots.primary, ...slots.extras]) {
+      if (id !== null && !matrices.has(id) && now - (lastSeenById.get(id) ?? now) > XR8_FACE_STALE_MS) stale.push(id);
+    }
+    if (stale.length > 0) {
+      for (const id of stale) lastSeenById.delete(id);
+      const hadPrimary = slots.primary !== null;
+      if (faceSlotsLost(slots, stale).primaryChanged && hadPrimary) onSubjectSwitch();
+    }
+    faceSlotsObserve(slots, seen);
+    const pid = slots.primary;
+    const primary = pid === null ? undefined : faces.get(pid);
+    const pm = pid === null ? undefined : matrices.get(pid);
+    if (pid === null || primary === undefined || pm === undefined) return;
+    const extras: { id: number; slot: number; matrix: Float32Array }[] = [];
+    for (let i = 0; i < slots.extras.length; i++) {
+      const id = slots.extras[i];
+      const m = id === null ? undefined : matrices.get(id);
+      if (id !== null && m !== undefined) extras.push({ id, slot: i + 1, matrix: m });
+    }
+    onFace(primary, intrinsics, processCpuResult?.facecontroller?.cameraFeedTexture, pm, extras);
+  }
+
+  /** Fold this frame's ear sightings into the per-guest averages. A missing or all-zero point
+   *  (8th Wall's "lost") is passed as null; earPoints range-checks the rest. Never throws. */
+  function observeEarPoints(ap: FaceDetail['attachmentPoints'], now: number): void {
+    if (!ap) return;
+    const found: boolean[] = [];
+    for (let i = 0; i < EAR_POINT_NAMES.length; i++) {
+      const p = ap[EAR_POINT_NAMES[i]]?.position;
+      const ok = !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z) && (p.x !== 0 || p.y !== 0 || p.z !== 0);
+      found.push(ok);
+      earIn[i].x = ok ? p.x : 0; earIn[i].y = ok ? p.y : 0; earIn[i].z = ok ? p.z : 0;
+    }
+    xr8LocalToHeadCm(earIn, earCm);
+    const at = (i: number): EarVec | null => (found[i] ? [earCm[i * 3], earCm[i * 3 + 1], earCm[i * 3 + 2]] : null);
+    observeEars(ears, now, { lobe: at(0), canal: at(1), edge: at(2) }, { lobe: at(3), canal: at(4), edge: at(5) });
   }
 
   function onLost(): void {
     meshValid = false;
     resetXr8ExpressionState(expr);
     latest = lostSample(performance.now());
+    latestExtras = NO_EXTRAS;
     fresh = true;
   }
 
@@ -257,9 +423,15 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
           scanResolve = scanReject = null;
         },
       },
-      { event: 'facecontroller.facefound', process: ({ detail }: { detail: FaceDetail }) => { pendingFace = detail; } },
-      { event: 'facecontroller.faceupdated', process: ({ detail }: { detail: FaceDetail }) => { pendingFace = detail; } },
-      { event: 'facecontroller.facelost', process: () => { pendingLost = true; } },
+      { event: 'facecontroller.facefound', process: ({ detail }: { detail: FaceDetail }) => { onFaceEvent(detail); } },
+      { event: 'facecontroller.faceupdated', process: ({ detail }: { detail: FaceDetail }) => { onFaceEvent(detail); } },
+      {
+        event: 'facecontroller.facelost',
+        process: ({ detail }: { detail?: { id?: number } }) => {
+          if (multi) tickLost.push(faceId(detail as FaceDetail | undefined));
+          else pendingLost = true;
+        },
+      },
     ],
     // Listener events are dispatched before onUpdate on the same tick. The face
     // module RE-DISPATCHES the previous face on a repeat frame, so only a
@@ -273,6 +445,15 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
       frameStartResult?: { repeatFrame?: boolean };
     }) => {
       try {
+        if (multi) {
+          const lost = tickLost.splice(0, tickLost.length);
+          try {
+            onFacesUpdate(tickFaces, lost, processCpuResult, frameStartResult);
+          } finally {
+            tickFaces.clear();
+          }
+          return;
+        }
         const face = pendingFace;
         pendingFace = null;
         if (pendingLost) {
@@ -404,6 +585,8 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
   const onContextLost = (ev: Event) => {
     ev.preventDefault(); // allow restoration
     contextLost = true;
+    resetFaceSlots(slots); // the restarted pipeline reports new ids and never "loses" the old ones
+    lastSeenById.clear();
     if (ready) onLost();
   };
   const onContextRestored = () => {
@@ -436,6 +619,12 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     ready = false;
     latest = null;
     fresh = false;
+    resetFaceSlots(slots);
+    lastSeenById.clear();
+    tickFaces.clear();
+    tickLost.length = 0;
+    subjectSwitched = false;
+    latestExtras = handedExtras = NO_EXTRAS;
     meshValid = false;
     frameValid = false;
     diagValid = false;
@@ -479,7 +668,8 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
           XR8.FaceController.configure({
             meshGeometry: [XR8.FaceController.MeshGeometry.FACE],
             coordinates: { mirroredDisplay: false, axes: 'RIGHT_HANDED' },
-            maxDetections: 1,
+            maxDetections: maxFaces, // BEFORE run, like enableEars (a later configure is ignored)
+            enableEars: options.ears ?? earsEnabledByUrl(),
           });
           XR8.clearCameraPipelineModules();
           // GlTextureRenderer draws, every runRender, the texture FaceController pairs with its
@@ -513,6 +703,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
           // picked up by syncCanvasSize + 8th Wall's own per-frame size check.
           sm.bind(video);
           pendingFace = null;
+          tickFaces.clear();
         }
         if (drive === 'poll') {
           if (running) step(performance.now());
@@ -522,6 +713,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
         if (!fresh) return null;
         fresh = false;
         if (latest !== null) analysedFrameHandOver(frameSync, latest.t);
+        handedExtras = latestExtras; // the extras of THIS sample's frame (frame-lock consistent)
         return latest;
       } catch {
         return null;
@@ -536,6 +728,12 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     getFaceMeshTopology() {
       return topology;
     },
+    getEarEstimate() {
+      return meshValid && ready ? estimateEars(ears) : null;
+    },
+    getExtraFaces() {
+      return ready && !disposed ? handedExtras : NO_EXTRAS;
+    },
     prewarm(video) {
       try {
         if (disposed || !(video instanceof HTMLVideoElement)) return;
@@ -543,6 +741,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
         if (sm && sm.source !== video) {
           sm.bind(video);
           pendingFace = null;
+          tickFaces.clear();
         }
       } catch { /* a warm start is only an optimisation */ }
     },
