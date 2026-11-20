@@ -50,9 +50,18 @@ export function normalizeGeneratedCopy(raw: unknown): GeneratedCopy | null {
  * (fullName, eventName, the template tagline, host edits) survive, generated
  * lines fill in, and `generatedAt` stamps the run.
  */
+const HOST_LINES = ['welcomeIntro', 'keepsakeIntro'] as const;
+
 export function copyPatch(existing: unknown, gen: GeneratedCopy, now: string): { copy: Record<string, unknown> } {
   const current = (existing !== null && typeof existing === 'object' ? existing : {}) as Record<string, unknown>;
-  return { copy: { ...current, ...gen, generatedAt: now } };
+  // Templates never write the two intros, so a non-blank one is the host's
+  // own words (setup wizard / Branding): it wins over the generated line.
+  const own: Record<string, string> = {};
+  for (const k of HOST_LINES) {
+    const v = current[k];
+    if (typeof v === 'string' && v.trim() !== '') own[k] = v;
+  }
+  return { copy: { ...current, ...gen, ...own, generatedAt: now } };
 }
 
 export type GenerateCopyResult =

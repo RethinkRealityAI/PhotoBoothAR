@@ -18,6 +18,7 @@ import { resolveBackgroundTemplate } from '../components/theme/backgrounds';
 import { isEmptyBrief, normalizeBrief } from '../lib/eventBrief';
 import { isUntouchedTemplateTheme } from '../lib/eventTemplates';
 import { normalizeScene } from '../lib/sceneThemes';
+import { powerUpTriggers } from '../lib/wizard/powerUps';
 
 export interface RuntimeEvent {
   /** slug — doubles as the posts/experiences/app_settings event_id. */
@@ -144,6 +145,8 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     : {});
   // Guest-page scene (lib/sceneThemes): absent/invalid = today's background.
   const scene = normalizeScene(cfg.scene);
+  // Event-wide power-ups (setup wizard): preset ids → booth triggers.
+  const powerUps = powerUpTriggers(cfg.powerUps);
   const brandLook = cfg.look === 'beamwall' || (cfg.look === undefined && isUntouchedTemplateTheme(rawThemeVars));
 
   return {
@@ -165,6 +168,7 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     ...(brief !== undefined && !isEmptyBrief(brief) ? { brief } : {}),
     ...(brandLook ? { look: 'beamwall' as const } : {}),
     ...(scene ? { scene } : {}),
+    ...(powerUps.length > 0 ? { powerUps } : {}),
   };
 }
 

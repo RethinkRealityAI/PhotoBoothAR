@@ -156,7 +156,7 @@ export default function CopilotPanel() {
             {/* Quick actions + event picker */}
             <div className="shrink-0 px-4 pt-3 flex flex-col gap-2">
               <button
-                onClick={() => { close(); navigate('/host/new'); }}
+                onClick={() => { close(); navigate('/host/new/assistant'); }}
                 className="flex items-center gap-2.5 rounded-xl border border-[color:var(--color-accent)]/30 bg-[color:var(--color-accent)]/10 px-3.5 py-2.5 text-left hover:bg-[color:var(--color-accent)]/15 transition-colors"
               >
                 <PartyPopper className="w-4 h-4 text-[color:var(--color-accent)] shrink-0" />

@@ -116,7 +116,7 @@ function PostCard({
   return (
     <div
       ref={cardRef}
-      className={`relative overflow-hidden rounded-xl ${onSelect ? 'cursor-pointer' : ''}`}
+      className={`wall-card relative overflow-hidden rounded-xl ${isFresh ? 'is-fresh' : ''} ${onSelect ? 'cursor-pointer' : ''}`}
       onClick={onSelect ? () => onSelect(post) : undefined}
       style={{
         boxShadow: isFresh
@@ -180,7 +180,7 @@ function PostCard({
       {/* Caption overlay */}
       {(post.guest_name || post.message) && (
         <div
-          className="absolute bottom-0 inset-x-0 px-3 py-2"
+          className="wall-card-caption absolute bottom-0 inset-x-0 px-3 py-2"
           style={{
             background:
               'linear-gradient(to top, rgba(10,7,3,0.82) 0%, rgba(10,7,3,0) 100%)',

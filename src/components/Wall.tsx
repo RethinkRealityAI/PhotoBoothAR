@@ -57,7 +57,16 @@ import WallLightbox from './wall/WallLightbox';
 import FeaturedSpotlight from './wall/FeaturedSpotlight';
 import EmptyWall from './wall/EmptyWall';
 import GridWall from './wall/GridWall';
-import WallBackdrop from './wall/WallBackdrop';
+import WallBackdrop, { WallTwinkles } from './wall/WallBackdrop';
+import { samplePosts } from './theme/samplePhotos';
+import {
+  PREVIEW_MAX_POSTS,
+  WALL_PREVIEW_READY,
+  isWallPreviewFrame,
+  namedSamples,
+  parseWallPreviewMessage,
+  previewArrival,
+} from '../lib/wallPreview';
 import WallHeader, { type WallTab } from './wall/WallHeader';
 import {
   WALL_LAYOUT_META,
@@ -65,6 +74,8 @@ import {
   resolveScene,
   resolveWallBackdrop,
   sameWallArrangement,
+  WALL_CORNER_META,
+  wallGlowColor,
   wallTone,
   type WallLayout,
 } from '../lib/sceneThemes';
@@ -206,6 +217,9 @@ export default function Wall() {
   /** Every new behaviour below (Wall design, grid, backdrop, tone, chrome)
    *  is gated on this; the three frozen legacy builds render byte-identically. */
   const platform = source === 'db' && !IS_LEGACY_BUILD;
+  /** The setup wizard's embedded preview: sample photos, the host's unsaved
+   *  design over postMessage, no database traffic, nothing persisted. */
+  const [preview] = useState(() => platform && isWallPreviewFrame());
   const {
     posts,
     postsLoaded,
@@ -247,6 +261,7 @@ export default function Wall() {
 
   // Persist { mode, projectionMode, qrOverride } for this event.
   useEffect(() => {
+    if (preview) return;
     try {
       localStorage.setItem(
         `beamwall:wall:${eventId}`,
@@ -255,7 +270,7 @@ export default function Wall() {
     } catch {
       // storage unavailable (private mode/quota) — persistence is best-effort
     }
-  }, [eventId, mode, projectionMode, qrOverride]);
+  }, [eventId, mode, projectionMode, qrOverride, preview]);
 
   // ── Platform: the host's Wall design (lib/sceneThemes) ──
   // The host's layout is every screen's default view. A device can still pick
@@ -266,10 +281,10 @@ export default function Wall() {
     [wallSettings.wallLook, wallSettings.galleryScroll],
   );
   const [viewOverride, setViewOverride] = useState<PlatformView | null>(
-    () => (platform ? readPersistedPlatformView(eventId) : null),
+    () => (platform && !preview ? readPersistedPlatformView(eventId) : null),
   );
   useEffect(() => {
-    if (!platform) return;
+    if (!platform || preview) return;
     try {
       const key = `beamwall:wall-view:${eventId}`;
       if (viewOverride === null) localStorage.removeItem(key);
@@ -277,7 +292,7 @@ export default function Wall() {
     } catch {
       // storage unavailable — the override just lasts for this page view
     }
-  }, [platform, eventId, viewOverride]);
+  }, [platform, eventId, viewOverride, preview]);
 
   // Controls auto-hide (projection mode hides the toggle bar after 4 s idle)
   const [showChrome, setShowChrome] = useState(true);
@@ -302,8 +317,9 @@ export default function Wall() {
   // we stop the projector laptop going to sleep mid-gala?
   const visible = usePageVisible();
   const viewport = useWallViewport(projectionMode);
-  useWakeLock(true);
-  const [socketStatus, setSocketStatus] = useState<SocketStatus>('connecting');
+  useWakeLock(!preview);
+  // The preview never opens a socket; it is a faithful 'live' wall.
+  const [socketStatus, setSocketStatus] = useState<SocketStatus>(preview ? 'live' : 'connecting');
 
   // Slow drift for the persistent high-contrast chrome (burn-in defence).
   const driftSeconds = useSlowClock(visible);
@@ -329,8 +345,16 @@ export default function Wall() {
   // Initial data load
   // ----------------------------------------------------------------
   useEffect(() => {
+    if (preview) return;
     if (!postsLoaded) fetchPosts();
-  }, [postsLoaded, fetchPosts]);
+  }, [postsLoaded, fetchPosts, preview]);
+
+  // Preview: a wall full of stand-in moments, with names for the captions.
+  const previewSamples = useMemo(() => (preview ? namedSamples(samplePosts(24)) : []), [preview]);
+  useEffect(() => {
+    if (!preview) return;
+    useStore.setState({ posts: previewSamples, postsLoaded: true, postsFailed: false });
+  }, [preview, previewSamples]);
 
   // What the gallery area should show. Previously this was just
   // `posts.length === 0`, which conflated three different situations: the
@@ -347,13 +371,15 @@ export default function Wall() {
   }, [fetchPosts]);
 
   useEffect(() => {
+    if (preview) return;
     fetchWallSettings();
-  }, [fetchWallSettings]);
+  }, [fetchWallSettings, preview]);
 
   // ----------------------------------------------------------------
   // Live settings subscription
   // ----------------------------------------------------------------
   useEffect(() => {
+    if (preview) return;
     const unsub = subscribeToSettings(eventId, (s) => {
       if (platform) {
         // The host changed the arrangement (layout or grid size): every
@@ -367,7 +393,7 @@ export default function Wall() {
       setWallSettings(s);
     });
     return unsub;
-  }, [eventId, setWallSettings, platform]);
+  }, [eventId, setWallSettings, platform, preview]);
 
   // If leaderboard mode is disabled by admin while viewing it, fall back to mosaic
   useEffect(() => {
@@ -455,6 +481,7 @@ export default function Wall() {
   }, [ceremony]);
 
   useEffect(() => {
+    if (preview) return;
     // visibleOnly: unapproved/hidden posts never reach the wall, and a hide/
     // unapprove arrives as onDelete → removed instantly (no 20 s poll wait).
     const unsubscribe = subscribeToPosts(eventId, {
@@ -477,7 +504,38 @@ export default function Wall() {
       onStatus: (s) => setSocketStatus(socketStatusFrom(s)),
     }, { visibleOnly: true });
     return unsubscribe;
-  }, [eventId, handleInsert, updatePost, removePost]);
+  }, [eventId, handleInsert, updatePost, removePost, preview]);
+
+  // Preview: the wizard sends the host's unsaved design and "beam a photo"
+  // requests. Same-origin parent only (lib/wallPreview).
+  const beamCount = useRef(0);
+  useEffect(() => {
+    if (!preview) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.source !== window.parent) return;
+      const msg = parseWallPreviewMessage(e.data);
+      if (msg === null) return;
+      if (msg.type === 'beamwall:wall-preview:beam') {
+        const post = previewArrival(previewSamples, beamCount.current);
+        beamCount.current += 1;
+        if (post === null) return;
+        const current = useStore.getState().posts;
+        if (current.length >= PREVIEW_MAX_POSTS) removePost(current[current.length - 1].id);
+        handleInsert(post);
+        return;
+      }
+      const prev = useStore.getState().wallSettings;
+      const next = { ...prev, ...msg.settings };
+      if (!sameWallArrangement(
+        normalizeWallLook(prev.wallLook, prev.galleryScroll),
+        normalizeWallLook(next.wallLook, next.galleryScroll),
+      )) setViewOverride(null);
+      setWallSettings(next);
+    };
+    window.addEventListener('message', onMessage);
+    window.parent.postMessage({ type: WALL_PREVIEW_READY }, window.location.origin);
+    return () => window.removeEventListener('message', onMessage);
+  }, [preview, previewSamples, handleInsert, removePost, setWallSettings]);
 
   // Clean up fresh-id timers on unmount
   useEffect(() => {
@@ -521,6 +579,7 @@ export default function Wall() {
   const pollTickRef = useRef(0);
 
   useEffect(() => {
+    if (preview) return;
     const id = setInterval(() => {
       pollTickRef.current += 1;
       const action = pollActionFor({
@@ -532,14 +591,14 @@ export default function Wall() {
       else if (action === 'incremental') void catchUp();
     }, POLL_TICK_MS);
     return () => clearInterval(id);
-  }, [fetchPosts, catchUp]);
+  }, [fetchPosts, catchUp, preview]);
 
   // Coming back from hidden: catch up once, immediately, instead of waiting
   // out a tick — the wall was away, so this is the moment it is most stale.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || preview) return;
     void catchUp();
-  }, [visible, catchUp]);
+  }, [visible, catchUp, preview]);
 
   // ----------------------------------------------------------------
   // Projection mode: dim chrome after 4 s of no mouse movement
@@ -721,6 +780,26 @@ export default function Wall() {
     ? { '--color-accent': chromeAccent, '--accent-rgb': accentRgb, '--pf-accent-rgb': accentRgb }
     : {};
 
+  // ── Host styling: cards, glow, corners, captions (lib/sceneThemes). Only
+  // rendered once the host moved off the defaults, so a wall that never
+  // chose a style paints exactly as it always did.
+  const styled = platform && (
+    hostLook.card !== 'classic' || hostLook.glow !== 'none' || hostLook.corners !== 'soft'
+    || !hostLook.captions || hostLook.glowColor !== undefined
+  );
+  const glowHex = wallGlowColor(
+    hostLook,
+    chromeAccent ?? (config.scene ? resolveScene(config.scene).accent : '#D4D6FF'),
+  );
+  const glowRgb = rgbTriplet(glowHex) ?? '212, 214, 255';
+  if (platform) {
+    platformVars['--wall-glow-rgb'] = glowRgb;
+    platformVars['--wall-radius'] = `calc(${WALL_CORNER_META[hostLook.corners].px}px * var(--wall-scale, 1))`;
+  }
+  /** Decor animates under reduced motion only in the host's preview, which
+   *  exists to show the movement. */
+  const decorAnimated = !reducedMotion || preview;
+
   // The grid fills its area exactly (no scroll), so unlike the scrolling
   // views it must stop above the footer QR codes and the phone tab bar.
   const [footerH, setFooterH] = useState(0);
@@ -870,6 +949,9 @@ export default function Wall() {
       style={{ '--wall-scale': viewport.scale, ...platformVars } as React.CSSProperties}
       // Light/dark chrome for platform walls ([data-wall-tone] in index.css).
       data-wall-tone={platform ? tone : undefined}
+      data-wall-card={styled ? hostLook.card : undefined}
+      data-wall-glow={styled && hostLook.glow !== 'none' ? hostLook.glow : undefined}
+      data-wall-captions={styled && !hostLook.captions ? 'off' : undefined}
     >
       {/* Background — always rendered.
           Projection mode used to RAISE particle density to 90. That is
@@ -879,9 +961,12 @@ export default function Wall() {
           drifting speckle competes with the photos instead of supporting them.
           It is now the quietest background of the three. */}
       {backdrop !== null ? (
-        <WallBackdrop scene={backdrop} animated={!reducedMotion} />
+        <WallBackdrop scene={backdrop} animated={decorAnimated} ambient={hostLook.ambient} />
       ) : (
-        <EventBackground density={projectionMode ? 45 : 70} />
+        <>
+          <EventBackground density={projectionMode ? 45 : 70} />
+          {platform && hostLook.ambient === 'sparkle' && decorAnimated && <WallTwinkles />}
+        </>
       )}
       {/* Light tone over the event's own (dark) background: frost it, so the
           light chrome sits on a light field instead of floating on night. */}
@@ -1278,6 +1363,9 @@ export default function Wall() {
             tileRects={tileRectsRef.current}
             onCarry={setCarriedIds}
             onDone={handleCeremonyDone}
+            variant={platform ? hostLook.beam : 'beam'}
+            glowColor={styled ? glowHex : undefined}
+            forceMotion={preview}
           />
         )}
       </AnimatePresence>
