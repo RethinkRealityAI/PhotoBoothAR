@@ -31,8 +31,8 @@
 /* Closed sets                                                         */
 /* ------------------------------------------------------------------ */
 
-export type CardRevealId = 'none' | 'envelope' | 'curtain' | 'airplane' | 'stardust';
-export const CARD_REVEAL_IDS = ['envelope', 'curtain', 'airplane', 'stardust', 'none'] as const;
+export type CardRevealId = 'none' | 'envelope' | 'ribbon' | 'curtain' | 'airplane' | 'stardust' | 'papercut';
+export const CARD_REVEAL_IDS = ['envelope', 'ribbon', 'curtain', 'airplane', 'stardust', 'papercut', 'none'] as const;
 
 export type CardEmailStyleId = 'glow' | 'sealed' | 'spotlight';
 export const CARD_EMAIL_STYLE_IDS = ['glow', 'sealed', 'spotlight'] as const;
@@ -56,15 +56,26 @@ export interface CardRevealOption {
   /** True when the reveal needs WebGL; without it the viewer falls back to
    *  REVEAL_WEBGL_FALLBACK so the moment still happens. */
   needsWebGL: boolean;
+  /** Occasions it suits, shown to hosts as a hint (never a restriction). */
+  goodFor: string;
 }
 
 export const CARD_REVEAL_OPTIONS: readonly CardRevealOption[] = [
   {
     id: 'envelope',
     label: 'Envelope',
-    description: 'A sealed envelope. Tap the seal, the flap lifts and the card rises out and unfolds.',
+    description: 'An embossed envelope with a wax seal. Tap the seal, light pours from the seams and the card rises out.',
     tier: 'standard',
     needsWebGL: false,
+    goodFor: 'Any occasion',
+  },
+  {
+    id: 'ribbon',
+    label: 'Satin ribbon',
+    description: 'A satin bow tied around the card. Pull it and the ribbon slips away to reveal what is inside.',
+    tier: 'standard',
+    needsWebGL: false,
+    goodFor: 'Weddings, anniversaries',
   },
   {
     id: 'curtain',
@@ -72,6 +83,7 @@ export const CARD_REVEAL_OPTIONS: readonly CardRevealOption[] = [
     description: 'The screen parts like stage doors and the card floats in 3D, turning gently in the light.',
     tier: 'premium',
     needsWebGL: true,
+    goodFor: 'Milestones, big celebrations',
   },
   {
     id: 'airplane',
@@ -79,6 +91,7 @@ export const CARD_REVEAL_OPTIONS: readonly CardRevealOption[] = [
     description: 'A paper airplane glides in, loops once and unfolds into the card in their hands.',
     tier: 'premium',
     needsWebGL: true,
+    goodFor: 'Birthdays, farewells, friends far away',
   },
   {
     id: 'stardust',
@@ -86,6 +99,15 @@ export const CARD_REVEAL_OPTIONS: readonly CardRevealOption[] = [
     description: 'A swirl of glowing particles gathers and condenses into the card.',
     tier: 'premium',
     needsWebGL: true,
+    goodFor: 'Any occasion',
+  },
+  {
+    id: 'papercut',
+    label: 'Pop-up paper',
+    description: 'Layers of cut paper spring up in depth and drift as the phone tilts, then part to show the card.',
+    tier: 'standard',
+    needsWebGL: false,
+    goodFor: 'Birthdays, kids, playful parties',
   },
   {
     id: 'none',
@@ -93,6 +115,7 @@ export const CARD_REVEAL_OPTIONS: readonly CardRevealOption[] = [
     description: 'No opening moment. The card is on screen the second the link opens.',
     tier: 'standard',
     needsWebGL: false,
+    goodFor: 'Quick notes',
   },
 ];
 
@@ -206,6 +229,25 @@ export function revealOption(id: CardRevealId): CardRevealOption {
  */
 export function playableReveal(id: CardRevealId, webgl: boolean): CardRevealId {
   return revealOption(id).needsWebGL && !webgl ? REVEAL_WEBGL_FALLBACK : id;
+}
+
+/**
+ * The wax-seal monogram: the recipient's initials (max 2), else the title's
+ * first letter, else a star. "Dapo" → "D", "Maya & Sam" → "MS",
+ * "dapo ajisafe" → "DA". Letters only (any script); never empty.
+ */
+export function cardMonogram(recipientName: string | null | undefined, title?: string | null): string {
+  const words = (s: string | null | undefined) =>
+    (s ?? '')
+      .split(/[^\p{L}]+/u)
+      .filter((w) => w.length > 0);
+  const fromName = words(recipientName)
+    .slice(0, 2)
+    .map((w) => w[0].toLocaleUpperCase())
+    .join('');
+  if (fromName !== '') return fromName;
+  const first = words(title)[0];
+  return first ? first[0].toLocaleUpperCase() : '✦';
 }
 
 /* ------------------------------------------------------------------ */

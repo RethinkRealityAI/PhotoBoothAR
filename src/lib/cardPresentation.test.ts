@@ -8,6 +8,7 @@ import {
   CARD_REVEAL_IDS,
   CARD_REVEAL_OPTIONS,
   DEFAULT_CARD_PRESENTATION,
+  cardMonogram,
   cardPalette,
   REVEAL_WEBGL_FALLBACK,
   normalizeCardPresentation,
@@ -120,5 +121,19 @@ describe('cardPalette', () => {
     const p = cardPalette('event', { '--color-accent': 'rgba(1,2,3,0.5)', '--color-brand-fg': 'var(--x)' });
     expect(p.accent).toBe(BEAMWALL_CARD_PALETTE.accent);
     expect(p.fg).toBe(BEAMWALL_CARD_PALETTE.fg);
+  });
+});
+
+describe('cardMonogram', () => {
+  it('initials from the recipient, max two', () => {
+    expect(cardMonogram('Dapo')).toBe('D');
+    expect(cardMonogram('dapo ajisafe')).toBe('DA');
+    expect(cardMonogram('Maya & Sam & Theo')).toBe('MS');
+    expect(cardMonogram('  Zoë  ')).toBe('Z');
+  });
+  it('falls back to the title, then a star — never empty', () => {
+    expect(cardMonogram(null, 'Happy birthday!')).toBe('H');
+    expect(cardMonogram('', '')).toBe('✦');
+    expect(cardMonogram('123', '!!')).toBe('✦');
   });
 });
