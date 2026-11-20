@@ -126,8 +126,9 @@ describe('ANCHOR_PRESETS_V2 (per-object anchorVersion: 2)', () => {
     expect(v2.leftEye).toEqual([3.16, 2.63, 3.5]);
     expect(v2.rightEye).toEqual([-3.16, 2.63, 3.5]);
     expect(v2.crown).toEqual([0, 10.3, -0.5]);
-    expect(v2.leftEar).toEqual([7.5, -2.9, -1.5]);
-    expect(v2.rightEar).toEqual([-7.5, -2.9, -1.5]);
+    // The measured lobe (earPoints EAR_LOBE_DEFAULT), not the face-mesh edge.
+    expect(v2.leftEar).toEqual([8.2, -2.3, -3.9]);
+    expect(v2.rightEar).toEqual([-8.2, -2.3, -3.9]);
     const moved = new Set(['leftEye', 'rightEye', 'crown', 'leftEar', 'rightEar']);
     for (const a of ANCHOR_PRESETS) {
       if (!moved.has(a.id)) expect(v2[a.id], a.id).toEqual(a.offset);

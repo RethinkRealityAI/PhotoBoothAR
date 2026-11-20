@@ -1987,6 +1987,9 @@ export default function Booth() {
                     // PLATFORM only: legacy surfaces (the engine resolver's own
                     // isLegacyFaceSurface) keep the live copy on screen, as shipped.
                     composited={(is3D || powerFxActive) && !isLegacyFaceSurface(source !== 'db')}
+                    // Group selfies: head pieces on every face 8th Wall tracks.
+                    // PLATFORM only, like `composited` (and a no-op outside 8th Wall).
+                    multiFace={is3D && !isLegacyFaceSurface(source !== 'db')}
                   />
                 )}
               </div>

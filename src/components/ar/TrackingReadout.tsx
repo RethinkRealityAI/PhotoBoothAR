@@ -18,7 +18,9 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   IS_LEGACY_BUILD,
+  extraFaceSlotCount,
   getActiveFaceEngineInfo,
+  getExtraFaces,
   subscribeFaceEngine,
 } from '../../lib/faceEngine';
 import { trackingReadoutEnabled } from '../../lib/faceEngine/engineSelect';
@@ -38,6 +40,8 @@ export default function TrackingReadout() {
   const [enabled] = useState(readoutEnabled);
   const info = useSyncExternalStore(subscribeFaceEngine, getActiveFaceEngineInfo, getActiveFaceEngineInfo);
   const [stats, setStats] = useState<TrackingStats | null>(null);
+  /** Multi-face: [faces tracked now, max] — null when the engine tracks one face only. */
+  const [faces, setFaces] = useState<[number, number] | null>(null);
 
   // Fresh numbers per engine: an engine switch restarts the window, so a
   // reading never mixes two engines' samples.
@@ -49,7 +53,15 @@ export default function TrackingReadout() {
       if (pos !== null && quat !== null) ring.pushPose(s.t, pos.x, pos.y, pos.z, quat.x, quat.y, quat.z, quat.w);
     });
     setStats(null);
-    const id = window.setInterval(() => setStats(ring.stats(performance.now())), 500);
+    const id = window.setInterval(() => {
+      const now = performance.now();
+      const st = ring.stats(now);
+      setStats(st);
+      const slots = extraFaceSlotCount();
+      // The primary counts while it produced a sample in the last second.
+      const extras = getExtraFaces().filter((e) => now - e.t < 1000).length;
+      setFaces(slots === 0 ? null : [(st.detectionsPerSec ?? 0) > 0 ? 1 + extras : 0, slots + 1]);
+    }, 500);
     return () => {
       window.clearInterval(id);
       setRawPoseTap(null);
@@ -77,6 +89,7 @@ export default function TrackingReadout() {
         <span className="text-brand-muted"> ({info.frameLockSource})</span>
       </div>
       {info.error !== null && <div className="text-brand-muted">error: {info.error}</div>}
+      {faces !== null && <div className="tabular-nums">faces: <b>{faces[0]}</b>/{faces[1]}</div>}
       <div className="tabular-nums">
         {fmt(stats?.detectionsPerSec ?? null, 1)} det/s · pos ±{fmt(stats?.posJitterCm ?? null, 2)} cm · rot ±{fmt(stats?.rotJitterDeg ?? null, 2)}°
       </div>
