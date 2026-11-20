@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, useNavigate } from 'react-router-dom';
 import {
   BookImage, Box, Check, ChevronDown, ChevronRight, FileUp, FolderTree, ImagePlus, LayoutGrid, List, Loader2, Lock, Maximize2,
-  Minimize2, Plus, RefreshCw, Search, Sparkles, Tag, Upload, Wand2, X,
+  Minimize2, Plus, RefreshCw, ScanFace, Search, Sparkles, Tag, Upload, Wand2, X,
 } from 'lucide-react';
 import {
   bulkUpdateLibraryItems,
@@ -96,6 +96,7 @@ import { useToast } from '../../components/ui/Toast';
 import CategoryManager from '../../components/admin/library/CategoryManager';
 import TagManager from '../../components/admin/library/TagManager';
 import ModelViewerModal, { type ViewerTarget } from '../../components/admin/library/ModelViewerModal';
+import TryOnModal, { type TryOnItem } from '../../components/admin/library/TryOnModal';
 import CategorySelect from '../../components/admin/library/CategorySelect';
 import { useHeldModel, useRenderedPictures } from '../../components/admin/library/useRenderedPictures';
 import AccessPicker, { accessSummary, sameAccess, type AccessValue } from '../../components/admin/library/AccessPicker';
@@ -348,6 +349,8 @@ interface DetailProps {
   capped: boolean;
   eventRow: EventModelRow | null;
   onView: (item: CmsItem) => void;
+  /** Wear it on the camera (3D library and event pieces); absent = not wearable. */
+  onTryOn?: (item: CmsItem) => void;
   onSaveLibrary: (item: CmsItem, patch: LibraryPatch) => Promise<boolean>;
   /** The server knows who-can-use-it (admin-api with migration 048). */
   accessReady: boolean;
@@ -416,6 +419,16 @@ function DetailPanel(p: DetailProps) {
         >
           <Maximize2 className="w-3.5 h-3.5" aria-hidden /> Larger
         </button>
+        {p.onTryOn && (
+          <button
+            type="button"
+            onClick={() => p.onTryOn?.(item)}
+            aria-label={`Try ${item.name} on with your camera`}
+            className="absolute top-2 left-2 inline-flex items-center gap-1.5 min-h-11 px-3.5 rounded-full bg-[color:var(--color-accent)] text-[color:var(--on-accent)] text-[11px] font-semibold shadow-lg"
+          >
+            <ScanFace className="w-4 h-4" aria-hidden /> Try on
+          </button>
+        )}
       </div>
       {item.modelUrl && (
         <p className="-mt-2 font-sans text-[11px] text-brand-muted/55">
@@ -645,6 +658,8 @@ export default function SharedLibrary() {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [mobileDetail, setMobileDetail] = useState(false);
   const [viewer, setViewer] = useState<ViewerTarget | null>(null);
+  // Try on: the id it opened on; the strip is the current filtered 3D list.
+  const [tryOnStart, setTryOnStart] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
   const [managingTags, setManagingTags] = useState(false);
   const [autoSort, setAutoSort] = useState(false);
@@ -730,6 +745,18 @@ export default function SharedLibrary() {
     [matched, rendered],
   );
   const counts = useMemo(() => cmsCounts(items, query, categories), [items, query, categories]);
+  // Everything wearable in the current view, in its order, so Try on flips
+  // through what the admin is looking at. Built-ins are code-placed and have
+  // no row to read, so they are left out.
+  const tryOnItems = useMemo<TryOnItem[]>(
+    () => visible
+      .filter((i) => i.modelUrl !== null && i.source !== 'builtin' && i.state !== 'withdrawn')
+      .map((i) => ({
+        id: i.id, name: i.name, thumb: i.thumb, saveable: i.source === 'library',
+        linkCount: i.linkCount, linkCapped: capped,
+      })),
+    [visible, capped],
+  );
   const active = useMemo(() => items.find((i) => i.key === activeKey) ?? null, [items, activeKey]);
   const selectedItems = useMemo(() => items.filter((i) => selected.has(i.key)), [items, selected]);
 
@@ -1066,6 +1093,7 @@ export default function SharedLibrary() {
       capped={capped}
       eventRow={active.source === 'event' ? eventRows.find((e) => e.id === active.id) ?? null : null}
       onView={openViewer}
+      onTryOn={tryOnItems.some((t) => t.id === active.id) ? (i) => setTryOnStart(i.id) : undefined}
       onSaveLibrary={saveLibrary}
       onState={(item, to) => setPending({ item, to })}
       onAddEvent={addEvent}
@@ -1569,6 +1597,9 @@ export default function SharedLibrary() {
       )}
 
       {viewer && <ModelViewerModal target={viewer} onClose={() => setViewer(null)} />}
+      {tryOnStart !== null && tryOnItems.length > 0 && (
+        <TryOnModal items={tryOnItems} startId={tryOnStart} onClose={() => setTryOnStart(null)} />
+      )}
 
       {managing && (
         <CategoryManager categories={categories} counts={ownCounts} onChange={setCategories} onClose={() => { setManaging(false); void load(); }} />

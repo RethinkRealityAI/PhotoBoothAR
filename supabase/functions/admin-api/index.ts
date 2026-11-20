@@ -61,6 +61,9 @@
  *                              audited; metadata only, never rendering content
  *   set_library_item_state   → { data: { id, state, linkCount } }
  *                              (args: { id, state: listed|retired|withdrawn|deleted }) — audited
+ *   set_library_item_fit     → { data: { id } } (args: { id, fit: { offset, rotation, scale } }) —
+ *                              audited; IN PLACE on the item's one worn piece (libraryImport
+ *                              applyItemFit). 400 invalid_args|not_fittable · 404 · 409 is_draft
  * Library workshop (migration 046) — edit a library item in the full Studio. The
  * Studio is event-scoped (slug-keyed load/save/uploads under tenant RLS), so each
  * admin gets a private draft event in an org they own, and an item is COPIED into
@@ -133,6 +136,7 @@ import {
   CLASSIFY_SYSTEM_PROMPT,
   DRAFT_LIST_MAX,
   IMPORT_BATCH_MAX,
+  applyItemFit,
   buildDraftRow,
   checkDraftAssetSwap,
   checkDraftConfig,
@@ -144,6 +148,7 @@ import {
   isDraftConfig,
   normalizeClassification,
   normalizeImportMeta,
+  normalizeItemFit,
   patchDraftConfig,
   publishedDraftConfig,
   replacedFileKeys,
@@ -1819,6 +1824,46 @@ async function updateLibraryItemMeta(
   return json(200, { data: { id } });
 }
 
+/**
+ * Try on's "Save fit": writes one worn piece's offset / rotation / scale onto
+ * a library item IN PLACE (owner decision 2026-11-20: every host and event
+ * using the item gets the new fit; the browser confirms with the link count
+ * first). Rendering key, so it is deliberately NOT update_library_item_meta.
+ * The anchor slot, the model and everything else are untouched
+ * (libraryImport.applyItemFit). Drafts are fitted on the import screen.
+ */
+async function setLibraryItemFit(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const id = typeof args.id === 'string' ? args.id : '';
+  const fit = normalizeItemFit(args.fit);
+  if (!UUID_RE.test(id) || !fit) return json(400, { error: 'invalid_args' });
+
+  const { data: row, error: readErr } = await sb
+    .from('experiences')
+    .select('id, config')
+    .eq('id', id)
+    .eq('is_global', true)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!row) return json(404, { error: 'not_found' });
+  if (isDraftConfig(row.config)) return json(409, { error: 'is_draft' });
+  const config = applyItemFit(row.config, fit);
+  if (!config) return json(400, { error: 'not_fittable' });
+
+  const { data, error } = await sb
+    .from('experiences')
+    .update({ config })
+    .eq('id', id)
+    .eq('is_global', true)
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return json(404, { error: 'not_found' });
+  await auditLog(sb, actorUserId, 'set_library_item_fit', 'experience', id, { fit });
+  return json(200, { data: { id } });
+}
+
 async function setLibraryItemState(
   sb: Client, actorUserId: string, args: Record<string, unknown>,
 ): Promise<Response> {
@@ -2988,6 +3033,8 @@ Deno.serve(async (req: Request) => {
         return await updateLibraryItemMeta(sb, user.id, args);
       case 'set_library_item_state':
         return await setLibraryItemState(sb, user.id, args);
+      case 'set_library_item_fit':
+        return await setLibraryItemFit(sb, user.id, args);
       case 'ensure_library_workshop':
         return await ensureLibraryWorkshop(sb, user.id);
       case 'open_library_item_in_workshop':
