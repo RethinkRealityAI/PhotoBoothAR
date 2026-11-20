@@ -8,6 +8,7 @@
 import type { ComponentType } from 'react';
 import type { EventBrief } from '../lib/eventBrief';
 import type { EventScene } from '../lib/sceneThemes';
+import type { TriggerConfig } from '../lib/studio/triggers';
 
 /** A single numbered step on the /join landing + onboarding. */
 export interface EventStep {
@@ -102,6 +103,10 @@ export interface EventConfig {
   /** Catalog id auto-applied when the booth opens if the admin hasn't set one
    *  (e.g. a signature frame). Admin's wallSettings.defaultExperienceId wins. */
   defaultExperienceId?: string;
+  /** Event-wide power-ups from the setup wizard (events.config.powerUps),
+   *  already resolved to booth triggers. Absent = none — merged after the
+   *  selected filter's own triggers (lib/wizard/powerUps). */
+  powerUps?: TriggerConfig[];
   /** CSS custom-property values for this event's theme (mirrors theme.css for
    *  the legacy coded events; sourced from events.config for DB events). The
    *  EventProvider applies these at runtime so themes no longer require a

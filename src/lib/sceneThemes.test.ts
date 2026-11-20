@@ -188,3 +188,17 @@ describe('wall look helpers', () => {
     expect(describeWallLook(normalizeWallLook(undefined))).toBe('Gallery · Event theme · Auto');
   });
 });
+
+describe('image fit (setup wizard fit tool)', () => {
+  const url = 'https://zrtftliozslrjomxbfrr.supabase.co/storage/v1/object/public/assets/ev/bg.jpg';
+  it('keeps a valid focal point + zoom and clamps it', () => {
+    const s = normalizeScene({ kind: 'image', url, dim: 0.3, fit: { x: 120, y: 20, zoom: 9 } });
+    expect(s).toMatchObject({ kind: 'image', fit: { x: 100, y: 20, zoom: 3 } });
+    expect(resolveScene(s).imagePlacement).toEqual({ x: 100, y: 20, zoom: 3 });
+  });
+  it('drops the default and junk so old scenes stay identical', () => {
+    expect(normalizeScene({ kind: 'image', url, dim: 0.3, fit: { x: 50, y: 50, zoom: 1 } })).not.toHaveProperty('fit');
+    expect(normalizeScene({ kind: 'image', url, dim: 0.3, fit: 'centre' })).not.toHaveProperty('fit');
+    expect(resolveScene(normalizeScene({ kind: 'image', url, dim: 0.3 })).imagePlacement).toBeUndefined();
+  });
+});

@@ -69,6 +69,11 @@ interface Props {
   onHandVisible?: (v: boolean) => void;
   onGizmoDragStart?: () => void;
   onGizmoDragEnd?: () => void;
+  /** Orbit only: a look-at-it stage instead of an editor (the host setup
+   *  wizard's camera-off preview). No anchor dots, its own background colour (opaque, so a captured stream has no black holes),
+   *  a gentle drag-to-turn (±45°), no pan/zoom, and a canvas that `captureStream()` can
+   *  read (`canvasId`). Default off — the studio is unchanged. */
+  showcase?: { canvasId: string; autoRotate?: boolean; background?: string };
 }
 
 /** Extra head space kept above the crown so tall pieces (top hats, halos,
@@ -251,6 +256,7 @@ export default function Studio3DView({
   onHandVisible,
   onGizmoDragStart,
   onGizmoDragEnd,
+  showcase,
 }: Props) {
   const [bustBounds, setBustBounds] = useState<BustBounds | null>(null);
   const [handFit, setHandFit] = useState<HandRefFit | null>(null);
@@ -368,6 +374,7 @@ export default function Studio3DView({
         // (the only in-studio readback is Text3DBuilder's own export canvas), and
         // it forces the driver to keep the back buffer alive after every frame.
         gl={{ antialias: true }}
+        onCreated={showcase ? ({ gl }) => { gl.domElement.id = showcase.canvasId; } : undefined}
         // Cap the render resolution. With no `dpr` R3F renders at the device's
         // full ratio — 3x on a modern laptop is ~9x the fragment work of 1x, for
         // a reference bust the host is placing a hat on. DirectorCards.tsx:140
@@ -379,12 +386,17 @@ export default function Studio3DView({
         {/* In-canvas Suspense: an async 3D child (font/asset fetch) must never
             suspend past the Canvas to the route boundary — that hides the app. */}
         <Suspense fallback={null}>
-        <color attach="background" args={['#05060B']} />
+        <color attach="background" args={[showcase?.background ?? '#05060B']} />
         {/* No fog: at the fitted head's framing every surface sits well inside
             the old 70-unit near plane, so it did nothing — and the moment the
             host zoomed out it ate the head and its anchor dots instead. */}
         {/* Target + distance are derived from the fitted mannequins by FrameScene. */}
-        <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
+        <OrbitControls
+          makeDefault
+          enableDamping
+          dampingFactor={0.1}
+          {...(showcase ? { enablePan: false, enableZoom: false, autoRotate: showcase.autoRotate === true, autoRotateSpeed: 0.9, minPolarAngle: Math.PI * 0.36, maxPolarAngle: Math.PI * 0.6, minAzimuthAngle: -0.8, maxAzimuthAngle: 0.8 } : {})}
+        />
         <FrameScene focus={focus} bust={bustBounds} hand={handFit} handOrigin={handOrigin} />
         {/* The shared rig — identical values to the booth's, so a crown tuned
             here does not change appearance the moment a guest wears it.
@@ -418,7 +430,7 @@ export default function Studio3DView({
         {/* Head-anchor dots hide while a HAND-tracked piece is selected — a
             stray tap must not look like it could yank a wand onto the head
             (switching families lives in Properties, an explicit control). */}
-        {shown.head && !(selected !== null && isHandAnchorId(selected.handAnchor)) && (
+        {showcase === undefined && shown.head && !(selected !== null && isHandAnchorId(selected.handAnchor)) && (
           <AnchorDots activeAnchor={activeAnchor} onSelect={onAnchorSelect} headScale={headScale} anchorVersion={selected?.anchorVersion} />
         )}
 

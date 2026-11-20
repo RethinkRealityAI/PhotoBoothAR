@@ -91,6 +91,11 @@ export default function SceneBackdrop({ scene, className = '', compact = false, 
             alt=""
             decoding="async"
             className="absolute inset-0 h-full w-full object-cover"
+            style={scene.imagePlacement ? {
+              objectPosition: `${scene.imagePlacement.x}% ${scene.imagePlacement.y}%`,
+              transform: scene.imagePlacement.zoom !== 1 ? `scale(${scene.imagePlacement.zoom})` : undefined,
+              transformOrigin: `${scene.imagePlacement.x}% ${scene.imagePlacement.y}%`,
+            } : undefined}
           />
         )
       )}

@@ -141,6 +141,27 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  *  line-art look — available, never the default. */
 export type SceneOrnament = 'none' | 'beams' | 'orbs' | 'grain' | 'gilded';
 
+/** How a full-bleed photo sits in the page (the setup wizard's fit tool).
+ *  x/y = the focal point in % of the image (0…100, what `object-position`
+ *  takes); zoom = 1…3 scale about that point. Absent = centred, no zoom. */
+export interface SceneImageFit {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+/** Coerce a stored fit; the default (centre, 1×) is dropped so old and new
+ *  scenes compare equal. */
+export function normalizeImageFit(raw: unknown): SceneImageFit | undefined {
+  if (!isRecord(raw)) return undefined;
+  const fit = {
+    x: Math.round(clamp(raw.x, 0, 100, 50) * 10) / 10,
+    y: Math.round(clamp(raw.y, 0, 100, 50) * 10) / 10,
+    zoom: Math.round(clamp(raw.zoom, 1, 3, 1) * 100) / 100,
+  };
+  return fit.x === 50 && fit.y === 50 && fit.zoom === 1 ? undefined : fit;
+}
+
 export type EventScene = (
   /** A curated template: palette + ornament, picked as one look. */
   | { kind: 'template'; id: string }
@@ -149,7 +170,7 @@ export type EventScene = (
   /** One solid colour. */
   | { kind: 'color'; color: string }
   /** A full-bleed photo, dimmed for legibility (0 = none … 0.8). */
-  | { kind: 'image'; url: string; dim: number; tone: SceneTone }
+  | { kind: 'image'; url: string; dim: number; tone: SceneTone; fit?: SceneImageFit }
   /** A frame artwork shown as the page backdrop over a palette. */
   | { kind: 'frame'; url: string; paletteId: string }
 ) & {
@@ -227,7 +248,14 @@ function normalizeSceneKind(raw: unknown): EventScene | undefined {
     case 'image': {
       const url = resolveSceneImageUrl(raw.url);
       if (!url) return undefined;
-      return { kind: 'image', url, dim: clamp(raw.dim, 0, 0.8, 0.35), tone: raw.tone === 'light' ? 'light' : 'dark' };
+      const fit = normalizeImageFit(raw.fit);
+      return {
+        kind: 'image',
+        url,
+        dim: clamp(raw.dim, 0, 0.8, 0.35),
+        tone: raw.tone === 'light' ? 'light' : 'dark',
+        ...(fit ? { fit } : {}),
+      };
     }
     case 'frame': {
       const url = resolveSceneImageUrl(raw.url);
@@ -248,6 +276,8 @@ export interface ResolvedScene {
   imageUrl?: string;
   /** 'cover' for photos, 'contain' for frame art. */
   imageFit?: 'cover' | 'contain';
+  /** Photo focal point + zoom (cover photos only; absent = centred, 1×). */
+  imagePlacement?: SceneImageFit;
   /** Legibility scrim over the image, 0…0.8. */
   dim: number;
   ornament: SceneOrnament;
@@ -286,6 +316,7 @@ export function resolveScene(scene: EventScene | undefined): ResolvedScene {
         background: scene.tone === 'light' ? '#F4F2FA' : '#14132E',
         imageUrl: scene.url,
         imageFit: 'cover',
+        ...(scene.fit ? { imagePlacement: scene.fit } : {}),
         dim: scene.dim,
         ornament: 'none',
         accent: scene.tone === 'light' ? '#2E2C7E' : '#FFFFFF',
