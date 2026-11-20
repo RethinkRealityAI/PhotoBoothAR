@@ -18,6 +18,8 @@ type RevealComponent = LazyExoticComponent<ComponentType<CardRevealProps>>;
 
 const REVEALS: Record<Exclude<CardRevealId, 'none'>, RevealComponent> = {
   envelope: lazy(() => import('./EnvelopeReveal')),
+  ribbon: lazy(() => import('./RibbonReveal')),
+  papercut: lazy(() => import('./PapercutReveal')),
   curtain: lazy(() => import('./CurtainReveal')),
   airplane: lazy(() => import('./AirplaneReveal')),
   stardust: lazy(() => import('./StardustReveal')),
