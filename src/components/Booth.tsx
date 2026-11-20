@@ -749,9 +749,21 @@ export default function Booth() {
   // primary (activeTriggerExp) silently dropped the other's. Dedupe by trigger
   // id; a composite sets attachExp === frameExp, so parse it once (single-source
   // scenes stay byte-identical — the one experience is the only one parsed).
+  // Event-wide power-ups (setup wizard) ride after the filter's own triggers,
+  // so a filter that already maps the same gesture keeps its own action
+  // (collectTriggers dedupes by id; power-up ids are prefixed). Absent on
+  // every event that never set them → the list below is unchanged.
+  const eventPowerUps = eventConfig.powerUps;
   const triggers = useMemo<TriggerConfig[]>(
-    () => (source !== 'db' ? [] : collectTriggers([attachExp, frameExp, effectExp])),
-    [source, attachExp, frameExp, effectExp],
+    () => (source !== 'db'
+      ? []
+      : collectTriggers([
+        attachExp,
+        frameExp,
+        effectExp,
+        eventPowerUps ? { id: 'event:powerUps', config: { triggers: eventPowerUps } } : null,
+      ])),
+    [source, attachExp, frameExp, effectExp, eventPowerUps],
   );
   const hasTriggers = triggers.length > 0;
 

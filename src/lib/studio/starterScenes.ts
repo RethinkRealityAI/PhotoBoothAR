@@ -33,13 +33,14 @@
 import { BORDER_MAP, toDataUrl } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 import { ANCHOR_VERSION_LATEST, migrateOffsetToV2 } from '../faceRig';
-import { BUNDLED_PROP_MAP, propAnchorConfig } from './bundledProps';
+import { BUNDLED_PROP_MAP, propAnchorConfig, type BundledProp } from './bundledProps';
 import { findLibraryAsset, assetTemplateOf } from './assetLibrary';
 import {
   createObject3D,
   createOverlay,
   deriveKind,
   initialDraft,
+  type Object3D,
   type StudioDraft,
   type StudioObject,
 } from './state';
@@ -395,6 +396,44 @@ export function starterPropUrl(scene: StarterScene): string | null {
  * The returned draft has NO `id` — loading a starter scene creates new,
  * unsaved work, exactly like duplicating.
  */
+/** A Living Face Paint layer as a studio object (also used by the setup wizard). */
+export function facePaintObject(facePaint: FacePaintSpec): Object3D {
+  return createObject3D('headpiece', {
+    proceduralId: FACE_PAINT_PROCEDURAL_ID,
+    name: 'Face Paint',
+    // Ignored by the paint layer (the mesh IS the face); a valid anchor keeps
+    // every legacy reader of the layer happy.
+    anchor: 'noseTip',
+    facePaint,
+  });
+}
+
+/**
+ * One bundled prop as a studio object, placed exactly as a shelf add places it.
+ * Shared by the starter scenes and the host setup wizard (which saves a lone
+ * prop or a custom filter from the same objects), so the two can never place
+ * the same hat differently.
+ */
+export function bundledPropObject(bundled: BundledProp, occlude: boolean): StudioObject {
+  return createObject3D('model', {
+    assetUrl: bundled.url,
+    name: bundled.name,
+    anchor: bundled.anchor,
+    finish: bundled.finish,
+    // Ride the v2 anchors exactly as a shelf add does (AssetsDock): the
+    // placement was tuned against v1, so it is converted to render at the
+    // same point. A v1 hat carrying the occluder hid the v2-less second
+    // piece in the live studio (elf ears vanished under the elf hat), so a
+    // starter and a shelf add must not differ here.
+    anchorConfig: (() => {
+      const cfg = propAnchorConfig(bundled);
+      return { ...cfg, offset: migrateOffsetToV2(bundled.anchor, cfg.offset, 1) };
+    })(),
+    anchorVersion: ANCHOR_VERSION_LATEST,
+    ...(occlude ? { occlusion: true } : {}),
+  });
+}
+
 export function buildStarterDraft(sceneId: string): StudioDraft | null {
   const preset = STARTER_SCENE_MAP[sceneId];
   if (!preset) return null;
@@ -448,23 +487,7 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
   // wraps the head, every 3D piece carries the flag so the one occluder mounts.
   const occludeScene = bundledProps.some((b) => b.occlude === true);
   for (const bundled of bundledProps) {
-    objects.push(createObject3D('model', {
-      assetUrl: bundled.url,
-      name: bundled.name,
-      anchor: bundled.anchor,
-      finish: bundled.finish,
-      // Ride the v2 anchors exactly as a shelf add does (AssetsDock): the
-      // placement was tuned against v1, so it is converted to render at the
-      // same point. A v1 hat carrying the occluder hid the v2-less second
-      // piece in the live studio (elf ears vanished under the elf hat), so a
-      // starter and a shelf add must not differ here.
-      anchorConfig: (() => {
-        const cfg = propAnchorConfig(bundled);
-        return { ...cfg, offset: migrateOffsetToV2(bundled.anchor, cfg.offset, 1) };
-      })(),
-      anchorVersion: ANCHOR_VERSION_LATEST,
-      ...(occludeScene ? { occlusion: true } : {}),
-    }));
+    objects.push(bundledPropObject(bundled, occludeScene));
   }
   if (bundledProps.length === 0 && preset.headPieceId) {
     const p = HEAD_PIECE_MAP[preset.headPieceId];
@@ -483,16 +506,7 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
   }
 
   const facePaint = preset.facePaint ? normalizeFacePaint(preset.facePaint) : null;
-  if (facePaint) {
-    objects.push(createObject3D('headpiece', {
-      proceduralId: FACE_PAINT_PROCEDURAL_ID,
-      name: 'Face Paint',
-      // Ignored by the paint layer (the mesh IS the face); a valid anchor keeps
-      // every legacy reader of the layer happy.
-      anchor: 'noseTip',
-      facePaint,
-    }));
-  }
+  if (facePaint) objects.push(facePaintObject(facePaint));
 
   const shaderId = preset.shaderId ?? 'none';
   if (objects.length === 0 && shaderId === 'none') return null;

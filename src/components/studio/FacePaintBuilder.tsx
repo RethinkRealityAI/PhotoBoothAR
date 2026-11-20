@@ -107,26 +107,45 @@ function readTheme(): ThemeColors {
   }
 }
 
+/** Draw a flat face wearing `spec` onto `out` (the production painter). */
+export function drawFacePaintThumb(out: CanvasRenderingContext2D, spec: FacePaintSpec, logo: LogoImage | null, size: number): void {
+  const paint = document.createElement('canvas');
+  paint.width = paint.height = size;
+  const pctx = paint.getContext('2d');
+  if (!pctx) return;
+  paintFacePaint(pctx, faceFrameFromUvs(STANDARD_FACE_UVS, size), spec, { logo, grain: size >= 256 });
+  out.clearRect(0, 0, size, size);
+  drawFaceBase(out, STANDARD_FACE_UVS, STANDARD_FACE_INDICES, size, baseFor(spec.colors));
+  // The paint only lands where there is face (the booth mesh does this for free).
+  out.save();
+  out.globalCompositeOperation = 'source-atop';
+  out.globalAlpha = spec.opacity;
+  out.drawImage(paint, 0, 0);
+  out.restore();
+}
+
+/** The same face as a PNG data URL (a row thumbnail), or null without a canvas. */
+export function facePaintThumbDataUrl(spec: FacePaintSpec, size = 192): string | null {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    if (!ctx) return null;
+    drawFacePaintThumb(ctx, spec, null, size);
+    return c.toDataURL('image/png');
+  } catch {
+    return null;
+  }
+}
+
 /** A flat face wearing `spec`, drawn by the production painter. */
-function FaceThumb({ spec, logo, size, className }: { spec: FacePaintSpec; logo: LogoImage | null; size: number; className?: string }) {
+export function FaceThumb({ spec, logo, size, className }: { spec: FacePaintSpec; logo: LogoImage | null; size: number; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const key = facePaintKey(spec);
   useEffect(() => {
     const out = ref.current?.getContext('2d');
     if (!out) return;
-    const paint = document.createElement('canvas');
-    paint.width = paint.height = size;
-    const pctx = paint.getContext('2d');
-    if (!pctx) return;
-    paintFacePaint(pctx, faceFrameFromUvs(STANDARD_FACE_UVS, size), spec, { logo, grain: size >= 256 });
-    out.clearRect(0, 0, size, size);
-    drawFaceBase(out, STANDARD_FACE_UVS, STANDARD_FACE_INDICES, size, baseFor(spec.colors));
-    // The paint only lands where there is face (the booth mesh does this for free).
-    out.save();
-    out.globalCompositeOperation = 'source-atop';
-    out.globalAlpha = spec.opacity;
-    out.drawImage(paint, 0, 0);
-    out.restore();
+    drawFacePaintThumb(out, spec, logo, size);
     // `spec` is read through `key`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, logo, size]);

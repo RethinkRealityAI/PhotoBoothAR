@@ -67,6 +67,7 @@ const Challenges = lazy(() => import('./components/admin/Challenges'));
 const HostLayout = lazy(() => import('./pages/host/HostLayout'));
 const EventsList = lazy(() => import('./pages/host/EventsList'));
 const NewEvent = lazy(() => import('./pages/host/NewEvent'));
+const EventWizard = lazy(() => import('./pages/host/wizard/EventWizard'));
 const Concierge = lazy(() => import('./pages/host/Concierge'));
 const Billing = lazy(() => import('./pages/host/Billing'));
 const HostSupport = lazy(() => import('./pages/host/Support'));
@@ -321,9 +322,14 @@ export default function App() {
               <Route path="/brand" element={<BrandPage />} />
 
               {/* Host platform (session-gated) */}
+              {/* The setup wizard: full-screen, its own session gate. A new
+                  event starts here; /host/new/assistant keeps the AI
+                  concierge (the previous /host/new) one link away. */}
+              <Route path="/host/new" element={<EventWizard />} />
+              <Route path="/host/setup/:eventId/:step?" element={<EventWizard />} />
               <Route path="/host" element={<HostLayout />}>
                 <Route index element={<EventsList />} />
-                <Route path="new" element={<NewEvent />} />
+                <Route path="new/assistant" element={<NewEvent />} />
                 <Route path="concierge" element={<Concierge />} />
                 <Route path="billing" element={<Billing />} />
                 <Route path="support" element={<HostSupport />} />

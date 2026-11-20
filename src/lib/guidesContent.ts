@@ -986,8 +986,9 @@ const FIRST_EVENT: GuideDoc = {
     {
       kind: 'prose',
       body: [
-        'You do not build an event here so much as describe one. Tell the Concierge what the night is — "a 40th birthday, garden party, pink and gold" — and it designs the whole thing: the look, a frame, a wall, a set of challenges. You can also just hand it a photo of your invitation and let it read the palette off that. Not in the mood to decide? Say "you decide" — or press Set it all up for me on the plan card — and it chooses everything still open, tells you in one line what it picked, and points you at Create.',
-        'Then you adjust what you want and go live. Guests scan a QR code and their camera opens in the browser. Nothing to install, on any phone.',
+        'Press New event and a short guided setup walks you through it, one screen at a time: the name and date, your welcome page, the looks guests can try on, power-ups, photo challenges and your live wall. A live preview sits beside every step — your camera if you switch it on, or a 3D head wearing your picks if not — so you see what guests will see before you commit to anything.',
+        'Everything saves as you go. Close the tab halfway through and your dashboard shows Continue setup on the event, with how far you got. Rather describe it in a sentence? Use the assistant link on the first screen and the Concierge designs it for you instead.',
+        'Then you go live. Guests scan a QR code and their camera opens in the browser. Nothing to install, on any phone.',
       ],
     },
     {
@@ -995,14 +996,14 @@ const FIRST_EVENT: GuideDoc = {
       title: 'Six steps to a live booth',
       steps: [
         {
-          title: 'Describe your event',
-          body: `Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that. The plan card has a box ticked for you, Start with a challenge pack + a keepsake card: leave it on and your event opens with ${GUIDE_COUNTS.starterPackMissions} ready-made photo missions and a card guests can sign, from the starter pack that matches your style — Wedding, Gala, Birthday, Corporate or Party. Untick it to start empty. Rather not chat? Press Fill in manually and type the name, the kind of event and the date yourself — you get the same event either way. If the AI designer is ever unavailable, the Concierge says why in plain words and builds from a quick template match instead; you can change all of it later.`,
-          tip: 'Be specific about mood and colour. "Elegant, ivory and gold, evening" gets you much further than "wedding".',
+          title: 'Name it and pick a date',
+          body: `Type the event’s name, say what you are celebrating (wedding, birthday, party, gala or a work event) and pick the date — or tick Not sure yet. That one choice sets sensible starting colours, frames and challenge ideas, so nothing starts blank. Then design the welcome page guests land on when they scan: a template, a gradient or a single colour, or a photo of your own with a fit tool that shows it on a phone and on the live wall at once. Add a border and a line of welcome in your own words. After the looks and power-ups, tap any of the ${GUIDE_COUNTS.starterPackMissions} challenge ideas for your occasion to add it, or write your own. Last, set up your live wall — the photo wall on a TV or projector at the event. Start from a style (Beamwall, Aurora, Neon night, Gallery and more), then make it yours: the layout (Grid, Gallery, Scrolling, Carousel or Slideshow), the background (your welcome page, a gradient, a plain colour or your own photo), the photo cards (liquid glass, clean, polaroid or neon, with a glow in any colour), how a new photo arrives (a beam, a sparkle or a reveal) and whether it shows the QR code, a spotlight, the leaderboard and the challenges. The preview beside it is your real live wall with sample photos — press Beam a photo to watch one land.`,
+          tip: 'Use a photo at least 1600 pixels on its long side for the welcome page. The setup warns you if yours will look soft on the live wall.',
         },
         {
-          title: 'Pick your frames & filters',
-          body: 'The moment your event exists you land on Pick your frames & filters, already filled in with the set that suits your occasion. Above them, Ready-made looks shows complete designs from Beamwall — some with 3D props guests wear — with the ones that fit your occasion, colours and season first (a December date or “Christmas” in the name puts the Christmas looks on top). Tap a look to add it and guests can pick it straight away; tap again to take it off. For the frames and filters below, tap any one to switch it on or off — guests can choose from everything you leave on — press Open with this under the frame the booth should start with, then Save frames & filters. The same picker sits at the top of your event’s Frames & filters tab, so you can change your mind any time. Nothing to design, nothing to upload.',
-          tip: 'Want a frame with your names on it? Make a frame with AI, just below the picker in Frames & filters, does it in about a minute — your first 3 are free.',
+          title: 'Pick the looks and filters',
+          body: 'On Looks, the tabs are Frames, 3D props, Face paint and Effects. Narrow a tab with the occasion menu (wedding, birthday, party and more) and the quick pills, then tap anything to offer it to guests — it goes straight onto the preview so you can see it on a face. Add all or Clear works on whatever is showing. Below that, Filters bundle a whole look into one tap: switch on a ready-made filter, or press Make your own filter, name it, and pick a frame, up to four props, a face paint and an effect, all on one screen. Open with this chooses the filter the booth starts on. Power-ups adds gestures that work with every look — a smile showers sparkles, an open mouth pops confetti, and hand gestures set off hearts, fireworks or a beam — each with a Preview button so you can see it first.',
+          tip: 'Want a frame with your names on it? Make a frame with AI in your event’s Frames & filters does it in about a minute — your first 3 are free.',
         },
         {
           title: 'Work the checklist',
