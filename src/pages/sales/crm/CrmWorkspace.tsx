@@ -276,7 +276,7 @@ export default function CrmWorkspace({
   const dueNow = summary.overdue + summary.dueToday;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-3 sm:px-4 py-4 sm:py-6 font-sans">
+    <div className="mx-auto w-full max-w-[1600px] px-3 sm:px-6 lg:px-8 py-4 sm:py-6 font-sans">
       {/* ── Today ── */}
       <section aria-label="Today" className="liquid-glass-raised rounded-3xl p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-4">
@@ -390,7 +390,7 @@ export default function CrmWorkspace({
         </div>
       )}
 
-      <div className="mt-3 lg:grid lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] lg:gap-4 lg:items-start">
+      <div className="mt-3 lg:grid lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,440px)_minmax(0,1fr)] lg:gap-4 xl:gap-6 lg:items-start">
         {/* ── List ── */}
         <section aria-label="Prospects" className={selected !== null ? 'hidden lg:block' : ''}>
           {!loaded ? (
@@ -428,7 +428,7 @@ export default function CrmWorkspace({
         <section
           ref={detailRef}
           aria-label="Prospect details"
-          className={`${selected === null ? 'hidden lg:block' : ''} scroll-mt-36 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:overscroll-contain rounded-3xl`}
+          className={`${selected === null ? 'hidden lg:block' : ''} scroll-mt-36 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:overscroll-contain rounded-3xl`}
         >
           {selected === null ? (
             <div className="liquid-glass rounded-3xl p-10 text-center">

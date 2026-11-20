@@ -118,12 +118,16 @@ const Guides = import.meta.env.VITE_EVENT
  * Internal partnerships hub (hidden link) + prospect-facing pitch decks.
  * Runtime-mode only and folded out of legacy builds exactly like Guides above.
  * The hub page itself is open by design (owner's call: "a hidden link"); the
- * CRM inside it signs in and is protected by RLS (migration 041), because it
+ * CRM (its own page under the hub path) signs in and is protected by RLS (migration 041), because it
  * holds third parties' contact details.
  */
 const SalesHub = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/sales/SalesHub'));
+/** The sales CRM as its own full page (sign-in + RLS, migrations 041/042). */
+const SalesCrmPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/sales/CrmPage'));
 const PitchPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/sales/PitchPage'));
@@ -315,6 +319,7 @@ export default function App() {
                   Rollup hoist the whole sales contract into the eager entry chunk.
                   salesHub.test.ts asserts this literal matches SALES_HUB_PATH. */}
               <Route path="/hub/p7m2k9qx" element={<SalesHub />} />
+              <Route path="/hub/p7m2k9qx/crm" element={<SalesCrmPage />} />
               <Route path="/pitch/:slug" element={<PitchPage />} />
               <Route path="/book/:ref" element={<BookPage />} />
               <Route path="/try/:kit" element={<TryPage />} />
