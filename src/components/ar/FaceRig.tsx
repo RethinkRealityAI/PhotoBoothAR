@@ -9,7 +9,7 @@ import { createContext, useContext, useMemo, useRef, useEffect, useState, ReactN
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { initFaceEngine, getTrackedEars } from '../../lib/faceEngine';
-import { updateHeadPose, detectFaceNow, scaledAnchorBase, anchorOffset, normalizeAnchorVersion } from '../../lib/faceRig';
+import { updateHeadPose, updateExtraHeadPose, detectFaceNow, scaledAnchorBase, anchorOffset, normalizeAnchorVersion } from '../../lib/faceRig';
 import { loadModel } from '../../lib/glbCache';
 import { describeGlbError } from '../../lib/glbErrors';
 import { resolveFinish, resolveFinishForRegionTint, type FinishOverride } from '../../lib/studio/finish';
@@ -495,6 +495,7 @@ export function FaceRig({
   headScale = 1,
   anchorVersion,
   debugOcclusion = false,
+  faceSlot = 0,
   matrixRef,
   onVisibilityChange,
   onTransformChange,
@@ -505,6 +506,13 @@ export function FaceRig({
   videoId: string;
   anchor: HeadAnchor;
   config?: Partial<AnchorConfig>;
+  /**
+   * MULTI-FACE. 0 (the default, every existing caller) = the primary tracked face,
+   * exactly as before. 1..2 = an extra face (faceRig.updateExtraHeadPose): this rig
+   * never runs detection (the primary rig does), its ears and occluder are the
+   * static ones, and it is never editable.
+   */
+  faceSlot?: number;
   /** The piece's anchor calibration version (faceRig ANCHOR_PRESETS_V2); absent
    *  = v1, which is every saved scene and legacy event. */
   anchorVersion?: number;
@@ -537,7 +545,9 @@ export function FaceRig({
   // Ear anchors at the current calibration ride the guest's real ears (v1 —
   // every legacy event and old saved scene — keeps its fixed point).
   const onEarAnchor = (anchor === 'leftEar' || anchor === 'rightEar') && normalizeAnchorVersion(anchorVersion) === 2;
-  const liveEar = onEarAnchor && !holdPose;
+  const extra = faceSlot > 0;
+  // The tracked ears are the PRIMARY guest's: an extra face keeps the static lobe.
+  const liveEar = onEarAnchor && !holdPose && !extra;
   const [ear, setEar] = useState<{ self: EarVec; other: EarVec } | null>(null);
   const earRef = useRef<{ self: EarVec; other: EarVec } | null>(null);
 
@@ -561,6 +571,15 @@ export function FaceRig({
   useFrame(() => {
     const group = head.current;
     if (!group) return;
+    if (extra) {
+      const shown = updateExtraHeadPose(group, faceSlot, mirror);
+      group.visible = shown;
+      if (shown !== visibleRef.current) {
+        visibleRef.current = shown;
+        onVisibilityChange?.(shown);
+      }
+      return;
+    }
     const video = document.getElementById(videoId) as HTMLVideoElement | null;
     if (holdPose) {
       // Keep DETECTING — blendshapes, the trigger engine and the head-fit
@@ -625,11 +644,11 @@ export function FaceRig({
     <group ref={head} visible={false}>
       {/* Depth-only head: a sibling of the asset (NOT inside the gizmo) so the
           real head occludes props regardless of the prop's placement. */}
-      {occlude && <FaceOccluder scale={headScale} debug={debugOcclusion} live mirror={mirror} />}
+      {occlude && <FaceOccluder scale={headScale} debug={debugOcclusion} live={!extra} mirror={mirror} />}
       <AssetGizmo
         base={base}
         config={config ?? {}}
-        enabled={editable}
+        enabled={editable && !extra}
         onChange={onTransformChange}
         onDragStart={onGizmoDragStart}
         onDragEnd={onGizmoDragEnd}

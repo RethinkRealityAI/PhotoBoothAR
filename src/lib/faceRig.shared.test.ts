@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as THREE from 'three';
-import type { FaceSample } from './faceEngine/types';
+import type { ExtraFace, FaceSample } from './faceEngine/types';
 
 /* faceRig's pose path against a scripted engine: the manager is replaced so
  * each test decides which sample (if any) the next poll hands over, and
@@ -9,6 +9,8 @@ const eng = vi.hoisted(() => ({
   next: null as FaceSample | null,
   legacy: false,
   locked: false,
+  /** Multi-face: the extras handed over with the current sample. */
+  extras: [] as ExtraFace[],
 }));
 vi.mock('./faceEngine', () => ({
   pollFaceEngine: () => {
@@ -19,6 +21,7 @@ vi.mock('./faceEngine', () => ({
   faceInferenceMs: () => -Infinity,
   isLegacyFaceSession: () => eng.legacy,
   isFrameLockActive: () => eng.locked,
+  getExtraFaces: () => eng.extras,
 }));
 
 type Rig = typeof import('./faceRig');
@@ -41,7 +44,7 @@ let stream = { id: 'front' };
 const video = () => ({ readyState: 4, get srcObject() { return stream; } }) as unknown as HTMLVideoElement;
 
 beforeEach(async () => {
-  Object.assign(eng, { next: null, legacy: false, locked: false });
+  Object.assign(eng, { next: null, legacy: false, locked: false, extras: [] });
   stream = { id: 'front' };
   now = 1000;
   vi.resetModules();
@@ -203,6 +206,94 @@ describe('shared head-pose filter (platform)', () => {
     now = 1143;
     expect(rig.updateHeadPose(g, v, false)).toBe(true);
     expect(g.position.x).toBeCloseTo(-2, 9); // snapped, not glided from the old camera's 4
+  });
+});
+
+describe('extra faces (multi-face, platform)', () => {
+  const extra = (id: number, slot: number, t: number, x: number, yaw = 0): ExtraFace => ({
+    id, slot, t, matrix: new Float32Array(poseMatrix(x, 0, -60, yaw)),
+  });
+
+  it('an extra face gets its own pose, independent of the primary', () => {
+    const v = video();
+    const primary = new THREE.Group();
+    const other = new THREE.Group();
+    feed(1000, 3);
+    eng.extras = [extra(7, 1, 1000, -10)];
+    rig.updateHeadPose(primary, v, false);
+    expect(rig.updateExtraHeadPose(other, 1, false)).toBe(true);
+    expect(primary.position.x).toBeCloseTo(3, 9);
+    expect(other.position.x).toBeCloseTo(-10, 9);
+    expect(other.position.z).toBeCloseTo(-60, 9);
+    expect(rig.updateExtraHeadPose(new THREE.Group(), 2, false)).toBe(false); // empty slot
+  });
+
+  it('mirrors exactly like the primary', () => {
+    const v = video();
+    feed(1000, 0);
+    eng.extras = [extra(7, 1, 1000, 4, 0.3)];
+    rig.updateHeadPose(new THREE.Group(), v, false);
+    const plain = new THREE.Group();
+    const mirrored = new THREE.Group();
+    rig.updateExtraHeadPose(plain, 1, false);
+    rig.updateExtraHeadPose(mirrored, 1, true);
+    expect(mirrored.position.x).toBe(-plain.position.x);
+    expect(mirrored.quaternion.y).toBe(-plain.quaternion.y);
+    expect(mirrored.quaternion.w).toBe(plain.quaternion.w);
+  });
+
+  it('is smoothed per slot, and a new PERSON in the slot snaps instead of gliding', () => {
+    const v = video();
+    const g = new THREE.Group();
+    for (let i = 0; i < 5; i++) {
+      now = 1000 + i * 33;
+      feed(now, 0);
+      eng.extras = [extra(7, 1, now, i * 2)];
+      rig.updateHeadPose(new THREE.Group(), v, false);
+    }
+    rig.updateExtraHeadPose(g, 1, false);
+    expect(g.position.x).toBeLessThan(8); // standard filter trails the 8cm raw position
+    now = 1165;
+    feed(now, 0);
+    eng.extras = [extra(9, 1, now, -20)]; // somebody else took slot 1
+    rig.updateHeadPose(new THREE.Group(), v, false);
+    rig.updateExtraHeadPose(g, 1, false);
+    expect(g.position.x).toBeCloseTo(-20, 9);
+  });
+
+  it('hides HOLD_MS after the face stops being handed over', () => {
+    const v = video();
+    const g = new THREE.Group();
+    feed(1000, 0);
+    eng.extras = [extra(7, 1, 1000, 5)];
+    rig.updateHeadPose(new THREE.Group(), v, false);
+    eng.extras = [];
+    now = 1400;
+    expect(rig.updateExtraHeadPose(g, 1, false)).toBe(true);
+    now = 1600;
+    expect(rig.updateExtraHeadPose(g, 1, false)).toBe(false);
+  });
+
+  it('legacy never shows an extra face', () => {
+    eng.legacy = true;
+    feed(1000, 0);
+    eng.extras = [extra(7, 1, 1000, 5)];
+    rig.updateHeadPose(new THREE.Group(), video(), false);
+    expect(rig.updateExtraHeadPose(new THREE.Group(), 1, false)).toBe(false);
+  });
+
+  it('a promoted primary (subjectChanged) snaps the shared filter instead of gliding', () => {
+    const v = video();
+    const g = new THREE.Group();
+    for (let i = 0; i < 5; i++) {
+      now = 1000 + i * 33;
+      feed(now, 0);
+      rig.updateHeadPose(g, v, false);
+    }
+    now = 1165;
+    eng.next = { t: now, matrix: poseMatrix(15, 0, -40, 0), blendshapes: {}, keypoints: null, subjectChanged: true };
+    rig.updateHeadPose(g, v, false);
+    expect(g.position.x).toBeCloseTo(15, 9);
   });
 });
 

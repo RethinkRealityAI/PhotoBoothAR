@@ -35,9 +35,11 @@ import {
   type ResolvedMode,
 } from './engineSelect';
 
-export type { FaceTrackingMode, FaceSample } from './types';
+export type { FaceTrackingMode, FaceSample, ExtraFace } from './types';
+import type { ExtraFace } from './types';
 import { claimFrameInference } from './inferenceToken';
 import { estimateEars, type EarEstimate } from './earPoints';
+import { readMaxFacesOverride, resolveMaxFaces } from './multiFace';
 export { claimFrameInference, FRAME_INFERENCE_TOKEN } from './inferenceToken';
 
 /** Long enough for a cold 8th Wall download + wasm compile on a mid phone over
@@ -139,6 +141,8 @@ let lastPoseT = Number.NaN;
 let xr8: FaceEngine | null = null;
 let xr8Status: Status = 'idle';
 let xr8Reason: string | null = null;
+/** maxFaces the current/last 8th Wall engine was created with (multiFace.ts). */
+let xr8MaxFaces = 1;
 /** A surface has asked for tracking at least once (nothing loads before that). */
 let wanted = false;
 let reportedFallback = false;
@@ -322,9 +326,15 @@ function startXr8(): void {
       XR8_INIT_TIMEOUT_MS,
     );
   });
+  // Fixed per engine: 8th Wall reads maxDetections only before it runs.
+  const maxFaces = resolveMaxFaces({
+    legacy: isLegacyFaceSession(),
+    url: typeof window !== 'undefined' ? readMaxFacesOverride(window.location.search) : null,
+  });
   const boot = (async () => {
     const { createXr8Engine } = await import('./xr8Engine');
-    engine = createXr8Engine();
+    engine = createXr8Engine({ maxFaces });
+    xr8MaxFaces = maxFaces;
     pendingXr8 = engine;
     prewarmPending(); // before init(): the session binds the real <video>, not a placeholder
     await engine.init();
@@ -541,6 +551,36 @@ export function getTrackedEars(): EarEstimate {
     }
   }
   return estimateEars(null);
+}
+
+/** The xr8 engine's optional multi-face surface (structural, like MeshSource). */
+interface ExtraFaceSource {
+  getExtraFaces?(): readonly ExtraFace[];
+}
+const NO_EXTRA_FACES: readonly ExtraFace[] = [];
+
+/**
+ * MULTI-FACE: how many extra faces (beside the primary) can be tracked right now —
+ * 0 unless an 8th Wall engine created with maxFaces > 1 is the ACTIVE pose engine,
+ * and always 0 on a legacy session. Surfaces size their extra rigs from this.
+ */
+export function extraFaceSlotCount(): number {
+  if (isLegacyFaceSession() || !faceMeshAvailable()) return 0;
+  return Math.max(0, xr8MaxFaces - 1);
+}
+
+/**
+ * The faces tracked beside the primary, handed over with the last pose sample
+ * (same frame), in the contract convention. Empty outside the 8th Wall family,
+ * on legacy, and when only one face is tracked. Never throws.
+ */
+export function getExtraFaces(): readonly ExtraFace[] {
+  if (extraFaceSlotCount() === 0) return NO_EXTRA_FACES;
+  try {
+    return (xr8 as ExtraFaceSource).getExtraFaces?.() ?? NO_EXTRA_FACES;
+  } catch {
+    return NO_EXTRA_FACES;
+  }
 }
 
 /** Main-thread ms of MediaPipe's latest frame staging (snapshot + downscale). Diagnostics. */

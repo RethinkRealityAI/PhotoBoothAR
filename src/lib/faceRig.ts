@@ -22,7 +22,7 @@ import * as THREE from 'three';
 import { HeadAnchor } from '../types';
 import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
 import { SteadyPoseFilter } from './steadyPoseFilter';
-import { faceInferenceMs, isFrameLockActive, isLegacyFaceSession, pollFaceEngine } from './faceEngine';
+import { faceInferenceMs, getExtraFaces, isFrameLockActive, isLegacyFaceSession, pollFaceEngine } from './faceEngine';
 import type { FaceKeypoints, FaceSample } from './faceEngine/types';
 
 export interface AnchorPreset {
@@ -456,6 +456,118 @@ function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
   _sfHas = true;
 }
 
+/* ── Extra faces (multi-face, platform 8th Wall only) ───────────────────────
+ * Faces tracked BESIDE the primary (faceEngine getExtraFaces) each get their
+ * OWN filter state, keyed by slot, stepped on the same NEW samples as the
+ * primary's shared filter and with the same profile choice (frame-locked:
+ * steady/bypass/light; unlocked: standard). A slot that changes person snaps.
+ * The primary's state above is untouched by any of this.
+ */
+interface ExtraPoseState {
+  id: number;
+  seen: number;
+  has: boolean;
+  lastT: number;
+  cfgKey: string;
+  steady: SteadyPoseFilter;
+  pos: OneEuroVec3;
+  quat: OneEuroQuat;
+  scale: OneEuroVec3;
+  outPos: THREE.Vector3;
+  outQuat: THREE.Quaternion;
+  outScale: THREE.Vector3;
+}
+const _extras: ExtraPoseState[] = [];
+const _xPos = new THREE.Vector3();
+const _xQuat = new THREE.Quaternion();
+const _xScale = new THREE.Vector3();
+const _xMat = new THREE.Matrix4();
+
+function extraState(slot: number): ExtraPoseState {
+  let st = _extras[slot - 1];
+  if (st === undefined) {
+    st = {
+      id: Number.NaN, seen: 0, has: false, lastT: Number.NaN, cfgKey: '',
+      steady: new SteadyPoseFilter(),
+      pos: new OneEuroVec3(POS_FILTER), quat: new OneEuroQuat(ROT_FILTER), scale: new OneEuroVec3(SCALE_FILTER),
+      outPos: new THREE.Vector3(), outQuat: new THREE.Quaternion(), outScale: new THREE.Vector3(1, 1, 1),
+    };
+    _extras[slot - 1] = st;
+  }
+  return st;
+}
+
+/** Step every extra face handed over with the primary sample just taken. Platform only. */
+function stepExtraFaces(): void {
+  const list = getExtraFaces();
+  if (list.length === 0) return;
+  const lock = isFrameLockActive();
+  const key = lock ? `lock:${_lockProfile}` : 'standard';
+  for (const e of list) {
+    if (!(e.slot >= 1) || !Number.isFinite(e.t)) continue;
+    const st = extraState(e.slot);
+    if (st.has && e.t <= st.lastT && st.id === e.id) continue; // already stepped
+    if (key !== st.cfgKey) {
+      st.cfgKey = key;
+      const light = lock && _lockProfile === 'light';
+      st.pos = new OneEuroVec3(light ? FRAMELOCK_POS_LIGHT : POS_FILTER);
+      st.quat = new OneEuroQuat(light ? FRAMELOCK_ROT_LIGHT : ROT_FILTER);
+      st.scale = new OneEuroVec3(SCALE_FILTER);
+      st.has = false;
+    }
+    // A different person in this slot, or a long gap: snap, never glide.
+    if (!st.has || st.id !== e.id || e.t - st.seen > HOLD_MS) {
+      st.pos.reset();
+      st.quat.reset();
+      st.scale.reset();
+      st.steady.reset();
+      st.lastT = Number.NaN;
+    }
+    st.id = e.id;
+    _xMat.fromArray(e.matrix);
+    _xMat.decompose(_xPos, _xQuat, _xScale); // raw, un-mirrored
+    const dtSec = Math.min(Math.max(Number.isFinite(st.lastT) ? e.t - st.lastT : 0, 1), 100) / 1000;
+    st.lastT = e.t;
+    st.seen = e.t;
+    _fpIn[0] = _xPos.x; _fpIn[1] = _xPos.y; _fpIn[2] = _xPos.z;
+    _fqIn[0] = _xQuat.x; _fqIn[1] = _xQuat.y; _fqIn[2] = _xQuat.z; _fqIn[3] = _xQuat.w;
+    _fsIn[0] = _xScale.x; _fsIn[1] = _xScale.y; _fsIn[2] = _xScale.z;
+    if (key === 'lock:bypass') {
+      st.outPos.copy(_xPos);
+      st.outQuat.copy(_xQuat);
+    } else if (key === 'lock:steady') {
+      st.steady.filter(_fpIn, _fqIn, dtSec, _fpOut, _fqOut);
+      st.outPos.set(_fpOut[0], _fpOut[1], _fpOut[2]);
+      st.outQuat.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
+    } else {
+      st.pos.filter(_fpIn, dtSec, _fpOut);
+      st.quat.filter(_fqIn, dtSec, _fqOut);
+      st.outPos.set(_fpOut[0], _fpOut[1], _fpOut[2]);
+      st.outQuat.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
+    }
+    st.scale.filter(_fsIn, dtSec, _fsOut);
+    st.outScale.set(_fsOut[0], _fsOut[1], _fsOut[2]);
+    st.has = true;
+  }
+}
+
+/**
+ * MULTI-FACE: put `group` on extra face `slot` (1..2), mirrored like
+ * updateHeadPose. Detection is NOT run here — the primary rig's updateHeadPose
+ * drives it, and the extras are stepped with each new primary sample. Returns
+ * false (hide) on a legacy session, for an empty slot, and after HOLD_MS
+ * without a sighting.
+ */
+export function updateExtraHeadPose(group: THREE.Object3D, slot: number, mirror: boolean): boolean {
+  if (isLegacyFaceSession()) return false;
+  const st = _extras[slot - 1];
+  if (st === undefined || !st.has || performance.now() - st.seen > HOLD_MS) return false;
+  group.position.set(mirror ? -st.outPos.x : st.outPos.x, st.outPos.y, st.outPos.z);
+  group.quaternion.set(st.outQuat.x, mirror ? -st.outQuat.y : st.outQuat.y, mirror ? -st.outQuat.z : st.outQuat.z, st.outQuat.w);
+  group.scale.copy(st.outScale);
+  return true;
+}
+
 /**
  * Forget the tracked face: cached pose, every filter, keypoints, blendshapes
  * (to "no face", so triggers decay), and the head-fit window. Called on a
@@ -471,6 +583,7 @@ export function resetFaceRig(): void {
   _sf.scale.reset();
   _steady.reset();
   _sf.lastT = Number.NaN;
+  for (const st of _extras) if (st !== undefined) st.has = false;
   _rigGen++;
   _faceKeypoints = null;
   if (_hasBlend) {
@@ -519,10 +632,14 @@ function detectIfDue(video: HTMLVideoElement, now: number) {
   _mat.fromArray(s.matrix);
   _mat.decompose(_gPos, _gQuat, _gScale); // raw, un-mirrored
   const prevSeen = _gSeen;
-  const hadFace = _gHas;
+  // Multi-face: a promoted primary is another PERSON — snap the filter, never glide across.
+  const hadFace = _gHas && s.subjectChanged !== true;
   _gSeen = s.t;
   _gHas = true;
-  if (!isLegacyFaceSession()) stepSharedFilter(s.t, prevSeen, hadFace);
+  if (!isLegacyFaceSession()) {
+    stepSharedFilter(s.t, prevSeen, hadFace);
+    stepExtraFaces();
+  }
   _rawPoseTap?.(s, _gPos, _gQuat);
   // Feed the head-fit estimator on every detection frame (~30/s). Pure
   // bookkeeping — a module ring write with no effect on the pose consumers
