@@ -6,7 +6,7 @@ import {
   pricingSection, seededRandom, spinSettled, spinStep, startFacts,
   type Moment, type PokeState, type Reaction, type Spin,
 } from './brandLanding';
-import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
+import { ENTITLEMENTS, formatPostCap, formatRetention, formatVideoLength } from './plans';
 import { DEMO_KITS } from './demoKits';
 import { DEFAULT_LANDING_CONTENT } from './landingContent';
 import { STOPS, stopIndex } from './beamyScroll';
@@ -182,7 +182,7 @@ describe('copy', () => {
     // appear in Landing.tsx's TIERS (the derived limits are checked below).
     const src = readFileSync(new URL('../pages/Landing.tsx', import.meta.url), 'utf8');
     const cards = planCards();
-    const derived = new Set(Object.values(ENTITLEMENTS).flatMap((e) => [formatPostCap(e.maxPosts, e.videoEnabled), formatRetention(e.retentionDays)]));
+    const derived = new Set(Object.values(ENTITLEMENTS).flatMap((e) => [formatPostCap(e.maxPosts, e.videoEnabled), formatRetention(e.retentionDays), formatVideoLength(e.videoMaxSec)]));
     expect(cards.map((c) => c.name)).toEqual(['Free', 'Essentials', 'Premium', 'Deluxe']);
     for (const c of cards) {
       for (const lit of [`name: '${c.name}'`, `price: '${c.price}'`, `unit: '${c.unit}'`, `blurb: '${c.blurb}'`]) expect(src, lit).toContain(lit);
@@ -192,8 +192,11 @@ describe('copy', () => {
       }
     }
     expect(cards.filter((c) => c.popular).map((c) => c.name)).toEqual(['Premium']);
-    expect(cards[0].features).toContain(`Up to ${ENTITLEMENTS.free.maxPosts} photos`);
-    expect(cards[2].features).toContain(`Photos kept for ${ENTITLEMENTS.premium.retentionDays} days`);
+    expect(cards[0].features).toContain(`Up to ${ENTITLEMENTS.free.maxPosts} photos & videos`);
+    expect(cards[2].features).toContain('Photos kept for 1 year');
+    expect(cards[2].features).toContain(`${ENTITLEMENTS.premium.videoMaxSec}-second video clips`);
+    expect(cards[3].features).toContain(`${ENTITLEMENTS.deluxe.videoMaxSec}-second video clips`);
+    expect(src).toContain('formatVideoLength(ENTITLEMENTS.deluxe.videoMaxSec)');
     expect(src).toContain('$79/month');
     expect(src).toContain('300 AI credits a month');
     expect(pricingSection().pro).toContain('$79/month');
@@ -208,7 +211,7 @@ describe('copy', () => {
   it('derives the Free facts from the plan table (no invented limits)', () => {
     const f = startFacts();
     expect(f.bullets.length).toBeLessThanOrEqual(3);
-    expect(f.bullets).toContain(`Up to ${ENTITLEMENTS.free.maxPosts} photos`);
+    expect(f.bullets).toContain(`Up to ${ENTITLEMENTS.free.maxPosts} photos & videos`);
     expect(f.bullets).toContain(`Photos kept for ${ENTITLEMENTS.free.retentionDays} days`);
     for (const b of f.bullets) expect(b).not.toMatch(/\$|£|€/);
   });
