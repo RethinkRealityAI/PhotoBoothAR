@@ -13,6 +13,9 @@
  *   database whether the presented token is the one it generated into Vault
  *   (card_delivery_token_ok) — no user, and no extra env secret here.
  *
+ *   DEPLOY FILES: index.ts + email.ts + deno.json (email.ts is the template;
+ *   leaving it out is an import error at boot, so every request 500s).
+ *
  *   DEPLOY WITH verify_jwt OFF: the cron request carries no JWT, so the
  *   gateway check would reject it before this code runs. Every host action
  *   still authenticates itself (getUser), exactly as it did with the gateway
@@ -50,6 +53,10 @@
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
+import {
+  cardEmailHtml, cardEmailSubject, summarizeContributions,
+  type ContributionRow, type EmailExtras,
+} from './email.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -77,105 +84,6 @@ function serviceClient() {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     { auth: { persistSession: false } },
   );
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/**
- * Palette for the keepsake email.
- *
- * The email was hardcoded to the champagne-gold of the original single-event
- * build — a palette the platform has since been rebranded away from, and which
- * matched neither Beamwall nor the event the card came from. It now reads the
- * same theme snapshot the card carries (cards.theme, see src/lib/cardTheme.ts),
- * so the email, the card page it opens and the event itself all agree.
- *
- * Values are hex-validated before being interpolated into style attributes:
- * the snapshot is written by a host's browser, and this is HTML we hand to a
- * mail client, so an unvalidated value could break out of the declaration.
- */
-const EMAIL_FALLBACK = {
-  bg: '#05060B',
-  surface: '#12141F',
-  fg: '#EEF3FF',
-  muted: '#A9B4CC',
-  accent: '#5B8CFF',
-  onAccent: '#0A0806',
-} as const;
-
-const HEX_RE = /^#[0-9a-fA-F]{6}$/;
-
-function hex(value: unknown, fallback: string): string {
-  return typeof value === 'string' && HEX_RE.test(value.trim()) ? value.trim() : fallback;
-}
-
-/**
- * `#RRGGBBAA` (8-digit hex) is not understood by Outlook and several other mail
- * clients — they drop the whole declaration, which would lose the card's border
- * entirely. rgba() is the broadly-supported way to get a translucent tint.
- */
-function rgba(hexColor: string, alpha: number): string {
-  const n = parseInt(hexColor.slice(1), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-}
-
-interface EmailPalette {
-  bg: string; surface: string; fg: string; muted: string; accent: string; onAccent: string;
-  eventName: string | null;
-}
-
-function emailPalette(theme: unknown): EmailPalette {
-  const vars = (theme && typeof theme === 'object' && !Array.isArray(theme)
-    ? ((theme as Record<string, unknown>).vars ?? {})
-    : {}) as Record<string, unknown>;
-  const nameRaw = (theme && typeof theme === 'object' && !Array.isArray(theme)
-    ? (theme as Record<string, unknown>).eventName
-    : null);
-  return {
-    bg: hex(vars['--color-brand-bg'], EMAIL_FALLBACK.bg),
-    surface: hex(vars['--color-brand-surface'], EMAIL_FALLBACK.surface),
-    fg: hex(vars['--color-brand-fg'], EMAIL_FALLBACK.fg),
-    muted: hex(vars['--color-brand-muted'], EMAIL_FALLBACK.muted),
-    accent: hex(vars['--color-accent'], EMAIL_FALLBACK.accent),
-    onAccent: hex(vars['--on-accent'], EMAIL_FALLBACK.onAccent),
-    eventName: typeof nameRaw === 'string' && nameRaw.trim() ? nameRaw.trim().slice(0, 120) : null,
-  };
-}
-
-/** Simple elegant dark email with one big button to the card viewer. */
-function cardEmailHtml(
-  title: string,
-  recipientName: string | null,
-  url: string,
-  theme?: unknown,
-): string {
-  const p = emailPalette(theme);
-  const eyebrow = p.eventName ? `A card from ${escapeHtml(p.eventName)}` : 'A card, made for you';
-  const greeting = recipientName ? `Dear ${escapeHtml(recipientName)},` : 'Hello,';
-  // Escape the url too — it is interpolated into both the href attribute and the
-  // visible link text, so an unescaped public_id/site could break out of the markup.
-  const safeUrl = escapeHtml(url);
-  return `<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:${p.bg};">
-    <div style="max-width:520px;margin:0 auto;padding:48px 24px;font-family:Georgia,'Times New Roman',serif;color:${p.fg};">
-      <p style="text-align:center;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:${p.accent};margin:0 0 28px;">${eyebrow}</p>
-      <div style="border:1px solid ${rgba(p.accent, 0.35)};border-radius:20px;padding:40px 32px;background:${p.surface};text-align:center;">
-        <p style="font-size:15px;color:${p.muted};margin:0 0 10px;">${greeting}</p>
-        <h1 style="font-style:italic;font-weight:600;font-size:28px;line-height:1.3;color:${p.accent};margin:0 0 18px;">${escapeHtml(title)}</h1>
-        <p style="font-size:14px;line-height:1.6;color:${p.muted};margin:0 0 30px;">Friends and family have gathered their messages, photos and videos into a greeting card — open it whenever you're ready.</p>
-        <a href="${safeUrl}" style="display:inline-block;background:${p.accent};color:${p.onAccent};text-decoration:none;font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;letter-spacing:0.2em;text-transform:uppercase;padding:16px 36px;border-radius:999px;">Open your card</a>
-      </div>
-      <p style="text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:${p.muted};margin:26px 0 0;">Made with Beamwall · <a href="${safeUrl}" style="color:${p.accent};">${safeUrl}</a></p>
-    </div>
-  </body>
-</html>`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -209,18 +117,64 @@ function validRecipient(card: CardForEmail): string | null {
   return recipient && EMAIL_RE.test(recipient) ? recipient : null;
 }
 
+/** How long the photo links inside the email keep working. The email is a
+ *  keepsake people reopen, and anyone holding it can already open the whole
+ *  card by its link, so a long-lived photo link exposes nothing new. */
+const EMAIL_PHOTO_TTL_S = 365 * 24 * 60 * 60;
+
+/**
+ * What the email shows from inside the card: counts, names, a quote and up to
+ * four signed photo links. Uses the same visibility rule as card-view
+ * (approved and not hidden). Any failure returns null, and the email falls
+ * back to the plain version: a nicer email is never a reason not to send one.
+ */
+async function emailExtras(sb: Sb, cardId: string): Promise<EmailExtras | null> {
+  try {
+    const { data: rows, error } = await sb
+      .from('card_contributions')
+      .select('contributor_name, message, media_type, media_path')
+      .eq('card_id', cardId)
+      .eq('approved', true)
+      .eq('hidden', false)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('[card-publish] email contributions read failed', error);
+      return null;
+    }
+    const summary = summarizeContributions((rows ?? []) as ContributionRow[]);
+    const photoUrls: Record<string, string> = {};
+    const paths = summary.photoPicks.map((p) => p.path);
+    if (paths.length > 0) {
+      const { data: signed, error: signErr } = await sb.storage
+        .from('cards')
+        .createSignedUrls(paths, EMAIL_PHOTO_TTL_S);
+      if (signErr) console.error('[card-publish] email photo signing failed', signErr);
+      for (const s of (signed ?? []) as { path: string | null; signedUrl: string | null }[]) {
+        if (s.path && s.signedUrl) photoUrls[s.path] = s.signedUrl;
+      }
+    }
+    return { summary, photoUrls };
+  } catch (e) {
+    console.error('[card-publish] email extras failed', e);
+    return null;
+  }
+}
+
 /**
  * One Resend send. `idempotencyKey` (scheduled path) makes a retry after a run
  * that died mid-send a no-op at Resend instead of a second email — Resend
  * honours the Idempotency-Key header on POST /emails for 24 hours.
  */
 async function sendCardViaResend(
+  sb: Sb,
   card: CardForEmail,
   recipient: string,
   resendKey: string,
   idempotencyKey?: string,
 ): Promise<{ ok: true } | { ok: false; status: number }> {
   const url = `${siteUrl()}/c/${card.public_id}`;
+  const extras = await emailExtras(sb, card.id);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${resendKey}`,
@@ -233,8 +187,8 @@ async function sendCardViaResend(
       body: JSON.stringify({
         from: Deno.env.get('CARDS_FROM_EMAIL') || 'Beamwall <cards@beamwall.app>',
         to: recipient,
-        subject: `A card for you: ${card.title}`,
-        html: cardEmailHtml(card.title, card.recipient_name, url, card.theme),
+        subject: cardEmailSubject(card.title, extras?.summary ?? null),
+        html: cardEmailHtml(card.title, card.recipient_name, url, card.theme, extras),
       }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -391,6 +345,7 @@ async function deliverOne(
   }
 
   const sent = await sendCardViaResend(
+    sb,
     card,
     recipient,
     resendKey,
@@ -624,7 +579,7 @@ Deno.serve(async (req: Request) => {
     const resendKey = Deno.env.get('RESEND_API_KEY');
     if (!resendKey) return json(503, { error: 'email_not_configured' });
 
-    const sent = await sendCardViaResend(card as CardForEmail, recipient, resendKey);
+    const sent = await sendCardViaResend(sb, card as CardForEmail, recipient, resendKey);
     if (!sent.ok) return json(502, { error: 'email_failed' });
 
     // A manual send stands in for a pending schedule — the recipient must not
