@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BEAMY_LOOKS, fitPair, fitProp, nextLook, preloadUrl } from './beamyLooks';
+import { BEAMY_LOOKS, fitPair, fitProp, nextLook, preloadUrl, wornPlacement } from './beamyLooks';
 import { EMOJI_RE } from './brandLanding';
 
 describe('beamyLooks', () => {
@@ -89,5 +89,26 @@ describe('beamyLooks', () => {
     expect(fitPair(min, max, [-15.8, 0, 0], { ...fit, pair: undefined })).toBeNull();
     expect(fitPair(min, max, [0, 0, 0], fit)).toBeNull();
     expect(fitPair(min, max, [-20, 0, 0], fit)).toBeNull();
+  });
+
+  it('hangs a worn prop on a holder at its anchor: tilt and roll turn about the anchor', () => {
+    const lo: [number, number, number] = [-1, 0, -0.5], hi: [number, number, number] = [1, 0.5, 0.5];
+    const fit = { width: 0.3, at: [0.02, 0.33, -0.01] as [number, number, number], align: 'base' as const, tilt: -0.1, roll: 0.2 };
+    const p = wornPlacement(lo, hi, fit, null);
+    const f = fitProp(lo, hi, fit);
+    expect(p.scale).toBe(f.scale);
+    expect(p.holderPos).toEqual(fit.at);
+    expect(p.holderRot).toEqual([-0.1, 0, 0.2]);
+    expect(p.farShift).toBeNull();
+    // Holder + model position = fitProp's offset: the box base-centre sits ON the anchor.
+    for (const i of [0, 1, 2] as const) expect(p.holderPos[i] + p.objPos[i]).toBeCloseTo(f.offset[i], 12);
+    expect(wornPlacement(lo, hi, { ...fit, tilt: undefined, roll: undefined }, null).holderRot).toEqual([0, 0, 0]);
+    // A split pair is laid out by fitPair (same scale, its far shift).
+    const pmin: [number, number, number] = [-15.8, -8, 0], pmax: [number, number, number] = [1.8, 0, 0.6];
+    const ears = { width: 0.03, pair: 0.5, at: [0, 0.17, 0.08] as [number, number, number], align: 'centre' as const };
+    const pp = wornPlacement(pmin, pmax, ears, [-15.8, 0, 0]);
+    const laid = fitPair(pmin, pmax, [-15.8, 0, 0], ears);
+    expect(pp.scale).toBe(laid?.scale);
+    expect(pp.farShift).toEqual(laid?.farShift);
   });
 });

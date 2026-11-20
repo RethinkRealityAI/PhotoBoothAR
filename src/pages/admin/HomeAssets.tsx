@@ -19,7 +19,7 @@
  * UI, so clearing a slot can never blank a section of the public page.
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, ExternalLink, Eye, Info, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ExternalLink, Eye, Info, Move, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { useToast } from '../../components/ui/Toast';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import LoadError from '../../components/ui/LoadError';
@@ -28,15 +28,17 @@ import { fetchLandingContentAdmin, publishLandingContent, saveLandingDraft } fro
 import { normalizeLandingContent } from '../../lib/landingContent';
 import { AR_CATEGORIES, HOME_ASSET_DEFAULTS, arTitle, lookThumb } from '../../lib/beamyAssets';
 import {
-  ANCHOR_IDS, ANCHOR_PRESETS, AR_LOOKS_MAX, FIT_AT_MAX, FIT_PAIR_MAX, FIT_PAIR_MIN, FIT_TILT_MAX, FIT_WIDTH_MAX, FIT_WIDTH_MIN,
+  ANCHOR_IDS, ANCHOR_PRESETS, AR_LOOKS_MAX, FIT_AT_MAX,
   HERO_LOOKS_MAX, KEEPSAKE_MIN_PHOTOS, KEEPSAKE_PHOTOS_MAX, LINE_MAX, NAME_MAX, OCCASION_MAX, SCENE_PROPS_MAX, SLUG_RE,
   VIRTUAL_PHOTOS_MAX, WALL_MIN_PHOTOS, WALL_PHOTOS_MAX,
   anchorOf, countOverrides, lookUrlKind, normalizeHomeAssets, presetFit, resolveAssetUrl, slugifyLookId,
   type AnchorId, type AssetKind, type HomeLook, type HomeOverrides, type LookCategory, type PropFit,
 } from '../../lib/homeAssets';
 import { editableDefaults } from '../../lib/homeAssetSources';
+import { FIT_REACH, fitBounds } from '../../lib/beamyFitAdjust';
 
 const BeamyPreview = lazy(() => import('../../components/admin/BeamyPreview'));
+const BeamyAdjust = lazy(() => import('../../components/admin/BeamyAdjust'));
 
 const input =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2.5 text-sm text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-[color:var(--color-accent)]/50';
@@ -124,10 +126,21 @@ const cm = (m: number) => `${m >= 0 ? '+' : ''}${(m * 100).toFixed(1)} cm`;
 /**
  * Where a prop sits on Beamy: an anchor preset (head, face, neck, ears), then
  * size and offset relative to it. The sliders are centred on the chosen
- * anchor, so nudging never flips to another anchor's ranges.
+ * anchor, so nudging never flips to another anchor's ranges. "Adjust on
+ * Beamy" opens the direct-manipulation mode (components/admin/BeamyAdjust)
+ * on the SAME fit, with the same ranges (lib/beamyFitAdjust fitBounds).
  */
-function FitEditor({ fit, onChange, lookId }: { fit: PropFit | undefined; onChange: (f: PropFit) => void; lookId: string }) {
+function FitEditor({ fit, onChange, lookId, look, mode, onAdjusting }: {
+  fit: PropFit | undefined;
+  onChange: (f: PropFit) => void;
+  lookId: string;
+  /** The look the adjust mode shows him wearing (its fit is replaced live). */
+  look: HomeLook;
+  mode: 'hero' | 'ar';
+  onAdjusting: (on: boolean) => void;
+}) {
   const [anchor, setAnchor] = useState<AnchorId>(() => anchorOf(fit));
+  const [adjusting, setAdjusting] = useState(false);
   useEffect(() => { setAnchor(anchorOf(fit)); /* a different look: read its anchor */ // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookId]);
   const p = ANCHOR_PRESETS[anchor].fit;
@@ -138,9 +151,10 @@ function FitEditor({ fit, onChange, lookId }: { fit: PropFit | undefined; onChan
     at[i] = clampN(v, -FIT_AT_MAX, FIT_AT_MAX);
     set({ at });
   };
-  const wMin = Math.max(FIT_WIDTH_MIN, p.width * 0.4);
-  const wMax = Math.min(FIT_WIDTH_MAX, p.width * 2.2);
-  const R = 0.12;
+  const bounds = fitBounds(anchor);
+  const [wMin, wMax] = bounds.width;
+  const R = FIT_REACH;
+  const adjust = (on: boolean) => { setAdjusting(on); onAdjusting(on); };
   return (
     <div className="space-y-3">
       <div>
@@ -161,12 +175,25 @@ function FitEditor({ fit, onChange, lookId }: { fit: PropFit | undefined; onChan
         <Slider label="Up / down" value={clampN(f.at[1], p.at[1] - R, p.at[1] + R)} min={p.at[1] - R} max={p.at[1] + R} step={0.002} onChange={(v) => setAt(1, v)} show={cm(f.at[1] - p.at[1])} />
         <Slider label="Back / forward" value={clampN(f.at[2], p.at[2] - R, p.at[2] + R)} min={p.at[2] - R} max={p.at[2] + R} step={0.002} onChange={(v) => setAt(2, v)} show={cm(f.at[2] - p.at[2])} />
         <Slider label="Left / right" value={clampN(f.at[0], p.at[0] - R, p.at[0] + R)} min={p.at[0] - R} max={p.at[0] + R} step={0.002} onChange={(v) => setAt(0, v)} show={cm(f.at[0] - p.at[0])} />
-        <Slider label="Tilt" value={f.tilt ?? 0} min={-FIT_TILT_MAX * 0.75} max={FIT_TILT_MAX * 0.75} step={0.01} onChange={(v) => set({ tilt: v })} show={`${Math.round(((f.tilt ?? 0) * 180) / Math.PI)}°`} />
+        <Slider label="Tilt" value={f.tilt ?? 0} min={bounds.tilt[0]} max={bounds.tilt[1]} step={0.01} onChange={(v) => set({ tilt: v })} show={`${Math.round(((f.tilt ?? 0) * 180) / Math.PI)}°`} />
+        <Slider label="Rotate" value={f.roll ?? 0} min={bounds.roll[0]} max={bounds.roll[1]} step={0.01} onChange={(v) => set({ roll: v })} show={`${Math.round(((f.roll ?? 0) * 180) / Math.PI)}°`} />
         {anchor === 'ears' && (
-          <Slider label="Ear spacing" value={f.pair ?? p.pair ?? 0.4} min={Math.max(FIT_PAIR_MIN, 0.15)} max={Math.min(FIT_PAIR_MAX, 0.7)} step={0.005} onChange={(v) => set({ pair: v })} show={`${((f.pair ?? 0) * 100).toFixed(0)} cm`} />
+          <Slider label="Ear spacing" value={f.pair ?? p.pair ?? 0.4} min={bounds.pair[0]} max={bounds.pair[1]} step={0.005} onChange={(v) => set({ pair: v })} show={`${((f.pair ?? 0) * 100).toFixed(0)} cm`} />
         )}
       </div>
-      <button type="button" className={chipBtn} onClick={() => onChange(presetFit(anchor))}><RotateCcw className="h-3 w-3" /> Reset placement</button>
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" onClick={() => adjust(true)}
+          className="pressable inline-flex min-h-11 items-center gap-1.5 rounded-full bg-foil px-4 font-label uppercase tracking-luxe text-[10px] text-[color:var(--on-accent)]">
+          <Move className="h-3.5 w-3.5" /> Adjust on Beamy
+        </button>
+        <button type="button" className={chipBtn} onClick={() => onChange(presetFit(anchor))}><RotateCcw className="h-3 w-3" /> Reset placement</button>
+      </div>
+      {adjusting && (
+        <Suspense fallback={null}>
+          <BeamyAdjust look={look} fit={f} anchor={anchor} mode={mode} onFit={onChange}
+            onDone={() => adjust(false)} onCancel={() => adjust(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -251,7 +278,7 @@ function lookFromPick(p: PickedAsset, cat: LookCategory, taken: Set<string>): Ho
  * customises it; then category tabs, tiles, and a detail panel to rename,
  * reorder, remove and place each look.
  */
-function LooksEditor({ which, looks, defaults, categories, max, onChange, openPicker, onPreview, previewId }: {
+function LooksEditor({ which, looks, defaults, categories, max, onChange, openPicker, onPreview, previewId, onAdjusting }: {
   which: 'hero' | 'ar';
   looks: HomeLook[];
   defaults: HomeLook[];
@@ -261,6 +288,8 @@ function LooksEditor({ which, looks, defaults, categories, max, onChange, openPi
   openPicker: (r: PickerRequest) => void;
   onPreview: (l: HomeLook | null) => void;
   previewId: string | null;
+  /** The adjust mode opened / closed (the page parks its side preview meanwhile). */
+  onAdjusting: (on: boolean) => void;
 }) {
   const custom = looks.length > 0;
   const list = custom ? looks : defaults;
@@ -384,7 +413,7 @@ function LooksEditor({ which, looks, defaults, categories, max, onChange, openPi
               </label>
             )}
           </div>
-          {open.category === 'prop' && <FitEditor lookId={open.id} fit={open.fit} onChange={(fit) => patch(open.id, { fit })} />}
+          {open.category === 'prop' && <FitEditor lookId={open.id} fit={open.fit} onChange={(fit) => patch(open.id, { fit })} look={open} mode={which} onAdjusting={onAdjusting} />}
           {open.category === 'frame' && which === 'hero' && (
             <div className="space-y-2">
               <span className={labelCls}>Worn with a 3D prop</span>
@@ -396,7 +425,7 @@ function LooksEditor({ which, looks, defaults, categories, max, onChange, openPi
                 })}>{open.with !== undefined ? 'Replace' : 'Add a prop'}</button>
                 {open.with !== undefined && <button className={chipBtn} onClick={() => patch(open.id, { with: undefined, fit: undefined })}><X className="h-3 w-3" /> Remove</button>}
               </div>
-              {open.with !== undefined && <FitEditor lookId={`${open.id}:with`} fit={open.fit} onChange={(fit) => patch(open.id, { fit })} />}
+              {open.with !== undefined && <FitEditor lookId={`${open.id}:with`} fit={open.fit} onChange={(fit) => patch(open.id, { fit })} look={open} mode={which} onAdjusting={onAdjusting} />}
             </div>
           )}
           {(open.category === 'filter' || open.category === 'effect') && (
@@ -432,6 +461,7 @@ export default function AdminHomeAssets() {
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [picker, setPicker] = useState<PickerRequest | null>(null);
   const [slugText, setSlugText] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
   const [preview, setPreview] = useState<{ look: HomeLook | null; mode: 'hero' | 'ar' }>({ look: HOME_ASSET_DEFAULTS.arLooks.find((l) => l.category === 'prop') ?? null, mode: 'ar' });
 
   const load = useCallback(async () => {
@@ -560,9 +590,16 @@ export default function AdminHomeAssets() {
                   <Eye className="h-4 w-4 text-brand-muted/70" />
                   <h2 className="font-sans text-sm font-semibold text-brand-fg">Live preview</h2>
                 </div>
-                <Suspense fallback={<div className="h-[340px] rounded-2xl border border-white/10 bg-white/[0.02]" />}>
-                  <BeamyPreview look={preview.look} mode={preview.mode} />
-                </Suspense>
+                {/* Parked while the adjust mode has him (one 3D stage at a time, kinder to phones). */}
+                {adjusting ? (
+                  <div className="grid h-[340px] place-items-center rounded-2xl border border-white/10 bg-white/[0.02] px-6 text-center font-sans text-xs text-brand-muted/70">
+                    Beamy is in the adjust window.
+                  </div>
+                ) : (
+                  <Suspense fallback={<div className="h-[340px] rounded-2xl border border-white/10 bg-white/[0.02]" />}>
+                    <BeamyPreview look={preview.look} mode={preview.mode} />
+                  </Suspense>
+                )}
                 <p className="mt-2 font-sans text-[11px] leading-relaxed text-brand-muted/70">
                   Tap a look to see it on Beamy. Placement changes show here as you move the sliders.
                 </p>
@@ -576,14 +613,14 @@ export default function AdminHomeAssets() {
                 <LooksEditor which="hero" looks={home.heroLooks} defaults={D.heroLooks} categories={['frame', 'prop']} max={HERO_LOOKS_MAX}
                   onChange={(l) => patch({ heroLooks: l })} openPicker={openPicker}
                   previewId={preview.mode === 'hero' ? (preview.look?.id ?? null) : null}
-                  onPreview={(look) => setPreview({ look, mode: 'hero' })} />
+                  onPreview={(look) => setPreview({ look, mode: 'hero' })} onAdjusting={setAdjusting} />
               </Section>
 
               <Section title="AR step" hint="the frames, 3D props, filters and effects visitors swipe through" defaultOpen badge={home.arLooks.length > 0 ? 'custom' : undefined}>
                 <LooksEditor which="ar" looks={home.arLooks} defaults={D.arLooks} categories={arCats} max={AR_LOOKS_MAX}
                   onChange={(l) => patch({ arLooks: l })} openPicker={openPicker}
                   previewId={preview.mode === 'ar' ? (preview.look?.id ?? null) : null}
-                  onPreview={(look) => setPreview({ look, mode: 'ar' })} />
+                  onPreview={(look) => setPreview({ look, mode: 'ar' })} onAdjusting={setAdjusting} />
               </Section>
 
               <Section title="3D scene props" hint="the props floating around the hero" badge={home.sceneProps.some((u) => u !== '') ? 'custom' : undefined}>

@@ -6,6 +6,7 @@ import {
   ANCHOR_PRESETS,
   AR_LOOKS_MAX,
   EMPTY_HOME_OVERRIDES,
+  FIT_ROLL_MAX,
   FIT_WIDTH_MAX,
   anchorOf,
   countOverrides,
@@ -212,6 +213,13 @@ describe('fits and anchors', () => {
     expect(normalizeFit({ width: 0.3, at: [0, 0.3], align: 'base' })).toBeUndefined();
     expect(normalizeFit({ width: 0.3, at: [0, 0.3, 0], align: 'middle' })).toBeUndefined();
     expect(normalizeFit({ width: Number.NaN, at: [0, 0.3, 0], align: 'base' })).toBeUndefined();
+  });
+
+  it('keeps a roll (rotation in his face plane), clamped, and drops a zero or junk one', () => {
+    expect(normalizeFit({ width: 0.4, at: [0, 0.29, 0], align: 'base', roll: 0.2 })).toEqual({ width: 0.4, at: [0, 0.29, 0], align: 'base', roll: 0.2 });
+    expect(normalizeFit({ width: 0.4, at: [0, 0.29, 0], align: 'base', roll: -9 })?.roll).toBe(-FIT_ROLL_MAX);
+    expect(normalizeFit({ width: 0.4, at: [0, 0.29, 0], align: 'base', roll: 0 })).toEqual({ width: 0.4, at: [0, 0.29, 0], align: 'base' });
+    expect(normalizeFit({ width: 0.4, at: [0, 0.29, 0], align: 'base', roll: 'x' })).toEqual({ width: 0.4, at: [0, 0.29, 0], align: 'base' });
   });
 
   it('recognises every preset as itself, and a nudged fit as its nearest preset', () => {

@@ -192,6 +192,8 @@ export const FIT_WIDTH_MIN = 0.02;
 export const FIT_WIDTH_MAX = 1.2;
 export const FIT_AT_MAX = 0.8;
 export const FIT_TILT_MAX = 0.8;
+/** Rotation in his face's plane (PropFit.roll), radians either way. */
+export const FIT_ROLL_MAX = 0.8;
 export const FIT_PAIR_MIN = 0.05;
 export const FIT_PAIR_MAX = 1;
 
@@ -257,12 +259,14 @@ export function normalizeFit(raw: unknown): PropFit | undefined {
   const align = raw.align === 'centre' ? 'centre' : raw.align === 'base' ? 'base' : undefined;
   if (align === undefined) return undefined;
   const tilt = num(raw.tilt, -FIT_TILT_MAX, FIT_TILT_MAX);
+  const roll = num(raw.roll, -FIT_ROLL_MAX, FIT_ROLL_MAX);
   const pair = raw.pair === undefined ? undefined : num(raw.pair, FIT_PAIR_MIN, FIT_PAIR_MAX);
   return {
     width,
     at: at as [number, number, number],
     align,
     ...(tilt === undefined || tilt === 0 ? {} : { tilt }),
+    ...(roll === undefined || roll === 0 ? {} : { roll }),
     ...(pair === undefined ? {} : { pair }),
   };
 }

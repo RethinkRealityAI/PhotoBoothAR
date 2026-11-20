@@ -65,7 +65,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { snapshotPortrait, snapshotRect } from '../../components/beamy/selfieFx';
 import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
-import { fitPair, fitProp, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
+import { fitPair, wornPlacement, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
 import { splitScenePair } from '../../lib/studio/earPair';
 
 export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle' | typeof SELFIE_CLIP;
@@ -203,6 +203,15 @@ export interface BeamyApi {
   wornLiftAt(k: number): number;
   /** Shrink the worn prop about its anchor (1 = as fitted; a frame's window may need it smaller). */
   wornScale(k: number): void;
+  /** Re-place the worn prop with a new fit at once, keeping the model (the admin's adjust mode). */
+  refit(fit: PropFit): void;
+  /**
+   * The worn prop's anchor on screen (viewport px) and how many px one unit
+   * of his body bone's x, y and z moves it (y down), measured from the live
+   * bone this frame (lib/beamyFitAdjust turns a drag into a fit). Null when
+   * nothing is worn.
+   */
+  wornHandle(): { anchor: Pt; axes: { x: Pt; y: Pt; z: Pt } } | null;
   /** A colour filter over his body (a lens look): a CSS colour, 'prismatic' (a slow hue
    *  cycle), or null to take it off. Fades in and out. */
   tint(color: string | null): void;
@@ -638,7 +647,11 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   useEffect(() => () => { for (const t of arTex.current.values()) t?.dispose(); arTex.current.clear(); }, []);
   /** What he is wearing: a fitted prop on his body bone (popping in over `t`), a frame behind him. */
   /** The worn prop: its pop-in `t`, its crown `top` and seat `anchor` in his heights, and its scale `k`. */
-  const worn = useRef<{ holder: THREE.Group; t: number; top: number; anchor: number; k: number } | null>(null);
+  const worn = useRef<{
+    holder: THREE.Group; t: number; top: number; anchor: number; k: number;
+    /** What refit needs: the fitted clone, its own scale, its far earring, the model's box and pair delta. */
+    obj: THREE.Object3D; base: THREE.Vector3; far: THREE.Object3D | null; lo: [number, number, number]; hi: [number, number, number]; delta: [number, number, number] | null;
+  } | null>(null);
   /** Props he just took off: each shrinks away over ~0.26s instead of vanishing (never a pop). */
   const leaving = useRef<{ holder: THREE.Group; t: number; s0: number }[]>([]);
   const wornTopAt = (wn: { top: number; anchor: number }, k: number) => wn.anchor + (wn.top - wn.anchor) * k;
@@ -1098,6 +1111,26 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         const wn = worn.current;
         if (wn !== null) wn.k = Math.min(1, Math.max(0.05, k));
       },
+      refit(fit) {
+        const wn = worn.current;
+        if (wn === null) return;
+        const m = place(wn.obj, wn.holder, wn.far, wn.base, wn.lo, wn.hi, wn.delta, fit);
+        wn.top = m.top;
+        wn.anchor = m.anchor;
+      },
+      wornHandle() {
+        const wn = worn.current;
+        const bone = bodyBone.current;
+        if (wn === null || bone === null) return null;
+        bone.updateWorldMatrix(true, false);
+        const at = wn.holder.position;
+        const o = bone.localToWorld(new THREE.Vector3(at.x, at.y, at.z));
+        const axis = (dx: number, dy: number, dz: number): Pt => {
+          const v = bone.localToWorld(new THREE.Vector3(at.x + dx, at.y + dy, at.z + dz));
+          return { x: v.x - o.x, y: -(v.y - o.y) };
+        };
+        return { anchor: toScreen(o), axes: { x: axis(1, 0, 0), y: axis(0, 1, 0), z: axis(0, 0, 1) } };
+      },
       tint(color) {
         tintS.current.target = color;
       },
@@ -1144,26 +1177,37 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         master.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(master);
         const lo = box.min.toArray() as [number, number, number], hi = box.max.toArray() as [number, number, number];
-        const laid = pair !== null ? fitPair(lo, hi, pair.delta, fit) : null;
-        const far = laid !== null ? obj.getObjectByName(EAR_FAR) : undefined;
-        if (laid !== null && far !== undefined) far.position.set(...laid.farShift);
-        const f = laid !== null && far !== undefined ? laid : fitProp(lo, hi, fit);
+        const far = pair !== null ? (obj.getObjectByName(EAR_FAR) ?? null) : null;
+        const delta = pair !== null && far !== null ? pair.delta : null;
         obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 3; } });
-        obj.scale.multiplyScalar(f.scale);
-        // Tilt about the anchor itself: the holder sits ON the anchor.
-        obj.position.set(f.offset[0] - fit.at[0], f.offset[1] - fit.at[1], f.offset[2] - fit.at[2]);
+        const base = obj.scale.clone();
         const holder = new THREE.Group();
         holder.add(obj);
-        holder.position.set(fit.at[0], fit.at[1], fit.at[2]);
-        holder.rotation.x = fit.tilt ?? 0;
+        const m = place(obj, holder, far, base, lo, hi, delta, fit);
         holder.scale.setScalar(0.0001);
         bone.add(holder);
-        // Its crown in his height units (body bone 0.12 above the feet, 0.6 tall)
-        // so the bubble can clear it.
-        const top = (0.12 + f.offset[1] + box.max.y * f.scale) / 0.6;
-        const anchor = (0.12 + fit.at[1]) / 0.6;
-        worn.current = { holder, t: 0, top: Number.isFinite(top) ? top : 1, anchor: Number.isFinite(anchor) ? anchor : 1, k: 1 };
+        worn.current = { holder, t: 0, top: m.top, anchor: m.anchor, k: 1, obj, base, far, lo, hi, delta };
       }, () => undefined);
+    /**
+     * Hang `obj` in `holder` where `fit` says (lib/beamyLooks wornPlacement):
+     * the holder sits ON the anchor, so tilt and roll turn about it. Returns
+     * its crown and seat in his height units (body bone 0.12 above the feet,
+     * 0.6 tall) so the bubble can clear it.
+     */
+    const place = (
+      obj: THREE.Object3D, holder: THREE.Object3D, far: THREE.Object3D | null, base: THREE.Vector3,
+      lo: [number, number, number], hi: [number, number, number], delta: [number, number, number] | null, fit: PropFit,
+    ): { top: number; anchor: number } => {
+      const p = wornPlacement(lo, hi, fit, delta);
+      if (far !== null && p.farShift !== null) far.position.set(...p.farShift);
+      obj.scale.copy(base).multiplyScalar(p.scale);
+      obj.position.set(...p.objPos);
+      holder.position.set(...p.holderPos);
+      holder.rotation.set(...p.holderRot);
+      const top = (0.12 + p.holderPos[1] + p.objPos[1] + hi[1] * p.scale) / 0.6;
+      const anchor = (0.12 + fit.at[1]) / 0.6;
+      return { top: Number.isFinite(top) ? top : 1, anchor: Number.isFinite(anchor) ? anchor : 1 };
+    };
     apiRef.current = api;
     return () => { apiRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs only
