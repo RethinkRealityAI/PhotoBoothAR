@@ -126,7 +126,7 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     // mouth and the earrings hang at his sides at eye height (a split pair,
     // `pair`), forward enough that the far one still shows when he turns (the
     // How it works step yaws him about 26 degrees).
-    { id: 'ar-crown', name: 'Royal crown', category: 'prop', url: `${P}gold-crown.glb`, fit: { width: 0.4, at: [0, 0.29, 0], align: 'base' } },
+    { id: 'ar-crown', name: 'Royal crown', category: 'prop', url: `${P}silver-crown.glb`, fit: { width: 0.4, at: [0, 0.29, 0], align: 'base' } },
     { id: 'ar-tophat', name: 'Top hat', category: 'prop', url: `${P}top-hat.glb`, fit: { width: 0.34, at: [0, 0.4, 0], align: 'base', tilt: -0.06 } },
     { id: 'ar-necklace', name: 'Emerald necklace', category: 'prop', url: `${P}emerald-necklace.glb`, fit: { width: 0.13, at: [0, 0.06, 0.2], align: 'centre' } },
     { id: 'ar-earrings', name: 'Garnet earrings', category: 'prop', url: `${P}garnet-earrings.glb`, fit: { width: 0.042, pair: 0.4, at: [0, 0.15, 0.135], align: 'centre' } },

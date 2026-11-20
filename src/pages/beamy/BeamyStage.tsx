@@ -62,6 +62,7 @@ import { SELFIE_CLIP, SELFIE_SPEED, selfieTimeline, type SelfieTimeline } from '
 import type { Rect } from '../../lib/beamGeometry';
 import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { snapshotPortrait, snapshotRect } from '../../components/beamy/selfieFx';
 import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
 import { fitPair, fitProp, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
@@ -535,6 +536,28 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const motesRef = useRef<THREE.Points>(null);
   const handBone = useRef<THREE.Object3D | null>(null);
   const handLocal = useRef(new THREE.Vector3(0, -0.12, 0));
+  /** Studio reflections for the prop materials that ask for them (glTF
+   *  extras `beamyEnv` = env-map intensity, e.g. the silver crown): this
+   *  stage has no environment, and a real metal with nothing to reflect
+   *  renders black. Built on first use for this renderer; every other prop
+   *  is left exactly as it was. */
+  const propEnv = useRef<THREE.Texture | null>(null);
+  const litProps = (master: THREE.Object3D) => {
+    master.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        const k: unknown = (m as THREE.Material).userData.beamyEnv;
+        if (typeof k !== 'number' || !(m instanceof THREE.MeshStandardMaterial)) continue;
+        if (propEnv.current === null) {
+          const pm = new THREE.PMREMGenerator(gl);
+          propEnv.current = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+          pm.dispose();
+        }
+        if (m.envMap !== propEnv.current) { m.envMap = propEnv.current; m.envMapIntensity = k; m.needsUpdate = true; }
+      }
+    });
+  };
+  useEffect(() => () => { propEnv.current?.dispose(); propEnv.current = null; }, []);
   const shown = useRef(!startHidden);
   const appear = useRef(startHidden ? 0 : 1);
   const arrival = useRef<{ t: number; landed: boolean; resolve: () => void } | null>(null);
@@ -889,6 +912,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         propAt.current = atGet;
         const at = atGet();
         return loadModel(url).then((master) => new Promise<void>((resolve) => {
+          litProps(master);
           const obj = master.clone(true);
           const box = new THREE.Box3().setFromObject(obj);
           const dims = box.getSize(new THREE.Vector3());
@@ -1104,6 +1128,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     const wearProp = (url: string, fit: PropFit, tok: number): Promise<void> =>
       loadModel(url).then((master) => {
         if (tok !== wearToken.current) return;
+        litProps(master);
         // The body bone carries every clip (hop, dance, the party spin).
         const bone = bodyBone.current;
         if (bone === null) return;
@@ -1670,7 +1695,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         peekUrls.current[i] = url;
         holder.clear();
         void loadModel(url).then((master) => {
-          if (peekUrls.current[i] === url && holder.children.length === 0) holder.add(unitClone(master));
+          if (peekUrls.current[i] === url && holder.children.length === 0) { litProps(master); holder.add(unitClone(master)); }
         }, () => undefined);
       }
       holder.visible = holder.children.length > 0;
