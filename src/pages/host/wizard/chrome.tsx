@@ -200,7 +200,7 @@ export function WizardFooter({ onBack, onSkip, onContinue, continueLabel, busy, 
 export function StepHeading({ step, children, aside }: { step: WizardStepId; children?: ReactNode; aside?: ReactNode }) {
   const d = stepDef(step);
   return (
-    <div className="mb-4">
+    <div className="wz-step-heading mb-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
           <h1 className="wz-display text-[22px] leading-tight sm:text-[24px] text-white">{d.title}</h1>

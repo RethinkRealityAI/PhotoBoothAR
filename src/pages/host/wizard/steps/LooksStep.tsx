@@ -36,6 +36,8 @@ import {
   addFilterRow, applyPicks, currentPicks, fetchLooksData, removeFilterRow, type LooksData,
 } from '../../../../lib/wizard/wizardApi';
 import { StepHeading } from '../chrome';
+import PreviewSheet, { useIsDesktop } from '../PreviewSheet';
+import { stepDef } from '../../../../lib/wizard/wizardModel';
 import { useWizard } from '../wizardContext';
 import LookStage from '../LookStage';
 
@@ -287,8 +289,11 @@ export default function LooksStep() {
   const { ev } = w;
   const [data, setData] = useState<LooksData | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const desktop = useIsDesktop();
   const [picks, setPicks] = useState<LookPicks | null>(null);
   const [tab, setTab] = useState<LookCategory>('frames');
+  // The Filters tab sits beside the four look types in the same tab row.
+  const [onFilters, setOnFilters] = useState(false);
   const [filter, setFilter] = useState<LookFilter>(NO_LOOK_FILTER);
   const [stage, setStage] = useState<Stage>({ kind: 'pick', tryOn: NO_TRY_ON });
   // The last pick-and-choose try-on, kept while a filter is on the stage so
@@ -398,7 +403,7 @@ export default function LooksStep() {
     dirty.current = true;
     setPicks(setCategory(picks, looks, on));
   };
-  const switchTab = (c: LookCategory) => { setTab(c); setFilter(NO_LOOK_FILTER); };
+  const switchTab = (c: LookCategory) => { setOnFilters(false); setTab(c); setFilter(NO_LOOK_FILTER); };
   const eventTag = occasionTag(ev.event_type);
 
   /* Filters */
@@ -536,10 +541,8 @@ export default function LooksStep() {
   const noun = LOOK_CATEGORIES.find((c) => c.id === tab)?.noun ?? 'look';
   const ready = readyFilters();
 
-  return (
+  const controls = (
     <>
-      <div className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.8fr)] gap-5 lg:gap-6 xl:gap-7 items-start">
-        <div className="flex flex-col gap-5 min-w-0 order-2 lg:order-1">
           {/* Pick & choose */}
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
             <StepHeading step="looks" />
@@ -551,13 +554,18 @@ export default function LooksStep() {
             )}
             <div className="wz-tabs wz-tabs-fit" role="tablist" aria-label="Look type">
               {LOOK_CATEGORIES.map((c) => (
-                <button key={c.id} type="button" role="tab" aria-selected={tab === c.id} className="wz-tab" onClick={() => switchTab(c.id)} aria-label={`${c.label}, ${countPicked(picks, catalog[c.id])} on`}>
+                <button key={c.id} type="button" role="tab" aria-selected={!onFilters && tab === c.id} className="wz-tab" onClick={() => switchTab(c.id)} aria-label={`${c.label}, ${countPicked(picks, catalog[c.id])} on`}>
                   <span className="sm:hidden">{c.short}</span>
                   <span className="hidden sm:inline">{c.label}</span>
                   <span className="wz-count" aria-hidden>{countPicked(picks, catalog[c.id])}</span>
                 </button>
               ))}
+              <button type="button" role="tab" aria-selected={onFilters} className="wz-tab" onClick={() => setOnFilters(true)} aria-label={`Filters, ${filters.length} on`}>
+                Filters
+                <span className="wz-count" aria-hidden>{filters.length}</span>
+              </button>
             </div>
+            {!onFilters && (<>
             <div className="mt-3">
               <FilterBar key={tab} looks={all} picks={picks} filter={filter} onChange={setFilter} eventTag={eventTag} noun={noun} />
             </div>
@@ -607,13 +615,11 @@ export default function LooksStep() {
                 ))}
               </div>
             )}
-            {note && <p role="status" className="mt-3 text-[13px] text-[#FFE1A8]">{note}</p>}
-          </section>
+            </>)}
 
-          {/* Filters */}
-          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter" style={{ animationDelay: '60ms' }} aria-labelledby="wz-filters-title">
-            <h2 id="wz-filters-title" className="wz-display text-[20px] leading-tight">Filters</h2>
-            <p className="mt-0.5 text-[13.5px] text-white/70">A whole look in one tap. The first one is what the booth opens with.</p>
+            {/* Filters: a whole look in one tap */}
+            {onFilters && (<>
+            <p className="mt-3 text-[12.5px] text-white/65">A whole look in one tap. The first one is what the booth opens with.</p>
 
             {filters.length > 0 && (
               <div className="mt-4">
@@ -718,17 +724,26 @@ export default function LooksStep() {
                 </span>
               </button>
             )}
+            </>)}
+            {note && <p role="status" className="mt-3 text-[13px] text-[#FFE1A8]">{note}</p>}
           </section>
-        </div>
-
-        <div className="order-1 lg:order-2 lg:sticky lg:top-[76px] wz-enter">
+    </>
+  );
+  const previewNode = (
+    <>
           <LookStage draft={stageDraft} caption={caption} />
           <p className="mt-3 text-center text-[12.5px] text-white/65">
             {countPicked(picks, [...catalog.frames, ...catalog.props, ...catalog.paint, ...catalog.effects])} looks to pick from · {filters.length} {filters.length === 1 ? 'filter' : 'filters'}
           </p>
-        </div>
-      </div>
     </>
+  );
+
+  if (!desktop) return <PreviewSheet label={stepDef('looks').title} preview={previewNode}>{controls}</PreviewSheet>;
+  return (
+      <div className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.8fr)] gap-5 lg:gap-6 xl:gap-7 items-start">
+        <div className="flex flex-col gap-5 min-w-0">{controls}</div>
+        <div className="lg:sticky lg:top-[76px] wz-enter">{previewNode}</div>
+      </div>
   );
 }
 
