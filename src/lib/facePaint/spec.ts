@@ -15,6 +15,8 @@
  * throw" rule the template/customization validators follow.
  */
 
+import { normalizeContacts, type ContactLensSpec } from '../contacts/spec';
+
 export const FACE_PAINT_PLACEMENTS = ['leftCheek', 'rightCheek', 'bothCheeks', 'forehead'] as const;
 export type FacePaintPlacement = (typeof FACE_PAINT_PLACEMENTS)[number];
 
@@ -34,6 +36,13 @@ export interface FacePaintSpec {
   /** Overall pigment strength, FACE_PAINT_OPACITY.min..max. */
   opacity: number;
   logo?: FacePaintLogo;
+  /**
+   * Coloured Contacts (lib/contacts/spec.ts): a lens on each tracked iris. It
+   * rides the face-paint layer because it lives on the same tracked face mesh
+   * and needs the same engine; a layer may carry contacts alone (design 'none',
+   * no logo). Absent on every look saved before it existed.
+   */
+  eyes?: ContactLensSpec;
 }
 
 export const MAX_FACE_PAINT_COLORS = 3;
@@ -87,8 +96,8 @@ function normalizeLogo(raw: unknown): FacePaintLogo | undefined {
 }
 
 /**
- * Untrusted jsonb → a FacePaintSpec, or null when there is nothing paintable
- * (no design AND no logo). Total: never throws.
+ * Untrusted jsonb → a FacePaintSpec, or null when there is nothing to show
+ * (no design, no logo AND no contacts). Total: never throws.
  */
 export function normalizeFacePaint(raw: unknown): FacePaintSpec | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -101,8 +110,17 @@ export function normalizeFacePaint(raw: unknown): FacePaintSpec | null {
     ? clamp(r.opacity, FACE_PAINT_OPACITY.min, FACE_PAINT_OPACITY.max)
     : FACE_PAINT_OPACITY.default;
   const logo = normalizeLogo(r.logo);
-  if (design === 'none' && !logo) return null;
-  return logo ? { design, colors, opacity, logo } : { design, colors, opacity };
+  const eyes = normalizeContacts(r.eyes);
+  if (design === 'none' && !logo && !eyes) return null;
+  const out: FacePaintSpec = logo ? { design, colors, opacity, logo } : { design, colors, opacity };
+  // Only when present, so a look without contacts keeps exactly its old keys.
+  if (eyes) out.eyes = eyes;
+  return out;
+}
+
+/** True when the look has pigment to paint (a design or a logo), not only contacts. */
+export function hasFacePaintPigment(spec: FacePaintSpec): boolean {
+  return spec.design !== 'none' || spec.logo !== undefined;
 }
 
 /** Stable key for "did the look change" (texture repaint, memo deps). */

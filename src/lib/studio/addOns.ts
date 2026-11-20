@@ -12,7 +12,7 @@
  */
 
 export interface AddOnDef {
-  id: 'power-fx' | 'name-jewelry' | 'face-paint';
+  id: 'power-fx' | 'name-jewelry' | 'face-paint' | 'contacts';
   name: string;
   blurb: string;
   /** lucide-react icon name, resolved by the dock. */
@@ -41,5 +41,12 @@ export const ADD_ONS: readonly AddOnDef[] = [
     blurb: 'Living paint that moves with every smile — or your logo on a cheek',
     icon: 'Palette',
     swatch: ['#f2851f', '#e0409a'],
+  },
+  {
+    id: 'contacts',
+    name: 'Coloured Contacts',
+    blurb: 'Lenses that follow every glance — natural tints, cat eyes, hearts or a glow',
+    icon: 'Eye',
+    swatch: ['#3f7fd0', '#18b08a'],
   },
 ];
