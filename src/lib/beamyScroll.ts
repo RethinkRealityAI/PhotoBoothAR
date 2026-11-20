@@ -35,7 +35,7 @@ export interface Box { left: number; top: number; width: number; height: number;
 
 export type Side = 'left' | 'right' | 'centre';
 
-export type StopId = 'hero' | 'story' | 'films' | 'virtual' | 'pick' | 'try' | 'pricing' | 'start';
+export type StopId = 'hero' | 'story' | 'pick' | 'try' | 'pricing' | 'start';
 
 export interface StopDef {
   id: StopId;
@@ -50,10 +50,8 @@ export interface StopDef {
 /** Top to bottom. Beamy's slot alternates sides with the content. */
 export const STOPS: StopDef[] = [
   { id: 'hero', label: 'Hello', side: 'centre', night: 0.15 },
-  { id: 'story', label: 'How it works', side: 'left', night: 0.85 },
-  { id: 'films', label: 'In motion', side: 'right', night: 1 },
-  // Virtual celebrations (pages/beamy/VirtualCelebrations): he stands between the link and the card.
-  { id: 'virtual', label: 'Anywhere', side: 'centre', night: 1 },
+  // He stands centred in the pinned story; its six scenes stand round him.
+  { id: 'story', label: 'How it works', side: 'centre', night: 0.85 },
   { id: 'pick', label: 'For you', side: 'left', night: 1 },
   { id: 'try', label: 'Try it', side: 'centre', night: 0.9 },
   { id: 'pricing', label: 'Pricing', side: 'right', night: 0.6 },

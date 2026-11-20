@@ -22,6 +22,7 @@ import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
 import { BETA_FREE, pricingCopy } from './beta';
 import { DEFAULT_LANDING_CONTENT } from './landingContent';
 import type { StopId } from './beamyScroll';
+import { VC_COPY } from './beamyVirtual';
 
 /* ── Beamy's reactions ─────────────────────────────────────────────────── */
 
@@ -178,7 +179,7 @@ export const WALL_LABEL = 'Live wall';
 export const SIGNUP_PATH = '/signup';
 
 /**
- * The pinned story right after the hero: five glass cards, one at a time,
+ * The pinned story right after the hero: six glass cards, one at a time,
  * each driving Beamy (his turn and clip) and ONE 3D effect drawn beside him
  * in the canvas (`fx`). Short on purpose: a title and one line each.
  */
@@ -200,7 +201,7 @@ export const KEEPSAKE_PROMISE = {
   beamy: 'Aww, I’m keeping this one forever.',
 } as const;
 
-export type StoryFxId = 'qr' | 'prop' | 'wall' | 'medal' | 'keepsake';
+export type StoryFxId = 'qr' | 'prop' | 'wall' | 'medal' | 'keepsake' | 'virtual';
 export type StoryClip = 'Wave' | 'Hop' | 'BeamyBlast' | 'Dance' | 'ShadesOn';
 
 export const STORY_STEPS: { id: StoryFxId; title: string; body: string; clip: StoryClip; yaw: number }[] = [
@@ -209,6 +210,8 @@ export const STORY_STEPS: { id: StoryFxId; title: string; body: string; clip: St
   { id: 'wall', title: 'Every shot beams to your wall', body: 'Photos land on the live wall the moment they are taken.', clip: 'BeamyBlast', yaw: 0.6 },
   { id: 'medal', title: 'Challenges keep it going', body: 'Missions and points get the whole room mingling.', clip: 'Dance', yaw: 0.35 },
   { id: 'keepsake', title: 'Everyone gets a digital keepsake', body: KEEPSAKE_PROMISE.step, clip: 'Hop', yaw: 0.5 },
+  // Virtual celebrations (lib/beamyVirtual owns the words and what really ships).
+  { id: 'virtual', title: VC_COPY.title, body: VC_COPY.body, clip: 'Wave', yaw: 0.4 },
 ];
 
 export const FILMS_COPY = {

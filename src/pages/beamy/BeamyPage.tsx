@@ -6,8 +6,8 @@
  * lives at `/classic`, noindex). A normal, natively scrolling page over ONE fixed,
  * full-screen canvas (BeamyStage) that sits BEHIND the content:
  *
- *   hero → the pinned story (five glass cards, one 3D effect each) → the
- *   films (Beamy projects them) → What applies to you? → Try it (the real
+ *   hero → the pinned story (six glass cards, one 3D effect each; step 6
+ *   is virtual celebrations) → What applies to you? → Try it (the real
  *   booth) → Pricing → Start
  *
  * Slots and poses (lib/beamyScroll): every section holds an empty
@@ -40,13 +40,11 @@ import {
   type CSSProperties, type HTMLAttributes, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, Check, Clapperboard, Lock } from 'lucide-react';
+import { Camera, Check, Lock } from 'lucide-react';
 import { Briefcase, Cake, ClipboardList, Gift, Users, type LucideIcon } from 'lucide-react';
 import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
 import ReportIssueButton from '../../components/support/ReportIssueButton';
-import FilmEmbed from '../../components/ui/FilmEmbed';
-import { BoothIcon, CardIcon, ChallengeIcon, WallIcon, type BeamIconProps } from '../../components/ui/BeamIcons';
 import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../components/beamy/selfieFx';
 import { usePageTitle } from '../../lib/usePageTitle';
@@ -55,9 +53,9 @@ import { REDUCED_GLIDE_S, SELFIE_SPEED, flashOpacity, photoState } from '../../l
 import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
 import { AUDIENCES, GREETING, HELLO, POKE_LINES, audienceById, type Audience, type AudienceIcon } from '../../lib/beamyTour';
 import {
-  FILMS, FILMS_COPY, FOOTER_LINKS, HERO, LOOKS, NAV_LINKS, PICK_COPY, POKE_IDLE, SIGNUP_PATH, START_COPY, STORY_COPY,
+  FOOTER_LINKS, HERO, LOOKS, NAV_LINKS, PICK_COPY, POKE_IDLE, SIGNUP_PATH, START_COPY, STORY_COPY,
   STORY_STEPS, TRY_COPY, beamyPlanCards, createReactionPicker, pickCelebration, pokeStep, pricingSection,
-  startFacts, type Celebration, type FilmId, type Reaction, type StoryFxId,
+  startFacts, type Celebration, type Reaction, type StoryFxId,
 } from '../../lib/brandLanding';
 import {
   STOPS, blendSlots, pageProgress, pinProgress, storyEdgeOffsets, storyHeightVh, storySnapOffsets, storySnapOn, storyStep, weightedNight,
@@ -78,19 +76,6 @@ import {
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
 import type { ArFxKind } from '../../lib/arFx';
-import VirtualCelebrations from './VirtualCelebrations';
-import { VC_COPY, VC_FILM } from '../../lib/beamyVirtual';
-
-import boothFilm from '../../assets/landing/booth-feature.mp4';
-import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
-import wallFilm from '../../assets/landing/wall-feature.mp4';
-import wallPoster from '../../assets/landing/wall-feature-poster.jpg';
-import challengesFilm from '../../assets/landing/challenges-feature.mp4';
-import challengesPoster from '../../assets/landing/challenges-feature-poster.jpg';
-import cardsFilm from '../../assets/landing/cards-feature.mp4';
-import cardsPoster from '../../assets/landing/cards-feature-poster.jpg';
-import virtualFilm from '../../assets/landing/virtual-feature.mp4';
-import virtualPoster from '../../assets/landing/virtual-feature-poster.jpg';
 
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
@@ -98,40 +83,6 @@ const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, 
 /* Asset slots come from lib/beamyAssets (HOME_ASSET_DEFAULTS); an undefined
    media field there means the bundled file imported here. */
 const A = HOME_ASSET_DEFAULTS;
-/** The virtual celebrations tab's icon: a line gift, tinted like the beam icons. */
-const VirtualIcon = ({ size = 18, from, className }: BeamIconProps) => <Gift size={size} color={from} strokeWidth={1.75} className={className} aria-hidden />;
-/**
- * One tab of "See it in motion". The list below is the whole section: the
- * tab row, the 16:9 film box (fixed size, so a switch never moves the page)
- * and Beamy's speech-bubble line all read it. To add a tab, import its clip
- * and poster at the top of this file and append ONE entry to FILM_TABS:
- *   { key: 'virtual', label: 'Virtual celebrations', video: virtualFilm,
- *     poster: virtualPoster, line: 'Beamy’s line for it' }
- * `title` + `hook` (the caption under the film) and `Icon` are optional.
- */
-interface FilmTab {
-  key: string;
-  label: string;
-  video: string;
-  poster: string;
-  /** Beamy's speech-bubble line while this film is on. */
-  line: string;
-  title?: string;
-  hook?: string;
-  Icon?: (p: BeamIconProps) => ReactNode;
-}
-/** A tab from the shared film copy (lib/brandLanding FILMS) and its bundled media (a CMS override wins). */
-const filmTab = (id: FilmId, video: string, poster: string, Icon: FilmTab['Icon']): FilmTab => {
-  const f = FILMS.find((x) => x.id === id);
-  return { key: id, label: f?.eyebrow ?? id, title: f?.title, hook: f?.line, line: f?.beamy ?? '', video: A.films[id]?.video ?? video, poster: A.films[id]?.poster ?? poster, Icon };
-};
-const FILM_TABS: FilmTab[] = [
-  filmTab('booth', boothFilm, boothPoster, BoothIcon),
-  filmTab('wall', wallFilm, wallPoster, WallIcon),
-  filmTab('challenges', challengesFilm, challengesPoster, ChallengeIcon),
-  filmTab('cards', cardsFilm, cardsPoster, CardIcon),
-  { key: 'virtual', label: VC_FILM.label, title: VC_FILM.title, hook: VC_FILM.hook, line: VC_FILM.beamy, video: virtualFilm, poster: virtualPoster, Icon: VirtualIcon },
-];
 /** The live walls' photos: an override needs more than one wall's worth. */
 const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
 /** The AR step's picker, in category order. */
@@ -256,10 +207,8 @@ export default function BeamyPage() {
 
   const [active, setActive] = useState<StopId>('hero');
   const [step, setStep] = useState(0);
-  const [film, setFilm] = useState<string>(FILM_TABS[0].key);
   /* The audience options wait, hidden, until Beamy arrives and beams them
-     in (instantly shown without WebGL or under reduced motion). The films
-     are simply there: no projector, so a tab switch never moves anything. */
+     in (instantly shown without WebGL or under reduced motion). */
   const [pickLit, setPickLit] = useState(false);
   const pickLitRef = useRef(false);
   pickLitRef.current = pickLit;
@@ -325,7 +274,6 @@ export default function BeamyPage() {
   const viewfinderRef = useRef<HTMLDivElement | null>(null);
   const storyRef = useRef<HTMLElement | null>(null);
   const storyWallRef = useRef<HTMLDivElement | null>(null);
-  const filmFrameRef = useRef<HTMLDivElement | null>(null);
   /** The centre tile of whichever wall the next photo flies to. */
   const heroTileRef = useRef<HTMLDivElement | null>(null);
   const tryTileRef = useRef<HTMLDivElement | null>(null);
@@ -346,8 +294,6 @@ export default function BeamyPage() {
   readyRef.current = ready && !failed;
   const reducedRef = useRef(reduced);
   reducedRef.current = reduced;
-  const filmRef = useRef(film);
-  filmRef.current = film;
   /** What the story is doing with Beamy right now (so a step is entered once). */
   const storyOn = useRef<{ step: number; held: boolean }>({ step: -1, held: false });
   const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.6 }, heightPx: 180 });
@@ -461,12 +407,10 @@ export default function BeamyPage() {
     switch (id) {
       case 'hero': return BEAMY_LOOKS[lookIxRef.current]?.line ?? HELLO;
       case 'story': return STORY_COPY.heading;
-      case 'films': return (FILM_TABS.find((f) => f.key === filmRef.current) ?? FILM_TABS[0]).line;
       case 'pick': return GREETING;
       case 'try': return a.lines.snap;
       case 'pricing': return pricingSection().line;
       case 'start': return a.lines.go;
-      case 'virtual': return VC_COPY.beamy;
     }
   }, []);
 
@@ -502,6 +446,7 @@ export default function BeamyPage() {
     b.stopProject();
     if (s.id === 'prop') void b.play('Hop');
     else if (s.id === 'wall') { /* the wall's own timeline drives him (onCue) */ }
+    else if (s.id === 'virtual') void b.play('Wave'); // he waves to friends far away; its timeline has him beam at the card (onCue)
     else {
       void b.play(s.clip as BeamyClip);
       const id = s.id;
@@ -521,7 +466,8 @@ export default function BeamyPage() {
   const storyLeaveRef = useRef(storyLeave);
   storyLeaveRef.current = storyLeave;
   /* A story scene's cue (StoryScenes' timelines): Beamy acts on the wall
-     step's beats; the challenge ends with him celebrating. */
+     step's beats; the challenge ends with him celebrating; the shared link
+     goes out with a beam at the card, and he sparkles when it is sent. */
   const onCue = useCallback((scene: string, cue: string) => {
     const b = api.current;
     logStep(`seq:${scene}:${cue}`);
@@ -529,6 +475,8 @@ export default function BeamyPage() {
     if (scene === 'wall' && cue === 'receive') { void b.play('Hop'); b.sparkle('sparkle'); }
     else if (scene === 'wall' && cue === 'beam') beamToWall();
     else if (scene === 'medal' && cue === 'rank') b.sparkle('sparkle');
+    else if (scene === 'virtual' && cue === 'share') { const r = anchorRect('virtual'); if (r !== null) void b.beam(centre(r), undefined, 'mouth'); }
+    else if (scene === 'virtual' && cue === 'deliver') b.sparkle('sparkle');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only
   }, []);
   const beamyAt = useCallback(() => (readyRef.current && api.current !== null ? api.current.mouth() : null), []);
@@ -689,7 +637,7 @@ export default function BeamyPage() {
         bubbleMaxY: vh - 12,
         // The bubble speaks only where his slot left room for it (never on
         // phones, never in the story, never mid-glide).
-        bubbleAway: isPhone || slotId === 'story' || slotId === 'films' || !settled,
+        bubbleAway: isPhone || slotId === 'story' || !settled,
         // A tap on him works wherever he has settled, phones included (the
         // bubble's rules above are about room for text, not about taps).
         hitAway: !settled,
@@ -755,7 +703,6 @@ export default function BeamyPage() {
       else if (!inStory && storyOn.current.step >= 0) storyLeaveRef.current();
       // Options he beams in: shown anyway once on screen for a moment,
       // whether or not he got there (a stop that never settles, a slow stage).
-      // (The films never wait on him: he stands beside them and talks.)
       const now = performance.now();
       const pg = pickGridRef.current;
       if (!pickLitRef.current && pg !== null) {
@@ -1547,63 +1494,6 @@ export default function BeamyPage() {
     </section>
   );
 
-  /* ── The films: one fixed 16:9 frame, a tab per film (FILM_TABS); Beamy
-     stands beside it and says a line for each. Nothing here moves on a
-     switch: the box keeps its size and the bubble its height. ── */
-  const cur = FILM_TABS.find((f) => f.key === film) ?? FILM_TABS[0];
-  // Straight on from the story (its pinned panel already ends on open space),
-  // so the films start right under it, like the options do after them. Phones
-  // give it no slot of its own: a second Beamy box above the heading was a
-  // blank screen while he dissolved between two slots. He stays in the story
-  // until the film fills the screen, then stands above the options.
-  const filmsClass = `bw-sec relative mx-auto w-full max-w-[1320px] ${phone ? 'px-5 pb-14 pt-4' : 'px-[clamp(40px,6vw,104px)] pb-[clamp(88px,13vh,150px)] pt-[clamp(8px,2vh,24px)]'}`;
-  // His line, in a bubble of fixed height (its tail points at him; on phones,
-  // where he is not here, it sits over the film).
-  const filmLine = (
-    <p data-film-line className="bw-film-line" data-phone={phone ? 'true' : 'false'} aria-live="polite">
-      <span key={cur.key} className="bw-film-line-text">{cur.line}</span>
-    </p>
-  );
-  const films = (
-    <section id="films" data-stop="films" aria-labelledby="h-films" className={filmsClass}>
-      {split('right', phone ? null : (
-        <div className="flex w-full max-w-[280px] flex-col items-center">
-          {filmLine}
-          <div data-slot="films" data-yaw={-0.5} data-bubble="none" aria-hidden className="aspect-[1.1] max-h-[46vh] w-full" />
-        </div>
-      ), (
-        <>
-          <div className="bw-in">
-            <h2 id="h-films" className="bw-h2">{FILMS_COPY.heading}</h2>
-          </div>
-          <div role="group" aria-label="Pick a film" className="bw-in bw-film-tabs mt-5 flex flex-wrap gap-2" style={i(1)}>
-            {FILM_TABS.map((f) => {
-              const Icon = f.Icon;
-              const on = film === f.key;
-              return (
-                <button key={f.key} type="button" className="bw-glass-chip bw-pane-chip" aria-pressed={on} onClick={(e) => { setFilm(f.key); logStep(`film:${f.key}`); if (phone) e.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' }); }}>
-                  {Icon !== undefined
-                    ? <Icon size={18} from={on ? '#2B2A8C' : '#FFFFFF'} to={on ? '#5B4BE0' : '#C9CCFF'} />
-                    : <Clapperboard className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden />}
-                  {f.label}
-                </button>
-              );
-            })}
-          </div>
-          {phone && filmLine}
-          <div ref={filmFrameRef} data-film-frame data-lit="true" className={`bw-in bw-film bw-film-fixed bw-thick-frame ${phone ? 'mt-3' : 'mt-6'}`} style={i(2)}>
-            <FilmEmbed key={cur.key} src={cur.video} poster={cur.poster} label={`${cur.title ?? cur.label}: feature film`} chipClassName="bw-film-chip" />
-          </div>
-          {(cur.title !== undefined || cur.hook !== undefined) && (
-            <p className="bw-small bw-film-caption mt-4 max-w-[56ch]">
-              {cur.title !== undefined && <span className="font-semibold" style={{ color: 'var(--bw-ink)' }}>{cur.title}.</span>} {cur.hook}
-            </p>
-          )}
-        </>
-      ))}
-    </section>
-  );
-
   /* ── What applies to you? ──────────────────────────────────────────── */
   const pickAudience = async (a: Audience, el: HTMLElement) => {
     const alive = begin();
@@ -1871,9 +1761,6 @@ export default function BeamyPage() {
       <main ref={mainRef} className="relative z-10">
         {hero}
         {story}
-        {films}
-        {/* Virtual celebrations (VirtualCelebrations.tsx): its own stop; he beams at the card when the link goes out. */}
-        <VirtualCelebrations phone={phone} wide={wideHero} beamyHere={active === 'virtual'} onBeam={(to) => { const b = api.current; if (b !== null && readyRef.current) void b.beam(to, undefined, 'mouth'); }} />
         {pick}
         {tryIt}
         {pricingSec}

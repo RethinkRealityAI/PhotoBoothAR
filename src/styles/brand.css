@@ -2581,3 +2581,30 @@
   [data-brand="2"] .bw-film-tabs::-webkit-scrollbar { display: none; }
   [data-brand="2"] .bw-film-tabs .bw-glass-chip { flex: none; scroll-snap-align: start; }
 }
+
+/* Round 8: virtual celebrations is How it works step 6 (StoryScenes places
+   VirtualCelebrations' two pieces round Beamy). The pieces fly in from the
+   screen's edges, so their wrappers never clip (the old stop clipped x). */
+[data-brand="2"] .bw-vcs .bw-vc { overflow: visible; }
+[data-brand="2"] .bw-vcs .bw-vc-cardbox { max-width: none; }
+/* Phones: the link is one row, the card a size that leaves his head clear. */
+[data-brand="2"] .bw-vc-link[data-compact="true"] { padding: 9px 10px; }
+[data-brand="2"] .bw-vc-link[data-compact="true"] .bw-vc-url { margin-top: 0; }
+[data-brand="2"] .bw-vc-badge-sm { width: 32px; height: 32px; }
+[data-brand="2"] .bw-vc-cardbox[data-compact="true"] .bw-vc-page { padding: 10px; }
+[data-brand="2"] .bw-vc-cardbox[data-compact="true"] .bw-vc-page .grid { gap: 6px; }
+[data-brand="2"] .bw-vc-cardbox[data-compact="true"] .bw-vc-cover { padding: 9% 14px 14px; }
+[data-brand="2"] .bw-vc-cardbox[data-compact="true"] .bw-vc-cover-title { margin-top: 12px; }
+/* The closed card says when it goes out (only the day the host picked). */
+[data-brand="2"] .bw-vc-when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1A1740;
+  background-color: #FFC56B;
+}

@@ -116,8 +116,9 @@ describe('pinned story', () => {
 
 describe('page journey', () => {
   it('lists the stops top to bottom with alternating sides after the hero', () => {
-    expect(STOPS.map((s) => s.id)).toEqual(['hero', 'story', 'films', 'virtual', 'pick', 'try', 'pricing', 'start']);
-    expect(stopIndex('films')).toBe(2);
+    // No films stop and no virtual stop (2026-11-20: films removed; virtual celebrations is story step 6).
+    expect(STOPS.map((s) => s.id)).toEqual(['hero', 'story', 'pick', 'try', 'pricing', 'start']);
+    expect(stopIndex('pick')).toBe(2);
     const sides = STOPS.filter((s) => s.side !== 'centre').map((s) => s.side);
     for (let i = 1; i < sides.length; i++) expect(sides[i]).not.toBe(sides[i - 1]);
   });
