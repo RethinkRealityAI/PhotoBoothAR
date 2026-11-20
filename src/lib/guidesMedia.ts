@@ -11,11 +11,21 @@
  * public/guides/frames/ by URL, with a small WebP thumbnail beside each one
  * for the gallery grid.
  */
-import type { FramePackId, GuideVideoKey, HotspotShotKey } from './guidesContent';
+import type { FeatureFilmId, FramePackId, GuideVideoKey, HotspotShotKey } from './guidesContent';
 import firstEventMp4 from '../assets/guides/guide-first-event.mp4';
 import firstEventPoster from '../assets/guides/guide-first-event.jpg';
 import designAFrameMp4 from '../assets/guides/guide-design-a-frame.mp4';
 import designAFramePoster from '../assets/guides/guide-design-a-frame.jpg';
+import boothFilm from '../assets/landing/booth-feature.mp4';
+import boothPoster from '../assets/landing/booth-feature-poster.jpg';
+import wallFilm from '../assets/landing/wall-feature.mp4';
+import wallPoster from '../assets/landing/wall-feature-poster.jpg';
+import challengesFilm from '../assets/landing/challenges-feature.mp4';
+import challengesPoster from '../assets/landing/challenges-feature-poster.jpg';
+import cardsFilm from '../assets/landing/cards-feature.mp4';
+import cardsPoster from '../assets/landing/cards-feature-poster.jpg';
+import virtualFilm from '../assets/landing/virtual-feature.mp4';
+import virtualPoster from '../assets/landing/virtual-feature-poster.jpg';
 
 /**
  * An annotated product screenshot. Served by URL for the same reason the
@@ -60,4 +70,17 @@ export function frameDownloadName(id: FramePackId): string {
 export const GUIDE_VIDEO: Record<GuideVideoKey, { src: string; poster: string } | null> = {
   'first-event': { src: firstEventMp4, poster: firstEventPoster },
   'design-a-frame': { src: designAFrameMp4, poster: designAFramePoster },
+};
+
+/**
+ * The hub's feature films: the homepage's bundled files, imported from the
+ * same paths so Vite emits each one once whichever page asks for it. The
+ * celebrations film's files are named `virtual-*` (its homepage name).
+ */
+export const FEATURE_FILM_MEDIA: Record<FeatureFilmId, { src: string; poster: string }> = {
+  booth: { src: boothFilm, poster: boothPoster },
+  wall: { src: wallFilm, poster: wallPoster },
+  challenges: { src: challengesFilm, poster: challengesPoster },
+  cards: { src: cardsFilm, poster: cardsPoster },
+  celebrations: { src: virtualFilm, poster: virtualPoster },
 };

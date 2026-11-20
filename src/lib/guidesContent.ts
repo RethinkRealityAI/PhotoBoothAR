@@ -581,7 +581,7 @@ export const GUIDE_COUNTS = {
   maxObjects: 20,
   maxTriggers: 6,
   studioTabs: 8,
-  powerUps: 3,
+  powerUps: 4,
   /** copilot.ts MAX_ACTIONS — the most changes the Copilot proposes in one turn. */
   copilotMaxActions: 5,
   /** contentPacks.ts PACK_IDS — one starter pack per event style. */
@@ -823,8 +823,9 @@ const MAKE_3D_PROPS: GuideDoc = {
       body: [
         `Props get much better when they do something. Magic Triggers watch your guest and fire an effect when they make a gesture: there are ${GUIDE_COUNTS.triggerSources} cues to choose from — smile, open mouth, wink, brow raise, closed fist, open palm, pinch, peace sign and hand-to-temple — and ${GUIDE_COUNTS.triggerActions} things they can set off: a Burst of confetti, an energy Blast, a Reveal that makes a hidden object appear, an Animate that shakes or spins a piece, and a Filter pulse that flashes the whole look.`,
         `You can have up to ${GUIDE_COUNTS.maxTriggers} of these in one scene, and each one waits about 2.5 seconds before it can fire again, so a guest holding a grin does not machine-gun the effect.`,
-        `Three Power-Ups build the fancy versions for you. Power FX pairs a visor, wand or gauntlet with a gesture-fired energy blast that erupts from the prop itself. 3D Name Jewelry turns a name into a necklace, earrings or floating text. All three write ordinary objects back into your scene, so you can keep editing them afterwards. A scene holds up to ${GUIDE_COUNTS.maxObjects} pieces on top of its frame.`,
+        `Four Power-Ups build the fancy versions for you. Power FX pairs a visor, wand or gauntlet with a gesture-fired energy blast that erupts from the prop itself. 3D Name Jewelry turns a name into a necklace, earrings or floating text. All four write ordinary objects back into your scene, so you can keep editing them afterwards. A scene holds up to ${GUIDE_COUNTS.maxObjects} pieces on top of its frame.`,
         `Face Paint is the third: living paint that sits on your guest's actual skin, so it stretches when they smile and stays put when they turn. Pick a look — Game Day stripes, Flag Cheeks, Eye Black, Glitter Freckles, Hearts, Stars, Tiger or Sugar Skull, or one of the party looks: Butterfly, Hero Mask, Rainbow, Lightning Bolt, Unicorn, Cat or Neon Festival — and it starts in your event colours. For the holidays there's a Christmas set too: Candy Cane, Rudolph, Snowflakes, Frost Queen and Gingerbread, which start in their classic festive colours. Unicorn, Neon Festival, Snowflakes and Frost Queen even twinkle on your guest's face, and hold still for anyone who has turned motion off on their phone. Every look is yours to adjust: change any colour, soften it with Paint strength, or stamp your own logo on the left cheek, right cheek, both cheeks or forehead. Press Test on my face to see it on you in the 3D Live view. It reads the right way round in the mirror and in the saved photo. Face paint uses our advanced face tracker. On the few phones that can't run it, guests still get the rest of your scene, just without the paint.`,
+        `Coloured Contacts is the fourth: lenses that follow your guest's eyes, move with every glance and disappear behind a blink, just like real ones. Choose a style — Natural, Vivid, Starburst, Cat Eye, Heart Eyes, Star Eyes, Glow or Full Eye — then pick a colour by name (Sapphire, Emerald, Honey, Violet and more) or any colour you like, and set Lens strength and Lens size. Natural keeps your guest's own pupil and the sparkle in their eye, so it reads like everyday coloured contacts; Glow pulses softly; Full Eye covers the whole eye for a blackout or whiteout costume look. Contacts work on their own or together with Face Paint. The preview has two tabs: Example shows the look on a pair of sample eyes, and Live camera shows it on your own eyes as you change it. Test on my eyes adds the lenses and opens the full stage. They follow one guest at a time and use the same advanced face tracker as Face Paint, so on the few phones that can't run it, guests get the rest of your scene without the lenses.`,
       ],
     },
     {
@@ -956,7 +957,7 @@ const USE_THE_STUDIO: GuideDoc = {
         {
           label: 'Power-Ups',
           value: `${GUIDE_COUNTS.powerUps}`,
-          why: 'Power FX, 3D Name Jewelry and Face Paint — guided builders that write normal objects back into your scene.',
+          why: 'Power FX, 3D Name Jewelry, Face Paint and Coloured Contacts — guided builders that write normal objects back into your scene.',
         },
       ],
     },
@@ -986,8 +987,9 @@ const FIRST_EVENT: GuideDoc = {
     {
       kind: 'prose',
       body: [
-        'You do not build an event here so much as describe one. Tell the Concierge what the night is — "a 40th birthday, garden party, pink and gold" — and it designs the whole thing: the look, a frame, a wall, a set of challenges. You can also just hand it a photo of your invitation and let it read the palette off that. Not in the mood to decide? Say "you decide" — or press Set it all up for me on the plan card — and it chooses everything still open, tells you in one line what it picked, and points you at Create.',
-        'Then you adjust what you want and go live. Guests scan a QR code and their camera opens in the browser. Nothing to install, on any phone.',
+        'Press New event and a short guided setup walks you through it, one screen at a time: the name and date, your welcome page, the looks guests can try on, power-ups, photo challenges and your live wall. A live preview sits beside every step — your camera if you switch it on, or a 3D head wearing your picks if not — so you see what guests will see before you commit to anything.',
+        'Everything saves as you go. Close the tab halfway through and your dashboard shows Continue setup on the event, with how far you got. Rather describe it in a sentence? Use the assistant link on the first screen and the Concierge designs it for you instead.',
+        'Then you go live. Guests scan a QR code and their camera opens in the browser. Nothing to install, on any phone.',
       ],
     },
     {
@@ -995,14 +997,14 @@ const FIRST_EVENT: GuideDoc = {
       title: 'Six steps to a live booth',
       steps: [
         {
-          title: 'Describe your event',
-          body: `Start a new event and write one sentence about it — occasion, vibe, colours. Or upload a photo of the invitation and let it design from that. The plan card has a box ticked for you, Start with a challenge pack + a keepsake card: leave it on and your event opens with ${GUIDE_COUNTS.starterPackMissions} ready-made photo missions and a card guests can sign, from the starter pack that matches your style — Wedding, Gala, Birthday, Corporate or Party. Untick it to start empty. Rather not chat? Press Fill in manually and type the name, the kind of event and the date yourself — you get the same event either way. If the AI designer is ever unavailable, the Concierge says why in plain words and builds from a quick template match instead; you can change all of it later.`,
-          tip: 'Be specific about mood and colour. "Elegant, ivory and gold, evening" gets you much further than "wedding".',
+          title: 'Name it and pick a date',
+          body: `Type the event’s name, say what you are celebrating (wedding, birthday, party, gala or a work event) and pick the date — or tick Not sure yet. That one choice sets sensible starting colours, frames and challenge ideas, so nothing starts blank. Then design the welcome page guests land on when they scan: a template, a gradient or a single colour, or a photo of your own with a fit tool that shows it on a phone and on the live wall at once. Add a border and a line of welcome in your own words. After the looks and power-ups, tap any of the ${GUIDE_COUNTS.starterPackMissions} challenge ideas for your occasion to add it, or write your own. Last, set up your live wall — the photo wall on a TV or projector at the event. Start from a style (Beamwall, Aurora, Neon night, Gallery and more), then make it yours: the layout (Grid, Gallery, Scrolling, Carousel or Slideshow), the background (your welcome page, a gradient, a plain colour or your own photo), the photo cards (liquid glass, clean, polaroid or neon, with a glow in any colour), how a new photo arrives (a beam, a sparkle or a reveal) and whether it shows the QR code, a spotlight, the leaderboard and the challenges. The preview beside it is your real live wall with sample photos — press Beam a photo to watch one land.`,
+          tip: 'Use a photo at least 1600 pixels on its long side for the welcome page. The setup warns you if yours will look soft on the live wall.',
         },
         {
-          title: 'Pick your frames & filters',
-          body: 'The moment your event exists you land on Pick your frames & filters, already filled in with the set that suits your occasion. Above them, Ready-made looks shows complete designs from Beamwall — some with 3D props guests wear — with the ones that fit your occasion, colours and season first (a December date or “Christmas” in the name puts the Christmas looks on top). Tap a look to add it and guests can pick it straight away; tap again to take it off. For the frames and filters below, tap any one to switch it on or off — guests can choose from everything you leave on — press Open with this under the frame the booth should start with, then Save frames & filters. The same picker sits at the top of your event’s Frames & filters tab, so you can change your mind any time. Nothing to design, nothing to upload.',
-          tip: 'Want a frame with your names on it? Make a frame with AI, just below the picker in Frames & filters, does it in about a minute — your first 3 are free.',
+          title: 'Pick the looks and filters',
+          body: 'On Looks, the tabs are Frames, 3D props, Face paint and Effects. Narrow a tab with the occasion menu (wedding, birthday, party and more) and the quick pills, then tap anything to offer it to guests — it goes straight onto the preview so you can see it on a face. Add all or Clear works on whatever is showing. Below that, Filters bundle a whole look into one tap: switch on a ready-made filter, or press Make your own filter, name it, and pick a frame, up to four props, a face paint and an effect, all on one screen. Open with this chooses the filter the booth starts on. Power-ups adds gestures that work with every look — a smile showers sparkles, an open mouth pops confetti, and hand gestures set off hearts, fireworks or a beam — each with a Preview button so you can see it first.',
+          tip: 'Want a frame with your names on it? Make a frame with AI in your event’s Frames & filters does it in about a minute — your first 3 are free.',
         },
         {
           title: 'Work the checklist',
@@ -1138,6 +1140,7 @@ const RUN_THE_NIGHT: GuideDoc = {
       body: [
         'When the party is over, hit End on the event. The booth shuts to new photos immediately — anyone who scans the QR after that gets your thank-you screen instead of a camera, so give guests their last call before you press it.',
         'Later, once an old event is just taking up room in Your events, open its ⋯ menu and choose Archive. It slides into a collapsed Archived shelf at the bottom of the page and nothing is deleted — the wall, every photo, the keepsake cards and the credits you spent are all exactly where you left them, and one click brings it back.',
+        'Your plan keeps guest photos and videos for a set time, counted from the end of the event: 7 days on Free, 90 days on Essentials, a year on Premium and two years on Deluxe. The Dashboard shows the exact date under Your photos, with a Download everything button that saves the lot as a zip (a big event comes in a few parts). We email you two weeks before anything is removed, and nothing goes without that email.',
       ],
     },
     {
@@ -1188,6 +1191,16 @@ const RUN_THE_NIGHT: GuideDoc = {
           label: 'Keepsake film render',
           value: '≈30 credits',
           why: 'One render turns a full card into a shareable film.',
+        },
+        {
+          label: 'Photos and videos',
+          value: 'Unlimited on Premium and up',
+          why: 'No cap on how many your guests take. Fair use is up to 2,000 new shots a day per event, more than a big gala takes. Free carries 25 and Essentials 500.',
+        },
+        {
+          label: 'Video clip length',
+          value: '30 s · 60 s on Premium · 90 s on Deluxe',
+          why: 'Every plan records video, Free included. Longer clips come with the bigger plans, and every clip stays small enough to upload on busy venue wifi.',
         },
       ],
     },
@@ -1262,6 +1275,84 @@ export function guideHighlights(doc: GuideDoc): string[] {
 }
 
 /* ------------------------------------------------------------------ */
+/* Feature films — the hub's "Watch it in action" section              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The five product films that used to sit in the homepage's film section.
+ * Their media is the SAME bundled files (src/assets/landing/*-feature.*, wired
+ * in guidesMedia.FEATURE_FILM_MEDIA), so a re-render reaches both pages.
+ *
+ * The words are copied in rather than imported: this module stays import-free
+ * (see the header), and the homepage is free to retire its own copy without
+ * breaking the guides. They read the same as the homepage did on the day they
+ * moved: brandLanding FILMS for the first four, beamyVirtual VC_FILM for the
+ * fifth. The celebrations line is held to beamyVirtual's AUTO_DELIVERY_RE in
+ * guidesContent.test.ts. The film itself ends on the host pressing "Send", and
+ * nothing may promise automatic delivery while that does not exist.
+ */
+export type FeatureFilmId = 'booth' | 'wall' | 'challenges' | 'cards' | 'celebrations';
+
+export interface FeatureFilm {
+  id: FeatureFilmId;
+  /** The short tile label. */
+  eyebrow: string;
+  title: string;
+  /** ONE line. The film carries the detail as in-video callouts, so the copy
+   *  never pre-states it. */
+  hook: string;
+  /** Tile accent, from the guides' own spectrum. */
+  hue: string;
+}
+
+export const FEATURE_FILMS_COPY = {
+  eyebrow: 'Watch it in action',
+  title: 'Five short films, one for every part of the night',
+  blurb:
+    'From the first scan to the keepsake everyone takes home. Each one is under half a minute and plays muted, so pick one and watch it right here.',
+} as const;
+
+export const FEATURE_FILMS: readonly FeatureFilm[] = [
+  {
+    id: 'booth',
+    eyebrow: 'Photo booth',
+    title: 'A photo booth that lives in every pocket',
+    hook: 'One scan drops every guest into a magical booth, right in their browser.',
+    hue: '#FB923C',
+  },
+  {
+    id: 'wall',
+    eyebrow: 'Live photo wall',
+    title: 'Every shot beams onto the wall',
+    hook: 'The moment a photo lands, the whole room turns to look.',
+    hue: '#22D3EE',
+  },
+  {
+    id: 'challenges',
+    eyebrow: 'Challenges',
+    title: 'Turn the room into the game',
+    hook: 'Give guests a mission, and watch every table race to beat it.',
+    hue: '#34D399',
+  },
+  {
+    id: 'cards',
+    eyebrow: 'Digital keepsakes',
+    title: 'The morning-after keepsake',
+    hook: 'Long after the lights go up, everyone still has a piece of the night.',
+    hue: '#E879F9',
+  },
+  {
+    id: 'celebrations',
+    eyebrow: 'Celebrations',
+    title: 'Celebrate together, from anywhere',
+    hook: 'One link gathers notes, photos and videos from friends everywhere onto one card.',
+    // Lighter than the 3D-props guide's #7C6CF7, which reads at ~2.9:1 as
+    // 10px label text on the purple page; this is ~6:1.
+    hue: '#C4B5FD',
+  },
+];
+
+/* ------------------------------------------------------------------ */
 /* GUIDE_COVERAGE — the contract guidesDrift.test.ts enforces          */
 /* ------------------------------------------------------------------ */
 
@@ -1308,6 +1399,7 @@ export const GUIDE_COVERAGE: {
     'power-fx': { guide: 'make-3d-props', note: 'Make it react — Power FX pairs a visor/wand/gauntlet with a gesture-fired blast.' },
     'name-jewelry': { guide: 'make-3d-props', note: 'Make it react — 3D Name Jewelry builds a necklace, earrings or floating text from a name.' },
     'face-paint': { guide: 'make-3d-props', note: 'Make it react — Face Paint puts a living look or your logo on the guest\'s skin.' },
+    contacts: { guide: 'make-3d-props', note: 'Make it react — Coloured Contacts puts a lens on each of the guest\'s eyes.' },
   },
   helpTopics: {
     library: { guide: 'make-a-frame', note: 'Four ways to get your frame — the library, uploads and AI Frame Studio.' },
@@ -1317,13 +1409,14 @@ export const GUIDE_COVERAGE: {
   },
   featureKeys: {
     maxPosts: { guide: 'run-the-night', note: 'What things cost — how many photos a plan carries.' },
+    videoMaxSec: { guide: 'run-the-night', note: 'What things cost — video clip length per plan (30 / 60 / 90 seconds).' },
     videoEnabled: { guide: 'make-3d-props', note: 'Put a crown on every guest — video capture is what makes a reacting prop worth having.' },
     watermark: { guide: 'run-the-night', note: 'What things cost — paid plans remove the Beamwall signature from guest photos.' },
     aiStudio: { guide: 'make-a-frame', note: 'Describe it to AI Frame Studio, and the credit table in run-the-night.' },
     cardsStandard: { guide: 'run-the-night', note: 'Keepsake cards, after the night — contributing photos and messages.' },
     cardsPremiumRender: { guide: 'run-the-night', note: 'Keepsake cards / What things cost — the ≈30-credit film render.' },
     projectionMode: { guide: 'run-the-night', note: 'Set up the wall — Projection mode for an actual projector.' },
-    retentionDays: { guide: 'run-the-night', note: 'Keepsake cards, after the night — guests bulk-save before photos age out.' },
+    retentionDays: { guide: 'run-the-night', note: 'After the event — how long each plan keeps photos, the Dashboard date, Download everything and the reminder email.' },
     studio: { guide: 'use-the-studio', note: 'Opening prose — the Studio and Assets tabs are an add-on for teams and large organisations; every host gets Frames & filters.' },
   },
 };

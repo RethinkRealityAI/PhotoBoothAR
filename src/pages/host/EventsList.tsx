@@ -17,6 +17,7 @@ import { EVENT_TEMPLATES } from '../../lib/eventTemplates';
 import PostImage from '../../components/ui/PostImage';
 import beamyCutout from '../../assets/sales/beamy.webp';
 import { RESTORE_STATUS, archivedLabel, canArchiveStatus, canDeleteStatus, confirmNameMatches, isArchivedStatus, partitionByArchived } from '../../lib/eventArchive';
+import { setupChip, setupPath } from '../../lib/wizard/wizardModel';
 import { TierPill, UpgradeModal } from './UpgradeCard';
 import { entitlementsFor, normalizeTier } from '../../lib/entitlements';
 import { supabase } from '../../lib/supabase';
@@ -679,8 +680,28 @@ export default function EventsList() {
 
   /** Notes a card owes the host: the link is shut, the event is archived, or
    *  the plan is filling up. */
-  const notes = (ev: HostEventRow) => (
+  const notes = (ev: HostEventRow) => {
+    // Started in the setup wizard and not finished: one tap back to the step
+    // the host left (lib/wizard/wizardModel.setupChip).
+    const setup = isArchivedStatus(ev.status) ? null : setupChip(ev.config);
+    return (
     <>
+      {setup && (
+        <Link
+          to={setupPath(ev.id, setup.step)}
+          className="pressable self-start inline-flex min-h-10 items-center gap-2 rounded-full bg-white/[0.14] px-3.5 text-[13.5px] font-semibold text-brand-fg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28)] hover:bg-white/[0.2]"
+        >
+          {setup.done >= setup.total ? (
+            <>Finish setup · {setup.label}</>
+          ) : (
+            <>
+              Continue setup · {setup.label}
+              <span className="font-normal text-brand-muted">{setup.done} of {setup.total}</span>
+            </>
+          )}
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+        </Link>
+      )}
       {ev.status === 'draft' && (
         <p className="text-[13px] text-amber-200/90 leading-snug">Guests can’t open the link until you go live.</p>
       )}
@@ -695,7 +716,8 @@ export default function EventsList() {
         <CapMeter used={postCounts[ev.id]} cap={capFor(ev) as number} onUpgrade={() => setUpgradeTarget(ev)} />
       )}
     </>
-  );
+    );
+  };
 
   /** One event card, shared by the grid and the archived shelf so the two can
    *  never drift into looking like different products. The cover and the name

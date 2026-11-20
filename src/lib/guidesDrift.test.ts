@@ -36,6 +36,7 @@ import {
 } from './features';
 import { ENTITLEMENTS } from './plans';
 import { ADD_ONS } from './studio/addOns';
+import { CONTACT_STYLES } from './contacts/lens';
 import { TRIGGER_SOURCES, type TriggerAction } from './studio/triggers';
 import { MAX_OBJECTS, MAX_TRIGGERS } from './studio/state';
 import { FRAME_LAYOUT_SPEC } from './assetPrompt';
@@ -252,6 +253,20 @@ describe('guides counts — the numbers the copy says out loud', () => {
       expect(
         para!.includes(d.name),
         `The Face Paint guide does not name the "${d.name}" design (src/lib/facePaint/designs.ts). ${FIX}.`,
+      ).toBe(true);
+    }
+  });
+
+  it('names every Coloured Contacts style in the paragraph that lists them', () => {
+    const paragraphs = Object.values(GUIDES).flatMap((g) =>
+      g.blocks.flatMap((b) => (b.kind === 'prose' ? b.body : [])),
+    );
+    const para = paragraphs.find((p) => p.startsWith('Coloured Contacts is the fourth'));
+    expect(para, `no Coloured Contacts paragraph found in src/lib/guidesContent.ts. ${FIX}.`).toBeDefined();
+    for (const s of CONTACT_STYLES) {
+      expect(
+        para!.includes(s.name),
+        `The Coloured Contacts guide does not name the "${s.name}" style (src/lib/contacts/lens.ts). ${FIX}.`,
       ).toBe(true);
     }
   });

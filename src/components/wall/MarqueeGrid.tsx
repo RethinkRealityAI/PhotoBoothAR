@@ -125,7 +125,7 @@ function PostCard({ post, metrics, canPlay, isMine, onSelect }: CardProps) {
 
   return (
     <div
-      className={`relative overflow-hidden rounded-xl shrink-0 ${onSelect ? 'cursor-pointer' : ''}`}
+      className={`wall-card relative overflow-hidden rounded-xl shrink-0 ${onSelect ? 'cursor-pointer' : ''}`}
       onClick={onSelect ? () => onSelect(post) : undefined}
       style={{
         width: cardWidth(post, metrics),
@@ -185,7 +185,7 @@ function PostCard({ post, metrics, canPlay, isMine, onSelect }: CardProps) {
       {/* Caption overlay */}
       {(post.guest_name || post.message) && (
         <div
-          className="absolute bottom-0 inset-x-0 px-3 py-2 pointer-events-none"
+          className="wall-card-caption absolute bottom-0 inset-x-0 px-3 py-2 pointer-events-none"
           style={{
             background:
               'linear-gradient(to top, rgba(10,7,3,0.85) 0%, rgba(10,7,3,0) 100%)',

@@ -23,6 +23,14 @@ export interface PropFit {
   align: 'base' | 'centre';
   /** Forward tilt about x, radians (a hat sits back a little). */
   tilt?: number;
+  /** Rotation in his face's plane, about z, radians (+ = counterclockwise as you look at him). */
+  roll?: number;
+  /**
+   * A PAIR of earrings (one library model, its twin baked ~15cm away): the
+   * hook-to-hook spacing on him, metres. The stage splits the model in two
+   * (lib/studio/earPair splitScenePair) and `width` is then ONE earring's.
+   */
+  pair?: number;
 }
 
 export interface BeamyLook {
@@ -84,4 +92,59 @@ export function fitProp(min: [number, number, number], max: [number, number, num
   const cz = (min[2] + max[2]) / 2;
   const py = fit.align === 'base' ? min[1] : (min[1] + max[1]) / 2;
   return { scale, offset: [fit.at[0] - cx * scale, fit.at[1] - py * scale, fit.at[2] - cz * scale] };
+}
+
+/** How a fitted prop is hung on his body bone: a holder ON the anchor (so
+ *  tilt and roll turn about the anchor itself) holding the scaled model. */
+export interface WornPlacement {
+  /** The model's uniform scale (multiplies its own). */
+  scale: number;
+  /** The model's position inside the holder. */
+  objPos: [number, number, number];
+  /** The holder's position in the body bone's space: `fit.at`. */
+  holderPos: [number, number, number];
+  /** The holder's rotation (x = tilt, z = roll; three's default XYZ order). */
+  holderRot: [number, number, number];
+  /** A split pair: where the far earring moves (model units); null otherwise. */
+  farShift: [number, number, number] | null;
+}
+
+/**
+ * THE placement of a worn prop, used both when he puts it on and when the
+ * admin's adjust mode moves it live (BeamyStage), so the two cannot drift.
+ * `pairDelta` = a split pair's authored hook delta (null: not split).
+ */
+export function wornPlacement(min: [number, number, number], max: [number, number, number], fit: PropFit, pairDelta: [number, number, number] | null): WornPlacement {
+  const laid = pairDelta !== null ? fitPair(min, max, pairDelta, fit) : null;
+  const f = laid ?? fitProp(min, max, fit);
+  return {
+    scale: f.scale,
+    objPos: [f.offset[0] - fit.at[0], f.offset[1] - fit.at[1], f.offset[2] - fit.at[2]],
+    holderPos: [fit.at[0], fit.at[1], fit.at[2]],
+    holderRot: [fit.tilt ?? 0, 0, fit.roll ?? 0],
+    farShift: laid !== null ? laid.farShift : null,
+  };
+}
+
+/**
+ * Where a split earring pair lands (see PropFit.pair): `min`/`max` are the
+ * WHOLE pair's box, `delta` the far hook minus the near hook as authored
+ * (splitScenePair's authoredDelta). The two earrings are taken as the same
+ * width, so one is the pair's width less the hook spacing. Returns the scale
+ * and offset (as fitProp) and how far to move the far earring (model units)
+ * so the hooks end up `fit.pair` apart; null when the pair cannot be laid out.
+ */
+export function fitPair(min: [number, number, number], max: [number, number, number], delta: [number, number, number], fit: PropFit): { scale: number; offset: [number, number, number]; farShift: [number, number, number] } | null {
+  const dx = delta[0];
+  const w = max[0] - min[0] - Math.abs(dx);
+  if (fit.pair === undefined || !(fit.pair > 0) || !(w > 0) || !(Math.abs(dx) > 0) || !(fit.width > 0)) return null;
+  const scale = fit.width / w;
+  const shift = Math.sign(dx) * (fit.pair / scale) - dx;
+  // The near earring stays at its end of the box; the far one moves by `shift`.
+  const nearLo = dx < 0 ? max[0] - w : min[0];
+  const farLo = (dx < 0 ? min[0] : max[0] - w) + shift;
+  const lo = Math.min(nearLo, farLo);
+  const hi = Math.max(nearLo, farLo) + w;
+  const f = fitProp([lo, min[1], min[2]], [hi, max[1], max[2]], { ...fit, width: (hi - lo) * scale });
+  return { scale: f.scale, offset: f.offset, farShift: [shift, -delta[1], -delta[2]] };
 }

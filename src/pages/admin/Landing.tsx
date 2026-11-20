@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * /admin/landing — CMS editor for the PREVIOUS marketing landing page, now at
- * /classic (noindex). The homepage ("/") is BeamyPage, which reads
- * lib/beamyAssets HOME_ASSET_DEFAULTS and none of this content.
+ * /classic (noindex). The homepage ("/") is BeamyPage: its assets are edited
+ * at /admin/home-assets (the `home` key of this same row, lib/homeAssets),
+ * and none of the copy here reaches it. Saving here keeps the server's `home`
+ * block, so a tab opened before a homepage edit can never revert it.
  *
  * Draft/publish model: edits accumulate in a local draft, "Save draft" stores
  * it (singleton row, migration 030), "Publish" copies draft → published — the
@@ -24,6 +26,7 @@
  *     for that control here.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { ChevronDown, ExternalLink, Info, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useToast } from '../../components/ui/Toast';
 import ConfirmModal from '../../components/ui/ConfirmModal';
@@ -239,10 +242,23 @@ export default function AdminLanding() {
   const unsavedEdits = draft !== null && localJson !== serverDraftJson;
   const draftDiffersFromPublished = draft !== null && localJson !== publishedJson;
 
+  /** The blob to save: this screen's copy with the SERVER's homepage block (/admin/home-assets owns `home`). */
+  async function withServerHome(d: LandingContent): Promise<Record<string, unknown> | null> {
+    const fresh = await fetchLandingContentAdmin();
+    if (fresh.error !== null || fresh.data === null) return null;
+    return { ...normalizeLandingContent(d), home: normalizeLandingContent(fresh.data.draft).home } as unknown as Record<string, unknown>;
+  }
+
   async function onSave() {
     if (draft === null) return;
     setBusy(true);
-    const { error } = await saveLandingDraft(normalizeLandingContent(draft) as unknown as Record<string, unknown>);
+    const blob = await withServerHome(draft);
+    if (blob === null) {
+      setBusy(false);
+      toast.push("Couldn't read the current draft. Nothing was saved.", 'error');
+      return;
+    }
+    const { error } = await saveLandingDraft(blob);
     setBusy(false);
     if (error !== null) {
       toast.push(`Couldn't save the draft: ${error}`, 'error');
@@ -259,9 +275,8 @@ export default function AdminLanding() {
     // Publish copies the SERVER draft — save first so what goes live is what
     // is on this screen, not an older draft.
     if (unsavedEdits) {
-      const { error: saveErr } = await saveLandingDraft(
-        normalizeLandingContent(draft) as unknown as Record<string, unknown>,
-      );
+      const blob = await withServerHome(draft);
+      const { error: saveErr } = blob === null ? { error: 'network' } : await saveLandingDraft(blob);
       if (saveErr !== null) {
         setBusy(false);
         toast.push(`Couldn't save before publishing: ${saveErr}. Nothing was published.`, 'error');
@@ -316,6 +331,10 @@ export default function AdminLanding() {
           <div className="flex flex-wrap items-center gap-3">
             <div>
               <h1 className="font-serif text-2xl md:text-3xl text-foil-static">Landing page</h1>
+              <p className="font-sans text-xs text-brand-muted/80 mt-0.5">
+                Edits only the classic page at /classic. The homepage's frames, props and photos are in{' '}
+                <Link to="/admin/home-assets" className="underline text-brand-fg">Homepage</Link>.
+              </p>
               <p className="font-sans text-xs text-brand-muted/60 mt-0.5">
                 {version !== null && <>Published v{version}</>}
                 {updatedAt !== null && <> · last change {new Date(updatedAt).toLocaleString()}</>}

@@ -11,6 +11,7 @@
  */
 import { supabase } from './supabase';
 import { normalizeLandingContent, type LandingContent } from './landingContent';
+import { EMPTY_HOME_OVERRIDES, countOverrides, type HomeOverrides } from './homeAssets';
 
 /**
  * The published landing content, normalized — or the bundled defaults on ANY
@@ -29,4 +30,34 @@ export async function fetchLandingContent(): Promise<LandingContent> {
     console.error('[landingContent] get_landing_content', e);
     return normalizeLandingContent(undefined);
   }
+}
+
+/* ── The homepage's asset overrides (/admin/home-assets) ──────────────── */
+
+/** The published overrides once read (empty until then, and on any failure). */
+let homeOverrides: HomeOverrides = EMPTY_HOME_OVERRIDES;
+let homeRead: Promise<void> | null = null;
+const homeListeners = new Set<() => void>();
+
+/**
+ * useSyncExternalStore's subscribe for the homepage overrides: the FIRST
+ * subscriber starts the one read of the page load; every section shares it.
+ * Listeners hear about it only when something was actually overridden, so a
+ * fresh CMS (or a failed read) never re-renders the page.
+ */
+export function subscribeHomeOverrides(onChange: () => void): () => void {
+  homeListeners.add(onChange);
+  homeRead ??= fetchLandingContent().then((c) => {
+    if (countOverrides(c.home) === 0) return;
+    homeOverrides = c.home;
+    homeListeners.forEach((f) => f());
+  });
+  return () => {
+    homeListeners.delete(onChange);
+  };
+}
+
+/** The current snapshot (a stable reference between changes). */
+export function getHomeOverrides(): HomeOverrides {
+  return homeOverrides;
 }
