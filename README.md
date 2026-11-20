@@ -65,8 +65,9 @@ replays deterministically).
 
 - **Multi-tenant data** — Supabase Postgres with real RLS. `orgs → events`
   tenancy; `event_id` (= `events.slug`) partitions the existing content tables.
-  Migrations are checked in under `supabase/migrations/` (001–038; two files
-  are numbered 030) and mirror what's applied to the live project. The three legacy slugs keep working via
+  Migrations are checked in under `supabase/migrations/` (001–044; two files
+  are numbered 030) and mirror what's applied to the live project (043/044 are
+  written but NOT applied yet — see docs/DEPLOYMENT-CHECKLIST.md §4c). The three legacy slugs keep working via
   **grandfather RLS policies**.
 - **Runtime tenancy** — `src/events/runtime.ts` + `EventContext.tsx` resolve an
   event by slug at runtime (replacing the old build-time `VITE_EVENT`). The

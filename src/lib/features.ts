@@ -21,7 +21,7 @@
  * drift from what the app actually renders. There is no second code path.
  */
 import type { Entitlements, PlanTier } from './plans';
-import { ENTITLEMENTS } from './plans';
+import { ENTITLEMENTS, LEGACY_ENTITLEMENTS } from './plans';
 
 /** Every flag key. Same set as the `feature_flags` table seeded by 027. */
 export type FeatureKey = keyof Entitlements;
@@ -29,7 +29,7 @@ export type FeatureKey = keyof Entitlements;
 export type FeatureSet = Entitlements;
 
 export const FEATURE_KEYS: FeatureKey[] = [
-  'maxPosts', 'videoEnabled', 'watermark', 'aiStudio',
+  'maxPosts', 'videoEnabled', 'videoMaxSec', 'watermark', 'aiStudio',
   'cardsStandard', 'cardsPremiumRender', 'projectionMode', 'retentionDays',
   'studio',
 ];
@@ -77,6 +77,7 @@ export function applyProFloor(base: FeatureSet): FeatureSet {
   return {
     maxPosts: maxN(base.maxPosts, pro.maxPosts),
     videoEnabled: base.videoEnabled || pro.videoEnabled,
+    videoMaxSec: Math.max(base.videoMaxSec, pro.videoMaxSec),
     watermark: base.watermark && pro.watermark,
     aiStudio: base.aiStudio || pro.aiStudio,
     cardsStandard: base.cardsStandard || pro.cardsStandard,
@@ -98,6 +99,7 @@ function definedOnly(patch: Partial<FeatureSet>): Partial<FeatureSet> {
   const out: Partial<FeatureSet> = {};
   if (patch.maxPosts !== undefined) out.maxPosts = patch.maxPosts;
   if (patch.videoEnabled !== undefined) out.videoEnabled = patch.videoEnabled;
+  if (patch.videoMaxSec !== undefined) out.videoMaxSec = patch.videoMaxSec;
   if (patch.watermark !== undefined) out.watermark = patch.watermark;
   if (patch.aiStudio !== undefined) out.aiStudio = patch.aiStudio;
   if (patch.cardsStandard !== undefined) out.cardsStandard = patch.cardsStandard;
@@ -133,7 +135,9 @@ export function resolveFeatures(input: ResolveInput): FeatureSet {
     // legacy layer (028) copies deluxe's plan defaults, where studio is false
     // after 039 — so the platform studio special-cases legacy slugs itself
     // (studioAccess.ts) instead of trusting the resolver for them.
-    return { ...ENTITLEMENTS.deluxe, watermark: true, studio: true };
+    // LEGACY_ENTITLEMENTS is deluxe + watermark + studio, but pinned to the
+    // 30-second clips and 365-day retention those sites were built against.
+    return { ...LEGACY_ENTITLEMENTS };
   }
 
   const tier = effectiveTier(
@@ -249,9 +253,16 @@ export function normalizeResolvedFeatures(
     if (v === null) return null;
     return typeof v === 'number' && Number.isFinite(v) ? v : dflt;
   };
+  const posInt = (k: keyof FeatureSet, dflt: number): number => {
+    const v = src[k];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : dflt;
+  };
   return {
     maxPosts: num('maxPosts', fallback.maxPosts),
     videoEnabled: bool('videoEnabled', fallback.videoEnabled),
+    // A clip length must be a real positive number; null/absent (a resolver
+    // from before migration 043) falls back rather than meaning "unlimited".
+    videoMaxSec: posInt('videoMaxSec', fallback.videoMaxSec),
     watermark: bool('watermark', fallback.watermark),
     aiStudio: bool('aiStudio', fallback.aiStudio),
     cardsStandard: bool('cardsStandard', fallback.cardsStandard),
@@ -265,6 +276,8 @@ export function normalizeResolvedFeatures(
 export interface GuestCapabilities {
   photo: boolean;
   video: boolean;
+  /** Longest clip, in seconds (only meaningful when `video`). */
+  videoMaxSec: number;
   watermark: boolean;
   challenges: boolean;
   cards: boolean;
@@ -279,6 +292,7 @@ export function guestCapabilities(f: FeatureSet): GuestCapabilities {
   return {
     photo: true, // never gated: a booth that cannot take a photo is not a booth
     video: f.videoEnabled,
+    videoMaxSec: f.videoMaxSec,
     watermark: f.watermark,
     challenges: true,
     cards: f.cardsStandard,
@@ -292,7 +306,7 @@ export function guestCapabilities(f: FeatureSet): GuestCapabilities {
 /** Why a capability is unavailable, in the customer's words. */
 export function lockedReason(key: FeatureKey): string {
   switch (key) {
-    case 'videoEnabled': return 'Video capture is on paid plans.';
+    case 'videoEnabled': return 'Video capture is turned off for this event.';
     case 'aiStudio': return 'AI frames and 3D props are on paid plans.';
     case 'cardsStandard': return 'Keepsake cards are on Premium and above.';
     case 'cardsPremiumRender': return 'The rendered keepsake film is on Deluxe.';

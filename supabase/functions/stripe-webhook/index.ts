@@ -62,16 +62,16 @@ const PRO_MONTHLY_CREDITS = 300;
  * still be recorded if that read fails — money has already moved by then. */
 const ENTITLEMENTS: Record<string, Record<string, unknown>> = {
   essentials: {
-    maxPosts: 500, videoEnabled: true, watermark: false, aiStudio: true,
+    maxPosts: 500, videoEnabled: true, videoMaxSec: 30, watermark: false, aiStudio: true,
     cardsStandard: false, cardsPremiumRender: false, projectionMode: true, retentionDays: 90,
   },
   premium: {
-    maxPosts: null, videoEnabled: true, watermark: false, aiStudio: true,
+    maxPosts: null, videoEnabled: true, videoMaxSec: 60, watermark: false, aiStudio: true,
     cardsStandard: true, cardsPremiumRender: false, projectionMode: true, retentionDays: 365,
   },
   deluxe: {
-    maxPosts: null, videoEnabled: true, watermark: false, aiStudio: true,
-    cardsStandard: true, cardsPremiumRender: true, projectionMode: true, retentionDays: 365,
+    maxPosts: null, videoEnabled: true, videoMaxSec: 90, watermark: false, aiStudio: true,
+    cardsStandard: true, cardsPremiumRender: true, projectionMode: true, retentionDays: 730,
   },
 };
 

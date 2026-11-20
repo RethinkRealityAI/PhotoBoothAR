@@ -38,7 +38,7 @@ CREATING EVENTS:
 - Remote/virtual celebrations: guests contribute to a greeting card from anywhere; the card can be pinned as the event landing.
 
 PLANS & CREDITS:
-- Tiers per event: free (25 posts, photo only, watermark, 7-day retention) → essentials (500 posts, video, no watermark, AI studio) → premium (unlimited posts, cards) → deluxe (premium render/keepsake film). An org-level Pro subscription raises every event to premium-level.
+- Tiers per event: free (25 posts, photos + 30s video clips, watermark, 7-day retention) → essentials (500 posts, 30s clips, no watermark, AI studio, 90 days) → premium (unlimited posts, 60s clips, cards, 1 year) → deluxe (90s clips, premium render/keepsake film, 2 years). "Unlimited" has a fair-use line of 2,000 new posts a day per event. An org-level Pro subscription raises every event to premium-level.
 - Credits: AI generation currency (1 credit ≈ one AI image; 3D and film cost more). Bought in packs; first 3 images per event are free. Billing lives at /host/billing.
 
 COMMON HOW-TOS:

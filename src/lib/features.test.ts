@@ -64,7 +64,8 @@ describe('resolveFeatures — precedence', () => {
   it('an org override grants a paid capability', () => {
     const f = resolveFeatures({ orgOverrides: { aiStudio: true }, now: NOW });
     expect(f.aiStudio).toBe(true);
-    expect(f.videoEnabled).toBe(false); // untouched keys still inherit
+    expect(f.watermark).toBe(true); // untouched keys still inherit
+    expect(f.cardsStandard).toBe(false);
   });
 
   it('an event override beats an org override', () => {
@@ -103,7 +104,9 @@ describe('resolveFeatures — precedence', () => {
 
   it('legacy short-circuits to deluxe WITH the watermark still on (and the whole studio)', () => {
     const f = resolveFeatures({ legacy: true, eventTier: 'free', now: NOW });
-    expect(f).toEqual({ ...ENTITLEMENTS.deluxe, watermark: true, studio: true });
+    // Pinned to the 30 s clips and 365-day retention the frozen sites were
+    // built against, not deluxe's newer 90 s / 730 days.
+    expect(f).toEqual({ ...ENTITLEMENTS.deluxe, watermark: true, studio: true, videoMaxSec: 30, retentionDays: 365 });
     expect(f).toEqual(LEGACY_ENTITLEMENTS);
   });
 
@@ -153,11 +156,13 @@ describe('selectors — the preview reads the SAME functions the app does', () =
   it('guest capabilities map every entitlement field', () => {
     const free = guestCapabilities(ENTITLEMENTS.free);
     expect(free.photo).toBe(true);      // a booth that cannot photograph is not a booth
-    expect(free.video).toBe(false);
+    expect(free.video).toBe(true);       // Free records video since 2026-11-19
+    expect(free.videoMaxSec).toBe(30);
     expect(free.watermark).toBe(true);
     expect(free.postCap).toBe(25);
     const deluxe = guestCapabilities(ENTITLEMENTS.deluxe);
     expect(deluxe.video).toBe(true);
+    expect(deluxe.videoMaxSec).toBe(90);
     expect(deluxe.postCap).toBeNull();
   });
 });
