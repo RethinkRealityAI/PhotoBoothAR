@@ -41,6 +41,9 @@
  *             'Beamwall <cards@beamwall.app>'); viewer link base:
  *             PUBLIC_SITE_URL (default: 'https://beamwall.app' — the
  *             attacker-controllable request Origin is deliberately NOT used).
+ *             Email art: EMAIL_ASSET_BASE (default `${PUBLIC_SITE_URL}/email`)
+ *             — the images ship with the SITE, so deploy this function only
+ *             after the commit adding public/email/v1/ is live on Netlify.
  *
  * 200 → { card: { id, status, publishedAt, publicId } } | { sent: true }
  *       | { delivery: DeliveryView } (schedule / unschedule)
@@ -194,6 +197,10 @@ async function sendCardViaResend(
     extras,
     presentation: card.presentation,
     recipientName: card.recipient_name,
+    // the rendered email art (public/email/ on the Netlify site); email.ts
+    // accepts only https:// (or file:/// for local renders) and otherwise
+    // falls back to https://beamwall.app/email
+    assetBase: Deno.env.get('EMAIL_ASSET_BASE') || `${siteUrl()}/email`,
   };
   try {
     const res = await fetch('https://api.resend.com/emails', {

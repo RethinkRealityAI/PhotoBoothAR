@@ -1,13 +1,23 @@
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  EMAIL_LOOK_IDS, EMAIL_STYLE_IDS, cardEmailHtml, cardEmailPreheader, cardEmailSubject, cardEmailText,
-  cardMonogram as denoMonogram, clip, emailPalette, fromLine, normalizeEmailPresentation, resolveEmailLook,
-  summarizeContributions,
+  DEFAULT_EMAIL_ASSET_BASE, EMAIL_ART, EMAIL_ART_SEAM, EMAIL_ART_VERSION, EMAIL_LOOK_IDS, EMAIL_STYLE_IDS,
+  SEAL_GLYPHS, cardEmailHtml, cardEmailPreheader, cardEmailSubject, cardEmailText,
+  cardMonogram as denoMonogram, clip, emailAssetBase, emailPalette, fromLine, normalizeEmailPresentation,
+  resolveEmailLook, sealGlyph, summarizeContributions,
   type ContributionRow,
 } from '../../supabase/functions/card-publish/email.ts';
 import {
   CARD_EMAIL_STYLE_IDS, CARD_LOOK_IDS, cardMonogram, resolveCardLook, type CardLookId,
 } from './cardPresentation';
+
+/** Background images that are NOT the rendered art — i.e. guest photos. The
+ *  art (field, button) is also a background image since email-v2, so "no
+ *  background-image at all" stopped meaning "no photo". */
+const ART_PREFIX = `${DEFAULT_EMAIL_ASSET_BASE}/${EMAIL_ART_VERSION}/`;
+function photoBackgrounds(html: string): string[] {
+  return [...html.matchAll(/background-image:url\('([^']*)'\)/g)].map((m) => m[1]).filter((u) => !u.startsWith(ART_PREFIX));
+}
 
 const rows: ContributionRow[] = [
   { contributor_name: 'The Squad', message: 'Happy birthday!', media_type: 'photo', media_path: 'e/c/1.jpg' },
@@ -72,7 +82,7 @@ describe('cardEmailHtml', () => {
     const html = cardEmailHtml({ title: 'T', url, theme: {}, extras: { summary: summarizeContributions(evil), photoUrls: {} } });
     expect(html).not.toContain('<script>1');
     expect(html).not.toContain('<b>x</b>');
-    expect(html).not.toContain('background-image:url(');
+    expect(photoBackgrounds(html)).toEqual([]);
   });
   it('renders signed photos as cropped tiles', () => {
     const html = cardEmailHtml({
@@ -180,9 +190,17 @@ describe('cardEmailHtml styles', () => {
   });
   it('selects the style from presentation.email', () => {
     const sealed = cardEmailHtml({ title: 'T', url, extras: fullExtras, presentation: { email: 'sealed' }, recipientName: 'Dapo' });
-    expect(sealed).toContain('Tap to open');
-    expect(sealed).not.toContain('background-image:url(');
-    expect(sealed).toMatch(/>D<\/td>/);
+    expect(sealed).toContain('Break the seal');
+    expect(photoBackgrounds(sealed)).toEqual([]);
+    expect(sealed).not.toContain('x.test');
+    expect(sealed).toContain(`${ART_PREFIX}seal-D.jpg`);
+    // the event look keeps the CSS envelope, its seal a live-text monogram
+    const sealedEvent = cardEmailHtml({
+      title: 'T', url, theme: eventTheme, extras: fullExtras, presentation: { email: 'sealed', look: 'event' }, recipientName: 'Dapo',
+    });
+    expect(sealedEvent).toMatch(/>D<\/td>/);
+    expect(sealedEvent).not.toContain(ART_PREFIX);
+    expect(photoBackgrounds(sealedEvent)).toEqual([]);
     const glow = cardEmailHtml({ title: 'T', url, extras: fullExtras, presentation: { email: 'glow' } });
     expect(glow).toContain('Open your card');
     expect(glow.match(/background-image:url\('https:\/\/x\.test/g)).toHaveLength(3);
@@ -249,5 +267,92 @@ describe('cardEmailText', () => {
     expect(text).toContain(url);
     expect(text).not.toContain('Dapo');
     expect(text).not.toContain('<');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Rendered art (public/email/v1, painted by scripts/render-email-art) */
+/* ------------------------------------------------------------------ */
+
+const ART_DIR = new URL(`../../public/email/${EMAIL_ART_VERSION}/`, import.meta.url);
+const artFile = (f: string) => new URL(f, ART_DIR);
+
+describe('email art', () => {
+  it('sealGlyph is total: A-Z keep their letter, accents fold, everything else is the star', () => {
+    for (const L of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+      expect(sealGlyph(L)).toBe(L);
+      expect(sealGlyph(L.toLowerCase())).toBe(L);
+    }
+    expect(sealGlyph('DA')).toBe('D');
+    expect(sealGlyph('É')).toBe('E');
+    expect(sealGlyph('Ó')).toBe('O');
+    expect(sealGlyph('Ñ')).toBe('N');
+    for (const other of ['✦', 'Ж', '李', 'Ø', 'Æ', '7', '', ' ', '🎂', '<']) {
+      expect(sealGlyph(other)).toBe('star');
+    }
+    // every monogram the card can produce maps into the shipped set
+    const names = ['Dapo', 'Zoë-Ann Ó', 'Ólafur', 'Мария', '李', '', null, 'éa'];
+    for (const n of names) expect(SEAL_GLYPHS).toContain(sealGlyph(denoMonogram(n, null)));
+  });
+
+  it('asset base: https or file:/// only, else the default; trailing slash dropped', () => {
+    expect(emailAssetBase(undefined)).toBe(DEFAULT_EMAIL_ASSET_BASE);
+    expect(emailAssetBase('https://staging.beamwall.app/email/')).toBe('https://staging.beamwall.app/email');
+    expect(emailAssetBase('file:///home/u/public/email')).toBe('file:///home/u/public/email');
+    for (const bad of ['http://beamwall.app/email', 'javascript:alert(1)', "https://x.test/e')", 'https://x.test/"onerror=1', 'https://a b', '']) {
+      expect(emailAssetBase(bad)).toBe(DEFAULT_EMAIL_ASSET_BASE);
+    }
+  });
+
+  it('every art URL is well-formed, under the versioned base, and names a shipped file', () => {
+    const files = new Set(readdirSync(ART_DIR));
+    for (const style of STYLES) {
+      for (const recipientName of ['Dapo', 'Мария', null]) {
+        const html = cardEmailHtml({ title: 'T', url, extras: fullExtras, presentation: { email: style }, recipientName });
+        const refs = [
+          ...[...html.matchAll(/(?:src|background)="([^"]*)"/g)].map((m) => m[1]),
+          ...[...html.matchAll(/url\('([^']*)'\)/g)].map((m) => m[1]),
+        ].filter((u) => !u.startsWith('https://x.test/'));
+        expect(refs.length).toBeGreaterThan(0);
+        for (const ref of refs) {
+          expect(ref.startsWith(ART_PREFIX), ref).toBe(true);
+          const name = ref.slice(ART_PREFIX.length);
+          expect(name).toMatch(/^[a-z0-9-]+\.(jpg|gif|png)$/i);
+          expect(files.has(name), `${name} missing from public/email/${EMAIL_ART_VERSION}/`).toBe(true);
+        }
+      }
+    }
+    const custom = cardEmailHtml({ title: 'T', url, assetBase: 'file:///tmp/e', presentation: { email: 'sealed' } });
+    expect(custom).toContain(`file:///tmp/e/${EMAIL_ART_VERSION}/seal-T.jpg`); // no recipient: the title initial
+    expect(custom).not.toContain(DEFAULT_EMAIL_ASSET_BASE);
+  });
+
+  it('ships every file the email can reference, each within budget (≤150 KB, set ≤1.5 MB)', () => {
+    const wanted = [...Object.values(EMAIL_ART).map((a) => a.file), ...SEAL_GLYPHS.map((g) => `seal-${g}.jpg`)];
+    for (const f of wanted) expect(statSync(artFile(f)).size, f).toBeLessThanOrEqual(150 * 1024);
+    const total = readdirSync(ART_DIR).reduce((n, f) => n + statSync(artFile(f)).size, 0);
+    expect(total).toBeLessThanOrEqual(1536 * 1024);
+  });
+
+  it('the art keeps working with images blocked: every cell it covers has a bgcolor, every img has size + alt', () => {
+    for (const style of STYLES) {
+      const html = cardEmailHtml({ title: 'T', url, extras: fullExtras, presentation: { email: style }, recipientName: 'Dapo' });
+      for (const img of html.match(/<img [^>]*>/g) ?? []) {
+        expect(img).toMatch(/ width="\d+"/);
+        expect(img).toMatch(/ height="\d+"/);
+        expect(img).toMatch(/ alt="/);
+      }
+      expect(html).toContain(`bgcolor="${EMAIL_ART_SEAM.panel}"`);
+      // the pill is live text on a white cell, not part of the image
+      expect(html).toMatch(/<td[^>]*bgcolor="#FFFFFF"[^>]*>\s*<a href="https:\/\/beamwall\.app\/c\/abc"/);
+      expect(html).toContain('bgcolor="#33318A"'); // the field's fallback
+    }
+  });
+
+  it("the CSS side borders use the colours the generator measures at the caps' seam", () => {
+    const source = readFileSync(new URL('../../scripts/render-email-art.mjs', import.meta.url), 'utf8');
+    const m = source.match(/export const SEAM = \{ panel: '(#[0-9A-F]{6})', rim: '(#[0-9A-F]{6})', inner: '(#[0-9A-F]{6})' \};/);
+    expect(m, 'SEAM literal not found in scripts/render-email-art.mjs').not.toBeNull();
+    expect({ panel: m?.[1], rim: m?.[2], inner: m?.[3] }).toEqual({ ...EMAIL_ART_SEAM });
   });
 });

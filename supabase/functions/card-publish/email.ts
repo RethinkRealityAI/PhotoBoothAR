@@ -7,6 +7,12 @@
  * DEPLOY FILES: index.ts + email.ts + deno.json. A deploy without email.ts
  * fails at boot on the import, which makes every request a 500.
  *
+ * Rendered art: the Beamwall look's envelope, wax seals, shimmer border,
+ * button ring and field are images from public/email/<EMAIL_ART_VERSION>/
+ * (painted by scripts/render-email-art.mjs), loaded from EMAIL_ASSET_BASE.
+ * They are served by the Netlify site, so they exist only once the commit
+ * that adds them is deployed to production.
+ *
  * Mail-client constraints the markup follows on purpose:
  *  - tables + inline styles only; <style> is used for one mobile tweak, and
  *    the email still reads correctly when a client strips it.
@@ -315,6 +321,12 @@ export interface CardEmailInput {
   presentation?: unknown;
   /** Only ever used for the sealed style's monogram initials. */
   recipientName?: string | null;
+  /**
+   * Where the rendered art lives (EMAIL_ASSET_BASE in index.ts; default
+   * https://beamwall.app/email). Only https:// or file:/// is accepted —
+   * file:/// exists so a local render can show the art before it is deployed.
+   */
+  assetBase?: string | null;
 }
 
 const SANS = "'Geist','Helvetica Neue',Helvetica,Arial,sans-serif";
@@ -328,13 +340,12 @@ function photoTile(ph: Photo, height: number, radius: number, bg: string, cls = 
 }
 
 /**
- * The field behind everything. Apple Mail and iOS paint the glows; a client
- * that drops gradients keeps the solid bgcolor, which is already on-brand.
+ * The event look's field: a glow of the event accent. Apple Mail and iOS
+ * paint it; a client that drops gradients keeps the solid bgcolor. (The
+ * Beamwall look paints field.jpg instead — see the rendered-art section.)
  */
 function fieldGlow(p: EmailPalette): string {
-  return p.look === 'beamwall'
-    ? 'radial-gradient(90% 45% at 0% 0%, rgba(74, 112, 186, 0.75), rgba(74, 112, 186, 0) 100%), linear-gradient(172deg, rgba(128, 94, 160, 0) 30%, rgba(128, 94, 160, 0.45) 72%, rgba(128, 94, 160, 0) 100%)'
-    : `radial-gradient(60% 50% at 50% 0%, ${rgba(p.accent, 0.16)}, ${rgba(p.accent, 0)} 70%)`;
+  return `radial-gradient(60% 50% at 50% 0%, ${rgba(p.accent, 0.16)}, ${rgba(p.accent, 0)} 70%)`;
 }
 
 /** The pill. Solid fill, dark ink, no gradient (brand v2). */
@@ -408,9 +419,8 @@ function glowBody(p: EmailPalette, c: Ctx): string {
   return doubleRule(p, inner, { pad: '52px 30px 48px', fill: true });
 }
 
-function spotlightBody(p: EmailPalette, c: Ctx): string {
-  const lead = c.photos[0];
-  if (!lead) return glowBody(p, c);
+/** The lead photo, full bleed, with the title set over a scrim. */
+function spotlightHero(p: EmailPalette, c: Ctx, lead: Photo): string {
   const scrim = 'linear-gradient(180deg, rgba(10, 8, 34, 0) 0%, rgba(10, 8, 34, 0.08) 38%, rgba(10, 8, 34, 0.78) 100%)';
   const hero = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
     <td role="img" aria-label="${escapeHtml(lead.label)}" class="bw-hero" height="470" valign="bottom" bgcolor="${p.surface}" style="height:470px;border-radius:26px;background-color:${p.surface};background-image:url('${escapeHtml(lead.url)}');background-size:cover;background-position:center;">
@@ -424,8 +434,14 @@ function spotlightBody(p: EmailPalette, c: Ctx): string {
       </table>
     </td>
   </tr></table>`;
+  return hero;
+}
+
+function spotlightBody(p: EmailPalette, c: Ctx): string {
+  const lead = c.photos[0];
+  if (!lead) return glowBody(p, c);
   const inner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-    <tr><td>${hero}</td></tr>
+    <tr><td>${spotlightHero(p, c, lead)}</td></tr>
     <tr><td align="center" style="padding:34px 0 30px;">${button(p, c.url, 'Open your card')}</td></tr>
   </table>`;
   return doubleRule(p, inner, { pad: '8px', fill: false });
@@ -484,9 +500,181 @@ function sealedBody(p: EmailPalette, c: Ctx): string {
   const inner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
     <tr><td align="center" style="padding:0 8px 30px;">${titleHtml(p, c.title, 40)}</td></tr>
     <tr><td style="padding:0;">${envelope}</td></tr>
-    <tr><td align="center" style="padding:36px 0 0;">${button(p, c.url, 'Tap to open')}</td></tr>
+    <tr><td align="center" style="padding:36px 0 0;">${button(p, c.url, 'Break the seal')}</td></tr>
   </table>`;
   return doubleRule(p, inner, { pad: '46px 22px 40px', fill: true });
+}
+
+/* ------------------------------------------------------------------ */
+/* The rendered-art look (Beamwall dusk)                                */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Mail clients strip gradients, filters, shadows and CSS animation, so the
+ * Beamwall look ships its material as IMAGES painted by
+ * scripts/render-email-art.mjs into public/email/<version>/: a dusk field, a
+ * pearl envelope with a wax seal per letter, the shimmer-border caps and the
+ * button's glowing ring (animated GIFs whose frame 0 is a finished still,
+ * because Outlook desktop shows only frame 0).
+ *
+ * The markup still reads without a single image: every cell carries the
+ * bgcolor the art would cover, the CSS borders draw the panel's sides, the
+ * button is live text on a white cell, and every <img> has width/height/alt.
+ *
+ * The 'event' look keeps the CSS-only styles above: this art is painted in
+ * Beamwall's own colours and would clash with an event palette.
+ */
+
+/** Folder of public/email/. Mail proxies cache image URLs for years and sent
+ *  mail keeps pointing at them: new art goes in a NEW folder, never over v1. */
+export const EMAIL_ART_VERSION = 'v1';
+export const DEFAULT_EMAIL_ASSET_BASE = 'https://beamwall.app/email';
+
+/** Every file the email references, at its @1x display size (files are @2x). */
+export const EMAIL_ART = {
+  field: { file: 'field.jpg', w: 650, h: 1000 },
+  frameTop: { file: 'frame-top.gif', w: 600, h: 36 },
+  frameBottom: { file: 'frame-bottom.gif', w: 600, h: 36 },
+  button: { file: 'button.gif', w: 300, h: 84 },
+  divider: { file: 'divider.png', w: 520, h: 40 },
+  envelopeTop: { file: 'envelope-top.jpg', w: 520, h: 263 },
+  envelopeBottom: { file: 'envelope-bottom.jpg', w: 520, h: 263 },
+} as const;
+/** The seal band between the envelope halves: seal-<glyph>.jpg. */
+export const SEAL_BAND = { w: 520, h: 150 } as const;
+export const SEAL_GLYPHS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'star'] as const;
+
+/**
+ * Which wax seal to show: the FIRST character of the monogram, accents
+ * stripped (É → E). Anything outside A–Z — another script, a symbol, the
+ * monogram's own ✦ — gets the star seal. Total: always a member of SEAL_GLYPHS.
+ */
+export function sealGlyph(monogram: string): typeof SEAL_GLYPHS[number] {
+  const first = Array.from(monogram)[0] ?? '';
+  const base = first.normalize('NFD').replace(/\p{M}+/gu, '').toUpperCase();
+  return /^[A-Z]$/.test(base) ? base as typeof SEAL_GLYPHS[number] : 'star';
+}
+
+/** A trusted asset base, or the default. No quotes/brackets/spaces can reach
+ *  a src or url('') through it. */
+export function emailAssetBase(raw: string | null | undefined): string {
+  const v = (raw ?? '').trim().replace(/\/+$/, '');
+  return /^(https:\/\/[^\s"'<>()\\]+|file:\/\/\/[^\s"'<>()\\]+)$/.test(v) ? v : DEFAULT_EMAIL_ASSET_BASE;
+}
+
+export function emailArtUrl(base: string | null | undefined, file: string): string {
+  return `${emailAssetBase(base)}/${EMAIL_ART_VERSION}/${file}`;
+}
+
+/** The panel colours the art is painted around. RIM / RIM_INNER are MEASURED
+ *  from the last row of frame-top.gif's frame 0, so the CSS side borders meet
+ *  the caps without a visible step. */
+const ART_PANEL = '#232167';
+const ART_RIM = '#DADCFD';
+const ART_RIM_INNER = '#645F93';
+/** Pinned to SEAM in scripts/render-email-art.mjs (which re-measures the GIF
+ *  on every run and fails on drift) by src/lib/cardEmail.test.ts. */
+export const EMAIL_ART_SEAM = { panel: ART_PANEL, rim: ART_RIM, inner: ART_RIM_INNER } as const;
+
+function artImg(src: string, w: number, h: number, alt: string, extra = ''): string {
+  return `<img src="${escapeHtml(src)}" width="${w}" height="${h}" alt="${escapeHtml(alt)}" style="display:block;width:100%;max-width:${w}px;height:auto;border:0;outline:none;text-decoration:none;${extra}">`;
+}
+
+/**
+ * The shimmer-bordered panel: top cap, a middle cell whose CSS borders carry
+ * the rim (3px) and the inner hairline (1px, 7px in) down the sides, bottom
+ * cap. On a phone the caps scale down with the column, so `bw-rim` thins the
+ * CSS rim to match (2px rim, 4px gap).
+ */
+function artPanel(base: string, inner: string, pad: string): string {
+  const cap = (k: 'frameTop' | 'frameBottom') => {
+    const a = EMAIL_ART[k];
+    // no bgcolor here: the cap's corners are transparent so the field shows
+    return `<tr><td style="font-size:0;line-height:0;">${artImg(emailArtUrl(base, a.file), a.w, a.h, '')}</td></tr>`;
+  };
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    ${cap('frameTop')}
+    <tr><td class="bw-rim" bgcolor="${ART_PANEL}" style="background-color:${ART_PANEL};border-left:3px solid ${ART_RIM};border-right:3px solid ${ART_RIM};padding:0 7px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td class="bw-in" style="border-left:1px solid ${ART_RIM_INNER};border-right:1px solid ${ART_RIM_INNER};padding:${pad};">${inner}</td>
+      </tr></table>
+    </td></tr>
+    ${cap('frameBottom')}
+  </table>`;
+}
+
+/**
+ * The button: the painted ring + bloom + orbiting comet is the cell's
+ * background; the pill itself is a live-text link on a solid white cell that
+ * sits exactly over the painted pill. Blocked images (or Outlook) leave the
+ * white pill with its text — the button never depends on the art.
+ */
+function artButton(base: string, url: string, label: string): string {
+  const a = EMAIL_ART.button;
+  const src = escapeHtml(emailArtUrl(base, a.file));
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr>
+    <td align="center" valign="middle" background="${src}" style="padding:15px 22px;background-image:url('${src}');background-repeat:no-repeat;background-position:center;background-size:${a.w}px ${a.h}px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td width="256" height="54" align="center" valign="middle" bgcolor="${DUSK.accent}" style="width:256px;height:54px;border-radius:27px;background-color:${DUSK.accent};">
+          <a href="${escapeHtml(url)}" style="display:block;width:256px;line-height:54px;font-family:${SANS};font-size:17px;font-weight:600;letter-spacing:-0.005em;color:${DUSK.onAccent};text-align:center;text-decoration:none;border-radius:27px;">${escapeHtml(label)}</a>
+        </td>
+      </tr></table>
+    </td>
+  </tr></table>`;
+}
+
+function artDivider(base: string): string {
+  const a = EMAIL_ART.divider;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:${a.w}px;" align="center"><tr>
+    <td style="font-size:0;line-height:0;">${artImg(emailArtUrl(base, a.file), a.w, a.h, '')}</td>
+  </tr></table>`;
+}
+
+/** Three full-width images stacked (no side-by-side seams for a fluid table
+ *  to open up). The band in the middle carries the seal for this monogram. */
+function artEnvelope(base: string, c: Ctx): string {
+  const top = EMAIL_ART.envelopeTop, bottom = EMAIL_ART.envelopeBottom;
+  const glyph = sealGlyph(c.monogram);
+  const alt = glyph === 'star' ? 'A sealed envelope' : `A sealed envelope, its wax seal stamped ${glyph}`;
+  // blocked images: the cell's paper colour stands in for the envelope (the
+  // art is opaque and covers it completely once it loads)
+  const paper = '#E9E7F4';
+  const altStyle = `font-family:${SANS};font-size:15px;line-height:1.4;color:#3E3A78;text-align:center;`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:${top.w}px;" align="center"><tr>
+    <td bgcolor="${paper}" style="font-size:0;line-height:0;background-color:${paper};border-radius:12px;"><a href="${escapeHtml(c.url)}" style="display:block;text-decoration:none;">${artImg(emailArtUrl(base, top.file), top.w, top.h, '')}${artImg(emailArtUrl(base, `seal-${glyph}.jpg`), SEAL_BAND.w, SEAL_BAND.h, alt, altStyle)}${artImg(emailArtUrl(base, bottom.file), bottom.w, bottom.h, '')}</a></td>
+  </tr></table>`;
+}
+
+function artGlowBody(p: EmailPalette, c: Ctx, base: string): string {
+  const inner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td align="center" style="padding:0 0 20px;">${artDivider(base)}</td></tr>
+    <tr><td align="center" style="padding:0 8px;">${titleHtml(p, c.title)}</td></tr>
+    <tr><td align="center" style="padding:16px 8px ${c.photos.length > 0 ? 32 : 30}px;">${intro(p, c.intro)}</td></tr>
+    ${c.photos.length > 0 ? `<tr><td style="padding:0 0 30px;">${mosaic(p, c.photos)}</td></tr>` : ''}
+    <tr><td align="center">${artButton(base, c.url, 'Open your card')}</td></tr>
+  </table>`;
+  return artPanel(base, inner, '34px 26px 34px');
+}
+
+function artSpotlightBody(p: EmailPalette, c: Ctx, base: string): string {
+  const lead = c.photos[0];
+  if (!lead) return artGlowBody(p, c, base);
+  const inner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td>${spotlightHero(p, c, lead)}</td></tr>
+    <tr><td align="center" style="padding:22px 0 0;">${artDivider(base)}</td></tr>
+    <tr><td align="center" style="padding:14px 0 6px;">${artButton(base, c.url, 'Open your card')}</td></tr>
+  </table>`;
+  return artPanel(base, inner, '14px 14px 26px');
+}
+
+function artSealedBody(p: EmailPalette, c: Ctx, base: string): string {
+  const inner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td align="center" style="padding:0 8px 6px;">${titleHtml(p, c.title, 40)}</td></tr>
+    <tr><td align="center" style="padding:0 0 4px;">${artDivider(base)}</td></tr>
+    <tr><td align="center" style="padding:0;">${artEnvelope(base, c)}</td></tr>
+    <tr><td align="center" style="padding:10px 0 0;">${artButton(base, c.url, 'Break the seal')}</td></tr>
+  </table>`;
+  return artPanel(base, inner, '34px 12px 30px');
 }
 
 interface Ctx {
@@ -522,11 +710,27 @@ export function cardEmailHtml(input: CardEmailInput): string {
     photos,
     monogram: cardMonogram(input.recipientName, input.title),
   };
-  const body = pres.email === 'sealed'
-    ? sealedBody(p, ctx)
-    : pres.email === 'spotlight'
-      ? spotlightBody(p, ctx)
-      : glowBody(p, ctx);
+  const base = emailAssetBase(input.assetBase);
+  const art = p.look === 'beamwall';
+  const body = art
+    ? (pres.email === 'sealed'
+      ? artSealedBody(p, ctx, base)
+      : pres.email === 'spotlight' ? artSpotlightBody(p, ctx, base) : artGlowBody(p, ctx, base))
+    : (pres.email === 'sealed'
+      ? sealedBody(p, ctx)
+      : pres.email === 'spotlight' ? spotlightBody(p, ctx) : glowBody(p, ctx));
+  // the page behind the panel: the painted dusk field (art look), else the
+  // CSS glow; both sit on a bgcolor that is already the right colour alone.
+  // The art field is painted on <body> AND the wrapper cell, identically
+  // sized from the top: where a client renders the body background (Apple
+  // Mail, iOS) it continues the field seamlessly below a short email instead
+  // of the wrapper's crop leaving a hard edge.
+  const field = art
+    ? (() => {
+      const f = escapeHtml(emailArtUrl(base, EMAIL_ART.field.file));
+      return { attr: ` background="${f}"`, style: `background-image:url('${f}');background-repeat:no-repeat;background-position:center top;background-size:100% auto;` };
+    })()
+    : { attr: '', style: `background-image:${fieldGlow(p)};` };
   const preheader = cardEmailPreheader(s, pres.email);
 
   return `<!doctype html>
@@ -548,13 +752,14 @@ export function cardEmailHtml(input: CardEmailInput): string {
         .bw-side { height: 115px !important; }
         .bw-hero { height: 420px !important; }
         .bw-flap { height: 150px !important; }
+        .bw-rim { border-left-width: 2px !important; border-right-width: 2px !important; padding-left: 4px !important; padding-right: 4px !important; }
       }
     </style>
   </head>
-  <body style="margin:0;padding:0;background-color:${p.bg};-webkit-text-size-adjust:100%;">
+  <body style="margin:0;padding:0;background-color:${p.bg};${art ? field.style : ''}-webkit-text-size-adjust:100%;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(preheader)}&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${p.bg}" style="background-color:${p.bg};">
-      <tr><td align="center" class="bw-pad" style="padding:44px 20px 44px;background-image:${fieldGlow(p)};">
+      <tr><td align="center" class="bw-pad"${field.attr} style="padding:44px 20px 44px;${field.style}">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;">
           <tr><td>${body}</td></tr>
           <tr><td align="center" style="padding:30px 24px 0;font-family:${SANS};font-size:12px;line-height:1.7;color:${rgba(p.fg, 0.62)};">
