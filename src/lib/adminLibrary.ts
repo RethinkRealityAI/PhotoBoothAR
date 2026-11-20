@@ -12,6 +12,8 @@ import type { LibraryState, LibraryTags, StateChangeTarget } from './libraryPubl
 import type { ExperienceKind } from '../types';
 import type { Classification, ImportMeta } from './libraryImport';
 import type { LibraryCategory } from './libraryTaxonomy';
+import type { ItemFit, TryOnRow } from './tryOn';
+import { supabase } from './supabase';
 
 export interface LibraryItemRow {
   id: string;
@@ -294,6 +296,7 @@ export function libraryErrorText(code: string): string {
     case 'has_links': return 'Events still use it, so it cannot be deleted. Retire or withdraw it instead.';
     case 'unlist_first': return 'Retire or withdraw it before deleting.';
     case 'unknown_action': return 'The server does not have this yet — the admin-api update still needs deploying.';
+    case 'not_fittable': return 'This one has several pieces, so fit it in the Studio where each piece has its own handles.';
     case 'is_draft': return 'That item is still a draft. Publish or discard it from Bulk import.';
     case 'invalid_asset': return 'The uploaded file is not where the import expected it. Try importing it again.';
     case 'invalid_config': return 'The model’s placement data was rejected. Try importing it again.';
@@ -324,4 +327,30 @@ export function libraryErrorText(code: string): string {
     case 'network': return 'The platform API could not be reached. Refresh the library to see whether it went through.';
     default: return 'The platform API returned an error. Refresh the library to check before retrying.';
   }
+}
+
+/* ── Try on (/admin/library) ─────────────────────────────────────────── */
+
+/**
+ * Save a nudged fit onto a library item, IN PLACE — every host and event
+ * using it gets it (the screen confirms with the link count first).
+ */
+export function setLibraryItemFit(id: string, fit: ItemFit): Promise<AdminResult<{ id: string }>> {
+  return adminApi<{ id: string }>('set_library_item_fit', { id, fit });
+}
+
+/**
+ * The rendering rows Try on needs, read straight from `experiences` under the
+ * admin's own RLS (a platform admin reads every PUBLISHED global row —
+ * library_item_visible). A withdrawn item or someone else's event scene comes
+ * back missing; the screen says so instead of guessing a placement.
+ */
+export async function fetchTryOnRows(ids: readonly string[]): Promise<{ rows: TryOnRow[]; error: string | null }> {
+  if (ids.length === 0) return { rows: [], error: null };
+  const { data, error } = await supabase
+    .from('experiences')
+    .select('id, kind, asset_url, config')
+    .in('id', ids.slice(0, 200));
+  if (error) return { rows: [], error: error.message };
+  return { rows: (data as TryOnRow[]) ?? [], error: null };
 }

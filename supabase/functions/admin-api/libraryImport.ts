@@ -574,3 +574,106 @@ export function normalizeClassification(raw: unknown): Classification {
     note: cleanText(src.note, 240),
   };
 }
+
+/* ── Fit (set_library_item_fit, from /admin/library "Try on") ───────────── */
+
+/**
+ * The placement of ONE worn piece on its anchor: the same offset / rotation /
+ * scale an `AnchorConfig` carries (offset in rig centimetres, rotation in
+ * radians). The anchor SLOT is never changed here — Try on nudges a piece
+ * where it already sits; moving it to another slot is Studio work.
+ */
+export interface ItemFit {
+  offset: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number };
+  scale: number;
+}
+
+/** Generous sanity caps — a nudge never needs more, a typo never gets in. */
+export const FIT_OFFSET_MAX = 60;
+export const FIT_ROTATION_MAX = Math.PI * 2;
+export const FIT_SCALE_MIN = 0.01;
+export const FIT_SCALE_MAX = 200;
+
+function fitVec(raw: unknown, max: number): { x: number; y: number; z: number } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const out = { x: 0, y: 0, z: 0 };
+  for (const k of ['x', 'y', 'z'] as const) {
+    const v = r[k];
+    if (typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) > max) return null;
+    out[k] = v;
+  }
+  return out;
+}
+
+/** Total: a valid fit, or null for anything else. */
+export function normalizeItemFit(raw: unknown): ItemFit | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const offset = fitVec(r.offset, FIT_OFFSET_MAX);
+  const rotation = fitVec(r.rotation, FIT_ROTATION_MAX);
+  const s = r.scale;
+  if (!offset || !rotation) return null;
+  if (typeof s !== 'number' || !Number.isFinite(s) || s < FIT_SCALE_MIN || s > FIT_SCALE_MAX) return null;
+  return { offset, rotation, scale: s };
+}
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Where a fit can be written: the item's ONE face-worn 3D layer. A scene of
+ * several pieces (or a hand piece, or face paint) is fitted in the Studio,
+ * where each piece has its own gizmo — one nudge cannot mean the same thing
+ * for all of them. Returns that layer's index, -1 when there is no layers
+ * list but a lone singular anchor (pre-layers rows), or null when it cannot
+ * be fitted here.
+ */
+export function fitTargetOf(config: unknown): number | null {
+  if (!isObj(config)) return null;
+  const layers = config.layers;
+  if (Array.isArray(layers)) {
+    const worn = layers
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => isObj(l) && l.kind === '3d_attachment');
+    if (worn.length !== 1) return null;
+    const l = worn[0].l as Record<string, unknown>;
+    if (l.handAnchor !== undefined || l.facePaint !== undefined) return null;
+    if (!isObj(l.anchor) || typeof l.anchor.anchor !== 'string') return null;
+    return worn[0].i;
+  }
+  return isObj(config.anchor) && typeof config.anchor.anchor === 'string' ? -1 : null;
+}
+
+/**
+ * The config with `fit` written onto the fit target: that layer's anchor and,
+ * when it rides the same slot, the singular `config.anchor` mirror the booth
+ * reads for rows without layers. Everything else is kept as is. Null when the
+ * item cannot be fitted here (fitTargetOf).
+ */
+export function applyItemFit(config: unknown, fit: ItemFit): Record<string, unknown> | null {
+  const target = fitTargetOf(config);
+  if (target === null || !isObj(config)) return null;
+  const place = (a: Record<string, unknown>) => ({
+    ...a,
+    offset: { ...fit.offset },
+    rotation: { ...fit.rotation },
+    scale: fit.scale,
+  });
+  const next: Record<string, unknown> = { ...config };
+  let slot: unknown;
+  if (target >= 0) {
+    const layers = (config.layers as unknown[]).slice();
+    const layer = layers[target] as Record<string, unknown>;
+    const anchor = layer.anchor as Record<string, unknown>;
+    slot = anchor.anchor;
+    layers[target] = { ...layer, anchor: place(anchor) };
+    next.layers = layers;
+  }
+  if (isObj(config.anchor) && (target === -1 || config.anchor.anchor === slot)) {
+    next.anchor = place(config.anchor);
+  }
+  return next;
+}
