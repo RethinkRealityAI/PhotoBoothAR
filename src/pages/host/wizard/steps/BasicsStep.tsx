@@ -8,14 +8,14 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Briefcase, Cake, CalendarDays, Gem, PartyPopper, Pencil, Sparkles, type LucideIcon } from 'lucide-react';
+import { Briefcase, Cake, CalendarDays, Check, Gem, PartyPopper, Pencil, Sparkles, type LucideIcon } from 'lucide-react';
 import type { TemplateId } from '../../../../lib/eventTemplates';
 import { createEvent, isSlugVisiblyTaken, updateEventDate, updateEventName } from '../../../../lib/host';
 import { slugify } from '../../../../lib/slug';
 import { normalizeScene, type EventScene } from '../../../../lib/sceneThemes';
 import { OCCASIONS, formatEventDate, initialEventConfig, occasionById, slugProblem, ymdFromIso } from '../../../../lib/wizard/occasions';
 import { saveConfig as saveEventConfig, type WizardEvent } from '../../../../lib/wizard/wizardApi';
-import { WIZARD_STEPS } from '../../../../lib/wizard/wizardModel';
+import { WIZARD_STEPS, setupPercent } from '../../../../lib/wizard/wizardModel';
 import { StepHeading, WizardFooter, WizardFrame } from '../chrome';
 import { useWizard } from '../wizardContext';
 import WelcomePreview from '../WelcomePreview';
@@ -236,12 +236,29 @@ function CreateBasics({ onCreated }: { onCreated: (ev: WizardEvent) => void }) {
 
 /** Before the event exists only step 1 is reachable; the rest is the map. */
 function CreateRail() {
+  // Starts ahead: the account is already a step done (setupPercent).
+  const pct = setupPercent(null);
   return (
     <>
       <nav aria-label="Setup steps" className="hidden lg:block">
         <div className="sticky top-[76px]"><div className="liquid-glass rounded-[24px] p-2">
-          <p className="px-2.5 pt-2 pb-2.5 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-white/60">Your setup</p>
+          <div className="px-2.5 pt-2 pb-2.5">
+            <div className="flex items-baseline justify-between">
+              <p className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-white/60">Your setup</p>
+              <p className="text-[11.5px] text-white/60">{pct}%</p>
+            </div>
+            <div className="mt-1.5 h-1 rounded-full bg-white/15 overflow-hidden" aria-hidden>
+              <div className="h-full rounded-full bg-white" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
           <ol className="flex flex-col gap-0.5">
+            <li>
+              <span className="wz-rail-step wz-rail-static">
+                <span className="wz-rail-dot is-done" aria-hidden><Check className="h-4 w-4" strokeWidth={3} /></span>
+                <span className="flex-1 min-w-0 truncate">Account created</span>
+                <span className="sr-only"> (done)</span>
+              </span>
+            </li>
             {WIZARD_STEPS.map((s, i) => (
               <li key={s.id}>
                 <span className="wz-rail-step" aria-current={i === 0 ? 'step' : undefined} style={i === 0 ? undefined : { opacity: 0.55 }}>
@@ -257,6 +274,7 @@ function CreateRail() {
       </nav>
       <div className="lg:hidden">
         <div className="flex items-center gap-1.5" aria-hidden>
+          <span className="h-1.5 flex-1 rounded-full bg-[#5FD9A8]" />
           {WIZARD_STEPS.map((s, i) => <span key={s.id} className={`h-1.5 flex-1 rounded-full ${i === 0 ? 'bg-white' : 'bg-white/18'}`} />)}
         </div>
         <p className="mt-2 text-[12.5px] text-white/70">Step 1 of {WIZARD_STEPS.length} · About 5 minutes, saves as you go</p>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   COUNTED_STEPS, WIZARD_STEP_IDS, completeStep, countDone, nextStepId, normalizeWizardProgress, prevStepId,
-  progressFraction, resumeStep, setupChip, setupInProgress, setupPath, startProgress, visitStep,
+  progressFraction, resumeStep, setupPercent, setupChip, setupInProgress, setupPath, startProgress, visitStep,
 } from './wizardModel';
 
 const NOW = '2026-11-20T10:00:00.000Z';
@@ -97,5 +97,14 @@ describe('new event seed', () => {
     expect(formatEventDate('2026-12-24')).toMatch(/24 December 2026/);
     expect(formatEventDate('nope')).toBeNull();
     expect(ymdFromIso(new Date(2026, 11, 24).toISOString())).toBe('2026-12-24');
+  });
+  it('setup percent starts ahead: the account is the first step done', () => {
+    const t = '2026-11-20T00:00:00.000Z';
+    expect(setupPercent(null)).toBe(14);
+    expect(setupPercent(startProgress(t))).toBe(29); // basics is done once the draft exists
+    expect(setupPercent(completeStep(startProgress(t), 'invite', t))).toBe(43);
+    const all = COUNTED_STEPS.reduce((p, id) => completeStep(p, id, t), startProgress(t));
+    expect(setupPercent(all)).toBe(100);
+    expect(setupPercent({ ...startProgress(t), completedAt: t })).toBe(100);
   });
 });
