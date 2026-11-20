@@ -5,7 +5,8 @@
  * ContactsBuilder — the Coloured Contacts Power-Up. Pick a lens style (live
  * thumbnails drawn by the SAME painter the booth runs), recolour it, set its
  * strength and size, then add it to the scene or test it on your own eyes in
- * the stage's Live view.
+ * the stage's Live view. The preview has two tabs: Example (stand-in eyes) and
+ * Live camera (ContactsLivePreview: the look on the host, as it changes).
  *
  * Contacts ride the scene's ONE face layer (the face-paint layer): they live on
  * the same tracked face and need the same tracker. A scene with face paint
@@ -17,9 +18,9 @@
  * look in progress, every write is ONE batched action, 44px / 10px floors on
  * coarse pointers.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Eye, ScanFace, Sparkles, Trash2, X } from 'lucide-react';
+import { Camera, Eye, ScanFace, Sparkles, Trash2, X } from 'lucide-react';
 import { useDialog } from '../../lib/useDialog';
 import {
   CONTACT_STYLES, CONTACT_STYLE_MAP, LENS_SPAN, defaultContactColors, hexToRgb, paintLensTexture,
@@ -29,6 +30,15 @@ import { FACE_PAINT_OPACITY, FACE_PAINT_PROCEDURAL_ID, hasFacePaintPigment, norm
 import { createObject3D, planSlotAdd, MAX_OBJECTS, type Object3D, type StudioAction, type StudioDraft } from '../../lib/studio/state';
 import type { LightingPresetId } from '../../lib/studio/lighting';
 import { SectionLabel, StudioSlider } from './StudioControls';
+
+const ContactsLivePreview = lazy(() => import('./ContactsLivePreview'));
+
+type PreviewTab = 'example' | 'live';
+const PREVIEW_TAB_KEY = 'pbar.contacts.previewTab';
+/** The tab the host used last (a per-device convenience; storage may be blocked). */
+function readPreviewTab(): PreviewTab {
+  try { return localStorage.getItem(PREVIEW_TAB_KEY) === 'live' ? 'live' : 'example'; } catch { return 'example'; }
+}
 
 interface Props {
   /** Unused here; kept for the shared Power-Up props contract. */
@@ -197,6 +207,30 @@ export default function ContactsBuilder({ dispatch, draft, onClose }: Props) {
     });
   };
 
+  const [tab, setTabState] = useState<PreviewTab>(readPreviewTab);
+  const setTab = (t: PreviewTab) => {
+    setTabState(t);
+    try { localStorage.setItem(PREVIEW_TAB_KEY, t); } catch { /* storage blocked: the choice lasts this visit */ }
+  };
+  // The face layer the Live tab draws: the scene's own (its paint shows under the
+  // lenses, as it will for guests) or a contacts-only stand-in, made ONCE so its
+  // id is stable while the look changes.
+  const standIn = useMemo(
+    () => createObject3D('headpiece', {
+      proceduralId: FACE_PAINT_PROCEDURAL_ID,
+      anchor: 'noseTip',
+      facePaint: { design: 'none', colors: [], opacity: FACE_PAINT_OPACITY.default },
+    }),
+    [],
+  );
+  const specKey = contactsKey(spec);
+  const liveLayer = useMemo<Object3D>(() => {
+    const base = existing?.facePaint ? existing : standIn;
+    return { ...base, hidden: undefined, facePaint: { ...(base.facePaint as NonNullable<Object3D['facePaint']>), eyes: spec } };
+    // `spec` is read through `specKey`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing, standIn, specKey]);
+
   const plan = draft && !existing ? planSlotAdd(draft, [{}], 'both') : null;
   const full = plan !== null && !plan.fits;
 
@@ -241,8 +275,10 @@ export default function ContactsBuilder({ dispatch, draft, onClose }: Props) {
 
   if (typeof document === 'undefined') return null;
 
+  // data-platform: a portal leaves the studio's themed chrome, and <html> wears
+  // the EVENT's theme here, so the dialog opts back into the platform look.
   return createPortal(
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
+    <div data-platform data-surface="night" className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
       <div
         ref={panelRef}
         {...dialogProps}
@@ -270,10 +306,52 @@ export default function ContactsBuilder({ dispatch, draft, onClose }: Props) {
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 md:grid-cols-[1fr_1.1fr] gap-4 px-5 pb-5">
-          {/* PREVIEW — the production lens painter on stand-in eyes. */}
-          <div className="flex flex-col gap-2 min-w-0">
-            <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-[radial-gradient(120%_100%_at_50%_0%,#141826,#05060B_70%)] flex items-center justify-center p-4">
-              <EyeThumb spec={spec} width={640} height={300} pair className="w-full max-w-[420px] rounded-xl" />
+          {/* PREVIEW — Example: the production lens painter on stand-in eyes.
+              Live camera: the same look on the host, through the booth pipeline.
+              `contents` on a phone: the pinned preview must be a child of the
+              scrolling grid, or it would unpin where this column ends. */}
+          <div className="contents md:flex md:flex-col md:gap-2 md:min-w-0">
+            {/* On a phone the controls sit BELOW the preview, so it stays pinned
+                while they scroll: a live preview nobody can see is no preview. */}
+            <div className="sticky top-0 z-10 -mx-1 px-1 pb-2 flex flex-col gap-2 bg-brand-surface md:static md:mx-0 md:p-0 md:bg-transparent">
+            <div role="tablist" aria-label="Preview" className="grid grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1">
+              {([['example', 'Example', Eye], ['live', 'Live camera', Camera]] as const).map(([id, label, Icon]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  id={`contacts-tab-${id}`}
+                  aria-selected={tab === id}
+                  aria-controls="contacts-preview-panel"
+                  data-testid={`contacts-tab-${id}`}
+                  onClick={() => setTab(id)}
+                  className={`pressable flex items-center justify-center gap-1.5 min-h-9 pointer-coarse:min-h-11 rounded-lg font-label uppercase tracking-widest text-[10px] transition-colors ${
+                    tab === id ? 'bg-accent/15 ring-1 ring-accent/40 text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div
+              id="contacts-preview-panel"
+              role="tabpanel"
+              aria-labelledby={`contacts-tab-${tab}`}
+              className="relative rounded-2xl overflow-hidden border border-white/10 bg-[radial-gradient(120%_100%_at_50%_0%,#141826,#05060B_70%)]"
+            >
+              {tab === 'live' ? (
+                <div className="relative mx-auto w-full aspect-[3/4] max-w-[calc(30vh*0.75)] md:max-w-[calc(52vh*0.75)] overflow-hidden">
+                  <Suspense fallback={null}>
+                    <ContactsLivePreview layer={liveLayer} />
+                  </Suspense>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center p-2 md:p-4">
+                  <EyeThumb spec={spec} width={640} height={300} pair className="w-full max-w-[300px] md:max-w-[420px] rounded-xl" />
+                </div>
+              )}
+            </div>
             </div>
             <p className="font-sans text-[10px] text-brand-muted/70 leading-snug">{style?.blurb}</p>
             <p className="font-sans text-[10px] text-brand-muted/60 leading-snug flex items-start gap-1.5">
