@@ -33,7 +33,8 @@ interface Fields {
   slugTouched: boolean;
 }
 
-function Form({ f, set, mode, slugNote }: {
+function Form({ f, set, mode, slugNote, heading }: {
+  heading: React.ReactNode;
   f: Fields;
   set: (p: Partial<Fields>) => void;
   mode: 'create' | 'edit';
@@ -44,7 +45,8 @@ function Form({ f, set, mode, slugNote }: {
   useEffect(() => { if (mode === 'create') nameRef.current?.focus(); }, [mode]);
   const origin = typeof window !== 'undefined' ? window.location.host : 'beamwall.app';
   return (
-    <div className="liquid-glass rounded-[28px] p-5 sm:p-7 flex flex-col gap-7 wz-enter">
+    <div className="liquid-glass rounded-[28px] p-5 sm:p-6 flex flex-col gap-6 wz-enter">
+      <div className="-mb-2">{heading}</div>
       <div>
         <label htmlFor="wz-name" className="wz-label">Event name</label>
         <input
@@ -139,7 +141,7 @@ function Layout({ form, preview }: { form: React.ReactNode; preview: React.React
   return (
     <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-6 lg:gap-8 items-start">
       {form}
-      <div className="lg:sticky lg:top-[88px] wz-enter" style={{ animationDelay: '80ms' }}>{preview}</div>
+      <div className="lg:sticky lg:top-[76px] wz-enter" style={{ animationDelay: '80ms' }}>{preview}</div>
     </div>
   );
 }
@@ -209,14 +211,23 @@ function CreateBasics({ onCreated }: { onCreated: (ev: WizardEvent) => void }) {
       rail={<CreateRail />}
       footer={<WizardFooter onBack={null} onSkip={null} onContinue={() => void create()} continueLabel="Create my event" busy={busy} blocked={blocked} />}
     >
-      <StepHeading step="basics">
-        <p className="mt-3 text-[13.5px] text-white/70">
-          Rather describe it in a sentence? <Link to="/host/new/assistant" className="underline underline-offset-2 text-white">Use the assistant</Link>
-        </p>
-      </StepHeading>
       {error && <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">{error}</p>}
       <Layout
-        form={<Form f={f} set={set} mode="create" slugNote={slugNote} />}
+        form={(
+          <Form
+            heading={(
+              <StepHeading step="basics">
+                <p className="mt-2 text-[13px] text-white/65">
+                  Rather describe it in a sentence? <Link to="/host/new/assistant" className="underline underline-offset-2 text-white">Use the assistant</Link>
+                </p>
+              </StepHeading>
+            )}
+            f={f}
+            set={set}
+            mode="create"
+            slugNote={slugNote}
+          />
+        )}
         preview={<WelcomePreview scene={p.scene} copy={p.copy} url={`${origin}/e/${f.slug || 'your-event'}/welcome`} />}
       />
     </WizardFrame>
@@ -228,20 +239,20 @@ function CreateRail() {
   return (
     <>
       <nav aria-label="Setup steps" className="hidden lg:block">
-        <div className="sticky top-[88px]"><div className="liquid-glass rounded-[28px] p-3">
-          <p className="px-3 pt-2 pb-3 text-[12px] font-semibold uppercase tracking-[0.08em] text-white/60">Your setup</p>
-          <ol className="flex flex-col gap-1">
+        <div className="sticky top-[76px]"><div className="liquid-glass rounded-[24px] p-2">
+          <p className="px-2.5 pt-2 pb-2.5 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-white/60">Your setup</p>
+          <ol className="flex flex-col gap-0.5">
             {WIZARD_STEPS.map((s, i) => (
               <li key={s.id}>
                 <span className="wz-rail-step" aria-current={i === 0 ? 'step' : undefined} style={i === 0 ? undefined : { opacity: 0.55 }}>
                   <span className="wz-rail-dot" aria-hidden>{i + 1}</span>
                   <span className="flex-1 min-w-0 truncate">{s.label}</span>
-                  {s.optional && <span className="text-[11px] text-white/50">Optional</span>}
+                  {s.optional && <span className="text-[10.5px] text-white/45">Optional</span>}
                 </span>
               </li>
             ))}
           </ol>
-          <p className="px-3 pt-3 pb-1 text-[12.5px] leading-snug text-white/60">About 5 minutes. Everything saves as you go, so you can stop and come back.</p>
+          <p className="px-2.5 pt-2.5 pb-1 text-[12px] leading-snug text-white/60">About 5 minutes. Everything saves as you go, so you can stop and come back.</p>
         </div></div>
       </nav>
       <div className="lg:hidden">
@@ -293,9 +304,8 @@ function EditBasics() {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return (
     <>
-      <StepHeading step="basics" />
       <Layout
-        form={<Form f={f} set={set} mode="edit" slugNote={null} />}
+        form={<Form heading={<StepHeading step="basics" />} f={f} set={set} mode="edit" slugNote={null} />}
         preview={<WelcomePreview scene={p.scene} copy={p.copy} url={`${origin}/e/${ev.slug}/welcome`} />}
       />
     </>

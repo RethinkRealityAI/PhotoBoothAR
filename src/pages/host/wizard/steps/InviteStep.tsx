@@ -106,12 +106,10 @@ export default function InviteStep() {
 
   return (
     <>
-      <StepHeading step="invite" />
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-6 lg:gap-8 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-6 xl:gap-7 items-start">
         <div className="flex flex-col gap-5 min-w-0">
-          <div className="lg:hidden"><WelcomePreview scene={d.scene} copy={previewCopy} url={`${origin}/e/${ev.slug}/welcome`} /></div>
-
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
+            <StepHeading step="invite" />
             <div className="wz-tabs" role="tablist" aria-label="Background style">
               {([
                 { id: 'template' as const, label: 'Templates', Icon: Sparkles },
@@ -240,6 +238,8 @@ export default function InviteStep() {
             )}
           </section>
 
+          <div className="lg:hidden"><WelcomePreview scene={d.scene} copy={previewCopy} url={`${origin}/e/${ev.slug}/welcome`} /></div>
+
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter" style={{ animationDelay: '60ms' }}>
             <p className="wz-label">Border</p>
             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Border">
@@ -262,7 +262,7 @@ export default function InviteStep() {
           </section>
         </div>
 
-        <div className="hidden lg:block lg:sticky lg:top-[88px] wz-enter" style={{ animationDelay: '80ms' }}>
+        <div className="hidden lg:block lg:sticky lg:top-[76px] wz-enter" style={{ animationDelay: '80ms' }}>
           <WelcomePreview scene={d.scene} copy={previewCopy} url={`${origin}/e/${ev.slug}/welcome`} />
         </div>
       </div>

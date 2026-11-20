@@ -122,7 +122,13 @@ function SetupWizard({ eventUuid, stepParam }: { eventUuid: string; stepParam: s
     setSaveState('saving');
     const next = await saveEventConfig(cur, patch, nextProgress);
     if (next) {
-      setEv(next);
+      // Merge onto the LATEST event, not the one this write started from: a
+      // step's own save may have landed meanwhile.
+      const written = nextProgress ? { ...patch, wizard: nextProgress } : patch;
+      const latest = evRef.current ?? next;
+      const merged = { ...latest, config: { ...latest.config, ...written } };
+      evRef.current = merged;
+      setEv(merged);
       setSaveState('saved');
       return true;
     }
@@ -166,7 +172,15 @@ function SetupWizard({ eventUuid, stepParam }: { eventUuid: string; stepParam: s
     ev,
     progress,
     saveConfig: (patch) => writeConfig(patch),
-    setEv,
+    // Steps hand back whole events built from the copy they read, which can be
+    // older than the progress pointer. Progress is owned here: a step's event
+    // never rolls it back (that is how a finished step lost its tick).
+    setEv: (next: WizardEvent) => {
+      const keep = evRef.current?.config.wizard;
+      const merged = keep === undefined ? next : { ...next, config: { ...next.config, wizard: keep } };
+      evRef.current = merged;
+      setEv(merged);
+    },
     reportSave: setSaveState,
     setBeforeContinue: (fn) => { beforeContinue.current = fn; },
     setBlocked,

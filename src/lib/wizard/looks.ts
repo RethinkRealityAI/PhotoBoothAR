@@ -13,6 +13,8 @@
  *       shared library    → event_catalog_links                  (one row each)
  *       Beamwall classics → one `experiences` row per prop, tagged
  *                           config.wizardRef = 'classic:<bundled prop id>'
+ *       face paint        → one `experiences` row per design, tagged
+ *                           config.wizardRef = 'paint:<design id>'
  *     An EMPTY allow-list means "everything" to the booth (catalog.pick), so
  *     "the host picked none" is written as the NO_LOOKS sentinel, which no id
  *     matches. The built-in procedural head pieces are switched off the same
@@ -34,7 +36,9 @@ import { BORDER_MAP, GENERIC_FRAMES, frameDataUrl } from '../borders';
 import { FILTER_SHADERS, defaultParams } from '../shaders';
 import { lookSeason } from '../themeMatch';
 import { BUNDLED_PROPS, BUNDLED_PROP_MAP, type BundledProp } from '../studio/bundledProps';
-import { STARTER_SCENES, buildStarterDraft, bundledPropObject, type StarterScene } from '../studio/starterScenes';
+import { STARTER_SCENES, buildStarterDraft, bundledPropObject, facePaintObject, type StarterScene } from '../studio/starterScenes';
+import { FACE_PAINT_CATEGORIES, FACE_PAINT_DESIGNS, FACE_PAINT_DESIGN_MAP, categoryOf, defaultColorsFor } from '../facePaint/designs';
+import { normalizeFacePaint } from '../facePaint/spec';
 import { createOverlay, deriveKind, initialDraft, type StudioDraft, type StudioObject } from '../studio/state';
 import { draftToPayload, existingUrlResolver, experienceToDraft } from '../studio/draftMapping';
 import type { TriggerConfig } from '../studio/triggers';
@@ -43,15 +47,28 @@ import type { FramePalette } from '../borders';
 /** No id matches this, so an allow-list holding only it shows nothing. */
 export const NO_LOOKS = '__none__';
 
-export type LookCategory = 'frames' | 'props' | 'effects';
+export type LookCategory = 'frames' | 'props' | 'paint' | 'effects';
 
 export const LOOK_CATEGORIES: readonly { id: LookCategory; label: string; noun: string }[] = [
   { id: 'frames', label: 'Frames', noun: 'frame' },
   { id: 'props', label: '3D props', noun: 'prop' },
+  { id: 'paint', label: 'Face paint', noun: 'face paint' },
   { id: 'effects', label: 'Effects', noun: 'effect' },
 ];
 
-export type LookSource = 'frame' | 'effect' | 'library' | 'classic';
+export type LookSource = 'frame' | 'effect' | 'library' | 'classic' | 'paint';
+
+/** Occasion quick-filters (the pills over each shelf). */
+export type LookTag = 'wedding' | 'birthday' | 'party' | 'gala' | 'christmas' | 'halloween';
+
+export const LOOK_TAGS: readonly { id: LookTag; label: string }[] = [
+  { id: 'wedding', label: 'Wedding' },
+  { id: 'birthday', label: 'Birthday' },
+  { id: 'party', label: 'Party' },
+  { id: 'gala', label: 'Gala' },
+  { id: 'christmas', label: 'Christmas' },
+  { id: 'halloween', label: 'Halloween' },
+];
 
 /** One thing a guest can try on, in one category. */
 export interface WizardLook {
@@ -68,6 +85,8 @@ export interface WizardLook {
   group: string;
   /** Opt-in seasonal look ('christmas'). */
   seasonal?: string;
+  /** Occasions it suits (drives the quick-filter pills). */
+  tags?: LookTag[];
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -76,6 +95,74 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 /* ── The catalogue ─────────────────────────────────────────────────── */
 
 const SEASON_GROUP: Record<string, string> = { christmas: 'Christmas' };
+
+const ELEGANT: LookTag[] = ['wedding', 'gala'];
+const FUN: LookTag[] = ['party', 'birthday'];
+
+/** Occasions per built-in frame (seasonal frames take their season). */
+const FRAME_TAGS: Record<string, LookTag[]> = {
+  'dw-frame-classic': ELEGANT,
+  'dw-corners': ELEGANT,
+  'jj-neon-frame': FUN,
+  'jj-equalizer': FUN,
+  'overlay-confetti': ['party', 'birthday', 'wedding'],
+  'frame-classic-gold': ELEGANT,
+  'frame-hexagon-plain': ELEGANT,
+  'frame-deco-plain': ['gala', 'wedding', 'party'],
+  'frame-minimal-plain': ['wedding', 'gala', 'birthday'],
+  'sticker-crown-plain': ['birthday', 'party'],
+};
+
+/** Effects: a shelf each, and the occasions they suit. */
+const EFFECT_META: Record<string, { group: string; tags: LookTag[] }> = {
+  'champagne-sparkle': { group: 'Sparkle', tags: ['wedding', 'gala', 'birthday'] },
+  'laser-sparkle': { group: 'Sparkle', tags: FUN },
+  'golden-hour-bloom': { group: 'Glow & light', tags: ELEGANT },
+  'aureate-god-rays': { group: 'Glow & light', tags: ELEGANT },
+  'celestial-lens-flare': { group: 'Glow & light', tags: ['wedding', 'gala', 'party'] },
+  'aurora-lumina': { group: 'Glow & light', tags: FUN },
+  'prismatic-holo': { group: 'Colour & film', tags: FUN },
+  'holo-bloom': { group: 'Colour & film', tags: FUN },
+  'velvet-film': { group: 'Colour & film', tags: ELEGANT },
+  'crystalline-kaleidoscope': { group: 'Colour & film', tags: ['gala', 'party'] },
+  'neon-pulse': { group: 'Neon', tags: ['party', 'birthday', 'halloween'] },
+};
+
+const CLASSIC_TAGS: Record<string, LookTag[]> = {
+  'prop-royal-crown': ['birthday', 'party', 'gala'],
+  'prop-queens-tiara': ['wedding', 'birthday', 'gala'],
+  'prop-halo-ring': ['wedding', 'party'],
+  'prop-neon-shades': FUN,
+};
+
+/** Library shelves → occasions (by the shared library's category name). */
+const LIBRARY_CATEGORY_TAGS: Record<string, LookTag[]> = {
+  'hats & caps': FUN,
+  jewellery: ELEGANT,
+  'superheroes & sci-fi': FUN,
+  'masks & masquerade': ['gala', 'party', 'halloween'],
+  halloween: ['halloween'],
+  eyewear: FUN,
+  'team colours': ['party'],
+  'animals & creatures': ['birthday', 'halloween'],
+  christmas: ['christmas'],
+};
+
+const PAINT_TAGS: Record<string, LookTag[]> = {
+  hearts: ['wedding', 'party'],
+  'glitter-freckles': ['wedding', 'party', 'birthday'],
+  stars: ['birthday', 'party', 'gala'],
+  'sugar-skull': ['halloween', 'party'],
+  tiger: ['birthday', 'halloween'],
+  cat: ['birthday', 'halloween'],
+  butterfly: ['birthday', 'party'],
+  unicorn: ['birthday', 'party'],
+  'hero-mask': ['birthday', 'halloween'],
+};
+
+function seasonTags(season: string | undefined | null): LookTag[] {
+  return season === 'christmas' ? ['christmas'] : [];
+}
 
 /** Built-in frames (the generic, brand-free ones), drawn in the event colour. */
 export function frameLooks(palette?: FramePalette | null): WizardLook[] {
@@ -90,8 +177,10 @@ export function frameLooks(palette?: FramePalette | null): WizardLook[] {
       ref: f.id,
       name: f.name,
       thumb: frameDataUrl(b, palette ?? null),
-      group: season ? SEASON_GROUP[season] ?? season : b.kind === 'border' ? 'Frames' : 'Overlays',
+      // Borders run round the edge of the photo; overlays sit on top of it.
+      group: season ? SEASON_GROUP[season] ?? season : b.kind === 'border' ? 'Borders' : 'Overlays',
       ...(season ? { seasonal: season } : {}),
+      tags: season ? seasonTags(season) : FRAME_TAGS[f.id] ?? [],
     }];
   });
 }
@@ -107,8 +196,9 @@ export function effectLooks(): WizardLook[] {
       ref: s.id,
       name: s.name,
       thumb: null,
-      group: season ? SEASON_GROUP[season] ?? season : 'Effects',
+      group: season ? SEASON_GROUP[season] ?? season : EFFECT_META[s.id]?.group ?? 'More effects',
       ...(season ? { seasonal: season } : {}),
+      tags: season ? seasonTags(season) : EFFECT_META[s.id]?.tags ?? [],
     };
   });
 }
@@ -124,7 +214,28 @@ export function classicLooks(): WizardLook[] {
     thumb: p.thumb,
     group: p.collection ? SEASON_GROUP[p.collection] ?? p.collection : 'Beamwall classics',
     ...(p.collection ? { seasonal: p.collection } : {}),
+    tags: p.collection ? seasonTags(p.collection) : CLASSIC_TAGS[p.id] ?? [],
   }));
+}
+
+/** Living Face Paint designs (painted on the tracked face, zero credits). */
+export function paintLooks(): WizardLook[] {
+  const shelf = new Map<string, string>(FACE_PAINT_CATEGORIES.map((c) => [c.id, c.label]));
+  return FACE_PAINT_DESIGNS.map((d) => {
+    const cat = categoryOf(d);
+    const holiday = cat === 'holiday';
+    return {
+      key: `paint:${d.id}`,
+      category: 'paint' as const,
+      source: 'paint' as const,
+      ref: d.id,
+      name: d.name,
+      thumb: null,
+      group: holiday ? 'Christmas' : shelf.get(cat) ?? 'Face paint',
+      ...(holiday ? { seasonal: 'christmas' } : {}),
+      tags: holiday ? ['christmas'] : PAINT_TAGS[d.id] ?? ['party'],
+    };
+  });
 }
 
 /** A library row as a pick-and-choose look; composites are filters, not looks. */
@@ -146,6 +257,7 @@ export function libraryLook(row: Experience, categoryName: string | null): Wizar
     name: row.name,
     thumb,
     group: categoryName ?? (category === 'props' ? 'More props' : category === 'frames' ? 'More frames' : 'More effects'),
+    tags: categoryName ? LIBRARY_CATEGORY_TAGS[categoryName.trim().toLowerCase()] ?? [] : [],
   };
 }
 
@@ -177,6 +289,7 @@ export function buildLookCatalog(
   return {
     frames: [...frameLooks(palette), ...lib.filter((l) => l.category === 'frames').sort(byGroup)],
     props: [...classicLooks(), ...lib.filter((l) => l.category === 'props').sort(byGroup)],
+    paint: paintLooks(),
     effects: [...effectLooks(), ...lib.filter((l) => l.category === 'effects').sort(byGroup)],
   };
 }
@@ -201,6 +314,8 @@ export interface LookPicks {
   library: string[];
   /** Bundled prop ids that have a wizard row on this event. */
   classics: string[];
+  /** Face paint design ids that have a wizard row on this event. */
+  paints: string[];
 }
 
 /** The wizard tag on an experience row, or null. */
@@ -239,11 +354,15 @@ export function picksFromEvent(
     const ref = wizardRefOf(r);
     return ref !== null && ref.startsWith('classic:') && BUNDLED_PROP_MAP[ref.slice(8)] ? [ref.slice(8)] : [];
   });
+  const paints = eventRows.flatMap((r) => {
+    const ref = wizardRefOf(r);
+    return ref !== null && ref.startsWith('paint:') && FACE_PAINT_DESIGN_MAP[ref.slice(6)] ? [ref.slice(6)] : [];
+  });
   const library = linkedIds.filter((id) => {
     const kind = libraryKinds.get(id);
     return kind !== undefined && kind !== 'composite';
   });
-  return { frames, effects, library: [...new Set(library)], classics: [...new Set(classics)] };
+  return { frames, effects, library: [...new Set(library)], classics: [...new Set(classics)], paints: [...new Set(paints)] };
 }
 
 /** Is a look on? */
@@ -253,6 +372,7 @@ export function isPicked(picks: LookPicks, look: WizardLook): boolean {
     case 'effect': return picks.effects.includes(look.ref);
     case 'library': return picks.library.includes(look.ref);
     case 'classic': return picks.classics.includes(look.ref);
+    case 'paint': return picks.paints.includes(look.ref);
   }
 }
 
@@ -264,6 +384,7 @@ export function togglePick(picks: LookPicks, look: WizardLook): LookPicks {
     case 'effect': return { ...picks, effects: flip(picks.effects) };
     case 'library': return { ...picks, library: flip(picks.library) };
     case 'classic': return { ...picks, classics: flip(picks.classics) };
+    case 'paint': return { ...picks, paints: flip(picks.paints) };
   }
 }
 
@@ -306,6 +427,8 @@ export interface PicksDiff {
   unlink: string[];
   addClassics: string[];
   removeClassics: string[];
+  addPaints: string[];
+  removePaints: string[];
   configChanged: boolean;
 }
 
@@ -317,6 +440,8 @@ export function diffPicks(before: LookPicks, after: LookPicks): PicksDiff {
     unlink: minus(before.library, after.library),
     addClassics: minus(after.classics, before.classics),
     removeClassics: minus(before.classics, after.classics),
+    addPaints: minus(after.paints, before.paints),
+    removePaints: minus(before.paints, after.paints),
     configChanged: !same(before.frames, after.frames) || !same(before.effects, after.effects),
   };
 }
@@ -337,6 +462,59 @@ export function classicRow(prop: BundledProp): ExperienceDraft | null {
   const draft: StudioDraft = { ...initialDraft('3d_attachment'), name: prop.name, objects: [bundledPropObject(prop, prop.occlude === true)] };
   draft.kind = deriveKind(draft);
   return draftRow(draft, `classic:${prop.id}`, prop.thumb);
+}
+
+/** A face paint design, in its default colours, as a lone row. */
+export function paintSpec(designId: string) {
+  return normalizeFacePaint({ design: designId, colors: defaultColorsFor(designId), opacity: 0.9 });
+}
+
+export function paintRow(designId: string, thumb: string | null): ExperienceDraft | null {
+  const design = FACE_PAINT_DESIGN_MAP[designId];
+  const spec = design ? paintSpec(designId) : null;
+  if (!design || !spec) return null;
+  const draft: StudioDraft = { ...initialDraft('3d_attachment'), name: design.name, objects: [facePaintObject(spec)] };
+  draft.kind = deriveKind(draft);
+  return draftRow(draft, `paint:${designId}`, thumb);
+}
+
+/* ── Quick filters (the dropdown + pills over each tab) ────────────── */
+
+export interface LookFilter {
+  /** Occasion from the dropdown, or null for every occasion. */
+  tag: LookTag | null;
+  /** Shelf pill ("Borders", "Hats & caps"…), or null for every shelf. */
+  group: string | null;
+  /** The "Picked" pill: only what is on. */
+  onlyPicked: boolean;
+}
+
+export const NO_LOOK_FILTER: LookFilter = { tag: null, group: null, onlyPicked: false };
+
+/** The looks a dropdown + pill combination leaves showing. */
+export function filterLooks(looks: readonly WizardLook[], f: LookFilter, picks: LookPicks): WizardLook[] {
+  return looks.filter((l) =>
+    (f.group === null || l.group === f.group)
+    && (f.tag === null || (l.tags ?? []).includes(f.tag))
+    && (!f.onlyPicked || isPicked(picks, l)));
+}
+
+/** The occasions worth offering for a list (ones that match something), the event's own first. */
+export function tagsIn(looks: readonly WizardLook[], first?: LookTag | null): LookTag[] {
+  const present = LOOK_TAGS.map((t) => t.id).filter((id) => looks.some((l) => (l.tags ?? []).includes(id)));
+  return first && present.includes(first) ? [first, ...present.filter((t) => t !== first)] : present;
+}
+
+/** The occasion an event type maps to, for ordering the pills. */
+export function occasionTag(eventType: string | null | undefined): LookTag | null {
+  const t = (eventType ?? '').toLowerCase();
+  if (t.includes('wedding')) return 'wedding';
+  if (t.includes('birthday')) return 'birthday';
+  if (t.includes('gala') || t.includes('corporate')) return 'gala';
+  if (t.includes('christmas') || t.includes('holiday')) return 'christmas';
+  if (t.includes('halloween')) return 'halloween';
+  if (t.includes('party')) return 'party';
+  return null;
 }
 
 /* ── Filters (one-tap bundles) ─────────────────────────────────────── */
@@ -372,6 +550,8 @@ export interface CustomFilterSpec {
   classics: string[];
   /** Library prop/frame experience rows. */
   library: Experience[];
+  /** Face paint design id, or null for none. */
+  paintId?: string | null;
 }
 
 export const CUSTOM_FILTER_MAX_PROPS = 4;
@@ -380,8 +560,8 @@ export const CUSTOM_FILTER_MAX_PROPS = 4;
 export function customFilterError(spec: CustomFilterSpec): string | null {
   if (spec.name.trim() === '') return 'Give your filter a name.';
   if (spec.name.trim().length > 40) return 'Keep the name under 40 letters.';
-  const parts = (spec.frameId ? 1 : 0) + (spec.effectId ? 1 : 0) + spec.classics.length + spec.library.length;
-  if (parts < 2) return 'A filter combines at least two things. Pick a frame, an effect or a prop.';
+  const parts = (spec.frameId ? 1 : 0) + (spec.effectId ? 1 : 0) + (spec.paintId ? 1 : 0) + spec.classics.length + spec.library.length;
+  if (parts < 2) return 'A filter combines at least two things. Pick a frame, props, face paint or an effect.';
   if (spec.classics.length + spec.library.length > CUSTOM_FILTER_MAX_PROPS) return `Up to ${CUSTOM_FILTER_MAX_PROPS} props per filter.`;
   return null;
 }
@@ -411,6 +591,8 @@ export function composeDraft(spec: Omit<CustomFilterSpec, 'name'> & { name?: str
   const props = spec.classics.flatMap((id) => (BUNDLED_PROP_MAP[id] ? [BUNDLED_PROP_MAP[id]] : []));
   const occlude = props.some((p) => p.occlude === true);
   for (const p of props) objects.push(bundledPropObject(p, occlude));
+  const paint = spec.paintId ? paintSpec(spec.paintId) : null;
+  if (paint) objects.push(facePaintObject(paint));
   const shaderId = spec.effectId ?? 'none';
   const draft: StudioDraft = {
     ...initialDraft('shader'),

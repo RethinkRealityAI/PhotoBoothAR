@@ -101,20 +101,20 @@ export default function LaunchStep() {
 
   return (
     <>
-      <StepHeading step="launch" />
-      <div className="grid lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)] gap-6 lg:gap-8 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)] gap-6 xl:gap-7 items-start">
         <div className="flex flex-col gap-5 min-w-0">
-          <section className="liquid-glass rounded-[28px] p-2 sm:p-3 wz-enter" aria-label="Your setup">
+          <section className="liquid-glass rounded-[28px] p-3 sm:p-4 wz-enter" aria-label="Your setup">
+            <div className="px-2 pt-1"><StepHeading step="launch" /></div>
             {summary === null ? (
               <div className="h-48 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Checking your setup" /></div>
             ) : (
               <ul>
                 <Row icon={CalendarDays} title={ev.name} detail={dateLabel ?? 'Date to be decided'} step="basics" ok onEdit={w.goTo} />
                 <Row icon={ImageIcon} title="Welcome page" detail="Your background, border and welcome line" step="invite" ok onEdit={w.goTo} />
-                <Row icon={Monitor} title="Booth & big screen" detail={`${summary.layout} wall`} step="booth" ok onEdit={w.goTo} />
                 <Row icon={Sparkles} title="Looks" detail={`${summary.looks} to pick from · ${summary.filters} ${summary.filters === 1 ? 'filter' : 'filters'}${summary.opening ? ` · opens with ${summary.opening}` : ''}`} step="looks" ok={summary.looks + summary.filters > 0} onEdit={w.goTo} />
-                <Row icon={Zap} title="Power-ups" detail={powerUps > 0 ? `${powerUps} surprise${powerUps === 1 ? '' : 's'} on` : 'None yet (optional)'} step="powerups" ok={powerUps > 0} onEdit={w.goTo} />
+                <Row icon={Zap} title="Power-ups" detail={powerUps > 0 ? `${powerUps} gesture${powerUps === 1 ? '' : 's'} on` : 'None yet (optional)'} step="powerups" ok={powerUps > 0} onEdit={w.goTo} />
                 <Row icon={Trophy} title="Challenges" detail={summary.challenges > 0 ? `${summary.challenges} mission${summary.challenges === 1 ? '' : 's'}` : 'None yet (optional)'} step="challenges" ok={summary.challenges > 0} onEdit={w.goTo} />
+                <Row icon={Monitor} title="Big screen" detail={`${summary.layout} wall`} step="booth" ok onEdit={w.goTo} />
               </ul>
             )}
           </section>
@@ -129,7 +129,7 @@ export default function LaunchStep() {
                     <p className="text-[13.5px] text-white/75">Share the QR or put the big screen up. Guests need no app.</p>
                   </div>
                 </div>
-                <div className="mt-5"><ShareActions url={welcomeUrl} eventName={ev.name} slug={ev.slug} qrSize={148} /></div>
+                <div className="mt-5"><ShareActions url={welcomeUrl} eventName={ev.name} slug={ev.slug} qrSize={148} layout="stacked" /></div>
               </>
             ) : (
               <>
@@ -141,7 +141,8 @@ export default function LaunchStep() {
                 {goError && <p role="alert" className="mt-2 text-[13.5px] text-[#FFD2DA]">{goError}</p>}
               </>
             )}
-            <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <p className="wz-label mt-6 !mb-2">Open or print</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { href: `/e/${ev.slug}/welcome`, label: 'Welcome page', Icon: ExternalLink },
                 { href: `/e/${ev.slug}/booth`, label: 'Booth', Icon: Camera },
@@ -156,7 +157,7 @@ export default function LaunchStep() {
           </section>
         </div>
 
-        <div className="lg:sticky lg:top-[88px] flex flex-col items-center gap-3 wz-enter" style={{ animationDelay: '80ms' }}>
+        <div className="lg:sticky lg:top-[76px] flex flex-col items-center gap-3 wz-enter" style={{ animationDelay: '80ms' }}>
           <div className="wz-phone w-[270px]">
             <div className="wz-phone-screen bg-[#1F1A63]">
               {/* Laid out at a real phone width (390px) and scaled down, so the page

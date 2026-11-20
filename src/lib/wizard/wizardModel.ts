@@ -11,7 +11,7 @@
  * of step 1, so every later step autosaves to the real event and a host who
  * leaves can come back to exactly the step they left.
  *
- *   { v: 1, step: 'looks', done: ['basics','invite','booth'], startedAt, completedAt? }
+ *   { v: 1, step: 'powerups', done: ['basics','invite','looks'], startedAt, completedAt? }
  *
  * Untrusted on read (any host could have hand-edited config through the API),
  * so `normalizeWizardProgress` is total: anything malformed is dropped, never
@@ -34,12 +34,12 @@ export interface WizardStepDef {
 
 export const WIZARD_STEPS: readonly WizardStepDef[] = [
   { id: 'basics', label: 'Basics', title: 'What are we celebrating?', blurb: 'A name and a date. You can change both later.', optional: false },
-  { id: 'invite', label: 'Welcome page', title: 'Design your welcome page', blurb: 'What guests see when they scan your QR, and what you put on the big screen.', optional: false },
-  { id: 'booth', label: 'Booth & screen', title: 'Set up your booth', blurb: 'The booth guests open on their phones, and the live photo wall on the big screen.', optional: false },
-  { id: 'looks', label: 'Looks', title: 'Pick the looks', blurb: 'Choose the frames, 3D props and effects guests can try on, and bundle your favourites into filters.', optional: false },
-  { id: 'powerups', label: 'Power-ups', title: 'Add a little magic', blurb: 'Surprises that fire when guests smile or gesture.', optional: true },
-  { id: 'challenges', label: 'Challenges', title: 'Give guests a mission', blurb: 'Photo challenges keep the booth busy all night.', optional: true },
-  { id: 'launch', label: 'Launch', title: 'Ready when you are', blurb: 'Check everything over, then go live and share your QR.', optional: false },
+  { id: 'invite', label: 'Welcome page', title: 'Your welcome page', blurb: 'What guests see when they scan your QR code.', optional: false },
+  { id: 'looks', label: 'Looks', title: 'Looks', blurb: 'What guests can try on. Tap to add or remove.', optional: false },
+  { id: 'powerups', label: 'Power-ups', title: 'Power-ups', blurb: 'Gestures that set off effects, and superhero gear.', optional: true },
+  { id: 'challenges', label: 'Challenges', title: 'Challenges', blurb: 'Photo missions that keep the booth busy all night.', optional: true },
+  { id: 'booth', label: 'Big screen', title: 'Big screen', blurb: 'How guests’ photos show on the live wall.', optional: false },
+  { id: 'launch', label: 'Launch', title: 'Ready when you are', blurb: 'Check it over, go live and share your QR.', optional: false },
 ] as const;
 
 export const WIZARD_STEP_IDS: readonly WizardStepId[] = WIZARD_STEPS.map((s) => s.id);

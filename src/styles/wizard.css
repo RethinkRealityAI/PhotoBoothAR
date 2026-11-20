@@ -21,13 +21,13 @@
 .wz-rail-step {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: 6px 12px 6px 6px;
+  min-height: 40px;
+  padding: 4px 10px 4px 4px;
   border-radius: 999px;
   text-align: left;
-  font-size: 14px;
+  font-size: 13.5px;
   color: rgba(255, 255, 255, 0.72);
   transition: background-color var(--bw-dur, 200ms) ease, color var(--bw-dur, 200ms) ease;
 }
@@ -37,11 +37,11 @@
 .wz-rail-dot {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   flex: none;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   background: rgba(255, 255, 255, 0.10);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
@@ -317,4 +317,132 @@
 
 @media (max-width: 639px) {
   .wz-tab { padding: 0 12px; gap: 6px; font-size: 13.5px; }
+}
+
+/* ── Looks: sideways strips, scroll grids, dropdown and pills ───────── */
+/* One or two rows that scroll sideways at every width (frames, builder). */
+.wz-strip-1, .wz-strip-2 {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 112px;
+  gap: 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 2px;
+  padding: 2px 2px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+.wz-strip-2 { grid-template-rows: repeat(2, auto); }
+.wz-strip-1 > *, .wz-strip-2 > * { scroll-snap-align: start; }
+@media (min-width: 1280px) {
+  .wz-strip-1, .wz-strip-2 { grid-auto-columns: 120px; }
+}
+.wz-arrow {
+  display: grid;
+  place-items: center;
+  height: 32px;
+  width: 32px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background-color 140ms ease, opacity 140ms ease;
+}
+.wz-arrow:hover:not(:disabled) { background: rgba(255, 255, 255, 0.22); }
+.wz-arrow:disabled { opacity: 0.35; }
+
+/* A vertical scroll box inside the card (props, face paint, effects). */
+.wz-scrollgrid {
+  max-height: min(560px, 62vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-inline: -6px;
+  padding: 0 6px 6px;
+  border-radius: 18px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+.wz-scrollgrid:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.wz-scrollgrid-group + .wz-scrollgrid-group { margin-top: 18px; }
+.wz-scrollgrid-group:last-child { padding-bottom: 22px; }
+.wz-scrollgrid-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 2px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  background: linear-gradient(to bottom, rgba(70, 64, 170, 0.96) 70%, rgba(70, 64, 170, 0));
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.wz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 10px;
+}
+@media (min-width: 1280px) {
+  .wz-grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+}
+
+/* The occasion dropdown: a native select (keyboard + phone pickers) dressed as a pill. */
+.wz-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.wz-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 40px;
+  padding: 0 38px 0 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+.wz-select select:hover { background: rgba(255, 255, 255, 0.22); }
+.wz-select select:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.wz-select select option { color: #1a1740; }
+.wz-select svg { position: absolute; right: 14px; }
+
+/* Quick-filter pills: one row, scrolls sideways when it runs out of room. */
+.wz-pills {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 22px 2px 2px;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+}
+.wz-pills::-webkit-scrollbar { display: none; }
+.wz-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 0 13px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.wz-pill:hover { background: rgba(255, 255, 255, 0.1); }
+.wz-pill:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.wz-pill[aria-pressed='true'] { background: #fff; color: var(--bw-on-accent); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .wz-arrow, .wz-pill { transition: none; }
 }

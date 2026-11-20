@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Step 6 (optional) — photo missions. Suggestions for the occasion (the same
+ * Step 5 (optional) — photo missions. Suggestions for the occasion (the same
  * content packs the assistant seeds) switch on with one tap; the host can
  * also write their own. Each one is a real `challenges` row, live as soon as
  * it is added.
@@ -73,13 +73,13 @@ export default function ChallengesStep() {
 
   return (
     <>
-      <StepHeading step="challenges" />
       {failed && <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">We couldn’t load your challenges. Check your connection and reload this step.</p>}
-      <div className="grid lg:grid-cols-[minmax(0,1.3fr)_minmax(280px,0.75fr)] gap-6 lg:gap-8 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1.3fr)_minmax(280px,0.75fr)] gap-6 xl:gap-7 items-start">
         <div className="flex flex-col gap-5 min-w-0">
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
-            <h2 className="wz-display text-[22px]">Ideas for your {pack.theme.toLowerCase()}</h2>
-            <p className="mt-1 text-[13.5px] text-white/70">Tap to add. Guests earn points for each one.</p>
+            <StepHeading step="challenges" />
+            <h2 className="text-[15px] font-semibold">Ideas for your {pack.theme.toLowerCase()}</h2>
+            <p className="mt-0.5 text-[13px] text-white/65">Tap to add. Guests earn points for each one.</p>
             {rows === null ? (
               <div className="h-32 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" /></div>
             ) : (
@@ -116,7 +116,7 @@ export default function ChallengesStep() {
           </section>
 
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter" style={{ animationDelay: '60ms' }}>
-            <h2 className="wz-display text-[22px]">Write your own</h2>
+            <h2 className="text-[15px] font-semibold">Write your own</h2>
             <label htmlFor="wz-ctitle" className="wz-label mt-4">Mission</label>
             <input id="wz-ctitle" className="wz-input" maxLength={60} placeholder="Selfie with the bride’s grandma" value={title} onChange={(e) => setTitle(e.target.value)} />
             <label htmlFor="wz-cdesc" className="wz-label mt-4">Hint <span className="normal-case tracking-normal font-normal text-white/50">(optional)</span></label>
@@ -143,7 +143,7 @@ export default function ChallengesStep() {
         </div>
 
         {/* What a guest sees: the mission list in the booth. */}
-        <div className="lg:sticky lg:top-[88px] wz-enter" style={{ animationDelay: '80ms' }}>
+        <div className="lg:sticky lg:top-[76px] wz-enter" style={{ animationDelay: '80ms' }}>
           <div className="wz-phone w-[230px] mx-auto">
             <div className="wz-phone-screen bg-[linear-gradient(160deg,#4A5FA8,#33318A_55%,#7E5A9E)]">
               <div className="absolute inset-0 p-[7cqw] flex flex-col gap-[3cqw] overflow-hidden">

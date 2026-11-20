@@ -42,17 +42,17 @@ describe('progress', () => {
     let p = completeStep(startProgress(NOW), 'invite', NOW);
     p = completeStep(p, 'invite', NOW);
     expect(p.done).toEqual(['basics', 'invite']);
-    expect(p.step).toBe('booth');
+    expect(p.step).toBe('looks');
   });
   it('visiting does not finish anything', () => {
-    const p = visitStep(startProgress(NOW), 'looks', NOW);
-    expect(p.step).toBe('looks');
+    const p = visitStep(startProgress(NOW), 'booth', NOW);
+    expect(p.step).toBe('booth');
     expect(p.done).toEqual(['basics']);
-    expect(resumeStep(p)).toBe('looks');
+    expect(resumeStep(p)).toBe('booth');
   });
   it('resumes on the first unfinished step when the pointer is on a done one', () => {
     const p = { ...completeStep(startProgress(NOW), 'invite', NOW), step: 'basics' as const };
-    expect(resumeStep(p)).toBe('booth');
+    expect(resumeStep(p)).toBe('looks');
   });
   it('finishing launch completes the wizard', () => {
     let p = startProgress(NOW);

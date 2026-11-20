@@ -2,9 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Step 5 (optional) — a little magic. Two kinds:
+ * Step 4 (optional) — a little magic. Two kinds:
  *
- *   Surprises    a gesture sets off an effect whatever look the guest has on
+ *   Gestures     a gesture sets off an effect whatever look the guest has on
  *                (stored as preset ids in events.config.powerUps; the booth
  *                merges them into its trigger engine — lib/wizard/powerUps).
  *   Power gear   ready-made filters with their own blasts (visor, wand,
@@ -85,12 +85,12 @@ export default function PowerUpsStep() {
 
   return (
     <>
-      <StepHeading step="powerups" />
-      <div className="grid lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.8fr)] gap-6 lg:gap-8 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.8fr)] gap-6 xl:gap-7 items-start">
         <div className="flex flex-col gap-5 min-w-0 order-2 lg:order-1">
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
-            <h2 className="wz-display text-[22px]">Surprises</h2>
-            <p className="mt-1 text-[13.5px] text-white/70">They work with every look. Turn on as many as you like.</p>
+            <StepHeading step="powerups" />
+            <h2 className="text-[15px] font-semibold">Gestures</h2>
+            <p className="mt-0.5 text-[13px] text-white/65">A smile or a hand sign sets off an effect, whatever look a guest has on. Turn on as many as you like.</p>
             <ul className="mt-4 grid sm:grid-cols-2 gap-2.5">
               {POWER_UP_PRESETS.map((p) => {
                 const active = on.includes(p.id);
@@ -126,8 +126,8 @@ export default function PowerUpsStep() {
           </section>
 
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter" style={{ animationDelay: '60ms' }}>
-            <h2 className="wz-display text-[22px]">Power gear</h2>
-            <p className="mt-1 text-[13.5px] text-white/70">Superhero filters with their own blasts. They join your filters.</p>
+            <h2 className="text-[15px] font-semibold">Power gear</h2>
+            <p className="mt-0.5 text-[13px] text-white/65">Superhero filters with their own blasts. They join your filters.</p>
             <div className="mt-4 wz-shelf">
               {powerScenes().map((s) => {
                 const active = rows?.some((r) => wizardRefOf(r) === `starter:${s.id}`) ?? false;
@@ -142,11 +142,11 @@ export default function PowerUpsStep() {
             </div>
           </section>
         </div>
-        <div className="order-1 lg:order-2 lg:sticky lg:top-[88px] wz-enter">
-          <LookStage draft={draft} caption={stageScene ? powerScenes().find((s) => s.id === stageScene)?.name : 'Tap Preview to see a surprise'}>
+        <div className="order-1 lg:order-2 lg:sticky lg:top-[76px] wz-enter">
+          <LookStage draft={draft} caption={stageScene ? powerScenes().find((s) => s.id === stageScene)?.name : 'Tap Preview to see a gesture'}>
             <TriggerEffects ref={fx} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
           </LookStage>
-          <p className="mt-3 text-center text-[12.5px] text-white/65">{on.length === 0 ? 'No surprises yet' : `${on.length} surprise${on.length === 1 ? '' : 's'} on`}</p>
+          <p className="mt-3 text-center text-[12.5px] text-white/65">{on.length === 0 ? 'No gestures on yet' : `${on.length} gesture${on.length === 1 ? '' : 's'} on`}</p>
         </div>
       </div>
     </>

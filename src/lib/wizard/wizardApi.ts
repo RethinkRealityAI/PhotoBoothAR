@@ -13,7 +13,7 @@ import {
   createExperience, deleteExperience, fetchExperiences, fetchLibraryForEventResult, linkCatalogItem, unlinkCatalogItem,
 } from '../db';
 import { BUNDLED_PROP_MAP } from '../studio/bundledProps';
-import { classicRow, diffPicks, picksConfigPatch, picksFromEvent, wizardRefOf, type LookPicks } from './looks';
+import { classicRow, diffPicks, paintRow, paintSpec, picksConfigPatch, picksFromEvent, wizardRefOf, type LookPicks } from './looks';
 import type { WizardProgress } from './wizardModel';
 
 export interface WizardEvent {
@@ -93,11 +93,17 @@ export interface ApplyPicksResult {
 }
 
 /**
- * Make the event offer exactly `after`. Links, classic rows and the allow-list
+ * Make the event offer exactly `after`. Links, classic/paint rows and the allow-list
  * config are written independently; the result reports what did not land so
  * the step can say so instead of a blanket "Saved".
  */
-export async function applyPicks(ev: WizardEvent, data: LooksData, after: LookPicks): Promise<ApplyPicksResult> {
+export async function applyPicks(
+  ev: WizardEvent,
+  data: LooksData,
+  after: LookPicks,
+  /** Draws a face paint row's thumbnail (the step passes the studio's painter). */
+  paintThumb?: (spec: NonNullable<ReturnType<typeof paintSpec>>) => string | null,
+): Promise<ApplyPicksResult> {
   const before = currentPicks(ev, data);
   const d = diffPicks(before, after);
   let failures = 0;
@@ -120,6 +126,20 @@ export async function applyPicks(ev: WizardEvent, data: LooksData, after: LookPi
   }
   for (const propId of d.removeClassics) {
     const victims = rows.filter((r) => wizardRefOf(r) === `classic:${propId}`);
+    for (const v of victims) {
+      if (await deleteExperience(ev.slug, v.id)) rows = rows.filter((r) => r.id !== v.id);
+      else failures++;
+    }
+  }
+  for (const designId of d.addPaints) {
+    const spec = paintSpec(designId);
+    const draft = spec ? paintRow(designId, paintThumb?.(spec) ?? null) : null;
+    const row = draft ? await createExperience(ev.slug, draft) : null;
+    if (row) rows = [...rows, row];
+    else failures++;
+  }
+  for (const designId of d.removePaints) {
+    const victims = rows.filter((r) => wizardRefOf(r) === `paint:${designId}`);
     for (const v of victims) {
       if (await deleteExperience(ev.slug, v.id)) rows = rows.filter((r) => r.id !== v.id);
       else failures++;

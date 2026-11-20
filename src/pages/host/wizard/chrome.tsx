@@ -43,15 +43,17 @@ export function Rail({ current, progress, canVisit, onPick }: {
     <>
       {/* Desktop: the whole journey, always visible. */}
       <nav aria-label="Setup steps" className="hidden lg:block">
-        <div className="sticky top-[88px]"><div className="liquid-glass rounded-[28px] p-3">
-          <div className="px-3 pt-2 pb-3">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/60">Your setup</p>
-            <div className="mt-2 h-1.5 rounded-full bg-white/15 overflow-hidden" aria-hidden>
+        <div className="sticky top-[76px]"><div className="liquid-glass rounded-[24px] p-2">
+          <div className="px-2.5 pt-2 pb-2.5">
+            <div className="flex items-baseline justify-between">
+              <p className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-white/60">Your setup</p>
+              <p className="text-[11.5px] text-white/60">{pct}%</p>
+            </div>
+            <div className="mt-1.5 h-1 rounded-full bg-white/15 overflow-hidden" aria-hidden>
               <div className="h-full rounded-full bg-white transition-[width] duration-500" style={{ width: `${pct}%` }} />
             </div>
-            <p className="mt-1.5 text-[12.5px] text-white/70">{pct}% done</p>
           </div>
-          <ol className="flex flex-col gap-1">
+          <ol className="flex flex-col gap-0.5">
             {WIZARD_STEPS.map((s, i) => {
               const done = progress?.done.includes(s.id) ?? false;
               return (
@@ -67,7 +69,7 @@ export function Rail({ current, progress, canVisit, onPick }: {
                       {done && s.id !== current ? <Check className="h-4 w-4" /> : i + 1}
                     </span>
                     <span className="flex-1 min-w-0 truncate">{s.label}</span>
-                    {s.optional && <span className="text-[11px] text-white/50">Optional</span>}
+                    {s.optional && <span className="text-[10.5px] text-white/45">Optional</span>}
                     <span className="sr-only">{done ? ' (done)' : ''}</span>
                   </button>
                 </li>
@@ -113,7 +115,7 @@ export function WizardFrame({ eventName, saveState, rail, footer, children }: {
     // overflow-hidden, so the window never scrolls.
     <div id="wz-scroll" data-platform className="wz-root app-bg flex flex-col h-[100dvh] overflow-y-auto overscroll-contain">
       <header className="wz-header sticky top-0 z-40 px-4 pt-[max(12px,env(safe-area-inset-top))] pb-3">
-        <div className="mx-auto max-w-[1320px] flex items-center gap-3">
+        <div className="mx-auto max-w-[1560px] lg:px-2 flex items-center gap-3">
           <Link to="/host" className="wz-display text-[20px] text-white shrink-0 min-h-11 flex items-center">Beamwall</Link>
           <span className="hidden sm:block h-5 w-px bg-white/25" aria-hidden />
           <p className="hidden sm:block min-w-0 truncate text-[14px] text-white/80">
@@ -131,7 +133,7 @@ export function WizardFrame({ eventName, saveState, rail, footer, children }: {
           </div>
         </div>
       </header>
-      <div className="flex-1 mx-auto w-full max-w-[1320px] px-4 lg:grid lg:grid-cols-[232px_minmax(0,1fr)] lg:gap-8 pb-6">
+      <div className="flex-1 mx-auto w-full max-w-[1560px] px-4 lg:px-6 lg:grid lg:grid-cols-[196px_minmax(0,1fr)] lg:gap-6 xl:gap-7 pb-6 lg:pt-1">
         {rail}
         <main className="min-w-0 mt-4 lg:mt-0">{children}</main>
       </div>
@@ -150,7 +152,7 @@ export function WizardFooter({ onBack, onSkip, onContinue, continueLabel, busy, 
 }) {
   return (
     <div className="wz-footer">
-      <div className="mx-auto max-w-[1320px] flex items-center gap-2">
+      <div className="mx-auto max-w-[1560px] lg:px-2 flex items-center gap-2">
         {onBack ? (
           <button type="button" onClick={onBack} className="pressable liquid-glass-raised inline-flex items-center gap-1.5 rounded-full px-4 min-h-12 text-[15px] font-medium">
             <ArrowLeft className="h-4 w-4" aria-hidden /> Back
@@ -176,17 +178,27 @@ export function WizardFooter({ onBack, onSkip, onContinue, continueLabel, busy, 
           </button>
         </div>
       </div>
-      {blocked && <p id="wz-blocked" className="sm:hidden mx-auto max-w-[1320px] mt-2 text-right text-[12.5px] text-white/75">{blocked}</p>}
+      {blocked && <p id="wz-blocked" className="sm:hidden mx-auto max-w-[1560px] mt-2 text-right text-[12.5px] text-white/75">{blocked}</p>}
     </div>
   );
 }
 
-export function StepHeading({ step, children }: { step: WizardStepId; children?: ReactNode }) {
+/**
+ * The step's title, INSIDE its first card (no page-level heading: the rail,
+ * the main card and the preview all start on the same line). `aside` sits on
+ * the right of the title row (tabs, a count…).
+ */
+export function StepHeading({ step, children, aside }: { step: WizardStepId; children?: ReactNode; aside?: ReactNode }) {
   const d = stepDef(step);
   return (
-    <div className="mb-5 lg:mb-7 wz-enter">
-      <h1 className="wz-display text-[30px] leading-[1.08] sm:text-[38px] text-white">{d.title}</h1>
-      <p className="mt-2 text-[15.5px] text-white/80 max-w-[60ch]">{d.blurb}</p>
+    <div className="mb-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <h1 className="wz-display text-[22px] leading-tight sm:text-[24px] text-white">{d.title}</h1>
+          <p className="mt-0.5 text-[13.5px] text-white/70">{d.blurb}</p>
+        </div>
+        {aside}
+      </div>
       {children}
     </div>
   );

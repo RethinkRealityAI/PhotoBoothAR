@@ -5,15 +5,17 @@ import { parseTriggers } from '../studio/triggers';
 import { BUNDLED_PROPS } from '../studio/bundledProps';
 import {
   NO_LOOKS, buildLookCatalog, classicRow, composeDraft, customFilterError, customFilterRow, diffPicks, eventFilters,
-  isPicked, picksConfigPatch, picksFromEvent, powerScenes, readyFilters, setCategory, starterRow, togglePick,
-  type LookPicks,
+  filterLooks, isPicked, occasionTag, paintRow, picksConfigPatch, picksFromEvent, powerScenes, readyFilters, setCategory,
+  starterRow, tagsIn, togglePick, type LookPicks,
 } from './looks';
 import { powerUpTriggers, powerUpsConfig } from './powerUps';
+import { FACE_PAINT_DESIGNS } from '../facePaint/designs';
+import { FACE_PAINT_PROCEDURAL_ID } from '../facePaint/spec';
 
 const asExp = (row: Record<string, unknown>, id: string): Experience =>
   ({ id, event_id: 'ev', created_at: '', thumbnail_url: null, is_published: true, ...row }) as unknown as Experience;
 
-const EMPTY: LookPicks = { frames: [], effects: [], library: [], classics: [] };
+const EMPTY: LookPicks = { frames: [], effects: [], library: [], classics: [], paints: [] };
 
 describe('look catalogue', () => {
   it('offers frames, classics and effects before any library row loads', () => {
@@ -109,5 +111,60 @@ describe('rows the wizard writes are normal studio scenes', () => {
     const row = starterRow(readyFilters()[0].id, extra)!;
     const t = parseTriggers((row.config as Record<string, unknown>).triggers);
     expect(t.some((x) => x.id === extra[0].id)).toBe(true);
+  });
+});
+
+describe('face paint', () => {
+  it('offers every design, and a design row reopens in the studio as face paint', () => {
+    const c = buildLookCatalog([], new Map());
+    expect(c.paint).toHaveLength(FACE_PAINT_DESIGNS.length);
+    const row = paintRow(FACE_PAINT_DESIGNS[0].id, null)!;
+    expect((row.config as Record<string, unknown>).wizardRef).toBe(`paint:${FACE_PAINT_DESIGNS[0].id}`);
+    const back = experienceToDraft(asExp(row as unknown as Record<string, unknown>, 'p'));
+    expect(back?.objects).toHaveLength(1);
+    expect((back!.objects[0] as { proceduralId?: string }).proceduralId).toBe(FACE_PAINT_PROCEDURAL_ID);
+    expect(paintRow('not-a-design', null)).toBeNull();
+  });
+  it('reads paint picks back and diffs them', () => {
+    const id = FACE_PAINT_DESIGNS[0].id;
+    const row = paintRow(id, null)!;
+    const p = picksFromEvent({}, [], [{ id: 'r', config: row.config }, { id: 'junk', config: { wizardRef: 'paint:nope' } }], new Map());
+    expect(p.paints).toEqual([id]);
+    const look = buildLookCatalog([], new Map()).paint[0];
+    expect(isPicked(p, look)).toBe(true);
+    const d = diffPicks(p, togglePick(p, look));
+    expect(d).toMatchObject({ addPaints: [], removePaints: [id], configChanged: false });
+  });
+  it('counts as one part of a custom filter', () => {
+    const base = { name: 'Glam', frameId: null, effectId: null, classics: [BUNDLED_PROPS[0].id], library: [] };
+    expect(customFilterError(base)).toMatch(/two/);
+    const spec = { ...base, paintId: FACE_PAINT_DESIGNS[0].id };
+    expect(customFilterError(spec)).toBeNull();
+    expect(composeDraft(spec).objects).toHaveLength(2);
+  });
+});
+
+describe('quick filters', () => {
+  it('filters by shelf, by occasion and by what is on', () => {
+    const c = buildLookCatalog([], new Map());
+    const borders = filterLooks(c.frames, { tag: null, group: 'Borders', onlyPicked: false }, EMPTY);
+    expect(borders.length).toBeGreaterThan(0);
+    expect(borders.every((l) => l.group === 'Borders')).toBe(true);
+    const weddings = filterLooks(c.frames, { tag: 'wedding', group: null, onlyPicked: false }, EMPTY);
+    expect(weddings.length).toBeGreaterThan(0);
+    expect(weddings.every((l) => l.tags?.includes('wedding'))).toBe(true);
+    expect(filterLooks(c.frames, { tag: null, group: null, onlyPicked: true }, EMPTY)).toEqual([]);
+    const one = togglePick(EMPTY, c.frames[0]);
+    expect(filterLooks(c.frames, { tag: null, group: null, onlyPicked: true }, one)).toEqual([c.frames[0]]);
+  });
+  it('lists only occasions that match something, the event\'s own first', () => {
+    const c = buildLookCatalog([], new Map());
+    const tags = tagsIn(c.frames, 'birthday');
+    expect(tags[0]).toBe('birthday');
+    expect(new Set(tags).size).toBe(tags.length);
+    expect(tagsIn([], 'wedding')).toEqual([]);
+    expect(occasionTag('wedding')).toBe('wedding');
+    expect(occasionTag('corporate')).toBe('gala');
+    expect(occasionTag('other')).toBeNull();
   });
 });

@@ -40,6 +40,7 @@ import {
   createOverlay,
   deriveKind,
   initialDraft,
+  type Object3D,
   type StudioDraft,
   type StudioObject,
 } from './state';
@@ -395,6 +396,18 @@ export function starterPropUrl(scene: StarterScene): string | null {
  * The returned draft has NO `id` — loading a starter scene creates new,
  * unsaved work, exactly like duplicating.
  */
+/** A Living Face Paint layer as a studio object (also used by the setup wizard). */
+export function facePaintObject(facePaint: FacePaintSpec): Object3D {
+  return createObject3D('headpiece', {
+    proceduralId: FACE_PAINT_PROCEDURAL_ID,
+    name: 'Face Paint',
+    // Ignored by the paint layer (the mesh IS the face); a valid anchor keeps
+    // every legacy reader of the layer happy.
+    anchor: 'noseTip',
+    facePaint,
+  });
+}
+
 /**
  * One bundled prop as a studio object, placed exactly as a shelf add places it.
  * Shared by the starter scenes and the host setup wizard (which saves a lone
@@ -493,16 +506,7 @@ export function buildStarterDraft(sceneId: string): StudioDraft | null {
   }
 
   const facePaint = preset.facePaint ? normalizeFacePaint(preset.facePaint) : null;
-  if (facePaint) {
-    objects.push(createObject3D('headpiece', {
-      proceduralId: FACE_PAINT_PROCEDURAL_ID,
-      name: 'Face Paint',
-      // Ignored by the paint layer (the mesh IS the face); a valid anchor keeps
-      // every legacy reader of the layer happy.
-      anchor: 'noseTip',
-      facePaint,
-    }));
-  }
+  if (facePaint) objects.push(facePaintObject(facePaint));
 
   const shaderId = preset.shaderId ?? 'none';
   if (objects.length === 0 && shaderId === 'none') return null;

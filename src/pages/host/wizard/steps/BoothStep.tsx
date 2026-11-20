@@ -2,12 +2,12 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Step 3 — the booth guests open on their phones, and the live photo wall on
- * the big screen. Writes the wall's own settings row (app_settings 'wall'),
+ * Step 6 — the big screen: how the live photo wall shows guests' photos.
+ * Writes the wall's own settings row (app_settings 'wall'),
  * the same one the host's Wall Design panel edits.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Loader2, QrCode, Sparkles, Trophy, Zap } from 'lucide-react';
+import { Loader2, QrCode, Sparkles, Trophy, Zap } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import SceneBackdrop from '../../../../components/theme/SceneBackdrop';
 import { getWallSettingsResult, setWallSettings } from '../../../../lib/db';
@@ -118,30 +118,11 @@ function WallMock({ draft, url, sceneBg }: { draft: WallDraft; url: string; scen
   );
 }
 
-function BoothMock({ name }: { name: string }) {
-  return (
-    <div className="wz-phone w-[170px] shrink-0">
-      <div className="wz-phone-screen bg-black">
-        <img src="/starters/soft-portrait.webp" alt="" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute inset-x-0 top-0 p-[5cqw] flex items-center justify-between text-white">
-          <span className="text-[5cqw] font-semibold truncate drop-shadow">{name}</span>
-        </div>
-        <div className="absolute inset-x-0 bottom-0 pb-[8cqw] flex flex-col items-center gap-[4cqw]">
-          <div className="flex gap-[3cqw]">
-            {[0, 1, 2, 3].map((i) => <span key={i} className={`h-[11cqw] w-[11cqw] rounded-full ${i === 1 ? 'bg-white ring-2 ring-white/60' : 'bg-white/30'}`} />)}
-          </div>
-          <span className="h-[18cqw] w-[18cqw] rounded-full border-[1.4cqw] border-white grid place-items-center"><span className="h-[12cqw] w-[12cqw] rounded-full bg-white" /></span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const TOGGLES: { key: keyof Omit<WallDraft, 'layout'>; label: string; hint: string; Icon: typeof QrCode }[] = [
   { key: 'showQR', label: 'QR code on the big screen', hint: 'Guests scan it to open the booth.', Icon: QrCode },
   { key: 'featuredSpotlight', label: 'Spotlight a photo now and then', hint: 'One shot fills the screen for a few seconds.', Icon: Sparkles },
   { key: 'showLeaderboard', label: 'Show the leaderboard', hint: 'Points for photos and challenges.', Icon: Trophy },
-  { key: 'showChallenges', label: 'Show challenges to guests', hint: 'You’ll pick them in step 6.', Icon: Zap },
+  { key: 'showChallenges', label: 'Show challenges to guests', hint: 'The missions you picked, on the wall.', Icon: Zap },
 ];
 
 export default function BoothStep() {
@@ -214,16 +195,16 @@ export default function BoothStep() {
 
   return (
     <>
-      <StepHeading step="booth" />
       {failed && (
         <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">
           We couldn’t load your wall settings. Check your connection, then come back to this step. You can carry on meanwhile.
         </p>
       )}
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-6 lg:gap-8 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-6 xl:gap-7 items-start">
         <div className="flex flex-col gap-5 min-w-0">
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
-            <p className="wz-label">Big screen layout</p>
+            <StepHeading step="booth" />
+            <p className="wz-label">Layout</p>
             {!draft ? (
               <div className="h-28 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" /></div>
             ) : (
@@ -258,17 +239,9 @@ export default function BoothStep() {
             ))}
           </section>
         </div>
-        <div className="lg:sticky lg:top-[88px] flex flex-col gap-4 wz-enter" style={{ animationDelay: '80ms' }}>
+        <div className="lg:sticky lg:top-[76px] flex flex-col gap-3 wz-enter" style={{ animationDelay: '80ms' }}>
           {draft && <WallMock draft={draft} url={`${origin}/e/${ev.slug}/welcome`} sceneBg={sceneBg} />}
-          <div className="flex items-center gap-4">
-            <BoothMock name={ev.name} />
-            <div className="text-[13.5px] text-white/75 leading-relaxed">
-              <p className="text-white font-semibold text-[15px] flex items-center gap-2"><Camera className="h-4 w-4" aria-hidden /> The booth</p>
-              <p className="mt-1">Guests open it from your QR. No app to download. They try on your looks, snap, and their photo flies onto the big screen.</p>
-              <p className="mt-2">You’ll choose the looks in the next step.</p>
-            </div>
-          </div>
-          <p className="text-[12.5px] text-white/60">Preview with sample photos. The wall wears your welcome page background.</p>
+          <p className="text-center text-[12.5px] text-white/60">Shown with sample photos. The wall wears your welcome page background.</p>
         </div>
       </div>
     </>

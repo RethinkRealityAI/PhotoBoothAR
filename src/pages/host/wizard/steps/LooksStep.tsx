@@ -2,21 +2,24 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Step 4 — the looks. Two decisions, side by side with a live try-on stage:
+ * The Looks step. Two decisions, side by side with a live try-on stage:
  *
- *   Pick & choose  the frames, 3D props and effects a guest can try one at a
- *                  time (tap a tile: it goes on the stage and into the booth).
+ *   Pick & choose  the frames, 3D props, face paint and effects a guest can
+ *                  try one at a time (tap a tile: it goes on the stage and into
+ *                  the booth). An occasion dropdown and shelf pills narrow
+ *                  each tab; frames scroll sideways, the rest scroll down.
  *   Filters        one tap that puts on a whole look: ready-made ones, the
- *                  library's, or one the host builds from a frame, an effect
- *                  and up to four props.
+ *                  library's, or one the host builds from a frame, props,
+ *                  face paint and an effect, all on one screen.
  *
  * The first filter is what the booth opens with (the host can change it).
  * Writes go through lib/wizard (allow-lists, catalogue links, studio-shaped
  * experience rows), so everything here is also editable in the Studio.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Loader2, Plus, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Loader2, Plus, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
 import FilterThumb from '../../../../components/booth/FilterThumb';
+import { FaceThumb, facePaintThumbDataUrl } from '../../../../components/studio/FacePaintBuilder';
 import type { Experience } from '../../../../types';
 import { experienceToDraft } from '../../../../lib/studio/draftMapping';
 import { buildStarterDraft } from '../../../../lib/studio/starterScenes';
@@ -24,9 +27,10 @@ import { BUNDLED_PROP_MAP } from '../../../../lib/studio/bundledProps';
 import { setOpeningLook } from '../../../../lib/host';
 import { linkCatalogItem, unlinkCatalogItem } from '../../../../lib/db';
 import {
-  CUSTOM_FILTER_MAX_PROPS, LOOK_CATEGORIES, buildLookCatalog, composeDraft, countPicked, customFilterError,
-  customFilterRow, eventFilters, groupLooks, isPicked, readyFilters, setCategory, starterRow, togglePick,
-  wizardRefOf, type EventFilter, type LookCategory, type LookPicks, type WizardLook,
+  CUSTOM_FILTER_MAX_PROPS, LOOK_CATEGORIES, LOOK_TAGS, NO_LOOK_FILTER, buildLookCatalog, composeDraft, countPicked,
+  customFilterError, customFilterRow, eventFilters, filterLooks, groupLooks, isPicked, occasionTag, paintSpec,
+  readyFilters, setCategory, starterRow, tagsIn, togglePick, wizardRefOf,
+  type EventFilter, type LookCategory, type LookFilter, type LookPicks, type LookTag, type WizardLook,
 } from '../../../../lib/wizard/looks';
 import {
   addFilterRow, applyPicks, currentPicks, fetchLooksData, removeFilterRow, type LooksData,
@@ -47,6 +51,14 @@ function LookArt({ look }: { look: WizardLook }) {
           <span className="absolute inset-0 bg-[radial-gradient(70%_70%_at_40%_35%,#B9B6FF,#4840C6_60%,#2B2A8C)]" />
           <Sparkles className="absolute inset-0 m-auto h-6 w-6 text-white/80" aria-hidden />
         </FilterThumb>
+      </span>
+    );
+  }
+  if (look.source === 'paint') {
+    const spec = paintSpec(look.ref);
+    return (
+      <span className="wz-tile-art aspect-square bg-[radial-gradient(70%_70%_at_50%_40%,rgba(255,255,255,0.22),rgba(255,255,255,0.03))]">
+        {spec && <FaceThumb spec={spec} logo={null} size={160} className="absolute inset-0 h-full w-full" />}
       </span>
     );
   }
@@ -77,14 +89,108 @@ function LookTile({ look, on, onTap }: { look: WizardLook; on: boolean; onTap: (
   );
 }
 
+/**
+ * A sideways shelf with arrow buttons for mouse users (trackpads and phones
+ * just swipe). `rows` = 2 for frames, 1 inside the filter builder.
+ */
+function Shelf({ label, meta, rows, children }: { label: string; meta?: string; rows: 1 | 2; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState({ start: true, end: false });
+  const sync = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    setEdge({ start: el.scrollLeft < 4, end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4 });
+  }, []);
+  useEffect(() => {
+    sync();
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sync, children]);
+  const page = (dir: 1 | -1) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.85, behavior: 'smooth' });
+  const scrolls = !(edge.start && edge.end);
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <p className="text-[13px] font-semibold text-white/85 min-w-0 truncate">
+          {label}{meta && <span className="font-normal text-white/50"> · {meta}</span>}
+        </p>
+        {scrolls && (
+          <span className="ml-auto hidden sm:flex items-center gap-1">
+            <button type="button" onClick={() => page(-1)} disabled={edge.start} aria-label={`Scroll ${label} back`} className="wz-arrow"><ChevronLeft className="h-4 w-4" /></button>
+            <button type="button" onClick={() => page(1)} disabled={edge.end} aria-label={`Scroll ${label} forward`} className="wz-arrow"><ChevronRight className="h-4 w-4" /></button>
+          </span>
+        )}
+      </div>
+      <div ref={ref} onScroll={sync} className={rows === 2 ? 'wz-strip-2' : 'wz-strip-1'}>{children}</div>
+    </div>
+  );
+}
+
+/** Occasion dropdown + shelf pills (+ "Picked") over one tab. */
+function FilterBar({ looks, picks, filter, onChange, eventTag, noun }: {
+  looks: readonly WizardLook[];
+  picks: LookPicks;
+  filter: LookFilter;
+  onChange: (f: LookFilter) => void;
+  eventTag: LookTag | null;
+  noun: string;
+}) {
+  const tags = tagsIn(looks, eventTag);
+  // Shelf pills count within the chosen occasion, so a pill never leads to nothing.
+  const inTag = filterLooks(looks, { ...NO_LOOK_FILTER, tag: filter.tag }, picks);
+  const groups = groupLooks(inTag);
+  const picked = countPicked(picks, inTag);
+  const label = (id: LookTag) => LOOK_TAGS.find((t) => t.id === id)?.label ?? id;
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+      {tags.length > 0 && (
+        <label className="wz-select shrink-0">
+          <span className="sr-only">Occasion</span>
+          <select
+            value={filter.tag ?? ''}
+            onChange={(e) => onChange({ ...filter, tag: (e.target.value || null) as LookTag | null, group: null })}
+          >
+            <option value="">All occasions</option>
+            {tags.map((t) => (
+              <option key={t} value={t}>
+                {label(t)}{t === eventTag ? ' · your event' : ''} ({looks.filter((l) => l.tags?.includes(t)).length})
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="h-4 w-4 pointer-events-none" aria-hidden />
+        </label>
+      )}
+      <div className="wz-pills" role="group" aria-label={`Show ${noun}s`}>
+        <button type="button" className="wz-pill" aria-pressed={filter.group === null && !filter.onlyPicked} onClick={() => onChange({ ...filter, group: null, onlyPicked: false })}>
+          All <span className="opacity-60">{inTag.length}</span>
+        </button>
+        {groups.length > 1 && groups.map((g) => (
+          <button key={g.group} type="button" className="wz-pill" aria-pressed={filter.group === g.group} onClick={() => onChange({ ...filter, group: g.group, onlyPicked: false })}>
+            {g.group} <span className="opacity-60">{g.looks.length}</span>
+          </button>
+        ))}
+        <button type="button" className="wz-pill" aria-pressed={filter.onlyPicked} onClick={() => onChange({ ...filter, group: null, onlyPicked: !filter.onlyPicked })}>
+          <Check className="h-3.5 w-3.5" aria-hidden /> Picked <span className="opacity-60">{picked}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Try-on state ─────────────────────────────────────────────────── */
 
 interface TryOn {
   frame: WizardLook | null;
   effect: WizardLook | null;
+  paint: WizardLook | null;
   /** Props on the stage (last two tapped). */
   props: WizardLook[];
 }
+
+const NO_TRY_ON: TryOn = { frame: null, effect: null, paint: null, props: [] };
 
 type Stage =
   | { kind: 'pick'; tryOn: TryOn }
@@ -97,11 +203,12 @@ function tryOnDraft(t: TryOn, libRows: Map<string, Experience>) {
     effectId: t.effect?.ref ?? null,
     classics: t.props.filter((p) => p.source === 'classic').map((p) => p.ref),
     library,
+    paintId: t.paint?.ref ?? null,
   });
 }
 
 function tryOnCaption(t: TryOn): string {
-  const parts = [t.frame?.name, ...t.props.map((p) => p.name), t.effect?.name].filter(Boolean);
+  const parts = [t.frame?.name, ...t.props.map((p) => p.name), t.paint?.name, t.effect?.name].filter(Boolean);
   return parts.length > 0 ? parts.join(' · ') : 'Nothing on yet';
 }
 
@@ -111,8 +218,11 @@ interface Builder {
   name: string;
   frame: WizardLook | null;
   effect: WizardLook | null;
+  paint: WizardLook | null;
   props: WizardLook[];
 }
+
+type BuilderSlot = 'frame' | 'props' | 'paint' | 'effect';
 
 function FilterBuilder({ catalog, libRows, value, onChange, onSave, onCancel, saving, error }: {
   catalog: Record<LookCategory, WizardLook[]>;
@@ -124,41 +234,40 @@ function FilterBuilder({ catalog, libRows, value, onChange, onSave, onCancel, sa
   saving: boolean;
   error: string | null;
 }) {
-  const [tab, setTab] = useState<LookCategory>('frames');
-  const frames = catalog.frames.filter((l) => l.source === 'frame' || (l.source === 'library' && libRows.has(l.ref)));
-  const list = tab === 'frames' ? frames : tab === 'props' ? catalog.props : catalog.effects.filter((l) => l.source === 'effect');
-  const isOn = (l: WizardLook) => (tab === 'frames' ? value.frame?.key === l.key : tab === 'effects' ? value.effect?.key === l.key : value.props.some((p) => p.key === l.key));
-  const tap = (l: WizardLook) => {
-    if (tab === 'frames') onChange({ ...value, frame: value.frame?.key === l.key ? null : l });
-    else if (tab === 'effects') onChange({ ...value, effect: value.effect?.key === l.key ? null : l });
-    else {
-      const has = value.props.some((p) => p.key === l.key);
-      if (has) onChange({ ...value, props: value.props.filter((p) => p.key !== l.key) });
-      else if (value.props.length < CUSTOM_FILTER_MAX_PROPS) onChange({ ...value, props: [...value.props, l] });
-    }
+  const sections: { slot: BuilderSlot; label: string; hint: string; looks: WizardLook[] }[] = [
+    { slot: 'frame', label: 'Frame', hint: 'Pick one', looks: catalog.frames.filter((l) => l.source === 'frame' || (l.source === 'library' && libRows.has(l.ref))) },
+    { slot: 'props', label: '3D props', hint: `Up to ${CUSTOM_FILTER_MAX_PROPS}`, looks: catalog.props },
+    { slot: 'paint', label: 'Face paint', hint: 'Pick one', looks: catalog.paint },
+    { slot: 'effect', label: 'Effect', hint: 'Pick one', looks: catalog.effects.filter((l) => l.source === 'effect') },
+  ];
+  const isOn = (slot: BuilderSlot, l: WizardLook) =>
+    slot === 'props' ? value.props.some((p) => p.key === l.key) : value[slot]?.key === l.key;
+  const tap = (slot: BuilderSlot, l: WizardLook) => {
+    if (slot !== 'props') { onChange({ ...value, [slot]: value[slot]?.key === l.key ? null : l }); return; }
+    const has = value.props.some((p) => p.key === l.key);
+    if (has) onChange({ ...value, props: value.props.filter((p) => p.key !== l.key) });
+    else if (value.props.length < CUSTOM_FILTER_MAX_PROPS) onChange({ ...value, props: [...value.props, l] });
   };
+  const chosen = (slot: BuilderSlot) =>
+    slot === 'props' ? (value.props.length > 0 ? value.props.map((p) => p.name).join(', ') : null) : value[slot]?.name ?? null;
   return (
     <div className="mt-4 rounded-[24px] bg-[rgba(15,13,51,0.28)] p-4 sm:p-5 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.16)] wz-enter">
-      <div className="flex items-center gap-2">
-        <Wand2 className="h-5 w-5" aria-hidden />
-        <p className="wz-display text-[19px]">Make your own filter</p>
-        <button type="button" onClick={onCancel} className="ml-auto grid place-items-center h-10 w-10 rounded-full hover:bg-white/10" aria-label="Close the filter builder"><X className="h-5 w-5" /></button>
+      <div className="flex items-start gap-3">
+        <span className="grid place-items-center h-10 w-10 rounded-full bg-white/12 shrink-0"><Wand2 className="h-5 w-5" aria-hidden /></span>
+        <div className="min-w-0 flex-1">
+          <p className="wz-display text-[19px] leading-tight">Make your own filter</p>
+          <p className="mt-0.5 text-[13px] text-white/70">Combine a frame, 3D props, face paint and an effect into one tap. Everything you pick shows on the preview.</p>
+        </div>
+        <button type="button" onClick={onCancel} className="grid place-items-center h-10 w-10 rounded-full hover:bg-white/10 shrink-0" aria-label="Close the filter builder"><X className="h-5 w-5" /></button>
       </div>
       <label htmlFor="wz-fname" className="wz-label mt-4">Name</label>
       <input id="wz-fname" className="wz-input" maxLength={40} placeholder="Party royalty" value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} />
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <div className="wz-tabs" role="tablist">
-          {LOOK_CATEGORIES.map((c) => (
-            <button key={c.id} type="button" role="tab" aria-selected={tab === c.id} className="wz-tab" onClick={() => setTab(c.id)}>
-              {c.label}
-              <span className="wz-count">{c.id === 'frames' ? (value.frame ? 1 : 0) : c.id === 'effects' ? (value.effect ? 1 : 0) : value.props.length}</span>
-            </button>
-          ))}
-        </div>
-        <p className="text-[12.5px] text-white/65">{tab === 'props' ? `Up to ${CUSTOM_FILTER_MAX_PROPS} props` : 'Pick one'}</p>
-      </div>
-      <div className="mt-3 wz-shelf max-h-[340px] lg:overflow-y-auto">
-        {list.map((l) => <LookTile key={l.key} look={l} on={isOn(l)} onTap={() => tap(l)} />)}
+      <div className="mt-4 flex flex-col gap-4">
+        {sections.map((sec) => (
+          <Shelf key={sec.slot} rows={1} label={sec.label} meta={chosen(sec.slot) ?? sec.hint}>
+            {sec.looks.map((l) => <LookTile key={l.key} look={l} on={isOn(sec.slot, l)} onTap={() => tap(sec.slot, l)} />)}
+          </Shelf>
+        ))}
       </div>
       {error && <p role="alert" className="mt-3 text-[13.5px] text-[#FFD2DA]">{error}</p>}
       <div className="mt-4 flex justify-end gap-2">
@@ -180,10 +289,11 @@ export default function LooksStep() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [picks, setPicks] = useState<LookPicks | null>(null);
   const [tab, setTab] = useState<LookCategory>('frames');
-  const [stage, setStage] = useState<Stage>({ kind: 'pick', tryOn: { frame: null, effect: null, props: [] } });
+  const [filter, setFilter] = useState<LookFilter>(NO_LOOK_FILTER);
+  const [stage, setStage] = useState<Stage>({ kind: 'pick', tryOn: NO_TRY_ON });
   // The last pick-and-choose try-on, kept while a filter is on the stage so
   // tapping a tile or opening the builder carries on from it, not from blank.
-  const lastTryOn = useRef<TryOn>({ frame: null, effect: null, props: [] });
+  const lastTryOn = useRef<TryOn>(NO_TRY_ON);
   if (stage.kind === 'pick') lastTryOn.current = stage.tryOn;
   const [builder, setBuilder] = useState<Builder | null>(null);
   const [builderError, setBuilderError] = useState<string | null>(null);
@@ -208,7 +318,7 @@ export default function LooksStep() {
     const props = ['prop-royal-crown', 'prop-neon-shades']
       .map((id) => cat.props.find((l) => l.source === 'classic' && l.ref === id))
       .filter((l): l is WizardLook => l !== undefined);
-    setStage({ kind: 'pick', tryOn: { frame, effect: null, props } });
+    setStage({ kind: 'pick', tryOn: { ...NO_TRY_ON, frame, props } });
   }, [ev.slug]);
   useEffect(() => { void load(); }, [load]);
 
@@ -227,7 +337,7 @@ export default function LooksStep() {
     queued.current = null;
     const run = (async () => {
       w.reportSave('saving');
-      const res = await applyPicks(evRef.current, d, target);
+      const res = await applyPicks(evRef.current, d, target, facePaintThumbDataUrl);
       w.setEv(res.ev);
       evRef.current = res.ev;
       setData(res.data);
@@ -263,7 +373,7 @@ export default function LooksStep() {
     return () => w.setBeforeContinue(null);
   }, [w, savePicks, picks]);
 
-  const empty = picks !== null && picks.frames.length + picks.effects.length + picks.library.length + picks.classics.length === 0;
+  const empty = picks !== null && picks.frames.length + picks.effects.length + picks.library.length + picks.classics.length + picks.paints.length === 0;
   useEffect(() => { w.setBlocked(empty ? 'Pick at least one look for guests.' : null); }, [empty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tapLook = (look: WizardLook) => {
@@ -276,16 +386,20 @@ export default function LooksStep() {
       const t: TryOn = s.kind === 'pick' ? s.tryOn : lastTryOn.current;
       if (look.category === 'frames') return { kind: 'pick', tryOn: { ...t, frame: wasOn ? (t.frame?.key === look.key ? null : t.frame) : look } };
       if (look.category === 'effects') return { kind: 'pick', tryOn: { ...t, effect: wasOn ? (t.effect?.key === look.key ? null : t.effect) : look } };
+      if (look.category === 'paint') return { kind: 'pick', tryOn: { ...t, paint: wasOn ? (t.paint?.key === look.key ? null : t.paint) : look } };
       const rest = t.props.filter((p) => p.key !== look.key);
       return { kind: 'pick', tryOn: { ...t, props: wasOn ? rest : [...rest, look].slice(-2) } };
     });
   };
 
-  const bulk = (cat: LookCategory, on: boolean) => {
-    if (!picks || !catalog) return;
+  /** "Add all" / "Clear" act on what the dropdown and pills leave showing. */
+  const bulk = (looks: readonly WizardLook[], on: boolean) => {
+    if (!picks) return;
     dirty.current = true;
-    setPicks(setCategory(picks, catalog[cat], on));
+    setPicks(setCategory(picks, looks, on));
   };
+  const switchTab = (c: LookCategory) => { setTab(c); setFilter(NO_LOOK_FILTER); };
+  const eventTag = occasionTag(ev.event_type);
 
   /* Filters */
   const linkedComposites = useMemo(
@@ -373,6 +487,7 @@ export default function LooksStep() {
     frameId: b.frame?.source === 'frame' ? b.frame.ref : null,
     effectId: b.effect?.ref ?? null,
     classics: b.props.filter((p) => p.source === 'classic').map((p) => p.ref),
+    paintId: b.paint?.ref ?? null,
     library: [b.frame, ...b.props].flatMap((l) => (l && l.source === 'library' && libRows.get(l.ref) ? [libRows.get(l.ref)!] : [])),
   });
 
@@ -407,69 +522,97 @@ export default function LooksStep() {
 
   if (!data || !catalog || !picks) {
     return (
-      <>
+      <section className="liquid-glass rounded-[28px] p-5 sm:p-6">
         <StepHeading step="looks" />
         <div className="h-64 grid place-items-center"><Loader2 className="h-6 w-6 animate-spin" aria-label="Loading the looks" /></div>
-      </>
+      </section>
     );
   }
 
-  const list = catalog[tab];
-  const pickedCount = countPicked(picks, list);
+  const all = catalog[tab];
+  const list = filterLooks(all, filter, picks);
+  const shownPicked = countPicked(picks, list);
+  const filtered = filter.tag !== null || filter.group !== null || filter.onlyPicked;
+  const noun = LOOK_CATEGORIES.find((c) => c.id === tab)?.noun ?? 'look';
   const ready = readyFilters();
 
   return (
     <>
-      <StepHeading step="looks" />
-      {loadFailed && (
-        <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px] flex flex-wrap items-center gap-3">
-          We couldn’t load the shared library, so only the built-in looks are showing.
-          <button type="button" onClick={() => void load()} className="underline underline-offset-2">Try again</button>
-        </p>
-      )}
-      <div className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.8fr)] gap-6 lg:gap-8 items-start">
+      <div className="grid lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.8fr)] gap-5 lg:gap-6 xl:gap-7 items-start">
         <div className="flex flex-col gap-5 min-w-0 order-2 lg:order-1">
           {/* Pick & choose */}
-          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter" aria-labelledby="wz-pick-title">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h2 id="wz-pick-title" className="wz-display text-[22px]">Pick & choose</h2>
-              <p className="text-[13.5px] text-white/70">Guests try these on one at a time. Tap to add or remove.</p>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <div className="wz-tabs" role="tablist" aria-label="Look type">
-                {LOOK_CATEGORIES.map((c) => (
-                  <button key={c.id} type="button" role="tab" aria-selected={tab === c.id} className="wz-tab" onClick={() => setTab(c.id)}>
-                    {c.label}
-                    <span className="wz-count">{countPicked(picks, catalog[c.id])}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="ml-auto flex items-center gap-1 text-[13.5px]">
-                <button type="button" onClick={() => bulk(tab, true)} className="rounded-full px-3 min-h-10 hover:bg-white/10 disabled:opacity-50" disabled={pickedCount === list.length}>Add all</button>
-                <button type="button" onClick={() => bulk(tab, false)} className="rounded-full px-3 min-h-10 hover:bg-white/10 disabled:opacity-50" disabled={pickedCount === 0}>Clear</button>
-              </div>
-            </div>
-            <div className="mt-4 flex flex-col gap-5">
-              {groupLooks(list).map((g) => (
-                <div key={g.group}>
-                  <p className="text-[13px] font-semibold text-white/80 mb-2">
-                    {g.group} <span className="font-normal text-white/50">· {countPicked(picks, g.looks)} of {g.looks.length}</span>
-                  </p>
-                  <div className="wz-shelf">
-                    {g.looks.map((l) => <LookTile key={l.key} look={l} on={isPicked(picks, l)} onTap={() => tapLook(l)} />)}
-                  </div>
-                </div>
+          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
+            <StepHeading step="looks" />
+            {loadFailed && (
+              <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14px] flex flex-wrap items-center gap-3">
+                We couldn’t load the shared library, so only the built-in looks are showing.
+                <button type="button" onClick={() => void load()} className="underline underline-offset-2">Try again</button>
+              </p>
+            )}
+            <div className="wz-tabs" role="tablist" aria-label="Look type">
+              {LOOK_CATEGORIES.map((c) => (
+                <button key={c.id} type="button" role="tab" aria-selected={tab === c.id} className="wz-tab" onClick={() => switchTab(c.id)}>
+                  {c.label}
+                  <span className="wz-count">{countPicked(picks, catalog[c.id])}</span>
+                </button>
               ))}
             </div>
+            <div className="mt-3">
+              <FilterBar key={tab} looks={all} picks={picks} filter={filter} onChange={setFilter} eventTag={eventTag} noun={noun} />
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-[12.5px] text-white/65">
+              <p className="min-w-0">
+                {tab === 'frames'
+                  ? 'Borders go round the edge of the photo. Overlays sit on top of it.'
+                  : tab === 'paint'
+                    ? 'Painted right onto the face, and it moves with it.'
+                    : tab === 'effects'
+                      ? 'A camera effect over the whole picture.'
+                      : 'Worn on the head and face, and they follow every move.'}
+              </p>
+              <div className="ml-auto flex items-center gap-0.5 shrink-0 text-[13px] text-white">
+                <button type="button" onClick={() => bulk(list, true)} className="rounded-full px-3 min-h-10 hover:bg-white/10 disabled:opacity-45" disabled={list.length === 0 || shownPicked === list.length}>
+                  {filtered ? 'Add these' : 'Add all'}
+                </button>
+                <button type="button" onClick={() => bulk(list, false)} className="rounded-full px-3 min-h-10 hover:bg-white/10 disabled:opacity-45" disabled={shownPicked === 0}>
+                  Clear
+                </button>
+              </div>
+            </div>
+            {list.length === 0 ? (
+              <div className="mt-4 rounded-[20px] bg-white/6 px-5 py-8 text-center">
+                <p className="text-[14.5px]">{filter.onlyPicked ? `No ${noun}s picked yet.` : `No ${noun}s match.`}</p>
+                <button type="button" onClick={() => setFilter(NO_LOOK_FILTER)} className="mt-2 text-[13.5px] underline underline-offset-2">Show all {noun}s</button>
+              </div>
+            ) : tab === 'frames' ? (
+              <div className="mt-4 flex flex-col gap-5">
+                {groupLooks(list).map((g) => (
+                  <Shelf key={g.group} rows={g.looks.length > 4 ? 2 : 1} label={g.group} meta={`${countPicked(picks, g.looks)} of ${g.looks.length} on`}>
+                    {g.looks.map((l) => <LookTile key={l.key} look={l} on={isPicked(picks, l)} onTap={() => tapLook(l)} />)}
+                  </Shelf>
+                ))}
+              </div>
+            ) : (
+              <div className="wz-scrollgrid mt-4" tabIndex={0} aria-label={`${LOOK_CATEGORIES.find((c) => c.id === tab)?.label} to pick from`}>
+                {groupLooks(list).map((g) => (
+                  <div key={g.group} className="wz-scrollgrid-group">
+                    <p className="wz-scrollgrid-head">
+                      {g.group} <span className="font-normal text-white/50">· {countPicked(picks, g.looks)} of {g.looks.length} on</span>
+                    </p>
+                    <div className="wz-grid">
+                      {g.looks.map((l) => <LookTile key={l.key} look={l} on={isPicked(picks, l)} onTap={() => tapLook(l)} />)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {note && <p role="status" className="mt-3 text-[13px] text-[#FFE1A8]">{note}</p>}
           </section>
 
           {/* Filters */}
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter" style={{ animationDelay: '60ms' }} aria-labelledby="wz-filters-title">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h2 id="wz-filters-title" className="wz-display text-[22px]">Filters</h2>
-              <p className="text-[13.5px] text-white/70">A whole look in one tap: frame, effect and props together.</p>
-            </div>
+            <h2 id="wz-filters-title" className="wz-display text-[20px] leading-tight">Filters</h2>
+            <p className="mt-0.5 text-[13.5px] text-white/70">A whole look in one tap. The first one is what the booth opens with.</p>
 
             {filters.length > 0 && (
               <div className="mt-4">
@@ -510,8 +653,8 @@ export default function LooksStep() {
             )}
 
             <div className="mt-5">
-              <p className="text-[13px] font-semibold text-white/80 mb-2">Ready-made</p>
-              <div className="wz-shelf">
+              <p className="text-[13px] font-semibold text-white/85 mb-2">Ready-made</p>
+              <div className="wz-strip-1">
                 {ready.map((s) => {
                   const on = data.eventRows.some((r) => wizardRefOf(r) === `starter:${s.id}`);
                   const busy = busyFilter === `starter:${s.id}`;
@@ -528,8 +671,8 @@ export default function LooksStep() {
 
             {libraryComposites.length > 0 && (
               <div className="mt-5">
-                <p className="text-[13px] font-semibold text-white/80 mb-2">From the library</p>
-                <div className="wz-shelf">
+                <p className="text-[13px] font-semibold text-white/85 mb-2">From the library</p>
+                <div className="wz-strip-1">
                   {libraryComposites.map((r) => {
                     const on = data.linkedIds.includes(r.id);
                     return (
@@ -562,6 +705,7 @@ export default function LooksStep() {
                   name: '',
                   frame: lastTryOn.current.frame,
                   effect: lastTryOn.current.effect,
+                  paint: lastTryOn.current.paint,
                   props: lastTryOn.current.props,
                 })}
                 className="mt-5 w-full rounded-[22px] border-2 border-dashed border-white/30 hover:border-white/70 transition px-5 py-5 flex items-center gap-3 text-left"
@@ -569,17 +713,17 @@ export default function LooksStep() {
                 <span className="grid place-items-center h-11 w-11 rounded-full bg-white text-[#1A1740] shrink-0"><Plus className="h-5 w-5" aria-hidden /></span>
                 <span>
                   <span className="block text-[15.5px] font-semibold">Make your own filter</span>
-                  <span className="block text-[13px] text-white/70">Starts from your last try-on. Add a frame, an effect and up to {CUSTOM_FILTER_MAX_PROPS} props.</span>
+                  <span className="block text-[13px] text-white/70">Combine a frame, 3D props, face paint and an effect into one tap. Starts from what’s on the preview.</span>
                 </span>
               </button>
             )}
           </section>
         </div>
 
-        <div className="order-1 lg:order-2 lg:sticky lg:top-[88px] wz-enter">
+        <div className="order-1 lg:order-2 lg:sticky lg:top-[76px] wz-enter">
           <LookStage draft={stageDraft} caption={caption} />
           <p className="mt-3 text-center text-[12.5px] text-white/65">
-            {countPicked(picks, [...catalog.frames, ...catalog.props, ...catalog.effects])} looks to pick from · {filters.length} {filters.length === 1 ? 'filter' : 'filters'}
+            {countPicked(picks, [...catalog.frames, ...catalog.props, ...catalog.paint, ...catalog.effects])} looks to pick from · {filters.length} {filters.length === 1 ? 'filter' : 'filters'}
           </p>
         </div>
       </div>
