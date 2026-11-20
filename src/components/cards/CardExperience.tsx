@@ -40,6 +40,11 @@ import { hasWebGL } from '../carousel/PhotoCarousel';
 
 type Phase = 'reveal' | 'handoff' | 'card';
 
+/** The reveal layer's fade-out, and when the card starts fading in — both
+ *  inside REVEAL_HANDOFF_MS, so the two never cross at full strength. */
+const REVEAL_FADE_MS = 300;
+const REVEAL_CARD_DELAY_MS = 220;
+
 export interface CardExperienceProps {
   card: CardViewData;
   contributions: CardViewContribution[];
@@ -185,6 +190,23 @@ export default function CardExperience({
 
   const showCard = phase !== 'reveal';
 
+  // Hand-off choreography: the reveal fades out FAST and the card fades in a
+  // beat later, so the reveal's title and the template's title (which sit at
+  // different heights) are never both legible at once.
+  const [cardIn, setCardIn] = useState(phase === 'card');
+  useEffect(() => {
+    if (phase === 'reveal') {
+      setCardIn(false);
+      return;
+    }
+    if (phase !== 'handoff') {
+      setCardIn(true);
+      return;
+    }
+    const t = window.setTimeout(() => setCardIn(true), REVEAL_CARD_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [phase]);
+
   return (
     <div
       className={`absolute inset-0 flex flex-col overflow-hidden ${look === 'beamwall' ? 'app-bg' : ''}`}
@@ -199,9 +221,10 @@ export default function CardExperience({
               and is seeded per card so the sky is the same every visit. */}
           <CardField seed={`${card.title}|${card.publishedAt ?? ''}`} reducedMotion={reducedMotion} />
           <main
-            className={`relative mx-auto flex min-h-0 w-full flex-1 flex-col pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] ${
+            className={`relative mx-auto flex min-h-0 w-full flex-1 flex-col pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] transition-opacity ease-out ${
               fullBleed ? 'max-w-none px-3 sm:px-6' : 'max-w-2xl px-4'
             }`}
+            style={{ opacity: cardIn ? 1 : 0, transitionDuration: `${REVEAL_HANDOFF_MS - REVEAL_CARD_DELAY_MS}ms` }}
           >
             {card.filmUrl && <KeepsakeFilm url={card.filmUrl} reducedMotion={reducedMotion} />}
             <Template
@@ -234,7 +257,7 @@ export default function CardExperience({
           className="absolute inset-0 z-20 transition-opacity ease-out"
           style={{
             opacity: phase === 'handoff' ? 0 : 1,
-            transitionDuration: `${REVEAL_HANDOFF_MS}ms`,
+            transitionDuration: `${REVEAL_FADE_MS}ms`,
             pointerEvents: phase === 'handoff' ? 'none' : undefined,
           }}
         >
