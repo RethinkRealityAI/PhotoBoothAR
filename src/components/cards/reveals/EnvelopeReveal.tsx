@@ -416,11 +416,18 @@ export default function EnvelopeReveal({ card, palette, look, reducedMotion, onD
   };
   const facet: Record<Flap, string> = { top: paper.top, bottom: paper.bottom, left: paper.side, right: paper.side };
   const lift: Record<Flap, string | undefined> = {
-    top: `drop-shadow(0 ${Math.round(sealR * 0.08)}px ${Math.round(sealR * 0.16)}px rgba(${paper.shadowRgb}, 0.55))`,
-    bottom: `drop-shadow(0 -2px 5px rgba(${paper.shadowRgb}, 0.4))`,
+    // A crisp contact shadow (the sheet's thickness) plus a soft cast one.
+    top: `drop-shadow(0 1.5px 0.5px rgba(${paper.shadowRgb}, 0.55)) drop-shadow(0 ${Math.round(sealR * 0.12)}px ${Math.round(sealR * 0.22)}px rgba(${paper.shadowRgb}, 0.5))`,
+    bottom: `drop-shadow(0 -1.5px 0.5px rgba(${paper.shadowRgb}, 0.45)) drop-shadow(0 -4px 9px rgba(${paper.shadowRgb}, 0.38))`,
     left: undefined,
     right: undefined,
   };
+  // The cut edge of a heavy sheet: a pale bevel along each folded flap's free edges.
+  const edgePts: Partial<Record<Flap, string>> = {
+    top: `0,0 ${meet.x},${meet.y} ${stage.w},0`,
+    bottom: `0,${stage.h} ${meet.x},${meet.y} ${stage.w},${stage.h}`,
+  };
+  const edgeTint = mixHex(paper.top, '#ffffff', 0.55);
 
   const stageStyle: CSSProperties = {
     left: stage.x,
@@ -497,6 +504,12 @@ export default function EnvelopeReveal({ card, palette, look, reducedMotion, onD
                   backgroundRepeat: 'no-repeat',
                 }}
               />
+              {edgePts[f] !== undefined && (
+                <svg className="pointer-events-none absolute inset-0" width={stage.w} height={stage.h} aria-hidden>
+                  <polyline points={edgePts[f]} fill="none" stroke={edgeTint} strokeOpacity={0.75} strokeWidth={2.2} strokeLinejoin="round" />
+                  <polyline points={edgePts[f]} fill="none" stroke="#ffffff" strokeOpacity={0.7} strokeWidth={0.8} strokeLinejoin="round" />
+                </svg>
+              )}
             </div>
           ))}
 

@@ -386,7 +386,17 @@ export function envelopeArtSvg(o: Ornament, w: number, h: number, shadowRgb: str
     '<defs>' +
     '<filter id="g" x="0" y="0" width="100%" height="100%">' +
     '<feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="7" stitchTiles="stitch"/>' +
-    '<feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.075 0"/>' +
+    '<feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.1 0"/>' +
+    '</filter>' +
+    // Cotton-rag fibres: stretched noise, dark, so the sheet has a tooth.
+    '<filter id="f" x="0" y="0" width="100%" height="100%">' +
+    '<feTurbulence type="fractalNoise" baseFrequency="0.11 0.24" numOctaves="3" seed="3" stitchTiles="stitch"/>' +
+    `<feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.1 0 0 0 -0.52"/>` +
+    '</filter>' +
+    // Slow mottling, the way heavy paper takes light unevenly.
+    '<filter id="m" x="0" y="0" width="100%" height="100%">' +
+    '<feTurbulence type="fractalNoise" baseFrequency="0.006" numOctaves="2" seed="11"/>' +
+    '<feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.9 0 0 0 -0.38"/>' +
     '</filter>' +
     '<filter id="e" x="-1%" y="-1%" width="102%" height="102%">' +
     '<feGaussianBlur in="SourceAlpha" stdDeviation="0.75" result="b"/>' +
@@ -404,6 +414,8 @@ export function envelopeArtSvg(o: Ornament, w: number, h: number, shadowRgb: str
     '<feMerge><feMergeNode in="sh"/><feMergeNode in="hi"/><feMergeNode in="body"/><feMergeNode in="si"/></feMerge>' +
     '</filter>' +
     '</defs>' +
+    '<rect width="100%" height="100%" filter="url(#m)"/>' +
+    '<rect width="100%" height="100%" filter="url(#f)" opacity="0.32"/>' +
     '<rect width="100%" height="100%" filter="url(#g)"/>' +
     '<g filter="url(#e)">' +
     `<path d="${o.strokes}" fill="none" stroke="#fff" stroke-width="${r1(o.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>` +
