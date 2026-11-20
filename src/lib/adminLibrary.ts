@@ -10,6 +10,8 @@
 import { adminApi, type AdminResult } from './admin';
 import type { LibraryState, LibraryTags, StateChangeTarget } from './libraryPublish';
 import type { ExperienceKind } from '../types';
+import type { Classification, ImportMeta } from './libraryImport';
+import type { LibraryCategory } from './libraryTaxonomy';
 
 export interface LibraryItemRow {
   id: string;
@@ -25,7 +27,21 @@ export interface LibraryItemRow {
   publishedAt: string;
   sortOrder: number;
   linkCount: number;
+  /** Migration 045. Absent from an admin-api older than the CMS -> treated as none. */
+  categoryId?: string | null;
+  keywords?: string[];
+  /** config.library.collection, e.g. 'christmas'. */
+  collection?: string | null;
+  createdAt?: string;
+  /** A .glb the viewer can open (a prop's own, or a scene's first 3D layer). */
+  modelUrl?: string | null;
+  /** Migration 048: every host, or only the chosen customers. Absent = everyone. */
+  access?: LibraryAccess;
+  accessOrgs?: AccessOrg[];
 }
+
+export type LibraryAccess = 'everyone' | 'orgs';
+export interface AccessOrg { id: string; name: string }
 
 export interface LibraryList {
   items: LibraryItemRow[];
@@ -52,6 +68,11 @@ export function publishLibraryItem(args: {
   name: string;
   tags: LibraryTags;
   listed?: boolean;
+  /** Omitted = the previous version's shelf (or none). null = uncategorised. */
+  categoryId?: string | null;
+  keywords?: string[];
+  /** A picture staged under _platform/library/_pictures/ for a piece that has none. */
+  thumbnailUrl?: string;
 }): Promise<AdminResult<PublishResult>> {
   return adminApi<PublishResult>('publish_library_item', { ...args });
 }
@@ -72,6 +93,193 @@ export function setLibraryItemState(
   return adminApi('set_library_item_state', { id, state });
 }
 
+/* ── Library workshop: edit in the full Studio (migration 046) ─────────── */
+
+/** The admin's private workshop event (created on first use). */
+export function ensureLibraryWorkshop(): Promise<AdminResult<{ eventUuid: string; slug: string }>> {
+  return adminApi('ensure_library_workshop');
+}
+
+/** Copy a library item into the workshop as an editable scene (or reopen the
+ *  admin's earlier copy). Open it at /host/events/<eventUuid>/studio?id=<sceneId>. */
+export function openLibraryItemInWorkshop(
+  itemId: string,
+): Promise<AdminResult<{ eventUuid: string; sceneId: string; reused: boolean }>> {
+  return adminApi('open_library_item_in_workshop', { itemId });
+}
+
+/** The newest published version in a scene's version chain. */
+export interface WorkshopLineage {
+  itemId: string;
+  name: string;
+  tags: LibraryTags;
+  version: number;
+  nextVersion: number;
+  categoryId: string | null;
+  keywords: string[];
+  listed: boolean;
+  state: LibraryState;
+}
+
+/** null lineage = publishing this scene makes a brand-new library item. */
+export function fetchWorkshopLineage(experienceId: string): Promise<AdminResult<{ lineage: WorkshopLineage | null }>> {
+  return adminApi('get_workshop_lineage', { experienceId });
+}
+
+/** Where the Studio opens a workshop scene (or a blank one when no scene). */
+export function workshopStudioPath(eventUuid: string, sceneId?: string): string {
+  const base = `/host/events/${encodeURIComponent(eventUuid)}/studio`;
+  return sceneId !== undefined && sceneId !== '' ? `${base}?id=${encodeURIComponent(sceneId)}` : base;
+}
+
+/* ── Bulk 3D import drafts (/admin/library/import) ─────────────────────── */
+
+export interface LibraryDraftRow {
+  id: string;
+  name: string;
+  assetUrl: string;
+  thumbnailUrl: string | null;
+  config: Record<string, unknown>;
+  tags: LibraryTags;
+  importMeta: ImportMeta;
+  createdAt: string;
+  categoryId?: string | null;
+  keywords?: string[];
+}
+
+export function fetchLibraryDrafts(): Promise<AdminResult<{ drafts: LibraryDraftRow[]; total: number }>> {
+  return adminApi('list_library_drafts');
+}
+
+export interface DraftCreateItem {
+  id: string;
+  name: string;
+  assetUrl: string;
+  thumbnailUrl: string;
+  config: Record<string, unknown>;
+  tags: LibraryTags;
+  importMeta: ImportMeta;
+}
+
+type BatchFailure = { id: string; error: string };
+
+export function createLibraryDrafts(items: DraftCreateItem[]): Promise<AdminResult<{ created: string[]; failed: BatchFailure[] }>> {
+  return adminApi('create_library_drafts', { items });
+}
+
+export function updateLibraryDraft(args: {
+  id: string;
+  name?: string;
+  tags?: LibraryTags;
+  config?: Record<string, unknown>;
+  importMeta?: ImportMeta;
+  /** Point the draft at another model in its own folder (the optimizer's
+   *  "Use optimized"); `config` must then name the same URL. */
+  assetUrl?: string;
+}): Promise<AdminResult<{ id: string }>> {
+  return adminApi('update_library_draft', { ...args });
+}
+
+export type ClassifyResult =
+  | { id: string; ok: true; classification: Classification; error?: undefined }
+  | { id: string; ok: false; error: string; classification?: undefined };
+
+export function classifyLibraryDrafts(ids: string[]): Promise<AdminResult<{ results: ClassifyResult[] }>> {
+  return adminApi('classify_library_drafts', { ids });
+}
+
+export function publishLibraryDrafts(ids: string[]): Promise<AdminResult<{ published: string[]; failed: BatchFailure[] }>> {
+  return adminApi('publish_library_drafts', { ids });
+}
+
+export function discardLibraryDrafts(ids: string[]): Promise<AdminResult<{ discarded: string[]; filesFailed: string[] }>> {
+  return adminApi('discard_library_drafts', { ids });
+}
+
+export interface ReplaceModelResult {
+  /** in_place: the same item now has the new file. new_version: events kept
+   *  the old version and `id` is the new one. */
+  path: 'in_place' | 'new_version';
+  id: string;
+  version: number;
+  linkCount: number;
+  retired: string[];
+  retireFailed: string[];
+  accessCopyFailed: boolean;
+  /** false = the draft (and its upload) is still in Bulk import. */
+  draftRemoved: boolean;
+}
+
+/** Give a published library prop the model of an import draft (the draft is used up). */
+export function replaceLibraryItemModel(targetId: string, draftId: string): Promise<AdminResult<ReplaceModelResult>> {
+  return adminApi('replace_library_item_model', { targetId, draftId });
+}
+
+/* ── Taxonomy: categories + keywords (migration 045) ──────────────────── */
+
+export function fetchLibraryCategories(): Promise<AdminResult<{ categories: LibraryCategory[] }>> {
+  return adminApi('list_library_categories');
+}
+
+export function saveLibraryCategory(args: {
+  id?: string;
+  name: string;
+  description?: string;
+  parentId?: string | null;
+  sortOrder?: number;
+}): Promise<AdminResult<{ category: LibraryCategory }>> {
+  return adminApi('save_library_category', { ...args });
+}
+
+export function deleteLibraryCategory(id: string): Promise<AdminResult<{ id: string; movedTo: string | null; moved: number }>> {
+  return adminApi('delete_library_category', { id });
+}
+
+export interface BulkLibraryEdit {
+  /** Omitted = keep; null = uncategorised. */
+  categoryId?: string | null;
+  addKeywords?: string[];
+  removeKeywords?: string[];
+  addTags?: Partial<LibraryTags>;
+  removeTags?: Partial<LibraryTags>;
+}
+
+/**
+ * Who may use these library items: every host, or only the chosen customers
+ * (replaces the list). The database enforces it for hosts and guests.
+ */
+export function setLibraryAccess(
+  ids: string[], access: LibraryAccess, orgIds: string[],
+): Promise<AdminResult<{ updated: number; notFound: number }>> {
+  return adminApi('set_library_access', { ids, access, orgIds: access === 'orgs' ? orgIds : [] });
+}
+
+export function bulkUpdateLibraryItems(
+  ids: string[], edit: BulkLibraryEdit,
+): Promise<AdminResult<{ updated: string[]; failed: BatchFailure[] }>> {
+  return adminApi('bulk_update_library_items', { ids, ...edit });
+}
+
+export interface EventModelRow {
+  id: string;
+  name: string;
+  kind: ExperienceKind;
+  assetUrl: string | null;
+  thumbnailUrl: string | null;
+  /** Only `layers[{kind, asset_url}]` — enough for the picture fallback. */
+  config: { layers: Array<{ kind: string; asset_url: string | null }> };
+  prompt: string | null;
+  eventSlug: string;
+  eventName: string;
+  eventArchived: boolean;
+  createdAt: string;
+  inLibrary: boolean;
+}
+
+export function fetchEventModels(): Promise<AdminResult<{ models: EventModelRow[]; total: number }>> {
+  return adminApi('list_event_models');
+}
+
 /** Operator-facing copy for the codes these actions return. */
 export function libraryErrorText(code: string): string {
   switch (code) {
@@ -85,6 +293,30 @@ export function libraryErrorText(code: string): string {
     case 'same_state': return 'It is already in that state.';
     case 'has_links': return 'Events still use it, so it cannot be deleted. Retire or withdraw it instead.';
     case 'unlist_first': return 'Retire or withdraw it before deleting.';
+    case 'unknown_action': return 'The server does not have this yet — the admin-api update still needs deploying.';
+    case 'is_draft': return 'That item is still a draft. Publish or discard it from Bulk import.';
+    case 'invalid_asset': return 'The uploaded file is not where the import expected it. Try importing it again.';
+    case 'invalid_config': return 'The model’s placement data was rejected. Try importing it again.';
+    case 'already_exists': return 'It was already imported.';
+    case 'insert_failed': case 'update_failed': return 'The database refused the change. Try again.';
+    case 'thumbnail_unreadable': return 'Its thumbnail could not be read, so the AI could not look at it.';
+    case 'ai_not_configured': return 'AI labelling is not set up (no Gemini key on the server). Label these by hand.';
+    case 'ai_key_invalid': return 'The Gemini key was rejected. Label these by hand, or fix the key.';
+    case 'ai_quota': return 'The AI is rate-limited right now. Wait a minute and try again.';
+    case 'ai_unavailable': return 'The AI did not answer for this one. Try again, or label it by hand.';
+    case 'invalid_category': return 'That category no longer exists. Refresh and pick another.';
+    case 'invalid_keywords': return 'Tags are letters and numbers, up to 32 characters each and 24 per item.';
+    case 'orgs_required': return 'Choose at least one customer, or let every host use it.';
+    case 'unknown_org': return 'One of those customers no longer exists. Reload and choose again.';
+    case 'invalid_thumbnail': return 'The picture was not uploaded where the library expected it. Try again.';
+    case 'category_too_deep': return 'Categories go two levels deep: a subcategory cannot have its own subcategories.';
+    case 'category_has_children': return 'It has subcategories. Move or delete those first.';
+    case 'slug_taken': return 'A category with that name already exists.';
+    case 'slug_immutable': return 'A category’s web name cannot change after it is made.';
+    case 'too_many_categories': return 'That is the most categories the library holds (300).';
+    case 'event_cap': return 'Your organisation is at its event limit, so the workshop could not be made. Archive an old event and try again.';
+    case 'not_replaceable': return 'Only a 3D prop that is in the library (not withdrawn) can have its file replaced.';
+    case 'changed': return 'Its file changed while you were working. Refresh and try again.';
     case 'forbidden': return 'This account is not a platform admin.';
     case 'unauthorized': return 'Your session has expired. Sign in again.';
     // A dropped connection says nothing about whether the server finished, so

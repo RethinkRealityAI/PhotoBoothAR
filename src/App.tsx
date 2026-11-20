@@ -76,6 +76,7 @@ const AdminFeatures = lazy(() => import('./pages/admin/Features'));
 const AdminLanding = lazy(() => import('./pages/admin/Landing'));
 const AdminCatalog = lazy(() => import('./pages/admin/Catalog'));
 const AdminSharedLibrary = lazy(() => import('./pages/admin/SharedLibrary'));
+const AdminLibraryImport = lazy(() => import('./pages/admin/LibraryImport'));
 const AdminPayments = lazy(() => import('./pages/admin/Payments'));
 const AdminCredits = lazy(() => import('./pages/admin/Credits'));
 const AdminUsers = lazy(() => import('./pages/admin/Users'));
@@ -331,6 +332,7 @@ export default function App() {
                 <Route path="landing" element={<AdminLanding />} />
                 <Route path="catalog" element={<AdminCatalog />} />
                 <Route path="library" element={<AdminSharedLibrary />} />
+                <Route path="library/import" element={<AdminLibraryImport />} />
                 <Route path="payments" element={<AdminPayments />} />
                 <Route path="credits" element={<AdminCredits />} />
                 <Route path="users" element={<AdminUsers />} />
