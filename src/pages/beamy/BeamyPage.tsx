@@ -62,7 +62,7 @@ import {
   storySwipeLeaves, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
-import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, type BeamyLook } from '../../lib/beamyLooks';
+import { LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, type BeamyLook } from '../../lib/beamyLooks';
 import { preloadModel } from '../../lib/glbCache';
 import { ambientFor } from '../../lib/ambientFx';
 import AmbientFx from '../../components/beamy/AmbientFx';
@@ -72,9 +72,10 @@ import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker, { ArTabs } from './ArPicker';
 import {
-  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arPropScale, arStage, arTour, frameOnBeamy, demoQrUrl, standInFrame, lookAction, selectedLooks, toBeamyLook, wearStop,
+  DEFAULT_OPENING, arOrder, arPropScale, arStage, arTour, frameOnBeamy, demoQrUrl, standInFrame, lookAction, selectedLooks, toBeamyLook, wearStop,
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
+import { useBeamyAssets } from './useBeamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
 import type { ArFxKind } from '../../lib/arFx';
 
@@ -264,13 +265,6 @@ function useStoryPager(
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
 const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, Users, Briefcase, Gift };
-/* Asset slots come from lib/beamyAssets (HOME_ASSET_DEFAULTS); an undefined
-   media field there means the bundled file imported here. */
-const A = HOME_ASSET_DEFAULTS;
-/** The live walls' photos: an override needs more than one wall's worth. */
-const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
-/** The AR step's picker, in category order. */
-const AR_LOOKS = arOrder(A.arLooks);
 /** How long each step of the AR auto tour holds (the tour stops for good at the first tap). */
 const AR_HOLD_MS = 3200;
 const AR_HOLD_REDUCED_MS = 5200;
@@ -388,6 +382,20 @@ export default function BeamyPage() {
   const phone = vp.w < PHONE_MAX;
   const wideHero = vp.w >= WIDE_HERO_MIN;
   const reduced = useReducedMotion();
+
+  /* Asset slots: lib/beamyAssets HOME_ASSET_DEFAULTS first (an undefined
+     media field there means the bundled file imported here), then the
+     owner's published overrides (/admin/home-assets) once they load. */
+  const A = useBeamyAssets();
+  /** The live walls' photos: an override needs more than one wall's worth. */
+  const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
+  /** The AR step's picker, in category order. */
+  const AR_LOOKS = useMemo(() => arOrder(A.arLooks), [A.arLooks]);
+  /** The hero's try-on tour (the first is what he lands in and takes his selfie wearing). */
+  const BEAMY_LOOKS = useMemo(() => A.heroLooks.map((l) => toBeamyLook(l)), [A.heroLooks]);
+  /** The same, for callbacks that outlive a render (the intro, the bubble's line). */
+  const looksRef = useRef(BEAMY_LOOKS);
+  looksRef.current = BEAMY_LOOKS;
 
   const [active, setActive] = useState<StopId>('hero');
   const [step, setStep] = useState(0);
@@ -589,7 +597,7 @@ export default function BeamyPage() {
 
   const lineFor = useCallback((id: StopId, a: Audience): string => {
     switch (id) {
-      case 'hero': return BEAMY_LOOKS[lookIxRef.current]?.line ?? HELLO;
+      case 'hero': return looksRef.current[lookIxRef.current]?.line ?? HELLO;
       case 'story': return STORY_COPY.heading;
       case 'pick': return GREETING;
       case 'try': return a.lines.snap;
@@ -1124,7 +1132,7 @@ export default function BeamyPage() {
       say(HELLO);
       // Christmas first: the Holiday cover goes up around him and the antlers
       // pop on, then he takes the selfie in them (that photo goes to the wall).
-      const first = BEAMY_LOOKS[0];
+      const first = looksRef.current[0];
       if (first !== undefined && first.kind !== 'none') {
         heroFrame.current = first.kind === 'frame' ? first : null;
         lastWorn.current = 0;
@@ -1180,7 +1188,7 @@ export default function BeamyPage() {
     heroFrame.current = look.kind === 'frame' ? look : null;
     let live = true;
     let hold = 0;
-    const advance = () => { if (live) setLookIx((k) => nextLook(k)); };
+    const advance = () => { if (live) setLookIx((k) => nextLook(k, BEAMY_LOOKS.length)); };
     // The hold starts once he is actually wearing it (a slow prop is never
     // skipped); a load that never settles still moves on.
     const stuck = window.setTimeout(advance, 15000);
@@ -1192,11 +1200,11 @@ export default function BeamyPage() {
       hold = window.setTimeout(advance, reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
     });
     // Warm the next look so the swap is instant.
-    const nx = preloadUrl(lookIx);
+    const nx = preloadUrl(lookIx, BEAMY_LOOKS);
     if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = nx; } }
     return () => { live = false; window.clearTimeout(stuck); window.clearTimeout(hold); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
-  }, [tryOn, lookIx, reduced, introRunning, active]);
+  }, [tryOn, lookIx, reduced, introRunning, active, BEAMY_LOOKS]);
 
   /* ── The story's AR step: the picker drives what he wears, ONE look per
      category, combined (lib/beamyAssets wearStop): the prop on his head,
@@ -1229,7 +1237,18 @@ export default function BeamyPage() {
       setArTab(t.tab);
     }, reduced ? AR_HOLD_REDUCED_MS : AR_HOLD_MS);
     return () => window.clearInterval(id);
-  }, [arOn, arTouched, reduced]);
+  }, [arOn, arTouched, reduced, AR_LOOKS]);
+  // The owner's AR looks arrived after first paint: the untouched tour restarts on them.
+  const arLooksSeen = useRef(AR_LOOKS);
+  useEffect(() => {
+    if (arLooksSeen.current === AR_LOOKS) return;
+    arLooksSeen.current = AR_LOOKS;
+    if (arTouched) return;
+    const t = arTour(arK.current, AR_LOOKS);
+    setArSel(t.sel);
+    setArTab(t.tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new list restarts it
+  }, [AR_LOOKS]);
   /** The prop the AR step has on him (null = none); undefined = the step is not dressing him. */
   const arWorn = useRef<string | null | undefined>(undefined);
   useEffect(() => {
@@ -1258,7 +1277,7 @@ export default function BeamyPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- arTouched only gates the warm-up
-  }, [arOn, arSel]);
+  }, [arOn, arSel, AR_LOOKS]);
   // Effects: the sparkle burst repeats on the stage while it is on; every
   // other effect is drawn round him by ArFx (lib/arFx), and he never moves for one.
   const arFx = arSel.effect;
@@ -1941,6 +1960,7 @@ export default function BeamyPage() {
           hitRef={hitRef}
           decorRef={decorRef}
           frameRef={stageFrame}
+          sceneProps={A.sceneProps}
           startHidden
           reducedMotion={reduced}
           onReady={() => { logStep('model:ready'); setReady(true); }}

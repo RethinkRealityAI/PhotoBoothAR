@@ -13,7 +13,8 @@
  * import this one aliased (e.g. `PlatformLandingContent`).
  *
  * PURITY IS LOAD-BEARING: this module imports nothing but the import-free
- * ./beta flag (no React, no supabase, no bundled assets), so its colocated
+ * ./beta flag and the pure ./homeAssets (no React, no supabase, no bundled
+ * assets), so its colocated
  * test runs in vitest's node env without
  * env vars or Vite asset transforms. The I/O half is landingContentClient.ts;
  * media defaults are expressed as `undefined` = "use the bundled import",
@@ -26,6 +27,7 @@
  * because of a bad CMS row.
  */
 import { BETA_FREE } from './beta';
+import { EMPTY_HOME_OVERRIDES, normalizeHomeAssets, type HomeOverrides } from './homeAssets';
 
 /* ── Types ──────────────────────────────────────────────────────────── */
 
@@ -120,6 +122,10 @@ export interface LandingContent {
   faqs: LandingFaqContent[];
   closing: LandingClosingContent;
   footerTagline: string;
+  /** The HOMEPAGE ("/", BeamyPage) asset overrides, edited at /admin/home-assets
+   *  (lib/homeAssets). Rides this blob so it shares the draft → publish flow and
+   *  the anonymous read; empty = every slot uses the page's bundled asset. */
+  home: HomeOverrides;
 }
 
 /* ── Bundled defaults (the strings shipped in Landing.tsx today) ────── */
@@ -267,6 +273,7 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
     cta: 'Create your free event',
   },
   footerTagline: 'Your event photo booth — on every guest’s phone.',
+  home: EMPTY_HOME_OVERRIDES,
 };
 
 /* ── Media URL gate ─────────────────────────────────────────────────── */
@@ -472,5 +479,6 @@ export function normalizeLandingContent(raw: unknown): LandingContent {
     faqs: normalizeFaqs(r.faqs),
     closing: normalizeClosing(r.closing),
     footerTagline: str(r.footerTagline, DEFAULT_LANDING_CONTENT.footerTagline, TITLE_MAX),
+    home: normalizeHomeAssets(r.home),
   };
 }
