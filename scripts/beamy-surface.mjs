@@ -50,3 +50,15 @@ export async function beamyFrontSurface(root, r = 0.02) {
     return best;
   };
 }
+
+/**
+ * His body's rest-pose vertices (model space, metres, flat xyz), for bakes
+ * that wrap ALL the way round him (scripts/bake-beamy-necklace.mjs).
+ */
+export async function beamyBodyVertices(root) {
+  const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
+  const doc = await io.read(join(root, 'public', 'mascot', 'beamy.glb'));
+  const node = doc.getRoot().listNodes().find((n) => n.getName() === 'Beamy');
+  if (node === undefined || node.getMesh() === null) throw new Error('beamy.glb: no "Beamy" body mesh');
+  return node.getMesh().listPrimitives()[0].getAttribute('POSITION').getArray();
+}
