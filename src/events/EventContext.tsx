@@ -10,6 +10,7 @@
  * to the event, and keeps admin branding overrides live-synced — everything
  * that used to be hard-wired to the build-time active event.
  */
+import { isWallPreviewFrame } from '../lib/wallPreview';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { EventConfig } from './types';
@@ -410,7 +411,7 @@ export default function EventProvider({ slug: slugProp, basePath, previewBanner 
       {/* A member looking at an event guests cannot reach yet (or any more).
           Without this a host testing a draft sees a working booth and can
           reasonably conclude their guests do too. */}
-      {access === 'preview' && previewBanner && (
+      {access === 'preview' && previewBanner && !isWallPreviewFrame() && (
         <div
           role="status"
           className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-3 pt-safe-top [--safe-top:0.5rem]"

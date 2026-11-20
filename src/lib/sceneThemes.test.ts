@@ -22,6 +22,10 @@ import {
   describeWallLook,
   sameWallArrangement,
   wallLookEquals,
+  WALL_STYLES,
+  applyWallStyle,
+  matchingWallStyle,
+  wallGlowColor,
 } from './sceneThemes';
 
 const SUPA = 'https://zrtftliozslrjomxbfrr.supabase.co/storage/v1/object/public/assets/ev/uploads/a.png';
@@ -139,9 +143,9 @@ describe('normalizeWallLook', () => {
   });
   it('accepts valid values and rejects junk field by field', () => {
     const l = normalizeWallLook({ layout: 'grid', gridSize: 5, transition: 'zoom', tone: 'light', backdrop: { kind: 'gradient', paletteId: 'mist' } });
-    expect(l).toEqual({ layout: 'grid', gridSize: 5, transition: 'zoom', tone: 'light', backdrop: { kind: 'gradient', paletteId: 'mist' } });
+    expect(l).toEqual({ layout: 'grid', gridSize: 5, transition: 'zoom', tone: 'light', backdrop: { kind: 'gradient', paletteId: 'mist' }, card: 'classic', glow: 'none', corners: 'soft', beam: 'beam', ambient: 'glow', captions: true });
     const j = normalizeWallLook({ layout: 'spiral', gridSize: 7, transition: 'warp', tone: 'sepia', backdrop: { kind: 'image', url: 'javascript:x' } }, true);
-    expect(j).toEqual({ layout: 'marquee', gridSize: 4, transition: 'flip', tone: 'auto', backdrop: { kind: 'event' } });
+    expect(j).toEqual({ layout: 'marquee', gridSize: 4, transition: 'flip', tone: 'auto', backdrop: { kind: 'event' }, card: 'classic', glow: 'none', corners: 'soft', beam: 'beam', ambient: 'glow', captions: true });
   });
 });
 
@@ -200,5 +204,50 @@ describe('image fit (setup wizard fit tool)', () => {
     expect(normalizeScene({ kind: 'image', url, dim: 0.3, fit: { x: 50, y: 50, zoom: 1 } })).not.toHaveProperty('fit');
     expect(normalizeScene({ kind: 'image', url, dim: 0.3, fit: 'centre' })).not.toHaveProperty('fit');
     expect(resolveScene(normalizeScene({ kind: 'image', url, dim: 0.3 })).imagePlacement).toBeUndefined();
+  });
+});
+
+describe('wall styling (2026-11-20)', () => {
+  it('a look saved before styling existed renders exactly as before', () => {
+    const l = normalizeWallLook({ layout: 'grid', gridSize: 4 });
+    expect(l).toMatchObject({ card: 'classic', glow: 'none', corners: 'soft', beam: 'beam', ambient: 'glow', captions: true });
+    expect(l.glowColor).toBeUndefined();
+  });
+  it('keeps valid styling and drops anything unknown', () => {
+    const ok = normalizeWallLook({ card: 'polaroid', glow: 'strong', glowColor: '#FFD27A', corners: 'round', beam: 'sparkle', ambient: 'still', captions: false });
+    expect(ok).toMatchObject({ card: 'polaroid', glow: 'strong', glowColor: '#FFD27A', corners: 'round', beam: 'sparkle', ambient: 'still', captions: false });
+    const bad = normalizeWallLook({ card: 'velvet', glow: 9, glowColor: 'red', corners: 'blob', beam: 'laser', ambient: 'storm', captions: 'no' });
+    expect(bad).toMatchObject({ card: 'classic', glow: 'none', corners: 'soft', beam: 'beam', ambient: 'glow', captions: true });
+    expect(bad.glowColor).toBeUndefined();
+  });
+  it('equality sees every styling field', () => {
+    const a = normalizeWallLook({ card: 'glass' });
+    expect(wallLookEquals(a, normalizeWallLook({ card: 'glass' }))).toBe(true);
+    expect(wallLookEquals(a, normalizeWallLook({ card: 'glass', beam: 'reveal' }))).toBe(false);
+    expect(wallLookEquals(a, normalizeWallLook({ card: 'glass', glowColor: '#FFFFFF' }))).toBe(false);
+    expect(wallLookEquals(normalizeWallLook({ glowColor: '#ffffff' }), normalizeWallLook({ glowColor: '#FFFFFF' }))).toBe(true);
+  });
+  it('a style keeps the layout and captions, and is recognised afterwards', () => {
+    const start = normalizeWallLook({ layout: 'grid', gridSize: 5, captions: false, glowColor: '#FF9EC4' });
+    for (const style of WALL_STYLES) {
+      const next = applyWallStyle(start, style);
+      expect(next.layout).toBe('grid');
+      expect(next.gridSize).toBe(5);
+      expect(next.captions).toBe(false);
+      expect(next.glowColor).toBe(style.look.glowColor);
+      expect(matchingWallStyle(next)?.id).toBe(style.id);
+      // Every style survives a save/load round trip.
+      expect(wallLookEquals(normalizeWallLook(JSON.parse(JSON.stringify(next))), next)).toBe(true);
+    }
+    expect(matchingWallStyle(normalizeWallLook(undefined))).toBeUndefined();
+    expect(new Set(WALL_STYLES.map((s) => s.id)).size).toBe(WALL_STYLES.length);
+  });
+  it('glow colour falls back to the accent', () => {
+    expect(wallGlowColor(normalizeWallLook({}), '#7FE3D8')).toBe('#7FE3D8');
+    expect(wallGlowColor(normalizeWallLook({ glowColor: '#FFD27A' }), '#7FE3D8')).toBe('#FFD27A');
+    expect(wallGlowColor(normalizeWallLook({}), 'nope')).toBe('#D4D6FF');
+  });
+  it('describe names a non-classic card', () => {
+    expect(describeWallLook(normalizeWallLook({ card: 'polaroid' }))).toBe('Gallery · Event theme · Auto · Polaroid');
   });
 });

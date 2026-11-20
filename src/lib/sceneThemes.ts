@@ -356,6 +356,26 @@ export type WallBackdrop =
   | { kind: 'color'; color: string }
   | { kind: 'image'; url: string; dim: number };
 
+/** How each photo card is dressed. 'classic' = the wall as it always was
+ *  (no styling attribute is rendered at all, so old walls are unchanged). */
+export type WallCardStyle = 'classic' | 'glass' | 'clean' | 'polaroid' | 'neon';
+export const WALL_CARD_STYLES: readonly WallCardStyle[] = ['classic', 'glass', 'clean', 'polaroid', 'neon'];
+
+/** A halo of light around every card. */
+export type WallGlow = 'none' | 'soft' | 'strong';
+export const WALL_GLOWS: readonly WallGlow[] = ['none', 'soft', 'strong'];
+
+export type WallCorners = 'soft' | 'round' | 'square';
+export const WALL_CORNERS: readonly WallCorners[] = ['soft', 'round', 'square'];
+
+/** How a new photo arrives on the wall. */
+export type WallBeamStyle = 'beam' | 'sparkle' | 'reveal';
+export const WALL_BEAM_STYLES: readonly WallBeamStyle[] = ['beam', 'sparkle', 'reveal'];
+
+/** What the background does between arrivals. */
+export type WallAmbient = 'glow' | 'sparkle' | 'still';
+export const WALL_AMBIENTS: readonly WallAmbient[] = ['glow', 'sparkle', 'still'];
+
 export interface WallLook {
   layout: WallLayout;
   gridSize: WallGridSize;
@@ -363,6 +383,16 @@ export interface WallLook {
   backdrop: WallBackdrop;
   /** 'auto' = whatever the backdrop implies. */
   tone: 'auto' | SceneTone;
+  /* ── Styling (2026-11-20). Every default below is today's wall. ── */
+  card: WallCardStyle;
+  glow: WallGlow;
+  /** Glow and beam colour; absent = the wall's accent. */
+  glowColor?: string;
+  corners: WallCorners;
+  beam: WallBeamStyle;
+  ambient: WallAmbient;
+  /** Guest names over photos. */
+  captions: boolean;
 }
 
 export const DEFAULT_WALL_LOOK: WallLook = {
@@ -371,6 +401,12 @@ export const DEFAULT_WALL_LOOK: WallLook = {
   transition: 'flip',
   backdrop: { kind: 'event' },
   tone: 'auto',
+  card: 'classic',
+  glow: 'none',
+  corners: 'soft',
+  beam: 'beam',
+  ambient: 'glow',
+  captions: true,
 };
 
 function normalizeBackdrop(raw: unknown): WallBackdrop {
@@ -405,7 +441,18 @@ export function normalizeWallLook(raw: unknown, legacyGalleryScroll = false): Wa
       : base.transition,
     backdrop: normalizeBackdrop(raw.backdrop),
     tone: raw.tone === 'dark' || raw.tone === 'light' ? raw.tone : 'auto',
+    card: pick(WALL_CARD_STYLES, raw.card, base.card),
+    glow: pick(WALL_GLOWS, raw.glow, base.glow),
+    ...(isHex(raw.glowColor) ? { glowColor: (raw.glowColor as string).trim() } : {}),
+    corners: pick(WALL_CORNERS, raw.corners, base.corners),
+    beam: pick(WALL_BEAM_STYLES, raw.beam, base.beam),
+    ambient: pick(WALL_AMBIENTS, raw.ambient, base.ambient),
+    captions: raw.captions === false ? false : base.captions,
   };
+}
+
+function pick<T extends string>(allowed: readonly T[], v: unknown, fallback: T): T {
+  return allowed.includes(v as T) ? (v as T) : fallback;
 }
 
 /**
@@ -464,6 +511,7 @@ export function wallLookEquals(a: WallLook, b: WallLook): boolean {
   if (a.layout !== b.layout || a.gridSize !== b.gridSize || a.transition !== b.transition || a.tone !== b.tone) {
     return false;
   }
+  if (!sameWallStyling(a, b)) return false;
   const x = a.backdrop;
   const y = b.backdrop;
   if (x.kind === 'event' && y.kind === 'event') return true;
@@ -487,5 +535,145 @@ export function describeWallLook(look: WallLook): string {
         ? 'Solid colour'
         : 'Your image';
   const tone = look.tone === 'auto' ? 'Auto' : look.tone === 'dark' ? 'Dark' : 'Light';
-  return `${layout} · ${backdrop} · ${tone}`;
+  const card = look.card === 'classic' ? '' : ` · ${WALL_CARD_META[look.card].label}`;
+  return `${layout} · ${backdrop} · ${tone}${card}`;
+}
+
+
+/** Card, glow, corners, beam, ambience and captions all match. */
+export function sameWallStyling(a: WallLook, b: WallLook): boolean {
+  return a.card === b.card
+    && a.glow === b.glow
+    && (a.glowColor ?? '').toLowerCase() === (b.glowColor ?? '').toLowerCase()
+    && a.corners === b.corners
+    && a.beam === b.beam
+    && a.ambient === b.ambient
+    && a.captions === b.captions;
+}
+
+/* ── Wall styling: copy shared by the host editor and the wall ──────── */
+
+export const WALL_CARD_META: Readonly<Record<WallCardStyle, { label: string; blurb: string }>> = {
+  classic: { label: 'Classic', blurb: 'The standard wall tiles.' },
+  glass: { label: 'Liquid glass', blurb: 'Each photo sits in a frosted glass frame.' },
+  clean: { label: 'Clean', blurb: 'Just the photos, softly lifted off the background.' },
+  polaroid: { label: 'Polaroid', blurb: 'White instant-photo frames with a deeper bottom edge.' },
+  neon: { label: 'Neon', blurb: 'A bright rim of light in your glow colour.' },
+};
+
+export const WALL_GLOW_META: Readonly<Record<WallGlow, { label: string }>> = {
+  none: { label: 'None' },
+  soft: { label: 'Soft' },
+  strong: { label: 'Strong' },
+};
+
+export const WALL_CORNER_META: Readonly<Record<WallCorners, { label: string; px: number }>> = {
+  square: { label: 'Sharp', px: 4 },
+  soft: { label: 'Soft', px: 14 },
+  round: { label: 'Round', px: 26 },
+};
+
+export const WALL_BEAM_META: Readonly<Record<WallBeamStyle, { label: string; blurb: string }>> = {
+  beam: { label: 'Beam', blurb: 'The photo streams up the screen in light and lands in its spot.' },
+  sparkle: { label: 'Sparkle', blurb: 'A swirl of glittering stars gathers into the photo.' },
+  reveal: { label: 'Reveal', blurb: 'The photo glows into place right where it lands.' },
+};
+
+export const WALL_AMBIENT_META: Readonly<Record<WallAmbient, { label: string; blurb: string }>> = {
+  glow: { label: 'Drifting glow', blurb: 'Soft light slowly moves behind the photos.' },
+  sparkle: { label: 'Twinkles', blurb: 'Tiny lights twinkle across the background.' },
+  still: { label: 'Still', blurb: 'A calm background with no movement.' },
+};
+
+/** Glow and beam colour suggestions (all readable on dark and light walls). */
+export const WALL_GLOW_COLORS: readonly { color: string; name: string }[] = [
+  { color: '#D4D6FF', name: 'Lavender' },
+  { color: '#7FE3D8', name: 'Aqua' },
+  { color: '#FFD27A', name: 'Gold' },
+  { color: '#FF9EC4', name: 'Rose' },
+  { color: '#FFB38A', name: 'Peach' },
+  { color: '#9CE59A', name: 'Mint' },
+  { color: '#FFFFFF', name: 'White' },
+];
+
+/** The glow/beam colour in effect: the host's pick, else the wall's accent. */
+export function wallGlowColor(look: WallLook, accent: string): string {
+  return look.glowColor ?? (isHex(accent) ? accent : '#D4D6FF');
+}
+
+/* ── Wall styles: one-tap combinations of all of the above ──────────── */
+
+export interface WallStyle {
+  id: string;
+  name: string;
+  blurb: string;
+  /** What the style sets. Layout and grid size are never part of a style. */
+  look: Pick<WallLook, 'backdrop' | 'tone' | 'card' | 'glow' | 'corners' | 'beam' | 'ambient'> & { glowColor?: string };
+}
+
+export const WALL_STYLES: readonly WallStyle[] = [
+  {
+    id: 'beamwall',
+    name: 'Beamwall',
+    blurb: 'Liquid glass frames on our dusk field, with the signature beam.',
+    look: { backdrop: { kind: 'gradient', paletteId: 'dusk' }, tone: 'auto', card: 'glass', glow: 'soft', corners: 'soft', beam: 'beam', ambient: 'glow' },
+  },
+  {
+    id: 'match-welcome',
+    name: 'Match welcome page',
+    blurb: 'Wears your welcome page background with glass frames.',
+    look: { backdrop: { kind: 'event' }, tone: 'auto', card: 'glass', glow: 'soft', corners: 'soft', beam: 'beam', ambient: 'glow' },
+  },
+  {
+    id: 'aurora',
+    name: 'Aurora',
+    blurb: 'Teal into violet, aqua glow, photos arrive in a sparkle.',
+    look: { backdrop: { kind: 'gradient', paletteId: 'aurora' }, tone: 'auto', card: 'glass', glow: 'soft', glowColor: '#7FE3D8', corners: 'round', beam: 'sparkle', ambient: 'sparkle' },
+  },
+  {
+    id: 'neon-night',
+    name: 'Neon night',
+    blurb: 'Deep midnight with bright neon rims. Made for parties.',
+    look: { backdrop: { kind: 'gradient', paletteId: 'midnight' }, tone: 'auto', card: 'neon', glow: 'strong', glowColor: '#FF9EC4', corners: 'soft', beam: 'beam', ambient: 'sparkle' },
+  },
+  {
+    id: 'golden-hour',
+    name: 'Golden hour',
+    blurb: 'Warm plum and rose with a golden glow.',
+    look: { backdrop: { kind: 'gradient', paletteId: 'ember' }, tone: 'auto', card: 'glass', glow: 'soft', glowColor: '#FFD27A', corners: 'soft', beam: 'sparkle', ambient: 'glow' },
+  },
+  {
+    id: 'gallery',
+    name: 'Gallery',
+    blurb: 'Bright and airy with polaroid frames. Great for daytime.',
+    look: { backdrop: { kind: 'gradient', paletteId: 'pearl' }, tone: 'auto', card: 'polaroid', glow: 'none', corners: 'square', beam: 'reveal', ambient: 'still' },
+  },
+  {
+    id: 'garden',
+    name: 'Garden',
+    blurb: 'Soft sage and linen, gentle and natural.',
+    look: { backdrop: { kind: 'gradient', paletteId: 'sage' }, tone: 'auto', card: 'clean', glow: 'soft', glowColor: '#9CE59A', corners: 'round', beam: 'reveal', ambient: 'glow' },
+  },
+  {
+    id: 'noir',
+    name: 'Noir',
+    blurb: 'Plain black, nothing but the photos.',
+    look: { backdrop: { kind: 'color', color: '#0B0B12' }, tone: 'auto', card: 'clean', glow: 'none', corners: 'square', beam: 'reveal', ambient: 'still' },
+  },
+];
+
+export function wallStyleById(id: unknown): WallStyle | undefined {
+  return typeof id === 'string' ? WALL_STYLES.find((s) => s.id === id) : undefined;
+}
+
+/** Apply a style, keeping the layout, grid size, transition and captions. */
+export function applyWallStyle(look: WallLook, style: WallStyle): WallLook {
+  const { glowColor: _drop, ...rest } = look;
+  void _drop;
+  return { ...rest, ...style.look };
+}
+
+/** The style a look currently matches exactly, if any (for the selected tile). */
+export function matchingWallStyle(look: WallLook): WallStyle | undefined {
+  return WALL_STYLES.find((s) => wallLookEquals(look, applyWallStyle(look, s)));
 }
