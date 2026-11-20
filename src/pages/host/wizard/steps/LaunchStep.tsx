@@ -39,8 +39,8 @@ function Row({ icon: Icon, title, detail, step, ok, onEdit }: {
 }) {
   return (
     <li className="flex items-center gap-3 rounded-2xl px-3 py-2.5 hover:bg-white/6">
-      <span className={`grid place-items-center h-10 w-10 rounded-full shrink-0 ${ok ? 'bg-[rgba(170,240,210,0.22)] text-[#D6FFEE]' : 'bg-white/12'}`}>
-        {ok ? <Check className="h-[18px] w-[18px]" aria-hidden /> : <Icon className="h-[18px] w-[18px]" aria-hidden />}
+      <span className={`grid place-items-center h-10 w-10 rounded-full shrink-0 ${ok ? 'wz-tick' : 'bg-white/12'}`}>
+        {ok ? <Check className="h-[18px] w-[18px]" strokeWidth={3} aria-hidden /> : <Icon className="h-[18px] w-[18px]" aria-hidden />}
       </span>
       <span className="flex-1 min-w-0">
         <span className="block text-[15px] font-medium">{title}</span>

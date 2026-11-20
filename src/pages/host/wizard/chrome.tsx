@@ -7,7 +7,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, CloudOff, Loader2, X } from 'lucide-react';
-import { WIZARD_STEPS, stepDef, stepIndex, type WizardProgress, type WizardStepId } from '../../../lib/wizard/wizardModel';
+import { WIZARD_STEPS, setupPercent, stepDef, stepIndex, type WizardProgress, type WizardStepId } from '../../../lib/wizard/wizardModel';
 import type { SaveState } from './wizardContext';
 
 /* ── Chrome shared by create mode and setup mode ───────────────────── */
@@ -37,8 +37,8 @@ export function Rail({ current, progress, canVisit, onPick }: {
   canVisit: boolean;
   onPick: (id: WizardStepId) => void;
 }) {
-  const doneCount = progress ? progress.done.filter((d) => d !== 'launch').length : 0;
-  const pct = Math.round((doneCount / (WIZARD_STEPS.length - 1)) * 100);
+  // Starts ahead: the account is shown as the first step already done.
+  const pct = setupPercent(progress);
   return (
     <>
       {/* Desktop: the whole journey, always visible. */}
@@ -54,6 +54,13 @@ export function Rail({ current, progress, canVisit, onPick }: {
             </div>
           </div>
           <ol className="flex flex-col gap-0.5">
+            <li>
+              <div className="wz-rail-step wz-rail-static">
+                <span className="wz-rail-dot is-done" aria-hidden><Check className="h-4 w-4" strokeWidth={3} /></span>
+                <span className="flex-1 min-w-0 truncate">Account created</span>
+                <span className="sr-only"> (done)</span>
+              </div>
+            </li>
             {WIZARD_STEPS.map((s, i) => {
               const done = progress?.done.includes(s.id) ?? false;
               return (
@@ -66,7 +73,7 @@ export function Rail({ current, progress, canVisit, onPick }: {
                     onClick={() => onPick(s.id)}
                   >
                     <span className={`wz-rail-dot ${done && s.id !== current ? 'is-done' : ''}`} aria-hidden>
-                      {done && s.id !== current ? <Check className="h-4 w-4" /> : i + 1}
+                      {done && s.id !== current ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
                     </span>
                     <span className="flex-1 min-w-0 truncate">{s.label}</span>
                     {s.optional && <span className="text-[10.5px] text-white/45">Optional</span>}
@@ -81,6 +88,8 @@ export function Rail({ current, progress, canVisit, onPick }: {
       {/* Phone: where am I, and how far to go. */}
       <div className="lg:hidden">
         <div className="flex items-center gap-1.5" aria-hidden>
+          {/* The account: a step already done, so the bar never starts empty. */}
+          <span className="h-1.5 flex-1 rounded-full bg-[#5FD9A8]" />
           {WIZARD_STEPS.map((s) => (
             <button
               key={s.id}
@@ -89,7 +98,7 @@ export function Rail({ current, progress, canVisit, onPick }: {
               disabled={!canVisit}
               onClick={() => onPick(s.id)}
               className={`h-1.5 flex-1 rounded-full transition-colors ${
-                s.id === current ? 'bg-white' : progress?.done.includes(s.id) ? 'bg-white/60' : 'bg-white/18'
+                s.id === current ? 'bg-white' : progress?.done.includes(s.id) ? 'bg-[#5FD9A8]' : 'bg-white/18'
               }`}
             />
           ))}

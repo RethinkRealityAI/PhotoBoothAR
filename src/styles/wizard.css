@@ -47,7 +47,18 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 .wz-rail-step[aria-current='step'] .wz-rail-dot { background: #fff; color: var(--bw-on-accent); box-shadow: 0 0 18px -4px rgba(200, 196, 255, 0.9); }
-.wz-rail-dot.is-done { background: rgba(170, 240, 210, 0.22); box-shadow: inset 0 0 0 1px rgba(170, 240, 210, 0.55); color: #D6FFEE; }
+/* .wz-tick: the same tick anywhere else in the wizard (Launch checklist). */
+.wz-rail-dot.is-done, .wz-tick {
+  /* A real, solid tick (owner 2026-11-20: "more opaque … nicer"): mint fill,
+     dark ink for contrast, a lit top edge and a soft glow, popping in once. */
+  background: #5FD9A8;
+  color: #0B3B2C;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 16px -3px rgba(95, 217, 168, 0.85);
+  animation: wz-tick-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes wz-tick-pop { from { transform: scale(0.6); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .wz-rail-dot.is-done, .wz-tick { animation: none; } }
+.wz-rail-static { cursor: default; color: rgba(255, 255, 255, 0.85); }
 
 /* ── Tiles ─────────────────────────────────────────────────────────── */
 .wz-tile {
@@ -530,16 +541,10 @@
   .wz-beamglyph * , .wz-beamglyph .tile::after { animation-duration: 4.5s; }
 }
 
-/* ── Card glow (trial, wizard only — owner 2026-11-20) ─────────────────
-   The live wall's fresh-photo halo, softened, plus Liquid Glass edge
-   light: a light bleed just inside the rim (thickness) and a brighter
-   lip along the top edge (specular). Lifts the glass cards off the dusk
-   field. Rolling it out = set --pf-card-glow on more surfaces. */
-.wz-root {
-  --wz-halo: 0 0 0 1px rgba(var(--pf-accent-rgb), 0.26), 0 0 48px 4px rgba(var(--pf-accent-rgb), 0.3);
-  --wz-edge: inset 0 0 28px rgba(255, 255, 255, 0.09), inset 0 14px 20px -16px rgba(255, 255, 255, 0.7);
-}
-.wz-root .liquid-glass { --pf-card-glow: var(--wz-edge), var(--wz-halo); }
+/* ── Card glow on the preview frames ─────────────────────────────────
+   Glass cards get it from platform.css (--pf-card-glow); the previews are
+   not glass, so they take the same halo directly. */
+.wz-root { --wz-halo: var(--pf-halo); }
 .wz-root :is(.wz-stage, .wz-screen) {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24), var(--wz-halo), 0 30px 60px -30px rgba(10, 8, 40, 0.85);
 }

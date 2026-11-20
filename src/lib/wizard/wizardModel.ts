@@ -144,6 +144,18 @@ export function progressFraction(p: WizardProgress | null): number {
   return total === 0 ? 0 : done / total;
 }
 
+/**
+ * The rail's "Your setup N%": the host's account counts as the first step
+ * already done (endowed progress — a journey that starts part-way along
+ * gets finished more often than one that starts at zero, and signing up IS
+ * real work they did). 0 steps done = 14%, never 0%; a finished setup = 100%.
+ */
+export function setupPercent(p: WizardProgress | null): number {
+  if (p?.completedAt) return 100;
+  const { done, total } = countDone(p);
+  return Math.round(((done + 1) / (total + 1)) * 100);
+}
+
 /** True while an event's setup was started in the wizard and not finished —
  *  the dashboard shows "Continue setup" for exactly these. */
 export function setupInProgress(config: unknown): boolean {
