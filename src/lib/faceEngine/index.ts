@@ -24,7 +24,7 @@
 import type { FaceEngine, FaceSample, FaceTrackingMode } from './types';
 import { createMediapipeEngine, type MediapipeFaceEngine } from './mediapipeEngine';
 import {
-  hasFaceExpressionTrigger,
+  needsMediapipeExpressions,
   modeNeedsMediapipe,
   modeNeedsXr8,
   readFaceEngineOverride,
@@ -96,7 +96,7 @@ export function resolveSurfaceFaceMode(opts: {
     url: urlOverride(),
     config: opts.config,
     env: ENV_FACE_ENGINE,
-    hasFaceTriggers: hasFaceExpressionTrigger(opts.triggers),
+    hasFaceTriggers: needsMediapipeExpressions(opts.triggers),
     requiresFaceMesh: opts.facePaint === true,
   });
 }
