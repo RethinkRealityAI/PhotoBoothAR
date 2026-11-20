@@ -15,11 +15,30 @@ import {
   polaroidFan,
   polaroidPlacement,
   polaroidSeed,
+  CONSTELLATION_MAX_LAT,
+  SHORT_MESSAGE_MAX_CHARS,
+  closingHeadline,
+  constellationLayout,
+  constellationRadius,
+  constellationThreads,
+  contributionCountLabel,
+  contributorCount,
+  contributorInitials,
+  coverArc,
+  coverPicks,
+  coverRecipientLine,
+  focusCameraPosition,
+  formatNameList,
+  messageTone,
+  ornamentFrame,
+  overviewDistance,
+  titleMentionsRecipient,
+  uniqueContributors,
 } from './cardTemplates';
 
 describe('the closed set of card templates', () => {
-  it('ships exactly the three shipped templates, in host-facing order', () => {
-    expect(CARD_TEMPLATE_IDS).toEqual(['storybook', 'filmstrip', 'polaroid', 'carousel']);
+  it('ships exactly the shipped templates, in host-facing order', () => {
+    expect(CARD_TEMPLATE_IDS).toEqual(['storybook', 'filmstrip', 'polaroid', 'carousel', 'constellation']);
   });
 
   it('has one option per id, in the same order, each with a one-line description', () => {
@@ -193,5 +212,209 @@ describe('polaroidFan (the cover stack)', () => {
     expect(Math.abs(only.rotationDeg)).toBeLessThanOrEqual(POLAROID_MAX_TILT_DEG / 2);
     expect(Math.abs(only.offsetXPct)).toBeLessThanOrEqual(POLAROID_MAX_SHIFT_X_PCT / 2);
     expect(Math.abs(only.offsetYPct)).toBeLessThanOrEqual(POLAROID_MAX_SHIFT_Y_PCT / 2);
+  });
+});
+
+describe('cover copy — no repeated names, no event name', () => {
+  it('drops "for X" when the title already names the recipient (case-insensitive)', () => {
+    expect(titleMentionsRecipient('Happy birthday, Dapo!', 'Dapo')).toBe(true);
+    expect(titleMentionsRecipient('HAPPY BIRTHDAY, DAPO!', 'dapo')).toBe(true);
+    expect(titleMentionsRecipient('Happy birthday!', 'Dapo')).toBe(false);
+    expect(coverRecipientLine('Happy birthday, Dapo!', 'Dapo')).toBeNull();
+    expect(coverRecipientLine('Happy birthday!', '  Dapo ')).toBe('for Dapo');
+  });
+
+  it('never matches or renders an empty recipient', () => {
+    expect(titleMentionsRecipient('Anything', '')).toBe(false);
+    expect(titleMentionsRecipient('Anything', null)).toBe(false);
+    expect(coverRecipientLine('Anything', '   ')).toBeNull();
+    expect(coverRecipientLine('Anything', undefined)).toBeNull();
+  });
+
+  it('counts messages in sentence case', () => {
+    expect(contributionCountLabel(8)).toBe('8 messages inside');
+    expect(contributionCountLabel(1)).toBe('1 message inside');
+    expect(contributionCountLabel(0)).toBe('Nothing inside yet');
+    expect(contributionCountLabel(NaN)).toBe('Nothing inside yet');
+  });
+});
+
+describe('contributors', () => {
+  const list = [
+    { contributorName: 'The Squad' },
+    { contributorName: 'Beamy' },
+    { contributorName: 'beamy ' },
+    { contributorName: null },
+    { contributorName: '  ' },
+    { contributorName: 'Tola & Femi' },
+  ];
+
+  it('initials: two letters max, letters of any script, a star for nobody', () => {
+    expect(contributorInitials('The Squad')).toBe('TS');
+    expect(contributorInitials('Tola & Femi')).toBe('TF');
+    expect(contributorInitials('Beamy')).toBe('B');
+    expect(contributorInitials('élodie martin')).toBe('ÉM');
+    expect(contributorInitials('')).toBe('✦');
+    expect(contributorInitials(null)).toBe('✦');
+  });
+
+  it('dedupes names case-insensitively in first-seen order and counts anonymous notes', () => {
+    expect(uniqueContributors(list)).toEqual(['The Squad', 'Beamy', 'Tola & Femi']);
+    expect(contributorCount(list)).toBe(5); // 3 names + 2 unsigned
+  });
+
+  it('closing headline', () => {
+    expect(closingHeadline(list)).toBe('With love from 5 people');
+    expect(closingHeadline([{ contributorName: 'Kemi' }])).toBe('With love from Kemi');
+    expect(closingHeadline([{ contributorName: null }])).toBe('With love');
+    expect(closingHeadline([])).toBe('With love');
+  });
+
+  it('formats a signed list with a cap', () => {
+    expect(formatNameList([])).toBe('');
+    expect(formatNameList(['Kemi'])).toBe('Kemi');
+    expect(formatNameList(['Kemi', 'Marcus'])).toBe('Kemi and Marcus');
+    expect(formatNameList(['A', 'B', 'C'])).toBe('A, B and C');
+    expect(formatNameList(['A', 'B', 'C', 'D', 'E'], 3)).toBe('A, B, C and 2 more');
+  });
+});
+
+describe('messageTone', () => {
+  it('sets short lines in the display face and long ones in the text face', () => {
+    expect(messageTone('Happy birthday bro!')).toBe('display');
+    expect(messageTone('x'.repeat(SHORT_MESSAGE_MAX_CHARS))).toBe('display');
+    expect(messageTone('x'.repeat(SHORT_MESSAGE_MAX_CHARS + 1))).toBe('text');
+    expect(messageTone('  ')).toBe('none');
+    expect(messageTone(null)).toBe('none');
+  });
+
+  it('counts emoji as one character each', () => {
+    expect(messageTone('🎂'.repeat(SHORT_MESSAGE_MAX_CHARS))).toBe('display');
+  });
+});
+
+describe('cover hero', () => {
+  const c = (id: string, mediaType: string, url: string | null) => ({ id, mediaType, url });
+
+  it('puts photos first, then videos, then notes, capped', () => {
+    const picks = coverPicks([c('t', 'text', null), c('v', 'video', 'u'), c('p1', 'photo', 'u'), c('p2', 'photo', 'u')], 3);
+    expect(picks.map((p) => p.id)).toEqual(['p1', 'p2', 'v']);
+    expect(coverPicks([c('t', 'text', null)]).map((p) => p.id)).toEqual(['t']);
+    expect(coverPicks([], 5)).toEqual([]);
+  });
+
+  it('fans symmetrically with the centre tile forward', () => {
+    expect(coverArc(0)).toEqual([]);
+    const arc = coverArc(5);
+    expect(arc).toHaveLength(5);
+    expect(arc[2]).toEqual({ rotationDeg: 0, offsetXPct: 0, offsetYPct: 0, scale: 1, zIndex: 10 });
+    expect(arc[0].rotationDeg).toBe(-arc[4].rotationDeg);
+    expect(arc[0].offsetXPct).toBe(-arc[4].offsetXPct);
+    expect(arc[0].offsetYPct).toBe(arc[4].offsetYPct);
+    expect(arc[0].zIndex).toBeLessThan(arc[1].zIndex);
+    for (const s of arc) expect(s.scale).toBeGreaterThanOrEqual(0.72);
+  });
+});
+
+describe('ornamentFrame', () => {
+  const NUM = /-?\d+(\.\d+)?/g;
+
+  it('is finite at every size, including degenerate ones', () => {
+    for (const [w, h] of [[390, 700], [1440, 900], [0, 0], [-5, NaN], [40, 40]]) {
+      const f = ornamentFrame(w, h);
+      const all = [...f.rules, f.arch, f.beads, ...f.corners, ...f.crests].join(' ');
+      expect(all).not.toMatch(/NaN|Infinity/);
+      expect(f.arch.endsWith('Z')).toBe(true);
+    }
+  });
+
+  it('is symmetric left-right: the arch peaks at the centre', () => {
+    const f = ornamentFrame(400, 700);
+    const nums = (f.arch.match(NUM) ?? []).map(Number);
+    expect(nums).toContain(200);
+    expect(f.corners[0]).toMatch(/^translate\(/);
+    expect(f.corners[1]).toContain('scale(-');
+  });
+
+  it('is deterministic', () => {
+    expect(ornamentFrame(390, 700)).toEqual(ornamentFrame(390, 700));
+  });
+});
+
+describe('constellation layout', () => {
+  const ids = Array.from({ length: 8 }, (_, i) => `c-${i}`);
+
+  it('is deterministic per id and one node per id', () => {
+    expect(constellationLayout(ids)).toEqual(constellationLayout(ids));
+    expect(constellationLayout(ids)).toHaveLength(8);
+    expect(constellationLayout([])).toEqual([]);
+  });
+
+  it('keeps every tile on its shell (±8%) and away from the poles', () => {
+    const R = constellationRadius(ids.length);
+    for (const n of constellationLayout(ids)) {
+      const r = Math.hypot(...n.position);
+      expect(r).toBeGreaterThan(R * 0.91);
+      expect(r).toBeLessThan(R * 1.09);
+      expect(Math.abs(n.position[1]) / r).toBeLessThanOrEqual(CONSTELLATION_MAX_LAT + 1e-3);
+      expect(n.phase).toBeGreaterThanOrEqual(0);
+      expect(n.phase).toBeLessThan(Math.PI * 2);
+      expect(n.scale).toBeGreaterThanOrEqual(0.9);
+      expect(n.scale).toBeLessThanOrEqual(1.1);
+    }
+  });
+
+  it('a lone tile sits on the equator', () => {
+    const [only] = constellationLayout(['solo']);
+    expect(only.position[1]).toBe(0);
+  });
+
+  it('grows the shell with the count, never below the minimum', () => {
+    expect(constellationRadius(0)).toBe(3.6);
+    expect(constellationRadius(1)).toBe(3.6);
+    expect(constellationRadius(50)).toBeGreaterThan(constellationRadius(8));
+  });
+
+  it('spreads tiles out: no two closer than a tile width', () => {
+    for (const count of [3, 8, 20, 40]) {
+      const nodes = constellationLayout(Array.from({ length: count }, (_, i) => `n-${count}-${i}`));
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const d = Math.hypot(
+            nodes[i].position[0] - nodes[j].position[0],
+            nodes[i].position[1] - nodes[j].position[1],
+            nodes[i].position[2] - nodes[j].position[2],
+          );
+          expect(d).toBeGreaterThan(1.1);
+        }
+      }
+    }
+  });
+});
+
+describe('constellation threads', () => {
+  it('links each tile to its k nearest, deduplicated and sorted', () => {
+    const pts: Array<[number, number, number]> = [[0, 0, 0], [1, 0, 0], [5, 0, 0], [6, 0, 0]];
+    expect(constellationThreads(pts, 1)).toEqual([[0, 1], [2, 3]]);
+    const two = constellationThreads(pts, 2);
+    for (const [a, b] of two) expect(a).toBeLessThan(b);
+    expect(new Set(two.map(([a, b]) => `${a}-${b}`)).size).toBe(two.length);
+    expect(constellationThreads([], 2)).toEqual([]);
+    expect(constellationThreads([[0, 0, 0]], 2)).toEqual([]);
+  });
+});
+
+describe('constellation camera', () => {
+  it('stands outward of a focused tile, along its direction', () => {
+    expect(focusCameraPosition([0, 0, 4], 2)).toEqual([0, 0, 6]);
+    expect(focusCameraPosition([3, 0, 0], 1.5)).toEqual([4.5, 0, 0]);
+    expect(focusCameraPosition([0, 0, 0], 2)).toEqual([0, 0, 2]);
+  });
+
+  it('backs off further on a portrait screen than a landscape one', () => {
+    const portrait = overviewDistance(5, 390 / 700, 50);
+    const landscape = overviewDistance(5, 1440 / 800, 50);
+    expect(portrait).toBeGreaterThan(landscape);
+    expect(Number.isFinite(overviewDistance(5, 0, NaN))).toBe(true);
   });
 });

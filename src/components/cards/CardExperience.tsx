@@ -72,19 +72,26 @@ function KeepsakeFilm({ url }: { url: string }) {
   return (
     <section className="shrink-0 mb-3">
       <button
+        type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="group flex w-full min-h-[44px] items-center gap-3 rounded-2xl glass border border-accent/25 px-4 py-2.5 text-left transition hover:border-accent/45"
+        className="liquid-glass group flex w-full min-h-[52px] items-center gap-3 rounded-full py-1.5 pl-1.5 pr-4 text-left transition hover:brightness-110"
       >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent-2 transition group-hover:bg-accent/25">
-          <Play className="w-3.5 h-3.5 translate-x-[1px]" fill="currentColor" />
+        <span
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-brand-fg transition group-hover:scale-105"
+          style={{
+            background: 'rgba(var(--accent-rgb),0.22)',
+            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.4), 0 0 22px -4px rgba(var(--accent-rgb),0.9)',
+          }}
+        >
+          <Play className="h-4 w-4 translate-x-[1px]" fill="currentColor" aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block font-label uppercase tracking-luxe text-[10px] text-brand-muted/55">Deluxe keepsake</span>
-          <span className="block font-serif italic text-[15px] text-foil-static">Watch the keepsake film</span>
+          <span className="block font-serif text-[16px] font-medium leading-tight text-brand-fg">Watch the keepsake film</span>
+          <span className="block text-[12px] text-brand-fg/65">Everyone's messages, cut into one film</span>
         </span>
         <ChevronDown
-          className={`w-4 h-4 shrink-0 text-brand-muted/50 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`h-4 w-4 shrink-0 text-brand-fg/60 transition-transform ${open ? 'rotate-180' : ''}`}
           aria-hidden
         />
       </button>
@@ -95,7 +102,7 @@ function KeepsakeFilm({ url }: { url: string }) {
           controls
           playsInline
           preload="metadata"
-          className="mt-2 w-full rounded-2xl border border-accent/20 bg-black shadow-[0_18px_60px_rgba(0,0,0,0.55)]"
+          className="mt-3 w-full rounded-[1.4rem] bg-black shadow-[0_0_0_1px_rgba(255,255,255,0.16),0_24px_60px_-20px_rgba(10,8,40,0.85)]"
         />
       )}
     </section>
@@ -115,7 +122,7 @@ export default function CardExperience({
   const palette = cardPalette(look, theme?.vars);
   const revealId = playableReveal(overrides?.reveal ?? presentation.reveal, hasWebGL());
   const Reveal = revealComponent(revealId);
-  const { Component: Template } = resolveCardTemplate(overrides?.template ?? card.template);
+  const { Component: Template, fullBleed } = resolveCardTemplate(overrides?.template ?? card.template);
 
   // `run` re-keys the reveal so Replay mounts a fresh one.
   const [run, setRun] = useState(0);
@@ -185,13 +192,22 @@ export default function CardExperience({
     >
       {showCard && (
         <>
-          {/* Ambient glow — reads the accent, so it follows the event's snapshot. */}
+          {/* Ambient light — reads the accent, so it follows the event's
+              snapshot: a soft crown of light above the card and a faint warm
+              pool beneath it. */}
           <div
             className="pointer-events-none absolute inset-0"
-            style={{ background: 'radial-gradient(90% 60% at 50% 0%, rgba(var(--accent-rgb),0.07) 0%, transparent 60%)' }}
+            style={{
+              background:
+                'radial-gradient(70% 45% at 50% -6%, rgba(var(--accent-rgb),0.22) 0%, transparent 62%), radial-gradient(55% 30% at 50% 108%, rgba(255,197,107,0.10) 0%, transparent 70%)',
+            }}
             aria-hidden
           />
-          <main className="relative flex-1 min-h-0 w-full max-w-2xl mx-auto px-4 pt-4 pb-2 flex flex-col">
+          <main
+            className={`relative mx-auto flex min-h-0 w-full flex-1 flex-col pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] ${
+              fullBleed ? 'max-w-none px-3 sm:px-6' : 'max-w-2xl px-4'
+            }`}
+          >
             {card.filmUrl && <KeepsakeFilm url={card.filmUrl} />}
             <Template
               card={card}
@@ -203,11 +219,11 @@ export default function CardExperience({
             />
           </main>
           {Reveal && phase === 'card' && (
-            <footer className="relative shrink-0 pb-3 flex justify-center">
+            <footer className="relative flex shrink-0 justify-center pb-[max(0.5rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
                 onClick={replay}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-full px-4 text-xs text-brand-muted/80 transition hover:text-brand-fg"
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-full px-4 text-[13px] text-brand-fg/65 transition hover:bg-white/[0.06] hover:text-brand-fg"
               >
                 <RotateCcw className="h-3.5 w-3.5" aria-hidden />
                 Replay the opening
