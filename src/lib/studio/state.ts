@@ -123,7 +123,8 @@ export interface Object3D {
   anchor: HeadAnchor;
   anchorConfig: StudioAnchorConfig;
   animation: LayerAnimation;
-  /** Per-object head occlusion opt-in (opt-IN: never surprise-hides an asset). */
+  /** Per-object head occlusion. ON by default; only an explicit `false` (persisted
+   *  as `occlusion: false`) turns it off. */
   occlusion: boolean;
   /**
    * Material finish (lib/studio/finish.ts). OPTIONAL and undefined by default:
@@ -262,7 +263,9 @@ export function createObject3D(
           scale: 1,
         },
     animation: opts.animation ?? 'none',
-    occlusion: opts.occlusion ?? false,
+    // ON by default: hiding props behind the real head is always wanted; a host
+    // can still switch it off per scene.
+    occlusion: opts.occlusion ?? true,
     // Spread-in only when actually set, so an unstyled object has NO finish
     // keys at all — object-identity/deep-equality snapshots taken before Wave 6
     // stay byte-identical (the same idiom as createOverlay's `lettering`).
@@ -1085,6 +1088,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         name: piece.name,
         anchor: piece.config.anchor,
         anchorConfig: { offset: { ...piece.config.offset }, rotation: { ...piece.config.rotation }, scale: piece.config.scale },
+        occlusion: nextPieceOcclusion(d),
       });
       const nd = appendObject(d, obj);
       if (!nd) return state;
@@ -1124,9 +1128,9 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
               scale: action.scale ?? 1,
             }
           : undefined,
-        // Absent stays absent: createObject3D's own `?? false` keeps every
-        // existing add path byte-identical.
-        occlusion: action.occlude,
+        // An explicit opt-in (a library entry's defaultOcclude) wins; otherwise
+        // the piece inherits the scene (ON for a scene's first 3D piece).
+        occlusion: action.occlude === true ? true : nextPieceOcclusion(d),
         anchorVersion: action.anchorVersion,
       });
       // A v2 add: the library's authored nudge was measured against the v1

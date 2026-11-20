@@ -278,7 +278,7 @@ describe('round-trip: multi 3D (model + head piece, per-layer occlusion/animatio
       occlusion: true,
       animation: 'spin',
     });
-    const model = createObject3D('model', { assetUrl: 'blob:m', name: 'Model', animation: 'pulse' });
+    const model = createObject3D('model', { assetUrl: 'blob:m', name: 'Model', animation: 'pulse', occlusion: false });
     const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [piece, model], selectedId: piece.id, kind: '3d_attachment' };
     const urls = { [model.id]: 'https://cdn/model.glb' };
     const payload = draftToPayload(draft, resolver(urls), 'thumb');
@@ -287,23 +287,25 @@ describe('round-trip: multi 3D (model + head piece, per-layer occlusion/animatio
     expect(payload.asset_url).toBeNull();
     expect(payload.config?.anchor?.anchor).toBe('crown');
     expect(payload.config?.procedural).toBe('royal-crown');
-    expect(payload.config?.occlusion).toBe(true);
+    // Occlusion is ON unless switched off, so an occluding scene writes no key.
+    expect(payload.config?.occlusion).toBeUndefined();
     expect(payload.thumbnail_url).toBe('thumb');
 
     const layers = payload.config?.layers!;
     expect(layers).toHaveLength(2);
-    expect(layers[0].occlusion).toBe(true);
+    expect(layers[0].occlusion).toBeUndefined();
     expect(layers[0].animation).toBe('spin');
     expect(layers[0].asset_url).toBeNull();
     expect(layers[0].procedural).toBe('royal-crown');
     expect(layers[1].asset_url).toBe('https://cdn/model.glb');
     expect(layers[1].animation).toBe('pulse');
     expect(layers[1].procedural).toBeUndefined();
-    expect(layers[1].occlusion).toBeUndefined();
+    expect(layers[1].occlusion).toBe(false);
 
     const reloaded = experienceToDraft(expFromPayload(payload))!;
     expect(reloaded.objects).toHaveLength(2);
     expect((reloaded.objects[0] as Object3D).occlusion).toBe(true);
+    expect((reloaded.objects[1] as Object3D).occlusion).toBe(false);
     expect((reloaded.objects[1] as Object3D).type).toBe('model');
   });
 });
@@ -325,33 +327,34 @@ describe('scene tag and occlusion (opt-in)', () => {
     expect(payload.config?.scene).toBe('Neon Nights');
     expect(payload.config?.occlusion).toBeUndefined();
   });
-  it('occlusion is opt-in: new pieces default OFF; enabling persists true', () => {
-    const off = createObject3D('headpiece', { proceduralId: 'royal-crown' });
-    expect(off.occlusion).toBe(false);
-    const offDraft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [off], selectedId: off.id, kind: '3d_attachment' };
-    expect(draftToPayload(offDraft, resolver({}), null).config?.occlusion).toBeUndefined();
-
-    const on = createObject3D('headpiece', { proceduralId: 'royal-crown', occlusion: true });
+  it('occlusion is ON by default (no key written); switching it off persists an explicit false', () => {
+    const on = createObject3D('headpiece', { proceduralId: 'royal-crown' });
+    expect(on.occlusion).toBe(true);
     const onDraft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [on], selectedId: on.id, kind: '3d_attachment' };
     const onPayload = draftToPayload(onDraft, resolver({}), null);
-    expect(onPayload.config?.occlusion).toBe(true);
+    expect(onPayload.config?.occlusion).toBeUndefined();
     expect((experienceToDraft(expFromPayload(onPayload))!.objects[0] as Object3D).occlusion).toBe(true);
+
+    const off = createObject3D('headpiece', { proceduralId: 'royal-crown', occlusion: false });
+    const offDraft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [off], selectedId: off.id, kind: '3d_attachment' };
+    const offPayload = draftToPayload(offDraft, resolver({}), null);
+    expect(offPayload.config?.occlusion).toBe(false);
+    expect((experienceToDraft(expFromPayload(offPayload))!.objects[0] as Object3D).occlusion).toBe(false);
   });
-  it('the singular mirror is SCENE-level: an opt-in on a LATER 3D layer still writes config.occlusion', () => {
-    // One occluder serves the whole canvas, so "any piece opted in" is what the
-    // scene does. Mirroring layer 0 alone dropped the flag for exactly this shape.
-    const plain = createObject3D('model', { assetUrl: 'blob:a', name: 'A' });
-    const opted = createObject3D('model', { assetUrl: 'blob:b', name: 'B', occlusion: true });
-    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [plain, opted], selectedId: plain.id, kind: '3d_attachment' };
-    const payload = draftToPayload(draft, resolver({ [plain.id]: 'https://cdn/a.glb', [opted.id]: 'https://cdn/b.glb' }), null);
-    expect(payload.config?.occlusion).toBe(true);
+  it('the singular mirror is SCENE-level: any occluding 3D layer keeps the scene on', () => {
+    // One occluder serves the whole canvas, so "any piece occludes" is what the scene does.
+    const off = createObject3D('model', { assetUrl: 'blob:a', name: 'A', occlusion: false });
+    const on = createObject3D('model', { assetUrl: 'blob:b', name: 'B' });
+    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [off, on], selectedId: off.id, kind: '3d_attachment' };
+    const payload = draftToPayload(draft, resolver({ [off.id]: 'https://cdn/a.glb', [on.id]: 'https://cdn/b.glb' }), null);
+    expect(payload.config?.occlusion).toBeUndefined();
     // …and the per-layer truth is untouched, so the flag still round-trips per piece.
-    expect(payload.config?.layers?.[0].occlusion).toBeUndefined();
-    expect(payload.config?.layers?.[1].occlusion).toBe(true);
+    expect(payload.config?.layers?.[0].occlusion).toBe(false);
+    expect(payload.config?.layers?.[1].occlusion).toBeUndefined();
   });
-  it('an existing experience with no occlusion flag loads as opt-in OFF (no silent change)', () => {
+  it('an existing experience with no occlusion flag loads with occlusion ON', () => {
     const exp = baseExp({ kind: '3d_attachment', asset_url: 'https://cdn/x.glb', config: { anchor: { anchor: 'crown', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 } } });
-    expect((experienceToDraft(exp)!.objects[0] as Object3D).occlusion).toBe(false);
+    expect((experienceToDraft(exp)!.objects[0] as Object3D).occlusion).toBe(true);
   });
   it('composite kind with no layers loads as an empty scene (W4-B: composite now loads)', () => {
     const draft = experienceToDraft(baseExp({ kind: 'composite' }));

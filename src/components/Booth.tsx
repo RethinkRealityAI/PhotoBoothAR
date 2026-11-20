@@ -883,7 +883,8 @@ export default function Booth() {
   // renders byte-identically to today (getHeadFitEstimate is never even read).
   const occlusionActive =
     source === 'db' &&
-    ((attachExp?.config?.occlusion === true) || (overlayPieces?.some((p) => p.occlude === true) ?? false));
+    // Occlusion is ON for any 3D piece unless the host explicitly turned it off.
+    ((is3D && attachExp!.config?.occlusion !== false) || (overlayPieces?.some((p) => p.occlude === true) ?? false));
   const autoFitEnabled =
     occlusionActive && studioCfg.baselineFit != null && studioCfg.autoHeadScale !== false;
 
@@ -1973,7 +1974,7 @@ export default function Booth() {
                     anchor={anchorConfig ?? POWERFX_ONLY_ANCHOR}
                     videoId="booth-video"
                     mirror={isFront}
-                    occlude={is3D && source === 'db' && attachExp!.config?.occlusion === true}
+                    occlude={is3D && source === 'db' && attachExp!.config?.occlusion !== false}
                     onFaceVisible={is3D && anchorConfig ? setFaceVisible : undefined}
                     onHandVisible={is3D && anchorConfig ? setHandVisible : undefined}
                     pieces={is3D && anchorConfig ? overlayPieces : null}

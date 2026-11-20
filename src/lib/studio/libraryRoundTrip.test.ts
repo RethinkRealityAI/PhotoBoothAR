@@ -118,12 +118,14 @@ describe('library item → workshop → Studio save keeps what renders', () => {
       {
         id: 'crown-1', kind: '3d_attachment', asset_url: `${LIB}/crown.glb`, name: 'Crown',
         anchor: { anchor: 'crown', offset: { x: 0, y: 1.5, z: -0.5 }, rotation: { x: 0.1, y: 0, z: 0 }, scale: 1.2 },
-        occlusion: true, finish: 'gold', tint: '#ffcc00', tintStrength: 0.5, animation: 'spin', anchorVersion: 2,
+        // Occlusion is ON unless a layer says `occlusion: false`, so an occluding layer has no key.
+        finish: 'gold', tint: '#ffcc00', tintStrength: 0.5, animation: 'spin', anchorVersion: 2,
         customization: { parts: { band: { hex: '#aa1122' } }, label: { slotId: 'front', token: 'guestName', style: 'serif', hex: '#ffffff' } },
       },
       {
         id: 'glasses-1', kind: '3d_attachment', asset_url: `${LIB}/glasses.glb`, name: 'Glasses',
         anchor: { anchor: 'noseBridge', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+        occlusion: false,
       },
     ],
     transform: { scale: 1, x: 0, y: 0, rotation: 0 },
@@ -131,7 +133,6 @@ describe('library item → workshop → Studio save keeps what renders', () => {
     // letteringFit.normalizeGuestLettering always writes `text`, so a Studio-saved row has it.
     lettering: { token: 'guestName', text: '', style: 'script', color: '#FFFFFF', placement: 'bottom' },
     anchor: { anchor: 'crown', offset: { x: 0, y: 1.5, z: -0.5 }, rotation: { x: 0.1, y: 0, z: 0 }, scale: 1.2 },
-    occlusion: true,
     ambientShader: { shaderId: 'champagne-sparkle', params: {} },
     scene: 'royal-night',
     triggers: [
@@ -155,8 +156,10 @@ describe('library item → workshop → Studio save keeps what renders', () => {
     for (const key of Object.keys(before)) expect(after[key], `config.${key}`).toEqual(before[key]);
     expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
     const layers = after.layers as Array<Record<string, unknown>>;
-    expect(layers[2].occlusion).toBe(true);
-    expect(after.occlusion).toBe(true);
+    // The occluding crown stays ON (no key) and the glasses' explicit OFF survives.
+    expect(layers[2].occlusion).toBeUndefined();
+    expect(layers[3].occlusion).toBe(false);
+    expect(after.occlusion).toBeUndefined();
   });
 
   it('open → save → open → save is stable (no slow drift across versions)', () => {

@@ -165,8 +165,10 @@ function layerToObject(l: ExperienceLayer): StudioObject {
       anchor: l.anchor?.anchor,
       anchorConfig: l.anchor ? anchorToStudio(l.anchor) : undefined,
       animation: l.animation ?? 'none',
-      // Occlusion is opt-IN: only an explicit `true` enables it.
-      occlusion: l.occlusion === true,
+      // Occlusion is ON unless the host turned it off: only an explicit `false`
+      // disables it. (It was opt-IN, so every library row written without the
+      // key — all of them — floated in front of the head with its back visible.)
+      occlusion: l.occlusion !== false,
       // Finish keys are absent on every layer written before Wave 6, and
       // createObject3D leaves them undefined for absent input — so an old scene
       // loads with the exporter's own material, exactly as it always did.
@@ -308,7 +310,7 @@ export function experienceToDraft(exp: Experience): StudioDraft | null {
         proceduralId: exp.config?.procedural ?? undefined,
         anchor: a?.anchor,
         anchorConfig: a ? anchorToStudio(a) : undefined,
-        occlusion: exp.config?.occlusion === true,
+        occlusion: exp.config?.occlusion !== false,
       }),
     ];
   }
@@ -349,7 +351,8 @@ function object3DLayer(o: Object3D, r: UrlResolver): ExperienceLayer {
   if (o.proceduralId) layer.procedural = o.proceduralId;
   if (o.name) layer.name = o.name;
   if (o.animation !== 'none') layer.animation = o.animation;
-  if (o.occlusion) layer.occlusion = true;
+  // Absent reads as ON, so only OFF is written (explicitly, to survive a reload).
+  if (o.occlusion !== true) layer.occlusion = false;
   // Written ONLY when set: state.withFinish deletes keys at their defaults, so
   // "restyled then reset" persists exactly like "never styled".
   if (o.finish) layer.finish = o.finish;
@@ -543,7 +546,7 @@ export function layerToPiece(l: ExperienceLayer, ctx: PieceContext = {}): SceneP
     proceduralId: l.procedural ?? null,
     anchor: l.anchor as AnchorConfig,
     animation: l.animation ?? 'none',
-    occlude: ctx.occlusionEnabled === true && l.occlusion === true,
+    occlude: ctx.occlusionEnabled === true && l.occlusion !== false,
     ...pieceExtras(l, ctx),
     ...(l.id ? { fxKey: l.id } : {}),
   };
@@ -651,7 +654,8 @@ export function draftToPayload(
       // occludes. Mirroring layer 0 alone dropped the flag for a scene that had
       // opted in on a later piece, which is how a renderer reading the singular
       // fields lost occlusion the studio was showing.
-      if (objs.some((o) => o.occlusion)) config.occlusion = true;
+      // Absent reads as ON, so only an OFF scene writes the key.
+      if (!objs.some((o) => o.occlusion)) config.occlusion = false;
       assetUrl = layer0.type === 'headpiece' && layer0.proceduralId ? null : resolve(resolvedUrls, layer0.id);
     }
     if (objs.length > 1 || anyAnim || anyHidden || anyFinish || anyCustom || anyHandAnchor || anyFacePaint || anyAnchorV2 || revealActive) config.layers = objs.map((o) => object3DLayer(o, resolvedUrls));
@@ -684,7 +688,7 @@ export function draftToPayload(
       };
       if (first3D.proceduralId) config.procedural = first3D.proceduralId;
       // Scene-level, same as the 3D branch above — any 3D piece opting in.
-      if (draft.objects.some((o) => o.type !== 'overlay' && o.occlusion)) config.occlusion = true;
+      if (!draft.objects.some((o) => o.type !== 'overlay' && o.occlusion)) config.occlusion = false;
     }
     // The scene-level filter slot ('none' = empty) can ride alongside any scene.
     if (draft.shaderId !== 'none') config.ambientShader = { shaderId: draft.shaderId, params: draft.shaderParams };
