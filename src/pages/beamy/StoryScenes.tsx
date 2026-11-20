@@ -26,7 +26,7 @@ import { Camera, Check, ChevronsUp, CircleCheck, Crown, Play, Trophy } from 'luc
 import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import type { StoryFxId } from '../../lib/brandLanding';
 import { STORY_SCENE, STORY_SEQ } from '../../lib/beamyStory';
-import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
+import { useBeamyAssets } from './useBeamyAssets';
 import { currentCue, nextChange, passAt, phaseAt, reached, type Sequence } from '../../lib/beamyMotion';
 import { WALL_CENTRE } from '../../lib/beamyWall';
 import { HERO_WEDDING } from '../../lib/landingAssets';
@@ -91,7 +91,7 @@ export default function StoryScenes({ step, live, ids, stacked, qrUrl, wallCentr
   const S = STORY_SCENE;
   const on = (id: StoryFxId) => tf(ids[step] === id);
   const photo = (k: number) => WALL_POOL[k % WALL_POOL.length];
-  const A = HOME_ASSET_DEFAULTS;
+  const A = useBeamyAssets();
   const album = (k: number) => (A.keepsakePhotos !== undefined && A.keepsakePhotos.length >= 6 ? A.keepsakePhotos[k] : photo(seed + 4 + k * 3));
 
   const qrSeq = useSeq(live && ids[step] === 'qr', STORY_SEQ.qr);

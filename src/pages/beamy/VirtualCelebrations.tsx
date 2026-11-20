@@ -24,6 +24,7 @@ import { CalendarClock, Cake, Check, Link2, Mail, MessageCircle, Play, Send } fr
 import { WALL_POOL } from '../../components/beamy/LiveWall';
 import { reached } from '../../lib/beamyMotion';
 import { VC_PIECES, VC_SCENE, VC_SEQ, type VcPiece } from '../../lib/beamyVirtual';
+import { useBeamyAssets } from './useBeamyAssets';
 
 const tf = (b: boolean) => (b ? 'true' : 'false');
 const at = (phase: number, id: string) => reached(VC_SEQ, phase, id);
@@ -82,6 +83,9 @@ export function VcLinkPanel({ phase, compact }: { phase: number; compact: boolea
 /** The card the pieces land on, its cover, the envelope and the arrival. */
 export function VcCard({ phase, on, compact }: { phase: number; on: boolean; compact: boolean }) {
   const S = VC_SCENE;
+  // The owner's card photos (/admin/home-assets), else the wall's own picks. The copy stays in code.
+  const own = useBeamyAssets().virtualPhotos;
+  const pic = (k: number) => (own.length > 0 ? own[k % own.length] : photoOf(k));
   const cellRefs = useRef<(HTMLDivElement | null)[]>([]);
   const boxRef = useRef<HTMLDivElement | null>(null);
 
@@ -133,7 +137,7 @@ export function VcCard({ phase, on, compact }: { phase: number; on: boolean; com
             </div>
           ) : (
             <div className="bw-vc-media">
-              <img src={photoOf(p.photo ?? 0)} alt="" loading="lazy" decoding="async" />
+              <img src={pic(p.photo ?? 0)} alt="" loading="lazy" decoding="async" />
               {p.kind === 'video' && (
                 <>
                   <span className="bw-vc-play"><Play size={12} strokeWidth={2} aria-hidden /></span>
@@ -167,7 +171,7 @@ export function VcCard({ phase, on, compact }: { phase: number; on: boolean; com
           {/* The card closes: its cover, with three of the photos on it, and the day it goes out. */}
           <div className="bw-vc-cover">
             <div className="bw-vc-collage" aria-hidden>
-              {[0, 4, 2].map((k) => <img key={k} src={photoOf(k)} alt="" loading="lazy" decoding="async" />)}
+              {[0, 4, 2].map((k) => <img key={k} src={pic(k)} alt="" loading="lazy" decoding="async" />)}
             </div>
             <p className="bw-vc-cover-title">{S.cover}</p>
             <p className="bw-scene-tiny mt-1 text-center">{S.coverSub}</p>

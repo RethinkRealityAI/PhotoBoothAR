@@ -225,6 +225,8 @@ interface Props {
   children?: ReactNode;
   /** Run first in every stage frame (the page reads its slots here, so he and the page agree on the frame). */
   frameRef?: MutableRefObject<(() => void) | null>;
+  /** The decor props' GLBs by spot (the page's merged asset slots); absent = HOME_ASSET_DEFAULTS'. */
+  sceneProps?: readonly string[];
 }
 
 /** `?debug` on the URL: a small readout of fps, frame time, resolution and how far he trails his target. */
@@ -522,7 +524,7 @@ interface Reveal {
 
 /* ── The scene ─────────────────────────────────────────────────────────── */
 
-function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = false, reducedMotion = false, onReady, onError, frameRef, debugRef }: Props & { debugRef?: MutableRefObject<HTMLDivElement | null> }) {
+function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = false, reducedMotion = false, onReady, onError, frameRef, sceneProps, debugRef }: Props & { debugRef?: MutableRefObject<HTMLDivElement | null> }) {
   const { size, gl, scene, camera, setDpr } = useThree();
   const glRef = useRef({ gl, scene, camera });
   glRef.current = { gl, scene, camera };
@@ -1275,20 +1277,27 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalShadowMat, coneMat, coneGeo, coneGlowMat, coneSrcMat]);
   /* The decor props: real library assets, each fitted into a unit box and
      dropped into its holder once Beamy himself is on screen (they share the
-     glb cache with the hero try-on; masters are cloned, never disposed). */
+     glb cache with the hero try-on; masters are cloned, never disposed).
+     A spot whose file changes (the owner's overrides arrived) swaps its prop. */
+  const sceneKey = (sceneProps ?? HOME_ASSET_DEFAULTS.sceneProps).join('\n');
   useEffect(() => {
     let live = true;
+    const urls = sceneKey.split('\n');
     const id = window.setTimeout(() => {
       CRYSTALS.forEach((c, i) => {
-        void loadModel(HOME_ASSET_DEFAULTS.sceneProps[i] ?? `${PROP_DIR}${c.prop}.glb`).then((master) => {
+        const url = urls[i] !== undefined && urls[i] !== '' ? urls[i] : `${PROP_DIR}${c.prop}.glb`;
+        if (crystalRefs.current[i]?.userData.propUrl === url) return;
+        void loadModel(url).then((master) => {
           const holder = crystalRefs.current[i];
-          if (!live || holder === null || holder.children.length > 0) return;
+          if (!live || holder === null || holder === undefined || holder.userData.propUrl === url) return;
+          holder.clear();
           holder.add(unitClone(master));
+          holder.userData.propUrl = url;
         }, () => undefined);
       });
     }, 1200);
     return () => { live = false; window.clearTimeout(id); };
-  }, []);
+  }, [sceneKey]);
 
   /* The page reads its slots first, every frame, so the target he follows is
      this frame's (a separate loop could run after the render: a frame late). */
