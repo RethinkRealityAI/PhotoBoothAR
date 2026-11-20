@@ -68,7 +68,7 @@ export default function LiveWallFrame({ slug, settings, beamSignal }: Props) {
       className="relative w-full overflow-hidden rounded-[22px] bg-[#0d0c2a]"
       style={{
         aspectRatio: `${DESIGN_W} / ${DESIGN_H}`,
-        boxShadow: '0 30px 60px -30px rgba(6,5,26,0.85), inset 0 0 0 1px rgba(255,255,255,0.14)',
+        boxShadow: 'var(--wz-halo, 0 0 #0000), 0 30px 60px -30px rgba(6,5,26,0.85), inset 0 0 0 1px rgba(255,255,255,0.14)',
       }}
     >
       <iframe

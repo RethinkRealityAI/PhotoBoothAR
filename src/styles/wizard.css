@@ -529,3 +529,17 @@
 @media (prefers-reduced-motion: reduce) {
   .wz-beamglyph * , .wz-beamglyph .tile::after { animation-duration: 4.5s; }
 }
+
+/* ── Card glow (trial, wizard only — owner 2026-11-20) ─────────────────
+   The live wall's fresh-photo halo, softened, plus Liquid Glass edge
+   light: a light bleed just inside the rim (thickness) and a brighter
+   lip along the top edge (specular). Lifts the glass cards off the dusk
+   field. Rolling it out = set --pf-card-glow on more surfaces. */
+.wz-root {
+  --wz-halo: 0 0 0 1px rgba(var(--pf-accent-rgb), 0.26), 0 0 48px 4px rgba(var(--pf-accent-rgb), 0.3);
+  --wz-edge: inset 0 0 28px rgba(255, 255, 255, 0.09), inset 0 14px 20px -16px rgba(255, 255, 255, 0.7);
+}
+.wz-root .liquid-glass { --pf-card-glow: var(--wz-edge), var(--wz-halo); }
+.wz-root :is(.wz-stage, .wz-screen) {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24), var(--wz-halo), 0 30px 60px -30px rgba(10, 8, 40, 0.85);
+}

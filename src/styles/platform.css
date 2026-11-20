@@ -210,7 +210,11 @@
     -webkit-backdrop-filter: blur(18px) saturate(130%);
     backdrop-filter: blur(18px) saturate(130%);
     border: 0;
+    /* --pf-card-glow: the lifted-edge light (halo + inner edge bleed). Unset
+       = a transparent no-op, so only surfaces that opt in change. First in
+       the list so its inset part paints above the frost layer. */
     box-shadow:
+      var(--pf-card-glow, 0 0 #0000),
       inset 1px 1px 0 rgba(255, 255, 255, 0.36),
       inset -1px -1px 0 rgba(255, 255, 255, 0.08),
       inset 0 0 0 1px rgba(255, 255, 255, 0.08),
