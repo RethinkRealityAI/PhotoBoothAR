@@ -8,7 +8,7 @@
  * into the SAME events.config.scene the live page reads.
  */
 import { useMemo, useRef, useState } from 'react';
-import { ImagePlus, Loader2, Palette, Sparkles, Upload } from 'lucide-react';
+import { Frame, ImagePlus, Loader2, MessageSquareText, Palette, Sparkles, Upload } from 'lucide-react';
 import SceneBackdrop from '../../../../components/theme/SceneBackdrop';
 import {
   SCENE_PAGE_BORDERS, SCENE_PAGE_BORDER_META, SCENE_PALETTES, SCENE_TEMPLATES, normalizeScene, resolveScene,
@@ -18,12 +18,16 @@ import { sceneUploadError } from '../../../../lib/scenePage';
 import { uploadAsset } from '../../../../lib/wizard/wizardApi';
 import { formatEventDate, ymdFromIso } from '../../../../lib/wizard/occasions';
 import { StepHeading } from '../chrome';
+import PreviewSheet, { useIsDesktop } from '../PreviewSheet';
+import { stepDef } from '../../../../lib/wizard/wizardModel';
 import { useWizard } from '../wizardContext';
 import { useAutosave } from '../useAutosave';
 import WelcomePreview from '../WelcomePreview';
 import ImageFitTool from '../ImageFitTool';
 
 type Mode = 'template' | 'colour' | 'photo';
+/** The background modes, then the border and the welcome line — one row of tabs. */
+type Tab = Mode | 'border' | 'words';
 
 const SOLIDS = ['#1A1740', '#2B2A8C', '#4840C6', '#0F4B5C', '#3B1F4F', '#7A2E4A', '#F4F2FA', '#FBE3DA', '#DDE9DF'];
 
@@ -48,6 +52,8 @@ export default function InviteStep() {
     intro: typeof copy.welcomeIntro === 'string' ? copy.welcomeIntro : '',
   });
   const [mode, setMode] = useState<Mode>(modeOf(initialScene));
+  const [tab, setTab] = useState<Tab>(modeOf(initialScene));
+  const desktop = useIsDesktop();
   // The last pick in each mode, so flipping tabs and back does not lose it.
   const memory = useRef<Partial<Record<Mode, EventScene>>>({ [modeOf(initialScene)]: initialScene });
   const [uploading, setUploading] = useState(false);
@@ -104,26 +110,33 @@ export default function InviteStep() {
   }), [ev.name, ev.starts_at, d.intro]);
   const image = d.scene?.kind === 'image' ? d.scene : null;
 
-  return (
-    <>
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-6 xl:gap-7 items-start">
-        <div className="flex flex-col gap-5 min-w-0">
+  const card = (
           <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
             <StepHeading step="invite" />
-            <div className="wz-tabs" role="tablist" aria-label="Background style">
+            <div className="wz-tabs wz-tabs-even" role="tablist" aria-label="Welcome page settings">
               {([
-                { id: 'template' as const, label: 'Templates', Icon: Sparkles },
-                { id: 'colour' as const, label: 'Colour', Icon: Palette },
-                { id: 'photo' as const, label: 'Your photo', Icon: ImagePlus },
-              ]).map(({ id, label, Icon }) => (
-                <button key={id} type="button" role="tab" aria-selected={mode === id} className="wz-tab" onClick={() => switchMode(id)}>
-                  <Icon className="h-4 w-4" aria-hidden /> {label}
+                { id: 'template' as const, label: 'Templates', short: 'Styles', Icon: Sparkles },
+                { id: 'colour' as const, label: 'Colour', short: 'Colour', Icon: Palette },
+                { id: 'photo' as const, label: 'Photo', short: 'Photo', Icon: ImagePlus },
+                { id: 'border' as const, label: 'Border', short: 'Border', Icon: Frame },
+                { id: 'words' as const, label: 'Message', short: 'Words', Icon: MessageSquareText },
+              ]).map(({ id, label, short, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === id}
+                  className="wz-tab"
+                  onClick={() => { setTab(id); if (id === 'template' || id === 'colour' || id === 'photo') { if (id !== mode) switchMode(id); } }}
+                >
+                  <Icon className="hidden xl:block h-4 w-4 shrink-0" aria-hidden />
+                  <span className="sm:hidden">{short}</span><span className="hidden sm:inline">{label}</span>
                 </button>
               ))}
             </div>
 
-            {mode === 'template' && (
-              <div className="mt-5 grid grid-cols-3 sm:grid-cols-4 gap-2.5" role="radiogroup" aria-label="Templates">
+            {tab === 'template' && (
+              <div className="wz-sq mt-5 grid grid-cols-3 sm:grid-cols-4 gap-2.5" role="radiogroup" aria-label="Templates">
                 {SCENE_TEMPLATES.map((t) => {
                   const on = d.scene?.kind === 'template' && d.scene.id === t.id;
                   return (
@@ -138,11 +151,11 @@ export default function InviteStep() {
               </div>
             )}
 
-            {mode === 'colour' && (
+            {tab === 'colour' && (
               <div className="mt-5 flex flex-col gap-5">
                 <div>
                   <p className="wz-label">Soft gradients</p>
-                  <div className="grid grid-cols-5 gap-2.5" role="radiogroup" aria-label="Gradients">
+                  <div className="wz-sq-5 grid grid-cols-5 gap-2.5" role="radiogroup" aria-label="Gradients">
                     {SCENE_PALETTES.map((p) => {
                       const on = d.scene?.kind === 'gradient' && d.scene.paletteId === p.id;
                       return (
@@ -184,7 +197,7 @@ export default function InviteStep() {
               </div>
             )}
 
-            {mode === 'photo' && (
+            {tab === 'photo' && (
               <div className="mt-5 flex flex-col gap-5">
                 <input
                   ref={fileRef}
@@ -236,36 +249,43 @@ export default function InviteStep() {
                 {uploadError && <p role="alert" className="text-[13.5px] text-[#FFD2DA]">{uploadError}</p>}
               </div>
             )}
+
+            {tab === 'border' && (
+              <div className="mt-5">
+                <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Border">
+                  {SCENE_PAGE_BORDERS.map((b) => (
+                    <button key={b} type="button" role="radio" aria-checked={border === b} className="wz-choice !min-h-11 !py-2" onClick={() => setBorder(b)} title={SCENE_PAGE_BORDER_META[b].blurb}>
+                      <span className="text-[14px] font-medium">{SCENE_PAGE_BORDER_META[b].label}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-[13px] text-white/70">{SCENE_PAGE_BORDER_META[border].blurb}</p>
+              </div>
+            )}
+
+            {tab === 'words' && (
+              <div className="mt-5">
+                <label className="wz-label" htmlFor="wz-intro">A line of welcome <span className="normal-case tracking-normal font-normal text-white/50">(optional)</span></label>
+                <textarea
+                  id="wz-intro"
+                  className="wz-input !min-h-[88px] py-3 !text-[16px] resize-none"
+                  maxLength={200}
+                  placeholder="Snap a photo, try on a look and watch it land on the live wall."
+                  value={d.intro}
+                  onChange={(e) => setD((p) => ({ ...p, intro: e.target.value }))}
+                />
+                <p className="mt-1 text-right text-[12px] text-white/50">{d.intro.length}/200</p>
+              </div>
+            )}
           </section>
+  );
+  const preview = <WelcomePreview scene={d.scene} copy={previewCopy} url={`${origin}/e/${ev.slug}/welcome`} />;
 
-          <div className="lg:hidden"><WelcomePreview scene={d.scene} copy={previewCopy} url={`${origin}/e/${ev.slug}/welcome`} /></div>
-
-          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter" style={{ animationDelay: '60ms' }}>
-            <p className="wz-label">Border</p>
-            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Border">
-              {SCENE_PAGE_BORDERS.map((b) => (
-                <button key={b} type="button" role="radio" aria-checked={border === b} className="wz-choice !min-h-11 !py-2" onClick={() => setBorder(b)} title={SCENE_PAGE_BORDER_META[b].blurb}>
-                  <span className="text-[14px] font-medium">{SCENE_PAGE_BORDER_META[b].label}</span>
-                </button>
-              ))}
-            </div>
-            <label className="wz-label mt-6" htmlFor="wz-intro">A line of welcome <span className="normal-case tracking-normal font-normal text-white/50">(optional)</span></label>
-            <textarea
-              id="wz-intro"
-              className="wz-input !min-h-[88px] py-3 !text-[16px] resize-none"
-              maxLength={200}
-              placeholder="Snap a photo, try on a look and watch it land on the live wall."
-              value={d.intro}
-              onChange={(e) => setD((p) => ({ ...p, intro: e.target.value }))}
-            />
-            <p className="mt-1 text-right text-[12px] text-white/50">{d.intro.length}/200</p>
-          </section>
-        </div>
-
-        <div className="hidden lg:block lg:sticky lg:top-[76px] wz-enter" style={{ animationDelay: '80ms' }}>
-          <WelcomePreview scene={d.scene} copy={previewCopy} url={`${origin}/e/${ev.slug}/welcome`} />
-        </div>
-      </div>
-    </>
+  if (!desktop) return <PreviewSheet label={stepDef('invite').title} preview={preview}>{card}</PreviewSheet>;
+  return (
+    <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-6 xl:gap-7 items-start">
+      <div className="flex flex-col gap-5 min-w-0">{card}</div>
+      <div className="lg:sticky lg:top-[76px] wz-enter" style={{ animationDelay: '80ms' }}>{preview}</div>
+    </div>
   );
 }

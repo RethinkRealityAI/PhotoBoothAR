@@ -52,6 +52,8 @@ import {
 import type { WallSettings } from '../../../../types';
 import { wallImageProblem } from '../../../../components/admin/WallDesignPanel';
 import { StepHeading } from '../chrome';
+import PreviewSheet, { useIsDesktop } from '../PreviewSheet';
+import { stepDef } from '../../../../lib/wizard/wizardModel';
 import { useWizard } from '../wizardContext';
 import { SAMPLE_SHOTS } from '../WelcomePreview';
 import LiveWallFrame from '../LiveWallFrame';
@@ -64,11 +66,12 @@ interface WallDraft {
   featuredSpotlight: boolean;
 }
 
-type Tab = 'layout' | 'background' | 'photos' | 'arrival' | 'screen';
+type Tab = 'style' | 'layout' | 'background' | 'photos' | 'arrival' | 'screen';
 const TABS: { id: Tab; label: string; short?: string }[] = [
+  { id: 'style', label: 'Styles', short: 'Style' },
   { id: 'layout', label: 'Layout' },
   { id: 'background', label: 'Background', short: 'Backdrop' },
-  { id: 'photos', label: 'Photos' },
+  { id: 'photos', label: 'Photos', short: 'Cards' },
   { id: 'arrival', label: 'Arrival' },
   { id: 'screen', label: 'Screen' },
 ];
@@ -241,7 +244,8 @@ export default function BoothStep() {
   const { ev } = w;
   const [draft, setDraft] = useState<WallDraft | null>(null);
   const [failed, setFailed] = useState(false);
-  const [tab, setTab] = useState<Tab>('layout');
+  const [tab, setTab] = useState<Tab>('style');
+  const desktop = useIsDesktop();
   const [beamSignal, setBeamSignal] = useState(0);
   const [upload, setUpload] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const fileInput = useRef<HTMLInputElement>(null);
@@ -356,10 +360,29 @@ export default function BoothStep() {
   const panel = (): ReactNode => {
     if (!draft || !look || !b) return null;
     switch (tab) {
+      case 'style':
+        return (
+          <Section>
+            <div className="wz-styles" role="radiogroup" aria-label="Live wall style">
+              {WALL_STYLES.map((s) => {
+                const styled = applyWallStyle(look, s);
+                return (
+                  <button key={s.id} type="button" role="radio" aria-checked={current?.id === s.id} className="wz-tile" title={s.blurb} onClick={() => setLook(applyWallStyle(look, s))}>
+                    <span className="wz-tile-art aspect-[4/3]"><MiniWall look={styled} eventBg={eventScene.background} eventTone={eventScene.tone} accent={eventScene.accent} /></span>
+                    <span className="wz-tile-name">{s.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="-mt-2 text-[13px] text-white/70">
+              {current ? current.blurb : 'Your own mix. Pick a style to start again, or keep tuning in the other tabs.'}
+            </p>
+          </Section>
+        );
       case 'layout':
         return (
           <Section>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5" role="radiogroup" aria-label="Live wall layout">
+            <div className="wz-sq-5 grid grid-cols-3 sm:grid-cols-5 gap-2.5" role="radiogroup" aria-label="Live wall layout">
               {WALL_LAYOUTS.map((l) => (
                 <button key={l} type="button" role="radio" aria-checked={look.layout === l} className="wz-tile" onClick={() => patchLook({ layout: l })} title={WALL_LAYOUT_META[l].blurb}>
                   <span className="wz-tile-art aspect-video flex"><LayoutGlyph layout={l} /></span>
@@ -379,7 +402,7 @@ export default function BoothStep() {
       case 'background':
         return (
           <Section>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-label="Background">
+            <div className="wz-sq grid grid-cols-4 gap-2.5" role="radiogroup" aria-label="Background">
               {([
                 ['event', 'Welcome page'],
                 ['gradient', 'Gradient'],
@@ -391,7 +414,7 @@ export default function BoothStep() {
                   type="button"
                   role="radio"
                   aria-checked={b.kind === kind}
-                  className="wz-pill justify-center"
+                  className="wz-tile"
                   onClick={() => {
                     if (kind === 'event') patchLook({ backdrop: { kind: 'event' } });
                     else if (kind === 'gradient') patchLook({ backdrop: { kind: 'gradient', paletteId: b.kind === 'gradient' ? b.paletteId : 'dusk' } });
@@ -399,7 +422,10 @@ export default function BoothStep() {
                     else if (b.kind !== 'image') fileInput.current?.click();
                   }}
                 >
-                  {label}
+                  <span className="wz-tile-art aspect-[4/3] grid place-items-center" style={{ background: kind === 'event' ? eventScene.background : kind === 'gradient' ? paletteCss(paletteById(b.kind === 'gradient' ? b.paletteId : 'dusk') ?? SCENE_PALETTES[0]) : kind === 'color' ? (b.kind === 'color' ? b.color : '#0B0B12') : b.kind === 'image' ? `center / cover no-repeat url("${b.url}")` : 'rgba(255,255,255,0.08)' }}>
+                    {kind === 'image' && b.kind !== 'image' && <ImageUp className="h-5 w-5 text-white/85" aria-hidden />}
+                  </span>
+                  <span className="wz-tile-name">{label}</span>
                 </button>
               ))}
             </div>
@@ -452,7 +478,7 @@ export default function BoothStep() {
       case 'photos':
         return (
           <Section>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5" role="radiogroup" aria-label="Photo cards">
+            <div className="wz-sq-5 grid grid-cols-3 sm:grid-cols-5 gap-2.5" role="radiogroup" aria-label="Photo cards">
               {WALL_CARD_STYLES.map((c) => (
                 <button key={c} type="button" role="radio" aria-checked={look.card === c} className="wz-tile" onClick={() => patchLook({ card: c })} title={WALL_CARD_META[c].blurb}>
                   <span className="wz-tile-art aspect-[4/3]"><MiniWall look={{ ...look, card: c }} eventBg={eventScene.background} eventTone={eventScene.tone} accent={eventScene.accent} /></span>
@@ -514,54 +540,23 @@ export default function BoothStep() {
     }
   };
 
-  return (
+  const controls = (
+    <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
+      <StepHeading step="booth" />
+      <div className="wz-tabs wz-tabs-even wz-tabs-6 mb-5" role="tablist" aria-label="Live wall settings">
+        {TABS.map((t) => (
+          <button key={t.id} type="button" role="tab" id={`wall-tab-${t.id}`} aria-controls="wall-tabpanel" aria-selected={tab === t.id} className="wz-tab" onClick={() => setTab(t.id)}>
+            {t.short ? <><span className="sm:hidden">{t.short}</span><span className="hidden sm:inline">{t.label}</span></> : t.label}
+          </button>
+        ))}
+      </div>
+      <div id="wall-tabpanel" role="tabpanel" aria-labelledby={`wall-tab-${tab}`}>
+        {draft ? panel() : <div className="h-40 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" /></div>}
+      </div>
+    </section>
+  );
+  const previewNode = (
     <>
-      {failed && (
-        <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">
-          We couldn’t load your live wall settings. Check your connection, then come back to this step. You can carry on meanwhile.
-        </p>
-      )}
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-6 xl:gap-7 items-start">
-        <div className="flex flex-col gap-5 min-w-0">
-          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
-            <StepHeading step="booth" />
-            {!draft || !look ? (
-              <div className="h-40 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" /></div>
-            ) : (
-              <>
-                <p className="wz-label">Style</p>
-                <div className="wz-styles" role="radiogroup" aria-label="Live wall style">
-                  {WALL_STYLES.map((s) => {
-                    const styled = applyWallStyle(look, s);
-                    return (
-                      <button key={s.id} type="button" role="radio" aria-checked={current?.id === s.id} className="wz-tile" title={s.blurb} onClick={() => setLook(applyWallStyle(look, s))}>
-                        <span className="wz-tile-art aspect-[4/3]"><MiniWall look={styled} eventBg={eventScene.background} eventTone={eventScene.tone} accent={eventScene.accent} /></span>
-                        <span className="wz-tile-name">{s.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="mt-2 text-[13px] text-white/70">
-                  {current ? current.blurb : 'Your own mix. Pick a style to start again, or keep tuning below.'}
-                </p>
-              </>
-            )}
-          </section>
-          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter" style={{ animationDelay: '60ms' }}>
-            <p className="wz-label">Make it yours</p>
-            <div className="wz-tabs wz-tabs-even mb-5" role="tablist" aria-label="Live wall settings">
-              {TABS.map((t) => (
-                <button key={t.id} type="button" role="tab" id={`wall-tab-${t.id}`} aria-controls="wall-tabpanel" aria-selected={tab === t.id} className="wz-tab" onClick={() => setTab(t.id)}>
-                  {t.short ? <><span className="sm:hidden">{t.short}</span><span className="hidden sm:inline">{t.label}</span></> : t.label}
-                </button>
-              ))}
-            </div>
-            <div id="wall-tabpanel" role="tabpanel" aria-labelledby={`wall-tab-${tab}`}>
-              {draft ? panel() : <div className="h-28 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" /></div>}
-            </div>
-          </section>
-        </div>
-        <div className="order-first lg:order-none lg:sticky lg:top-[76px] flex flex-col gap-3 wz-enter" style={{ animationDelay: '80ms' }}>
           {previewSettings ? (
             <LiveWallFrame slug={ev.slug} settings={previewSettings} beamSignal={beamSignal} />
           ) : (
@@ -573,8 +568,24 @@ export default function BoothStep() {
               <Sparkles className="h-4 w-4" aria-hidden /> Beam a photo
             </button>
           </div>
+    </>
+  );
+
+  return (
+    <>
+      {failed && (
+        <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">
+          We couldn’t load your live wall settings. Check your connection, then come back to this step. You can carry on meanwhile.
+        </p>
+      )}
+      {desktop ? (
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-6 xl:gap-7 items-start">
+          <div className="flex flex-col gap-5 min-w-0">{controls}</div>
+          <div className="lg:sticky lg:top-[76px] flex flex-col gap-3 wz-enter" style={{ animationDelay: '80ms' }}>{previewNode}</div>
         </div>
-      </div>
+      ) : (
+        <PreviewSheet label={stepDef('booth').title} preview={<div className="flex flex-col gap-3">{previewNode}</div>}>{controls}</PreviewSheet>
+      )}
     </>
   );
 }
