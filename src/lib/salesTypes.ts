@@ -34,6 +34,9 @@ export const MARKETS: readonly { id: Market; label: string; currency: 'USD' | 'N
  *  and the CRM inside it has its own sign-in + RLS. Not linked anywhere, and
  *  served with X-Robots-Tag: noindex (netlify.toml). Rotate by changing it. */
 export const SALES_HUB_PATH = '/hub/p7m2k9qx';
+/** The CRM's own full page, under the hub path so the same noindex header and
+ *  the same rotation cover it. Sign-in + RLS still decide who sees data. */
+export const SALES_CRM_PATH = `${SALES_HUB_PATH}/crm`;
 /** Prospect-facing deck route. `/pitch/<deck slug>?ref=<rep code>`. */
 export const PITCH_BASE = '/pitch';
 
