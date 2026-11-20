@@ -6,7 +6,8 @@
  *
  * Each page is a pane of liquid glass pressed with letterpress linework (see
  * cardOrnament.tsx) that a slow light pulse runs along. The cover is the
- * people in the card fanned in front of a beam of light, the title set big in
+ * lead photo in an arched window ringed with travelling light (the face the
+ * reveals land on, one step richer), the title set big in
  * the display face; contributions get their photo or video large, the message
  * set by its length, and a signature; written-only notes are frosted paper
  * you can hold to warm; the close names everyone under a scratch-off foil.
@@ -20,10 +21,11 @@ import { AnimatePresence, motion } from 'motion/react';
 import { clampIndex, pageCount, type CardTemplateProps } from './types';
 import type { CardViewContribution } from '../../../lib/cards';
 import CardOrnament from './cardOrnament';
+import { ShimmerRim } from './cardChrome';
 import {
   ClosingContent,
   ContributionMedia,
-  CoverHero,
+  CoverArch,
   CoverTitle,
   Message,
   NoteCard,
@@ -47,7 +49,7 @@ function PageShell({
   sheen?: boolean;
 }) {
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0 rounded-[2rem]">
       <div className="liquid-glass h-full w-full overflow-hidden rounded-[2rem]">
         {sheen && <TiltSheen reducedMotion={reducedMotion} />}
         <CardOrnament density={density} reducedMotion={reducedMotion} />
@@ -58,6 +60,8 @@ function PageShell({
           <div className="my-auto flex w-full flex-col items-center">{children}</div>
         </div>
       </div>
+      {/* The signature rim: light travelling round the page's edge. */}
+      <ShimmerRim radius="2rem" width={1.5} lapS={9} reducedMotion={reducedMotion} />
     </div>
   );
 }
@@ -138,10 +142,10 @@ export default function Storybook({
             <PageShell density={contribution ? 'light' : 'full'} reducedMotion={reducedMotion} sheen={isCover}>
               {isCover && (
                 <>
-                  <CoverHero contributions={contributions} reducedMotion={reducedMotion} className="mb-10 mt-2" />
+                  <CoverArch card={card} contributions={contributions} reducedMotion={reducedMotion} className="mb-8 mt-3" />
                   <CoverTitle card={card} contributions={contributions} />
-                  <div className="mt-8">
-                    <OpenButton onClick={onNext} />
+                  <div className="mt-7">
+                    <OpenButton onClick={onNext} reducedMotion={reducedMotion} />
                   </div>
                 </>
               )}

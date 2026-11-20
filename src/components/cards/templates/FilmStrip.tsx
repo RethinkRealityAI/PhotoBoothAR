@@ -16,10 +16,11 @@
 import { useEffect, useRef } from 'react';
 import { clampIndex, type CardTemplateProps } from './types';
 import CardOrnament from './cardOrnament';
+import { ShimmerRim } from './cardChrome';
 import {
   ClosingContent,
   ContributionMedia,
-  CoverHero,
+  CoverArch,
   CoverTitle,
   Message,
   NoteCard,
@@ -130,7 +131,7 @@ export default function FilmStrip({
   return (
     <div className="relative flex h-full w-full flex-col">
       <style>{'@keyframes bw-reel-run{from{background-position:0 -30%}to{background-position:0 130%}}'}</style>
-      <div className="relative min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+      <div className="relative min-h-0 flex-1 overflow-y-auto p-1.5" style={{ scrollbarWidth: 'none' }}>
         <div
           className="relative mx-auto min-h-full max-w-[30rem] rounded-[1.8rem] px-9 py-7"
           style={{
@@ -140,6 +141,7 @@ export default function FilmStrip({
             WebkitBackdropFilter: 'blur(16px) saturate(125%)',
           }}
         >
+          <ShimmerRim radius="1.8rem" lapS={11} reducedMotion={reducedMotion} />
           <Rail side="left" reducedMotion={reducedMotion} />
           <Rail side="right" reducedMotion={reducedMotion} />
 
@@ -147,10 +149,16 @@ export default function FilmStrip({
             {/* Cover frame (index 0) */}
             <Frame active={active === 0} reducedMotion={reducedMotion} frameRef={setFrameRef(0)} ornament sheen>
               <div className="py-10">
-                <CoverHero contributions={contributions} reducedMotion={reducedMotion} className="mb-9" />
+                <CoverArch
+                  card={card}
+                  contributions={contributions}
+                  reducedMotion={reducedMotion}
+                  width="clamp(150px, 42vw, 220px)"
+                  className="mb-8"
+                />
                 <CoverTitle card={card} contributions={contributions} size="md" />
                 <div className="mt-7">
-                  <OpenButton onClick={onNext} label="Start the reel" />
+                  <OpenButton onClick={onNext} label="Start the reel" reducedMotion={reducedMotion} />
                 </div>
               </div>
             </Frame>

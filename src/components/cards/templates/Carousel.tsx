@@ -24,6 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import PhotoCarousel, { hasWebGL, type CarouselItem } from '../../carousel/PhotoCarousel';
 import { clampIndex, type CardTemplateProps } from './types';
 import Storybook from './Storybook';
+import { ShimmerRim } from './cardChrome';
 import { drawNote, fontsReady, readCardPalette } from './noteCanvas';
 import {
   CardVideo,
@@ -108,6 +109,7 @@ export default function Carousel(props: CardTemplateProps) {
         )}
         {isEnd && (
           <div className="liquid-glass pointer-events-auto mt-2 w-full max-w-md rounded-[1.8rem] px-6 py-8">
+            <ShimmerRim radius="1.8rem" lapS={9} reducedMotion={reducedMotion} />
             <ClosingContent card={card} contributions={contributions} scratch={interactive} />
           </div>
         )}
@@ -116,13 +118,14 @@ export default function Carousel(props: CardTemplateProps) {
         <div className="flex w-full flex-col items-center gap-3">
           {isCover && (
             <div className="pointer-events-auto">
-              <OpenButton onClick={onNext} label="Turn the ring" />
+              <OpenButton onClick={onNext} label="Turn the ring" reducedMotion={reducedMotion} />
             </div>
           )}
           {/* A written note is already painted on its card in full — a
               caption would only repeat it over the card's own words. */}
           {active && active.mediaType !== 'text' && (
             <div className="liquid-glass pointer-events-auto w-full max-w-md rounded-[1.6rem] px-5 py-4">
+              <ShimmerRim radius="1.6rem" lapS={9} reducedMotion={reducedMotion} />
               {active.mediaType === 'video' && active.url && (
                 <CardVideo c={active} compact className="mb-4 aspect-video w-full rounded-2xl" />
               )}

@@ -30,7 +30,6 @@ import {
   closingHeadline,
   contributionCountLabel,
   contributorInitials,
-  coverArc,
   coverPicks,
   coverRecipientLine,
   formatNameList,
@@ -38,6 +37,8 @@ import {
   polaroidPlacement,
   uniqueContributors,
 } from '../../../lib/cardTemplates';
+import { cardMonogram } from '../../../lib/cardPresentation';
+import { ShimmerRim } from './cardChrome';
 
 /* ------------------------------------------------------------------ */
 /* Gestures                                                            */
@@ -255,8 +256,10 @@ export function CardVideo({
           type="button"
           onClick={toggle}
           aria-label={state === 'ended' ? 'Play the video again' : 'Play the video with sound'}
-          className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-brand-fg transition hover:scale-[1.04] active:scale-95"
+          className="bw-cta absolute left-1/2 top-1/2 flex items-center justify-center rounded-full text-brand-fg"
           style={{
+            marginLeft: -big / 2,
+            marginTop: -big / 2,
             width: big,
             height: big,
             background: 'rgba(255,255,255,0.16)',
@@ -266,10 +269,11 @@ export function CardVideo({
               'inset 0 0 0 1px rgba(255,255,255,0.45), inset 0 1px 0 rgba(255,255,255,0.6), 0 0 36px -6px rgba(var(--accent-rgb),0.85), 0 14px 30px -12px rgba(10,8,40,0.7)',
           }}
         >
+          <ShimmerRim radius="9999px" lapS={5} glow={false} />
           {state === 'ended' ? (
-            <RotateCcw className="h-6 w-6" aria-hidden />
+            <RotateCcw className="relative h-6 w-6" aria-hidden />
           ) : (
-            <Play className="h-7 w-7 translate-x-[2px]" fill="currentColor" aria-hidden />
+            <Play className="relative h-7 w-7 translate-x-[2px]" fill="currentColor" aria-hidden />
           )}
         </button>
       )}
@@ -746,52 +750,114 @@ function CoverTile({ c }: { c: CardViewContribution }) {
   );
 }
 
+/** A semicircular top over a softly rounded base, for a 3:4 window. */
+export const ARCH_RADIUS = '50% 50% 22px 22px / 37.5% 37.5% 22px 22px';
+
 /**
- * The cover's hero: the people in the card, fanned on an arc in front of a
- * beam of light. `size` is the centre tile's width.
+ * The cover's hero, picking up where the reveals leave off: the lead photo
+ * in an arched window with the shimmer rim running round it and a warm spark
+ * at its crown, two more of the people in the card tucked behind its
+ * shoulders, all in front of the beam. Without a photo, the arch frames the
+ * recipient's monogram on frosted paper.
  */
-export function CoverHero({
+export function CoverArch({
+  card,
   contributions,
   reducedMotion,
-  tileWidth = 'clamp(84px, 24vw, 132px)',
-  max = 5,
+  width = 'clamp(176px, 50vw, 248px)',
   className = '',
 }: {
+  card: CardViewData;
   contributions: readonly CardViewContribution[];
   reducedMotion: boolean;
-  tileWidth?: string;
-  max?: number;
+  width?: string;
   className?: string;
 }) {
-  const picks = coverPicks(contributions, max);
-  const arc = coverArc(picks.length);
+  const picks = coverPicks(contributions, 3);
+  const lead = picks.find((c) => c.url !== null && c.mediaType !== 'text') ?? null;
+  const shoulders = picks.filter((c) => c !== lead).slice(0, 2);
+  const spring = (delay: number) =>
+    reducedMotion ? { duration: 0 } : ({ type: 'spring', stiffness: 130, damping: 18, delay } as const);
+
   return (
-    <div className={`relative flex w-full items-center justify-center ${className}`}>
-      <BeamGlow reducedMotion={reducedMotion} className="inset-x-[8%] -inset-y-[18%]" />
-      <div className="relative" style={{ width: tileWidth, aspectRatio: '3 / 4' }}>
-        {picks.map((c, i) => {
-          const s = arc[i];
+    <div className={`relative flex w-full justify-center ${className}`}>
+      <BeamGlow reducedMotion={reducedMotion} className="inset-x-[4%] -inset-y-[14%]" />
+      <div className="relative" style={{ width, aspectRatio: '3 / 4' }}>
+        {shoulders.map((c, i) => {
+          const left = i === 0;
           return (
             <motion.div
               key={c.id}
-              className="absolute inset-0 overflow-hidden rounded-[18px]"
+              className="absolute top-[20%] h-[64%] overflow-hidden rounded-[16px]"
               style={{
-                zIndex: s.zIndex,
+                aspectRatio: '3 / 4',
+                [left ? 'left' : 'right']: '-24%',
                 boxShadow:
-                  '0 0 0 1px rgba(255,255,255,0.35), inset 0 1px 0 rgba(255,255,255,0.4), 0 18px 40px -16px rgba(10,8,40,0.85)',
+                  '0 0 0 1px rgba(255,255,255,0.32), inset 0 1px 0 rgba(255,255,255,0.4), 0 18px 40px -16px rgba(10,8,40,0.85)',
               }}
-              initial={reducedMotion ? false : { opacity: 0, y: 24, rotate: 0, x: '0%', scale: 0.9 }}
-              animate={{ opacity: 1, y: `${s.offsetYPct}%`, x: `${s.offsetXPct}%`, rotate: s.rotationDeg, scale: s.scale }}
-              transition={
-                reducedMotion
-                  ? { duration: 0 }
-                  : { type: 'spring', stiffness: 140, damping: 18, delay: 0.08 + Math.abs(i - (picks.length - 1) / 2) * 0.08 }
-              }
+              initial={reducedMotion ? false : { opacity: 0, x: left ? '30%' : '-30%', rotate: 0 }}
+              animate={{ opacity: 0.92, x: '0%', rotate: left ? -9 : 9 }}
+              transition={spring(0.22 + i * 0.06)}
             >
               <CoverTile c={c} />
+              <div className="absolute inset-0 bg-[rgba(16,12,60,0.18)]" aria-hidden />
             </motion.div>
           );
         })}
+
+        <motion.div
+          className="absolute inset-0"
+          style={{ borderRadius: ARCH_RADIUS }}
+          initial={reducedMotion ? false : { opacity: 0, y: 18, scale: 0.94 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={spring(0.05)}
+        >
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{
+              borderRadius: ARCH_RADIUS,
+              boxShadow: '0 26px 60px -22px rgba(10,8,40,0.9), 0 0 60px -18px rgba(var(--accent-rgb),0.75)',
+            }}
+          >
+            {lead?.mediaType === 'photo' ? (
+              <div className="absolute inset-0">
+                <CardPhoto c={lead} reducedMotion={reducedMotion} className="h-full w-full" />
+              </div>
+            ) : lead ? (
+              <CoverTile c={lead} />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center" style={NOTE_PAPER}>
+                <span
+                  className="font-serif text-[clamp(56px,16vw,88px)] font-semibold leading-none tracking-[-0.04em]"
+                  style={{ color: 'var(--color-accent)', textShadow: '0 0 30px rgba(var(--accent-rgb),0.5)' }}
+                  aria-hidden
+                >
+                  {cardMonogram(card.recipientName, card.title)}
+                </span>
+              </div>
+            )}
+            {/* Depth: light from the crown, shade at the sill. */}
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background:
+                  'linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 28%, transparent 70%, rgba(10,8,40,0.38) 100%)',
+              }}
+              aria-hidden
+            />
+            <TiltSheen reducedMotion={reducedMotion} />
+          </div>
+          <ShimmerRim radius={ARCH_RADIUS} width={2} lapS={7} base={0.34} reducedMotion={reducedMotion} />
+          {/* The warm spark at the arch's crown. */}
+          <svg
+            viewBox="-10 -10 20 20"
+            className="pointer-events-none absolute left-1/2 top-0 h-6 w-6 -translate-x-1/2 -translate-y-1/2"
+            aria-hidden
+          >
+            <circle r="9" fill="#FFC56B" fillOpacity="0.22" />
+            <path d="M0-8.5L1.7-1.7L8.5 0L1.7 1.7L0 8.5L-1.7 1.7L-8.5 0L-1.7-1.7Z" fill="#FFE2B0" />
+          </svg>
+        </motion.div>
       </div>
     </div>
   );
@@ -829,16 +895,34 @@ export function CoverTitle({
 }
 
 /** The one call to action on a cover: open it. */
-export function OpenButton({ onClick, label = 'Open your card' }: { onClick?: () => void; label?: string }) {
+export function OpenButton({
+  onClick,
+  label = 'Open your card',
+  reducedMotion = false,
+}: {
+  onClick?: () => void;
+  label?: string;
+  reducedMotion?: boolean;
+}) {
   if (!onClick) return null;
   return (
     <button
       type="button"
       onClick={onClick}
-      className="liquid-glass inline-flex min-h-[48px] items-center gap-2 rounded-full px-6 text-[15px] font-medium text-brand-fg transition hover:brightness-110 active:scale-[0.98]"
+      className="bw-cta liquid-glass inline-flex min-h-[52px] items-center gap-3 rounded-full py-1.5 pl-6 pr-1.5 text-[15px] font-medium text-brand-fg"
     >
-      {label}
-      <ChevronRight className="h-4 w-4" aria-hidden />
+      <ShimmerRim radius="9999px" lapS={5.5} reducedMotion={reducedMotion} />
+      <span className="relative">{label}</span>
+      <span
+        className="relative flex h-10 w-10 items-center justify-center rounded-full"
+        style={{
+          background: 'rgba(var(--accent-rgb),0.3)',
+          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.45), inset 0 1px 0 rgba(255,255,255,0.5), 0 0 18px -2px rgba(var(--accent-rgb),0.95)',
+        }}
+        aria-hidden
+      >
+        <ChevronRight className="h-4 w-4" />
+      </span>
     </button>
   );
 }
@@ -923,7 +1007,28 @@ export function ClosingContent({
 /* ------------------------------------------------------------------ */
 
 const GLASS_ROUND =
-  'liquid-glass flex h-12 w-12 items-center justify-center rounded-full text-brand-fg transition hover:brightness-110 active:scale-95 disabled:pointer-events-none disabled:opacity-30';
+  'bw-cta liquid-glass flex h-12 w-12 items-center justify-center rounded-full text-brand-fg disabled:pointer-events-none disabled:opacity-30';
+
+/** A glass arrow: still until hovered, focused or pressed, then its rim lights. */
+function GlassArrow({
+  dir,
+  onClick,
+  disabled,
+  label,
+}: {
+  dir: 'prev' | 'next';
+  onClick: () => void;
+  disabled: boolean;
+  label: string;
+}) {
+  const Icon = dir === 'prev' ? ChevronLeft : ChevronRight;
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} aria-label={label} className={GLASS_ROUND}>
+      <ShimmerRim radius="9999px" trigger="hover" lapS={3.2} base={0.28} />
+      <Icon className="relative h-5 w-5" aria-hidden />
+    </button>
+  );
+}
 
 /** Glass arrows and a progress row. More than 12 pages → a counter. */
 export function Pager({
@@ -943,11 +1048,7 @@ export function Pager({
 }) {
   return (
     <nav className={`flex items-center justify-center gap-4 ${className}`} aria-label="Card pages">
-      {onPrev && (
-        <button type="button" onClick={onPrev} disabled={page === 0} aria-label={`Previous ${noun}`} className={GLASS_ROUND}>
-          <ChevronLeft className="h-5 w-5" aria-hidden />
-        </button>
-      )}
+      {onPrev && <GlassArrow dir="prev" onClick={onPrev} disabled={page === 0} label={`Previous ${noun}`} />}
       {total <= 12 ? (
         <div className="flex items-center gap-1.5" aria-label={`${noun} ${page + 1} of ${total}`} role="img">
           {Array.from({ length: total }, (_, i) => (
@@ -971,17 +1072,7 @@ export function Pager({
           {page + 1} / {total}
         </span>
       )}
-      {onNext && (
-        <button
-          type="button"
-          onClick={onNext}
-          disabled={page === total - 1}
-          aria-label={`Next ${noun}`}
-          className={GLASS_ROUND}
-        >
-          <ChevronRight className="h-5 w-5" aria-hidden />
-        </button>
-      )}
+      {onNext && <GlassArrow dir="next" onClick={onNext} disabled={page === total - 1} label={`Next ${noun}`} />}
     </nav>
   );
 }

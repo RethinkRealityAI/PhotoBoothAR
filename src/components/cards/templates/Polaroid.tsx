@@ -21,12 +21,14 @@ import { AnimatePresence, motion } from 'motion/react';
 import { clampIndex, pageCount, type CardTemplateProps } from './types';
 import {
   polaroidEntrance,
+  coverPicks,
   polaroidFan,
   polaroidPlacement,
   type PolaroidPlacement,
 } from '../../../lib/cardTemplates';
 import type { CardViewContribution } from '../../../lib/cards';
 import CardOrnament from './cardOrnament';
+import { ShimmerRim } from './cardChrome';
 import {
   BeamGlow,
   CardPhoto,
@@ -147,13 +149,27 @@ export default function Polaroid({
 
   // A cover is a stack of PHOTOS: prints with media come first, and written
   // notes only fill the fan when there are not enough pictures to fill it.
-  const withMedia = contributions.filter((c) => Boolean(c.url));
-  const fanSource = (withMedia.length > 0 ? withMedia : contributions).slice(0, COVER_FAN_MAX);
+  // Photos lead (a video's first frame is often dark), and the best pick
+  // goes in the middle of the fan, where it stands largest.
+  const picks = coverPicks(contributions, COVER_FAN_MAX);
+  const fanSource = picks.length === 3 ? [picks[1], picks[0], picks[2]] : picks;
   const fan = polaroidFan(fanSource.length > 0 ? fanSource.map((c) => c.id) : [card.title]);
 
   return (
     <div className="relative flex h-full w-full flex-col items-center">
       <div className="relative w-full max-w-[30rem] min-h-0 flex-1 py-2" style={{ touchAction: 'pan-y' }} {...swipe}>
+        {/* The light-table the prints are laid on, ringed with the rim. */}
+        <div
+          className="pointer-events-none absolute inset-x-0 inset-y-2 rounded-[2rem]"
+          style={{
+            background:
+              'radial-gradient(90% 60% at 50% 38%, rgba(var(--accent-rgb),0.16), transparent 70%), rgba(255,255,255,0.035)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 30px 80px -40px rgba(10,8,40,0.9)',
+          }}
+          aria-hidden
+        >
+          <ShimmerRim radius="2rem" lapS={10} reducedMotion={reducedMotion} />
+        </div>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={page}
@@ -168,7 +184,7 @@ export default function Polaroid({
               {isCover && (
                 <>
                   {/* Fanned stack of the first prints, in front of a beam. */}
-                  <div className="relative mb-12 mt-2 h-[13.5rem] w-full shrink-0">
+                  <div className="relative mb-12 mt-4 h-[15.5rem] w-full shrink-0">
                     <BeamGlow reducedMotion={reducedMotion} className="inset-x-[6%] -inset-y-[10%]" />
                     {fan.map((placement, i) => {
                       const c = fanSource[i];
@@ -179,7 +195,7 @@ export default function Polaroid({
                           placement={placement}
                           centered
                           zIndex={centre ? 3 : 1}
-                          className="absolute left-1/2 top-1/2 w-[8.6rem] p-2.5 pb-4"
+                          className={`absolute left-1/2 top-1/2 p-2.5 pb-4 ${centre ? 'w-[10.4rem]' : 'w-[9rem]'}`}
                         >
                           <Window>
                             <FanTile c={c} />
@@ -194,7 +210,7 @@ export default function Polaroid({
                   </div>
                   <CoverTitle card={card} contributions={contributions} />
                   <div className="mt-8">
-                    <OpenButton onClick={onNext} label="Look through the prints" />
+                    <OpenButton onClick={onNext} label="Look through the prints" reducedMotion={reducedMotion} />
                   </div>
                 </>
               )}
@@ -228,8 +244,9 @@ export default function Polaroid({
               )}
 
               {isEnd && (
-                <div className="relative w-full overflow-hidden rounded-[1.8rem] px-10 pb-[5.5rem] pt-[5.5rem]">
+                <div className="relative w-full rounded-[1.8rem] px-10 pb-[5.5rem] pt-[5.5rem]">
                   <div className="liquid-glass absolute inset-0 rounded-[1.8rem]" aria-hidden />
+                  <ShimmerRim radius="1.8rem" lapS={8} phaseS={-3} reducedMotion={reducedMotion} />
                   <CardOrnament density="full" reducedMotion={reducedMotion} />
                   <div className="relative">
                     <ClosingContent card={card} contributions={contributions} scratch={interactive} />

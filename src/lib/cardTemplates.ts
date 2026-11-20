@@ -541,3 +541,103 @@ export function overviewDistance(radius: number, aspect: number, fovDeg: number)
   const fov = Math.min(v, hfov);
   return round2((Math.max(0, radius) * 1.15) / Math.sin(fov / 2));
 }
+
+/* ── The field behind the card ───────────────────────────────────────── */
+
+/** One soft out-of-focus light. Positions and radius in % of the field. */
+export interface FieldBokeh {
+  x: number;
+  y: number;
+  r: number;
+  opacity: number;
+  tint: 'accent' | 'warm' | 'white';
+  /** Seconds for one slow drift loop, and where in it this light starts. */
+  driftS: number;
+  delayS: number;
+}
+
+/** One faint star of the linework. Positions in % of the field, r in px. */
+export interface FieldStar {
+  x: number;
+  y: number;
+  r: number;
+  twinkleDelayS: number;
+}
+
+export interface CardFieldLayout {
+  bokeh: FieldBokeh[];
+  stars: FieldStar[];
+  /** Constellation linework: index pairs into `stars`. */
+  links: Array<[number, number]>;
+}
+
+export const FIELD_BOKEH_COUNT = 14;
+export const FIELD_STAR_COUNT = 22;
+/** Longest constellation line, in % of the field. */
+export const FIELD_LINK_MAX = 22;
+
+/**
+ * The designed space behind a card: a few large soft lights and a sparse
+ * star map joined by hairlines. Seeded by the card (its public id), so every
+ * card has its own sky but the same card always gets the same one — and a
+ * frame render matches the live page.
+ *
+ * Stars keep to the outer thirds, where the card does not stand: the
+ * linework frames the card instead of running behind its copy.
+ */
+export function cardFieldLayout(seed: string): CardFieldLayout {
+  const s = seed === '' ? 'beamwall' : seed;
+  const tints: FieldBokeh['tint'][] = ['accent', 'accent', 'white', 'warm'];
+  const bokeh: FieldBokeh[] = Array.from({ length: FIELD_BOKEH_COUNT }, (_, i) => {
+    const id = `${s}:b${i}`;
+    return {
+      x: round2(unit(id, 31) * 100),
+      y: round2(unit(id, 32) * 100),
+      r: round2(3 + unit(id, 33) * 11),
+      opacity: round2(0.12 + unit(id, 34) * 0.28),
+      tint: tints[Math.floor(unit(id, 35) * tints.length)],
+      driftS: round2(18 + unit(id, 36) * 22),
+      delayS: round2(-unit(id, 37) * 40),
+    };
+  });
+
+  const stars: FieldStar[] = Array.from({ length: FIELD_STAR_COUNT }, (_, i) => {
+    const id = `${s}:s${i}`;
+    // Alternate sides; within a side, keep to the outer 30% of the width.
+    const left = i % 2 === 0;
+    const band = unit(id, 41) * 30;
+    return {
+      x: round2(left ? 2 + band : 98 - band),
+      y: round2(3 + unit(id, 42) * 94),
+      r: round2(0.6 + unit(id, 43) * 1.3),
+      twinkleDelayS: round2(-unit(id, 44) * 6),
+    };
+  });
+
+  // Each star joins its nearest neighbour on its own side when that is close:
+  // short constellations, never a web across the card.
+  const links: Array<[number, number]> = [];
+  const seen = new Set<string>();
+  stars.forEach((p, i) => {
+    let best = -1;
+    let bestD = Infinity;
+    stars.forEach((q, j) => {
+      if (j === i || j % 2 !== i % 2) return;
+      const d = Math.hypot(p.x - q.x, p.y - q.y);
+      if (d < bestD) {
+        best = j;
+        bestD = d;
+      }
+    });
+    if (best < 0 || bestD > FIELD_LINK_MAX) return;
+    const a = Math.min(i, best);
+    const b = Math.max(i, best);
+    const key = `${a}-${b}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    links.push([a, b]);
+  });
+  links.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+
+  return { bokeh, stars, links };
+}

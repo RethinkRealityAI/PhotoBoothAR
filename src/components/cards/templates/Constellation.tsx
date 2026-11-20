@@ -24,6 +24,7 @@ import { Volume2, VolumeX } from 'lucide-react';
 import { hasWebGL } from '../../carousel/PhotoCarousel';
 import { clampIndex, pageCount, type CardTemplateProps } from './types';
 import Storybook from './Storybook';
+import { ShimmerRim } from './cardChrome';
 import { readCardPalette, type NotePalette } from './noteCanvas';
 import {
   ClosingContent,
@@ -154,6 +155,7 @@ export default function Constellation(props: CardTemplateProps) {
           )}
           {isEnd && (
             <div className="liquid-glass pointer-events-auto w-full max-w-md rounded-[1.8rem] px-6 py-8">
+              <ShimmerRim radius="1.8rem" lapS={9} reducedMotion={reducedMotion} />
               <ClosingContent card={card} contributions={contributions} scratch={interactive} />
             </div>
           )}
@@ -162,11 +164,12 @@ export default function Constellation(props: CardTemplateProps) {
         <div className="flex w-full flex-col items-center gap-3">
           {isCover && (
             <div className="pointer-events-auto">
-              <OpenButton onClick={onNext} label="Fly through the stars" />
+              <OpenButton onClick={onNext} label="Fly through the stars" reducedMotion={reducedMotion} />
             </div>
           )}
           {active && (
             <div className="liquid-glass pointer-events-auto w-full max-w-md rounded-[1.6rem] px-5 py-4">
+              <ShimmerRim radius="1.6rem" lapS={9} reducedMotion={reducedMotion} />
               {/* A written note is painted on its tile in full; repeat only the signature. */}
               {active.mediaType !== 'text' && <Message message={active.message} />}
               <div className={`${active.mediaType !== 'text' ? 'mt-2' : ''} flex items-center justify-center gap-3`}>
@@ -176,7 +179,7 @@ export default function Constellation(props: CardTemplateProps) {
                     type="button"
                     onClick={toggleSound}
                     aria-pressed={soundOn}
-                    className="inline-flex min-h-[44px] items-center gap-2 rounded-full px-4 text-[13px] font-medium text-brand-fg"
+                    className="bw-cta relative inline-flex min-h-[44px] items-center gap-2 rounded-full px-4 text-[13px] font-medium text-brand-fg"
                     style={{
                       background: 'rgba(var(--accent-rgb),0.18)',
                       boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.35), 0 0 18px -6px rgba(var(--accent-rgb),0.9)',

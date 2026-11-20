@@ -59,7 +59,8 @@ const CREST = [
   'M0 14C4 12 8 13 10 16C7 18 3 17 0 14Z',
 ];
 
-function useDocumentVisible(): boolean {
+/** False while the tab is hidden — every looping light on a card pauses on it. */
+export function useDocumentVisible(): boolean {
   const [visible, setVisible] = useState(
     () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
   );

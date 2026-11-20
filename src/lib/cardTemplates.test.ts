@@ -17,6 +17,10 @@ import {
   polaroidSeed,
   CONSTELLATION_MAX_LAT,
   SHORT_MESSAGE_MAX_CHARS,
+  FIELD_BOKEH_COUNT,
+  FIELD_LINK_MAX,
+  FIELD_STAR_COUNT,
+  cardFieldLayout,
   closingHeadline,
   constellationLayout,
   constellationRadius,
@@ -416,5 +420,58 @@ describe('constellation camera', () => {
     const landscape = overviewDistance(5, 1440 / 800, 50);
     expect(portrait).toBeGreaterThan(landscape);
     expect(Number.isFinite(overviewDistance(5, 0, NaN))).toBe(true);
+  });
+});
+
+describe('cardFieldLayout — the designed space behind the card', () => {
+  it('is deterministic per seed and different across seeds', () => {
+    expect(cardFieldLayout('abc')).toEqual(cardFieldLayout('abc'));
+    expect(cardFieldLayout('abc')).not.toEqual(cardFieldLayout('xyz'));
+  });
+
+  it('falls back to a fixed sky for an empty seed', () => {
+    expect(cardFieldLayout('')).toEqual(cardFieldLayout('beamwall'));
+  });
+
+  it('keeps every light and star inside the field, with finite numbers', () => {
+    for (const seed of ['a', 'card-42', '92b8cf74-f0ac-43a4-bcac-7cc06932bdf6']) {
+      const f = cardFieldLayout(seed);
+      expect(f.bokeh).toHaveLength(FIELD_BOKEH_COUNT);
+      expect(f.stars).toHaveLength(FIELD_STAR_COUNT);
+      for (const b of f.bokeh) {
+        for (const n of [b.x, b.y, b.r, b.opacity, b.driftS, b.delayS]) expect(Number.isFinite(n)).toBe(true);
+        expect(b.x).toBeGreaterThanOrEqual(0);
+        expect(b.x).toBeLessThanOrEqual(100);
+        expect(b.y).toBeGreaterThanOrEqual(0);
+        expect(b.y).toBeLessThanOrEqual(100);
+        expect(b.opacity).toBeGreaterThan(0);
+        expect(b.opacity).toBeLessThanOrEqual(0.4);
+        expect(b.delayS).toBeLessThanOrEqual(0);
+      }
+      for (const s of f.stars) {
+        expect(s.y).toBeGreaterThanOrEqual(0);
+        expect(s.y).toBeLessThanOrEqual(100);
+      }
+    }
+  });
+
+  it('keeps the stars out of the centre column where the card stands', () => {
+    for (const s of cardFieldLayout('centre-check').stars) expect(s.x < 33 || s.x > 67).toBe(true);
+  });
+
+  it('draws short same-side lines only, deduplicated and sorted', () => {
+    const f = cardFieldLayout('links');
+    expect(f.links.length).toBeGreaterThan(0);
+    const keys = new Set<string>();
+    for (const [a, b] of f.links) {
+      expect(a).toBeLessThan(b);
+      expect(a % 2).toBe(b % 2);
+      const p = f.stars[a];
+      const q = f.stars[b];
+      expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeLessThanOrEqual(FIELD_LINK_MAX);
+      keys.add(`${a}-${b}`);
+    }
+    expect(keys.size).toBe(f.links.length);
+    expect(f.links).toEqual([...f.links].sort((x, y) => x[0] - y[0] || x[1] - y[1]));
   });
 });
