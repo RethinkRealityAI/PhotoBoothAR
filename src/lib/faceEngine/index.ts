@@ -37,6 +37,7 @@ import {
 
 export type { FaceTrackingMode, FaceSample } from './types';
 import { claimFrameInference } from './inferenceToken';
+import { estimateEars, type EarEstimate } from './earPoints';
 export { claimFrameInference, FRAME_INFERENCE_TOKEN } from './inferenceToken';
 
 /** Long enough for a cold 8th Wall download + wasm compile on a mid phone over
@@ -516,6 +517,30 @@ export function getTrackedFaceMeshTopology(): {
   } catch {
     return null;
   }
+}
+
+/** The xr8 engine's optional ear surface (structural, like MeshSource). */
+interface EarSource {
+  getEarEstimate?(): EarEstimate | null;
+}
+
+/**
+ * Where this guest's ear lobes are, in the contract HEAD frame (cm), subject's
+ * left at +x. While an 8th Wall engine is the active pose engine this is its
+ * per-guest estimate (tracked ears, averaged — see earPoints.ts); otherwise
+ * (MediaPipe mode, a fallback, no face yet, the studio's orbit view) it is the
+ * measured default, so a caller always gets a usable point.
+ */
+export function getTrackedEars(): EarEstimate {
+  if (faceMeshAvailable()) {
+    try {
+      const e = (xr8 as EarSource).getEarEstimate?.();
+      if (e) return e;
+    } catch {
+      /* fall through to the default */
+    }
+  }
+  return estimateEars(null);
 }
 
 /** Main-thread ms of MediaPipe's latest frame staging (snapshot + downscale). Diagnostics. */

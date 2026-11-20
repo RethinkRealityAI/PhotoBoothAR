@@ -21,6 +21,7 @@
 import * as THREE from 'three';
 import { HeadAnchor } from '../types';
 import { OneEuroVec3, OneEuroQuat, type OneEuroConfig, type Vec3, type Quat } from './smoothing';
+import { SteadyPoseFilter } from './steadyPoseFilter';
 import { faceInferenceMs, isFrameLockActive, isLegacyFaceSession, pollFaceEngine } from './faceEngine';
 import type { FaceKeypoints, FaceSample } from './faceEngine/types';
 
@@ -58,8 +59,8 @@ export const ANCHOR_MAP: Record<HeadAnchor, AnchorPreset> = Object.fromEntries(
  * construction): v1's eyes sat 1.17cm off the iris centres (landmarks 473/468;
  * canonical eye centre ±3.16, 2.63, ~3.5), v1's crown sits at the hairline
  * (landmark 10) rather than on top of the skull (occluder skull top y 10.3),
- * and v1's ears sit at tragus height where an earring hangs from the lobe
- * (contour points 361/132 at y −2.89). Every other anchor is the v1 value.
+ * and v1's ears sit at tragus height where an earring hangs from the lobe.
+ * Every other anchor is the v1 value.
  *
  * VERSIONED, never edited in place: v1 is what every saved scene and the three
  * frozen legacy events were placed against, so changing it would move them.
@@ -71,8 +72,15 @@ const ANCHOR_V2_OFFSETS: Partial<Record<HeadAnchor, [number, number, number]>> =
   crown: [0, 10.3, -0.5],
   leftEye: [3.16, 2.63, 3.5],
   rightEye: [-3.16, 2.63, 3.5],
-  leftEar: [7.5, -2.9, -1.5],
-  rightEar: [-7.5, -2.9, -1.5],
+  // The lobe as 8th Wall's ear model measures it on real guests (earPoints.ts
+  // EAR_LOBE_DEFAULT). The first v2 value (±7.5, −2.9, −1.5) was read off the
+  // canonical FACE mesh edge, which stops at the cheek: 2.4cm in front of a real
+  // lobe. Corrected IN PLACE on 2026-11-20, three days after v2 shipped, because
+  // every v2 ear piece is a library earring authored at offset 0 and all of them
+  // sat on the jaw. On an 8th Wall rig this is only the fallback: FaceRig rides
+  // the guest's tracked ears.
+  leftEar: [8.2, -2.3, -3.9],
+  rightEar: [-8.2, -2.3, -3.9],
 };
 
 export const ANCHOR_PRESETS_V2: AnchorPreset[] = ANCHOR_PRESETS.map((a) => {
@@ -356,7 +364,7 @@ interface SmoothState {
  * registered with it — any smoothing lag now shows as the prop trailing its
  * own frame. The filter is swapped for FRAMELOCK_* (see setFrameLockFilterProfile).
  */
-export type FrameLockFilterProfile = 'standard' | 'light' | 'bypass';
+export type FrameLockFilterProfile = 'standard' | 'light' | 'bypass' | 'steady';
 const FRAMELOCK_POS_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 0.5, dCutoff: 1.0 };
 const FRAMELOCK_ROT_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 2.0, dCutoff: 1.0 };
 /**
@@ -368,8 +376,16 @@ const FRAMELOCK_ROT_LIGHT: OneEuroConfig = { minCutoff: 3.0, beta: 2.0, dCutoff:
  * price on a still face is +0.01-0.07px of anchor wobble. A still clip has no
  * sensor noise, so the phone test confirms this: the readout's jitter IS
  * the RAW pose, i.e. exactly what a bypassed rig shows. Revert = 'light'.
+ *
+ * 'steady' IS THE DEFAULT since the owner's phone test (2026-11-20: masks and
+ * glasses locked, hats jittery). Bypass shows raw depth and pitch/yaw noise,
+ * which is invisible at the face and amplified by a hat's lever arm; 'steady'
+ * keeps the face's image position raw and filters only depth and rotation
+ * about a face pivot (steadyPoseFilter.ts has the measurements). Revert =
+ * 'bypass' (this one constant).
  */
-let _lockProfile: FrameLockFilterProfile = 'bypass';
+let _lockProfile: FrameLockFilterProfile = 'steady';
+const _steady = new SteadyPoseFilter();
 /**
  * Which filter a frame-locked surface uses (see above); exported so the check
  * harness can A/B all three on one clip.
@@ -405,6 +421,7 @@ function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
     _sf.pos = new OneEuroVec3(lockOn && prof === 'light' ? FRAMELOCK_POS_LIGHT : POS_FILTER);
     _sf.quat = new OneEuroQuat(lockOn && prof === 'light' ? FRAMELOCK_ROT_LIGHT : ROT_FILTER);
     _sf.scale = new OneEuroVec3(SCALE_FILTER);
+    _steady.reset();
     _sfHas = false;
   }
   // A face lost for longer than the hold window snaps back in, never glides.
@@ -412,7 +429,9 @@ function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
     _sf.pos.reset();
     _sf.quat.reset();
     _sf.scale.reset();
+    _steady.reset();
   }
+  const steady = _sf.cfgKey === 'lock:steady';
   const bypass = _sf.cfgKey === 'lock:bypass';
   const dtSec = Math.min(Math.max(Number.isFinite(_sf.lastT) ? t - _sf.lastT : 0, 1), 100) / 1000;
   _sf.lastT = t;
@@ -422,6 +441,10 @@ function stepSharedFilter(t: number, prevSeen: number, hadFace: boolean): void {
   if (bypass) {
     _sfPos.copy(_gPos);
     _sfQuat.copy(_gQuat);
+  } else if (steady) {
+    _steady.filter(_fpIn, _fqIn, dtSec, _fpOut, _fqOut);
+    _sfPos.set(_fpOut[0], _fpOut[1], _fpOut[2]);
+    _sfQuat.set(_fqOut[0], _fqOut[1], _fqOut[2], _fqOut[3]);
   } else {
     _sf.pos.filter(_fpIn, dtSec, _fpOut);
     _sf.quat.filter(_fqIn, dtSec, _fqOut);
@@ -446,6 +469,7 @@ export function resetFaceRig(): void {
   _sf.pos.reset();
   _sf.quat.reset();
   _sf.scale.reset();
+  _steady.reset();
   _sf.lastT = Number.NaN;
   _rigGen++;
   _faceKeypoints = null;

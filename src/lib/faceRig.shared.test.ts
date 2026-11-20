@@ -148,17 +148,22 @@ describe('shared head-pose filter (platform)', () => {
     expect(g.quaternion.y).toBeCloseTo(Math.sin(0.1), 9);
   });
 
-  it('frame-locked DEFAULT is bypass (chosen by measurement): the rig shows the raw sample', () => {
-    expect(rig.getFrameLockFilterProfile()).toBe('bypass');
+  it('frame-locked DEFAULT is steady: sideways motion of the face is shown raw, rotation is eased', () => {
+    expect(rig.getFrameLockFilterProfile()).toBe('steady');
     eng.locked = true;
     const g = new THREE.Group();
     const v = video();
     feed(1000, 0);
     rig.updateHeadPose(g, v, false);
     now = 1033;
-    feed(1033, 2.5);
+    feed(1033, 2.5); // pure translation at constant depth: nothing for steady to filter
     rig.updateHeadPose(g, v, false);
-    expect(g.position.x).toBeCloseTo(2.5, 9);
+    expect(g.position.x).toBeCloseTo(2.5, 6);
+    now = 1066;
+    feed(1066, 2.5, 0.2); // a yaw step: the shown rotation trails the raw one
+    rig.updateHeadPose(g, v, false);
+    expect(g.quaternion.y).toBeGreaterThan(0);
+    expect(g.quaternion.y).toBeLessThan(Math.sin(0.1));
   });
 
   it('frame-locked + light trails a moving face far less than the standard filter', () => {

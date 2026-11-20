@@ -34,6 +34,7 @@ import type { FaceEngine, FaceSample } from './types';
 import { createXr8SessionManager, loadXr8, type Xr8Global, type Xr8SessionManager } from './xr8Session';
 import { xr8Keypoints, xr8LocalToHeadCm, xr8ToFaceMatrix, type Xr8Transform, type Xr8Uv, type Xr8Vec3 } from './xr8Pose';
 import { createXr8ExpressionState, resetXr8ExpressionState, xr8Expressions } from './xr8Expressions';
+import { createEarState, estimateEars, observeEars, type EarEstimate, type EarVec } from './earPoints';
 import {
   analysedFrameAfterPass,
   analysedFrameHandOver,
@@ -101,6 +102,21 @@ export interface Xr8EngineOptions {
   sameTickInference?: boolean;
   /** DetectGate spacing (default XR8_DETECT_INTERVAL_MS). */
   detectIntervalMs?: number;
+  /** 8th Wall's dedicated ear model (lobe / canal / helix per ear). Default XR8_ENABLE_EARS.
+   *  It can only be chosen BEFORE the pipeline runs: a later FaceController.configure is
+   *  ignored (measured), so it is an engine option, not a runtime switch. */
+  ears?: boolean;
+}
+
+/** Ear tracking on by default: it is what puts earrings on the real ear (earPoints.ts). */
+export const XR8_ENABLE_EARS = true;
+/** Tester switch: `?ears=0` turns the ear model off for this page load (a phone
+ *  A/B for its cost). Grants nothing; anything else keeps the default. */
+function earsEnabledByUrl(): boolean {
+  try {
+    if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('ears') === '0') return false;
+  } catch { /* no location (tests) */ }
+  return XR8_ENABLE_EARS;
 }
 
 export interface Xr8FaceEngine extends FaceEngine {
@@ -114,6 +130,9 @@ export interface Xr8FaceEngine extends FaceEngine {
   getLatestFaceMesh(): Xr8FaceMesh | null;
   /** Static topology; null until init() has resolved. */
   getFaceMeshTopology(): Xr8FaceTopology | null;
+  /** This guest's ear lobes in the contract head frame (earPoints.ts); null when no face is
+   *  tracked. A fresh object per call. */
+  getEarEstimate(): EarEstimate | null;
   /**
    * OPTIONAL warm start: hand over the app's camera <video> before (or while) init() runs, so 8th
    * Wall starts on real frames instead of the black placeholder and the first pose does not wait
@@ -126,7 +145,12 @@ interface FaceDetail {
   transform: Xr8Transform;
   vertices: Xr8Vec3[];
   uvsInCameraFrame: Xr8Uv[];
+  /** Named face-local points. The ear model's points (…Lobe/…Canal) are {0,0,0} while lost. */
+  attachmentPoints?: Record<string, { position?: Xr8Vec3 } | undefined>;
 }
+
+/** attachmentPoints read for the ears, in this order (left then right: lobe, canal, face edge). */
+const EAR_POINT_NAMES = ['leftLobe', 'leftCanal', 'leftEar', 'rightLobe', 'rightCanal', 'rightEar'] as const;
 interface ScanDetail {
   pointsPerDetection: number;
   indices: { a: number; b: number; c: number }[];
@@ -174,6 +198,9 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
   const mesh: Xr8FaceMesh = { vertices: meshBuf, t: 0 };
   let meshValid = false;
   const expr = createXr8ExpressionState();
+  const ears = createEarState();
+  const earIn: Xr8Vec3[] = EAR_POINT_NAMES.map(() => ({ x: 0, y: 0, z: 0 }));
+  const earCm = new Float32Array(EAR_POINT_NAMES.length * 3);
   /** The draw canvas shows a real-video analysed frame (not the placeholder). */
   let frameValid = false;
   /** Pairs the drawn frame with the HANDED pose (analysedFrame.ts): the canvas is redrawn by every
@@ -233,9 +260,26 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     mesh.t = now;
     // A fresh object per sample (≤ ~30/s): consumers may hold on to a sample's map.
     const blendshapes = meshValid ? xr8Expressions(meshBuf, now, expr, {}) : null;
+    observeEarPoints(d.attachmentPoints, now);
     latest = { t: now, matrix, blendshapes, keypoints: d.uvsInCameraFrame ? xr8Keypoints(d.uvsInCameraFrame) : null };
     fresh = true;
     passEmitT = now;
+  }
+
+  /** Fold this frame's ear sightings into the per-guest averages. A missing or all-zero point
+   *  (8th Wall's "lost") is passed as null; earPoints range-checks the rest. Never throws. */
+  function observeEarPoints(ap: FaceDetail['attachmentPoints'], now: number): void {
+    if (!ap) return;
+    const found: boolean[] = [];
+    for (let i = 0; i < EAR_POINT_NAMES.length; i++) {
+      const p = ap[EAR_POINT_NAMES[i]]?.position;
+      const ok = !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z) && (p.x !== 0 || p.y !== 0 || p.z !== 0);
+      found.push(ok);
+      earIn[i].x = ok ? p.x : 0; earIn[i].y = ok ? p.y : 0; earIn[i].z = ok ? p.z : 0;
+    }
+    xr8LocalToHeadCm(earIn, earCm);
+    const at = (i: number): EarVec | null => (found[i] ? [earCm[i * 3], earCm[i * 3 + 1], earCm[i * 3 + 2]] : null);
+    observeEars(ears, now, { lobe: at(0), canal: at(1), edge: at(2) }, { lobe: at(3), canal: at(4), edge: at(5) });
   }
 
   function onLost(): void {
@@ -480,6 +524,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
             meshGeometry: [XR8.FaceController.MeshGeometry.FACE],
             coordinates: { mirroredDisplay: false, axes: 'RIGHT_HANDED' },
             maxDetections: 1,
+            enableEars: options.ears ?? earsEnabledByUrl(),
           });
           XR8.clearCameraPipelineModules();
           // GlTextureRenderer draws, every runRender, the texture FaceController pairs with its
@@ -535,6 +580,9 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     },
     getFaceMeshTopology() {
       return topology;
+    },
+    getEarEstimate() {
+      return meshValid && ready ? estimateEars(ears) : null;
     },
     prewarm(video) {
       try {
