@@ -244,3 +244,28 @@ placeholder, never a 404 video.
   yourself) — labels read from GuidedFrameMaker/FrameStudio JSX. The Generate
   button now reads "free" while the event has free frames left. Sweep CLEAN
   on :5192 (`node scripts/shoot-guides.mjs sweep http://localhost:5192`).
+- 2026-11-20 — Feature films moved to the hub (branch `guides-feature-films`).
+  The homepage dropped its "See it in motion" section, so the five product
+  films (booth · wall · challenges · cards · celebrations) now live in a
+  "Watch it in action" section at the bottom of `/guides` (`#films`, plus a
+  hero link). The copy is guide-owned (`FEATURE_FILMS` in guidesContent),
+  copied verbatim from brandLanding `FILMS` and beamyVirtual `VC_FILM`, not
+  imported: the homepage can delete its own copy without breaking /guides.
+  The media is the SAME bundled `src/assets/landing/*-feature.*`
+  (`guidesMedia.FEATURE_FILM_MEDIA`), and the celebrations film keeps its
+  `virtual-*` filenames. There is ONE player that the tiles switch, and it
+  mounts only within 600px of the viewport. Before that it is a lazy poster
+  <img>, so a hub visit that never scrolls fetches no video, because FilmEmbed
+  preloads metadata as soon as it mounts. The celebrations line is held to
+  `AUTO_DELIVERY_RE` in the test, and the film itself ends on the host
+  pressing "Send to Maya". I checked that from an ffmpeg contact sheet: the
+  sandbox's ffmpeg DOES decode H.264 even though its Chromium cannot, so a
+  film's actual content can be read via `fps=1/2,tile=3x3`. Contrast trap:
+  guide hue `#7C6CF7` reads at ~2.9:1 as 10px label text on the purple page,
+  so the celebrations tile uses `#C4B5FD`. Method traps: (1) the shared
+  `/home/user/PhotoBoothAR/node_modules` predated `@gltf-transform/*`
+  (5× TS2307, none in guides files). A worktree needs its own
+  `npm ci --ignore-scripts`, because plain `npm ci` dies on onnxruntime-node's
+  postinstall download (ECONNRESET at the proxy). (2) An element screenshot of
+  a section inside the guides scroller stitches blank slabs. Scroll the target
+  into view and take a VIEWPORT shot.

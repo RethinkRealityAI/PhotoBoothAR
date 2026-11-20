@@ -6,8 +6,8 @@
  * lives at `/classic`, noindex). A normal, natively scrolling page over ONE fixed,
  * full-screen canvas (BeamyStage) that sits BEHIND the content:
  *
- *   hero → the pinned story (five glass cards, one 3D effect each) → the
- *   films (Beamy projects them) → What applies to you? → Try it (the real
+ *   hero → the pinned story (six glass cards, one 3D effect each; step 6
+ *   is virtual celebrations) → What applies to you? → Try it (the real
  *   booth) → Pricing → Start
  *
  * Slots and poses (lib/beamyScroll): every section holds an empty
@@ -37,16 +37,14 @@
  */
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
-  type CSSProperties, type HTMLAttributes, type ReactNode,
+  type CSSProperties, type HTMLAttributes, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, Check, Clapperboard, Lock } from 'lucide-react';
+import { Camera, Check, Lock } from 'lucide-react';
 import { Briefcase, Cake, ClipboardList, Gift, Users, type LucideIcon } from 'lucide-react';
 import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
 import ReportIssueButton from '../../components/support/ReportIssueButton';
-import FilmEmbed from '../../components/ui/FilmEmbed';
-import { BoothIcon, CardIcon, ChallengeIcon, WallIcon, type BeamIconProps } from '../../components/ui/BeamIcons';
 import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../components/beamy/selfieFx';
 import { usePageTitle } from '../../lib/usePageTitle';
@@ -55,15 +53,16 @@ import { REDUCED_GLIDE_S, SELFIE_SPEED, flashOpacity, photoState } from '../../l
 import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
 import { AUDIENCES, GREETING, HELLO, POKE_LINES, audienceById, type Audience, type AudienceIcon } from '../../lib/beamyTour';
 import {
-  FILMS, FILMS_COPY, FOOTER_LINKS, HERO, LOOKS, NAV_LINKS, PICK_COPY, POKE_IDLE, SIGNUP_PATH, START_COPY, STORY_COPY,
+  FOOTER_LINKS, HERO, LOOKS, NAV_LINKS, PICK_COPY, POKE_IDLE, SIGNUP_PATH, START_COPY, STORY_COPY,
   STORY_STEPS, TRY_COPY, beamyPlanCards, createReactionPicker, pickCelebration, pokeStep, pricingSection,
-  startFacts, type Celebration, type FilmId, type Reaction, type StoryFxId,
+  startFacts, type Celebration, type Reaction, type StoryFxId,
 } from '../../lib/brandLanding';
 import {
-  STOPS, blendSlots, pageProgress, pinProgress, storyEdgeOffsets, storyHeightVh, storySnapOffsets, storySnapOn, storyStep, weightedNight,
+  STOPS, blendSlots, pageProgress, pinProgress, storyEdgeOffsets, storyEntry, storyHeightVh, storySnapOffsets, storySnapOn, storyStep, storySwipe,
+  storySwipeLeaves, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
-import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, type BeamyLook } from '../../lib/beamyLooks';
+import { LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, type BeamyLook } from '../../lib/beamyLooks';
 import { preloadModel } from '../../lib/glbCache';
 import { ambientFor } from '../../lib/ambientFx';
 import AmbientFx from '../../components/beamy/AmbientFx';
@@ -73,69 +72,199 @@ import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker, { ArTabs } from './ArPicker';
 import {
-  DEFAULT_OPENING, HOME_ASSET_DEFAULTS, arOrder, arPropScale, arStage, arTour, frameOnBeamy, demoQrUrl, standInFrame, lookAction, selectedLooks, toBeamyLook, wearStop,
+  DEFAULT_OPENING, arOrder, arPropScale, arStage, arTour, frameOnBeamy, demoQrUrl, standInFrame, lookAction, selectedLooks, toBeamyLook, wearStop,
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
+import { useBeamyAssets } from './useBeamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
 import type { ArFxKind } from '../../lib/arFx';
-import VirtualCelebrations from './VirtualCelebrations';
-import { VC_COPY, VC_FILM } from '../../lib/beamyVirtual';
 
-import boothFilm from '../../assets/landing/booth-feature.mp4';
-import boothPoster from '../../assets/landing/booth-feature-poster.jpg';
-import wallFilm from '../../assets/landing/wall-feature.mp4';
-import wallPoster from '../../assets/landing/wall-feature-poster.jpg';
-import challengesFilm from '../../assets/landing/challenges-feature.mp4';
-import challengesPoster from '../../assets/landing/challenges-feature-poster.jpg';
-import cardsFilm from '../../assets/landing/cards-feature.mp4';
-import cardsPoster from '../../assets/landing/cards-feature-poster.jpg';
-import virtualFilm from '../../assets/landing/virtual-feature.mp4';
-import virtualPoster from '../../assets/landing/virtual-feature-poster.jpg';
+/** What a tap on Beamy never steals: anything with its own tap under him. */
+const POKE_SKIP = 'a, button, input, select, textarea, label, summary, [role="button"], [role="tab"], [contenteditable="true"]';
+const inEllipse = (x: number, y: number, r: DOMRect) => {
+  if (r.width === 0 || r.height === 0) return false;
+  const nx = (x - (r.left + r.width / 2)) / (r.width / 2);
+  const ny = (y - (r.top + r.height / 2)) / (r.height / 2);
+  return nx * nx + ny * ny <= 1;
+};
+
+/**
+ * The story pager, touch screens (lib/beamyScroll storySwipe): inside the
+ * pinned story a vertical swipe moves the page with the finger, 1:1, and on
+ * release settles on the next or previous step (never further, never back
+ * where it began unless it was a mere touch). A swipe past either end is
+ * left to the native scroll, so it leaves the story with its momentum. A
+ * native flick that flies INTO the story is caught on its first or last
+ * step, and a native drag left between steps settles on the nearest one.
+ * Horizontal swipes (the AR carousel) and pinches are never touched.
+ */
+function useStoryPager(
+  scrollerRef: MutableRefObject<HTMLDivElement | null>,
+  storyRef: MutableRefObject<HTMLElement | null>,
+  headerRef: MutableRefObject<HTMLElement | null>,
+  n: number,
+  reducedRef: MutableRefObject<boolean>,
+) {
+  useEffect(() => {
+    const sc = scrollerRef.current;
+    if (sc === null) return;
+    const coarse = () => window.matchMedia('(pointer: coarse)').matches;
+    /** The stretch in the scroller's own scrollTop: its two ends and each step's middle. */
+    const geo = () => {
+      const st = storyRef.current;
+      if (st === null) return null;
+      const vh = window.innerHeight;
+      const hh = headerRef.current?.offsetHeight ?? 64;
+      const base = sc.scrollTop + st.getBoundingClientRect().top;
+      const [e0, e1] = storyEdgeOffsets(st.offsetHeight, vh, hh);
+      const mids = storySnapOffsets(n, st.offsetHeight, vh, hh).map((m) => base + m);
+      const a0 = base + e0, a1 = base + e1;
+      const stepAt = (top: number) => storyStep(pinProgress(-(top - base) - hh, st.offsetHeight, vh - hh), n);
+      return { a0, a1, mids, stepAt };
+    };
+    type G = { mode: 'pending' | 'track' | 'native'; x0: number; y0: number; top0: number; step0: number; y: number; t: number; vy: number };
+    let g: G | null = null;
+    let finger = false;
+    let anim = 0;
+    let idle = 0;
+    let prevTop = sc.scrollTop;
+    /** The last scroll's direction (+1 down the page), for the settle. */
+    let lastDir = 0;
+    /* While the pager settles, the scroller is not user-scrollable
+       (overflow hidden; scrollTop still writes): that is what stops a native
+       fling for good. A scrollTop write alone did not (measured: the fling
+       carried on 900px past the catch, fighting the settle). */
+    let unlockAt = 0;
+    const unlock = () => { window.clearTimeout(unlockAt); if (sc.style.overflowY !== '') sc.style.overflowY = ''; };
+    const stopAnim = () => { if (anim !== 0) { window.cancelAnimationFrame(anim); anim = 0; } unlock(); };
+    /** Only scrolls that follow a real touch are the pager's (a nav link, a deep link or the step dots are left alone). */
+    let touchedAt = -1e9;
+    const touchy = () => performance.now() - touchedAt < 3000;
+    const animateTo = (to: number) => {
+      stopAnim();
+      const from = sc.scrollTop;
+      const d = to - from;
+      if (Math.abs(d) < 1) { sc.scrollTop = to; prevTop = to; return; }
+      sc.style.overflowY = 'hidden';
+      const dur = reducedRef.current ? 220 : Math.min(620, Math.max(320, 260 + Math.abs(d) * 0.35));
+      const t0 = performance.now();
+      const frame = (now: number) => {
+        const u = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - u, 3);
+        sc.scrollTop = from + d * e;
+        prevTop = sc.scrollTop;
+        if (u < 1) anim = window.requestAnimationFrame(frame);
+        // Hold the lock a moment past the end, so a fling still in flight cannot resume.
+        else { anim = 0; unlockAt = window.setTimeout(unlock, 120); }
+      };
+      anim = window.requestAnimationFrame(frame);
+    };
+    /* A native drag that stopped short inside the stretch (no momentum, so
+       no more scroll events): settle on the step it shows, but only onward
+       in the way it was going, so a swipe leaving the story is never pulled
+       back in. */
+    const settleSoon = () => {
+      window.clearTimeout(idle);
+      idle = window.setTimeout(() => {
+        if (anim !== 0 || finger || !coarse() || !touchy()) return;
+        const q = geo();
+        if (q === null) return;
+        const t = sc.scrollTop;
+        if (t <= q.a0 + 1 || t >= q.a1 - 1) return;
+        const m = q.mids[q.stepAt(t)];
+        if ((lastDir > 0 && t < m - 2) || (lastDir < 0 && t > m + 2)) animateTo(m);
+      }, 160);
+    };
+    const onStart = (e: TouchEvent) => {
+      finger = true;
+      touchedAt = performance.now();
+      window.clearTimeout(idle);
+      if (e.touches.length !== 1) { g = null; return; }
+      const q = geo();
+      const top = sc.scrollTop;
+      const inside = q !== null && top >= q.a0 - 1 && top <= q.a1 + 1;
+      if (anim !== 0 && inside) stopAnim();
+      const p = e.touches[0];
+      g = { mode: inside && q !== null ? 'pending' : 'native', x0: p.clientX, y0: p.clientY, top0: top, step0: q?.stepAt(top) ?? 0, y: p.clientY, t: e.timeStamp, vy: 0 };
+    };
+    const onMove = (e: TouchEvent) => {
+      if (g === null || g.mode === 'native') return;
+      if (e.touches.length !== 1) { g.mode = 'native'; return; }
+      const p = e.touches[0];
+      const dx = p.clientX - g.x0, dy = p.clientY - g.y0;
+      if (g.mode === 'pending') {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 6) return;
+        g.mode = Math.abs(dx) > Math.abs(dy) || storySwipeLeaves(g.step0, n, dy) ? 'native' : 'track';
+        if (g.mode === 'native') return;
+      }
+      e.preventDefault();
+      const q = geo();
+      if (q === null) return;
+      const dt = Math.max(1, e.timeStamp - g.t);
+      g.vy = 0.6 * ((p.clientY - g.y) / dt) + 0.4 * g.vy;
+      g.y = p.clientY;
+      g.t = e.timeStamp;
+      sc.scrollTop = Math.min(q.a1, Math.max(q.a0, g.top0 - dy));
+      prevTop = sc.scrollTop;
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length > 0) return;
+      finger = false;
+      touchedAt = performance.now();
+      const was = g;
+      g = null;
+      if (was === null || was.mode !== 'track') {
+        // A native swipe from outside that the finger already carried inside: catch it now
+        // (its momentum starts inside, so the crossing check never sees it).
+        const q = geo();
+        const t = sc.scrollTop;
+        if (was !== null && q !== null && coarse()) {
+          if (was.top0 < q.a0 - 1 && t > q.a0 + 1) { animateTo(q.mids[0]); return; }
+          if (was.top0 > q.a1 + 1 && t < q.a1 - 1) { animateTo(q.mids[n - 1]); return; }
+        }
+        settleSoon();
+        return;
+      }
+      const q = geo();
+      if (q === null) return;
+      // A finger that stopped before lifting carries no speed.
+      const vy = e.timeStamp - was.t > 90 ? 0 : was.vy;
+      const k = storySwipe(was.step0, n, was.y - was.y0, vy);
+      animateTo(q.mids[k === 'leave' ? was.step0 : k]);
+    };
+    const onScroll = () => {
+      const top = sc.scrollTop;
+      const before = prevTop;
+      prevTop = top;
+      if (top !== before) lastDir = Math.sign(top - before);
+      if (anim !== 0 || finger || !coarse() || !touchy()) return;
+      const q = geo();
+      if (q === null) return;
+      const entry = storyEntry(before, top, q.a0, q.a1);
+      if (entry !== null) { animateTo(q.mids[entry === 'first' ? 0 : n - 1]); return; }
+      settleSoon();
+    };
+    sc.addEventListener('touchstart', onStart, { passive: true });
+    sc.addEventListener('touchmove', onMove, { passive: false });
+    sc.addEventListener('touchend', onEnd, { passive: true });
+    sc.addEventListener('touchcancel', onEnd, { passive: true });
+    sc.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      stopAnim();
+      window.clearTimeout(idle);
+      window.clearTimeout(unlockAt);
+      sc.removeEventListener('touchstart', onStart);
+      sc.removeEventListener('touchmove', onMove);
+      sc.removeEventListener('touchend', onEnd);
+      sc.removeEventListener('touchcancel', onEnd);
+      sc.removeEventListener('scroll', onScroll);
+    };
+  }, [scrollerRef, storyRef, headerRef, n, reducedRef]);
+}
 
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
 const AUDIENCE_ICONS: Record<AudienceIcon, LucideIcon> = { ClipboardList, Cake, Users, Briefcase, Gift };
-/* Asset slots come from lib/beamyAssets (HOME_ASSET_DEFAULTS); an undefined
-   media field there means the bundled file imported here. */
-const A = HOME_ASSET_DEFAULTS;
-/** The virtual celebrations tab's icon: a line gift, tinted like the beam icons. */
-const VirtualIcon = ({ size = 18, from, className }: BeamIconProps) => <Gift size={size} color={from} strokeWidth={1.75} className={className} aria-hidden />;
-/**
- * One tab of "See it in motion". The list below is the whole section: the
- * tab row, the 16:9 film box (fixed size, so a switch never moves the page)
- * and Beamy's speech-bubble line all read it. To add a tab, import its clip
- * and poster at the top of this file and append ONE entry to FILM_TABS:
- *   { key: 'virtual', label: 'Virtual celebrations', video: virtualFilm,
- *     poster: virtualPoster, line: 'Beamy’s line for it' }
- * `title` + `hook` (the caption under the film) and `Icon` are optional.
- */
-interface FilmTab {
-  key: string;
-  label: string;
-  video: string;
-  poster: string;
-  /** Beamy's speech-bubble line while this film is on. */
-  line: string;
-  title?: string;
-  hook?: string;
-  Icon?: (p: BeamIconProps) => ReactNode;
-}
-/** A tab from the shared film copy (lib/brandLanding FILMS) and its bundled media (a CMS override wins). */
-const filmTab = (id: FilmId, video: string, poster: string, Icon: FilmTab['Icon']): FilmTab => {
-  const f = FILMS.find((x) => x.id === id);
-  return { key: id, label: f?.eyebrow ?? id, title: f?.title, hook: f?.line, line: f?.beamy ?? '', video: A.films[id]?.video ?? video, poster: A.films[id]?.poster ?? poster, Icon };
-};
-const FILM_TABS: FilmTab[] = [
-  filmTab('booth', boothFilm, boothPoster, BoothIcon),
-  filmTab('wall', wallFilm, wallPoster, WallIcon),
-  filmTab('challenges', challengesFilm, challengesPoster, ChallengeIcon),
-  filmTab('cards', cardsFilm, cardsPoster, CardIcon),
-  { key: 'virtual', label: VC_FILM.label, title: VC_FILM.title, hook: VC_FILM.hook, line: VC_FILM.beamy, video: virtualFilm, poster: virtualPoster, Icon: VirtualIcon },
-];
-/** The live walls' photos: an override needs more than one wall's worth. */
-const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
-/** The AR step's picker, in category order. */
-const AR_LOOKS = arOrder(A.arLooks);
 /** How long each step of the AR auto tour holds (the tour stops for good at the first tap). */
 const AR_HOLD_MS = 3200;
 const AR_HOLD_REDUCED_MS = 5200;
@@ -254,12 +383,24 @@ export default function BeamyPage() {
   const wideHero = vp.w >= WIDE_HERO_MIN;
   const reduced = useReducedMotion();
 
+  /* Asset slots: lib/beamyAssets HOME_ASSET_DEFAULTS first (an undefined
+     media field there means the bundled file imported here), then the
+     owner's published overrides (/admin/home-assets) once they load. */
+  const A = useBeamyAssets();
+  /** The live walls' photos: an override needs more than one wall's worth. */
+  const PHOTO_POOL = A.wallPhotos.length > 9 ? A.wallPhotos : WALL_POOL;
+  /** The AR step's picker, in category order. */
+  const AR_LOOKS = useMemo(() => arOrder(A.arLooks), [A.arLooks]);
+  /** The hero's try-on tour (the first is what he lands in and takes his selfie wearing). */
+  const BEAMY_LOOKS = useMemo(() => A.heroLooks.map((l) => toBeamyLook(l)), [A.heroLooks]);
+  /** The same, for callbacks that outlive a render (the intro, the bubble's line). */
+  const looksRef = useRef(BEAMY_LOOKS);
+  looksRef.current = BEAMY_LOOKS;
+
   const [active, setActive] = useState<StopId>('hero');
   const [step, setStep] = useState(0);
-  const [film, setFilm] = useState<string>(FILM_TABS[0].key);
   /* The audience options wait, hidden, until Beamy arrives and beams them
-     in (instantly shown without WebGL or under reduced motion). The films
-     are simply there: no projector, so a tab switch never moves anything. */
+     in (instantly shown without WebGL or under reduced motion). */
   const [pickLit, setPickLit] = useState(false);
   const pickLitRef = useRef(false);
   pickLitRef.current = pickLit;
@@ -325,7 +466,6 @@ export default function BeamyPage() {
   const viewfinderRef = useRef<HTMLDivElement | null>(null);
   const storyRef = useRef<HTMLElement | null>(null);
   const storyWallRef = useRef<HTMLDivElement | null>(null);
-  const filmFrameRef = useRef<HTMLDivElement | null>(null);
   /** The centre tile of whichever wall the next photo flies to. */
   const heroTileRef = useRef<HTMLDivElement | null>(null);
   const tryTileRef = useRef<HTMLDivElement | null>(null);
@@ -346,8 +486,6 @@ export default function BeamyPage() {
   readyRef.current = ready && !failed;
   const reducedRef = useRef(reduced);
   reducedRef.current = reduced;
-  const filmRef = useRef(film);
-  filmRef.current = film;
   /** What the story is doing with Beamy right now (so a step is entered once). */
   const storyOn = useRef<{ step: number; held: boolean }>({ step: -1, held: false });
   const layoutRef = useRef<StageLayout>({ home: { x: vp.w / 2, y: vp.h * 0.6 }, heightPx: 180 });
@@ -459,14 +597,12 @@ export default function BeamyPage() {
 
   const lineFor = useCallback((id: StopId, a: Audience): string => {
     switch (id) {
-      case 'hero': return BEAMY_LOOKS[lookIxRef.current]?.line ?? HELLO;
+      case 'hero': return looksRef.current[lookIxRef.current]?.line ?? HELLO;
       case 'story': return STORY_COPY.heading;
-      case 'films': return (FILM_TABS.find((f) => f.key === filmRef.current) ?? FILM_TABS[0]).line;
       case 'pick': return GREETING;
       case 'try': return a.lines.snap;
       case 'pricing': return pricingSection().line;
       case 'start': return a.lines.go;
-      case 'virtual': return VC_COPY.beamy;
     }
   }, []);
 
@@ -502,6 +638,7 @@ export default function BeamyPage() {
     b.stopProject();
     if (s.id === 'prop') void b.play('Hop');
     else if (s.id === 'wall') { /* the wall's own timeline drives him (onCue) */ }
+    else if (s.id === 'virtual') void b.play('Wave'); // he waves to friends far away; its timeline has him beam at the card (onCue)
     else {
       void b.play(s.clip as BeamyClip);
       const id = s.id;
@@ -521,7 +658,8 @@ export default function BeamyPage() {
   const storyLeaveRef = useRef(storyLeave);
   storyLeaveRef.current = storyLeave;
   /* A story scene's cue (StoryScenes' timelines): Beamy acts on the wall
-     step's beats; the challenge ends with him celebrating. */
+     step's beats; the challenge ends with him celebrating; the shared link
+     goes out with a beam at the card, and he sparkles when it is sent. */
   const onCue = useCallback((scene: string, cue: string) => {
     const b = api.current;
     logStep(`seq:${scene}:${cue}`);
@@ -529,6 +667,8 @@ export default function BeamyPage() {
     if (scene === 'wall' && cue === 'receive') { void b.play('Hop'); b.sparkle('sparkle'); }
     else if (scene === 'wall' && cue === 'beam') beamToWall();
     else if (scene === 'medal' && cue === 'rank') b.sparkle('sparkle');
+    else if (scene === 'virtual' && cue === 'share') { const r = anchorRect('virtual'); if (r !== null) void b.beam(centre(r), undefined, 'mouth'); }
+    else if (scene === 'virtual' && cue === 'deliver') b.sparkle('sparkle');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs only
   }, []);
   const beamyAt = useCallback(() => (readyRef.current && api.current !== null ? api.current.mouth() : null), []);
@@ -598,9 +738,12 @@ export default function BeamyPage() {
       let arTop = headerH + 8;
       const arPeeks: NonNullable<StageDecor['peeks']> = [];
       if (onAr && arCar !== null) {
-        const titleH = arCar.querySelector('.bw-ar-title')?.getBoundingClientRect().height ?? 0;
+        // The room above the frame: the rail (props, filters, effects) and
+        // the title. The same height on every tab, so a tab change never
+        // moves the frame or him.
+        const topH = arCar.querySelector('.bw-ar-top')?.getBoundingClientRect().height ?? 0;
         const tabsEl = vw < WIDE_HERO_MIN ? main.querySelector('.bw-ar .bw-ar-tabs') : null;
-        arTop = Math.max(arTop, tabsEl !== null ? tabsEl.getBoundingClientRect().bottom + 6 : 0) + titleH + 6;
+        arTop = Math.max(arTop, tabsEl !== null ? tabsEl.getBoundingClientRect().bottom + 6 : 0) + topH + 6;
         if (arCar.closest('.bw-ar[data-on="true"]') !== null) {
           // A peek gliding in or out carries its prop with it, and lets go
           // of it as it fades (its transition's live opacity).
@@ -629,7 +772,9 @@ export default function BeamyPage() {
           const cx = storyAt.rect.left + storyAt.rect.width / 2;
           const capR = main.querySelector('#how .bw-glass-card')?.getBoundingClientRect().right ?? 0;
           const fw = (Math.min(vh - 8 - arTop, ((vw * 0.6) * 16) / 9) * 9) / 16;
-          const c = Math.min(Math.max(cx, capR + 40 + fw / 2), vw - 24 - fw / 2);
+          // The rail above the frame is wider than it: clear the caption by whichever is wider.
+          const half = Math.max(fw / 2, (arCar.querySelector('.bw-ar-top')?.getBoundingClientRect().width ?? 0) / 2);
+          const c = Math.min(Math.max(cx, capR + 24 + half), vw - 24 - half);
           arAt = arStage({ box: { top: arTop, bottom: vh - 8, left: c - fw / 2, right: c + fw / 2 } });
         }
         const s0 = arAt.stand;
@@ -689,7 +834,7 @@ export default function BeamyPage() {
         bubbleMaxY: vh - 12,
         // The bubble speaks only where his slot left room for it (never on
         // phones, never in the story, never mid-glide).
-        bubbleAway: isPhone || slotId === 'story' || slotId === 'films' || !settled,
+        bubbleAway: isPhone || slotId === 'story' || !settled,
         // A tap on him works wherever he has settled, phones included (the
         // bubble's rules above are about room for text, not about taps).
         hitAway: !settled,
@@ -755,7 +900,6 @@ export default function BeamyPage() {
       else if (!inStory && storyOn.current.step >= 0) storyLeaveRef.current();
       // Options he beams in: shown anyway once on screen for a moment,
       // whether or not he got there (a stop that never settles, a slow stage).
-      // (The films never wait on him: he stands beside them and talks.)
       const now = performance.now();
       const pg = pickGridRef.current;
       if (!pickLitRef.current && pg !== null) {
@@ -811,9 +955,32 @@ export default function BeamyPage() {
           arScaled.current = true;
           if (STEP_LOG) (window as unknown as { __beamyAr?: unknown }).__beamyAr = { frame: f, stand: arAt.stand, propScale: k, beamy: bw.where() };
         }
-      } else if (bw !== null && arScaled.current) {
-        arScaled.current = false;
-        bw.wornScale(1);
+        // Settled on the step, the stage steps in front of the page so what
+        // he wears draws over the frame; the frame images on show (the worn
+        // one first) and the frame arrows still cover his body (the stage
+        // masks it, decor.arOver).
+        if (settled && arCar.closest('.bw-ar[data-on="true"]') !== null) {
+          const frames: { at: number; url: string; left: number; top: number; width: number; height: number; a: number }[] = [];
+          arCar.querySelectorAll<HTMLImageElement>('.bw-ar-track[data-cat="frame"] .bw-ar-item[data-kind="frame"] > img').forEach((img) => {
+            const item = img.parentElement as HTMLElement;
+            const r = img.getBoundingClientRect();
+            const a = Number(getComputedStyle(item).opacity);
+            if (r.width > 4 && a > 0.02 && r.right > 0 && r.left < vw) frames.push({ at: Math.abs(Number(item.dataset.at ?? 9)), url: img.currentSrc || img.src, left: r.left, top: r.top, width: r.width, height: r.height, a });
+          });
+          frames.sort((p, q) => p.at - q.at);
+          const holes: { x: number; y: number; r: number }[] = [];
+          arCar.querySelectorAll<HTMLElement>(':scope > .bw-ar-arrow').forEach((el) => {
+            const r = el.getBoundingClientRect();
+            if (r.width > 4) holes.push({ x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 });
+          });
+          decorRef.current.arOver = { frames: frames.slice(0, 3), holes: holes.slice(0, 2) };
+        } else decorRef.current.arOver = undefined;
+      } else {
+        decorRef.current.arOver = undefined;
+        if (bw !== null && arScaled.current) {
+          arScaled.current = false;
+          bw.wornScale(1);
+        }
       }
       decorRef.current.peeks = arPeeks;
       layoutRef.current.tickMs = performance.now() - t0;
@@ -965,7 +1132,7 @@ export default function BeamyPage() {
       say(HELLO);
       // Christmas first: the Holiday cover goes up around him and the antlers
       // pop on, then he takes the selfie in them (that photo goes to the wall).
-      const first = BEAMY_LOOKS[0];
+      const first = looksRef.current[0];
       if (first !== undefined && first.kind !== 'none') {
         heroFrame.current = first.kind === 'frame' ? first : null;
         lastWorn.current = 0;
@@ -1021,7 +1188,7 @@ export default function BeamyPage() {
     heroFrame.current = look.kind === 'frame' ? look : null;
     let live = true;
     let hold = 0;
-    const advance = () => { if (live) setLookIx((k) => nextLook(k)); };
+    const advance = () => { if (live) setLookIx((k) => nextLook(k, BEAMY_LOOKS.length)); };
     // The hold starts once he is actually wearing it (a slow prop is never
     // skipped); a load that never settles still moves on.
     const stuck = window.setTimeout(advance, 15000);
@@ -1033,11 +1200,11 @@ export default function BeamyPage() {
       hold = window.setTimeout(advance, reduced ? LOOK_HOLD_REDUCED_MS : LOOK_HOLD_MS);
     });
     // Warm the next look so the swap is instant.
-    const nx = preloadUrl(lookIx);
+    const nx = preloadUrl(lookIx, BEAMY_LOOKS);
     if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = nx; } }
     return () => { live = false; window.clearTimeout(stuck); window.clearTimeout(hold); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
-  }, [tryOn, lookIx, reduced, introRunning, active]);
+  }, [tryOn, lookIx, reduced, introRunning, active, BEAMY_LOOKS]);
 
   /* ── The story's AR step: the picker drives what he wears, ONE look per
      category, combined (lib/beamyAssets wearStop): the prop on his head,
@@ -1070,7 +1237,18 @@ export default function BeamyPage() {
       setArTab(t.tab);
     }, reduced ? AR_HOLD_REDUCED_MS : AR_HOLD_MS);
     return () => window.clearInterval(id);
-  }, [arOn, arTouched, reduced]);
+  }, [arOn, arTouched, reduced, AR_LOOKS]);
+  // The owner's AR looks arrived after first paint: the untouched tour restarts on them.
+  const arLooksSeen = useRef(AR_LOOKS);
+  useEffect(() => {
+    if (arLooksSeen.current === AR_LOOKS) return;
+    arLooksSeen.current = AR_LOOKS;
+    if (arTouched) return;
+    const t = arTour(arK.current, AR_LOOKS);
+    setArSel(t.sel);
+    setArTab(t.tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new list restarts it
+  }, [AR_LOOKS]);
   /** The prop the AR step has on him (null = none); undefined = the step is not dressing him. */
   const arWorn = useRef<string | null | undefined>(undefined);
   useEffect(() => {
@@ -1099,7 +1277,7 @@ export default function BeamyPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- arTouched only gates the warm-up
-  }, [arOn, arSel]);
+  }, [arOn, arSel, AR_LOOKS]);
   // Effects: the sparkle burst repeats on the stage while it is on; every
   // other effect is drawn round him by ArFx (lib/arFx), and he never moves for one.
   const arFx = arSel.effect;
@@ -1179,6 +1357,27 @@ export default function BeamyPage() {
         }, fromHand ? 'hand' : 'mouth');
       },
     });
+  };
+
+  /* ── A tap on Beamy. His hit button is a fixed element over the canvas,
+     and a touch that starts on a fixed element scrolls the VIEWPORT, not
+     this page's own scroller: every swipe that began on him was dead
+     (measured: 0px moved). So the button takes no pointer events (it
+     stays focusable for the keyboard) and the page hit-tests taps instead,
+     letting anything interactive under him keep its own tap. ── */
+  const onBeamy = (x: number, y: number, target: EventTarget | null): boolean => {
+    const hit = hitRef.current;
+    if (hit === null || hit.dataset.away === 'true' || hit.style.visibility === 'hidden') return false;
+    if (target instanceof Element && target.closest(POKE_SKIP) !== null) return false;
+    return inEllipse(x, y, hit.getBoundingClientRect());
+  };
+  const onRootClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (!e.defaultPrevented && onBeamy(e.clientX, e.clientY, e.target)) onPoke();
+  };
+  const onRootHover = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return;
+    const on = onBeamy(e.clientX, e.clientY, e.target) ? 'true' : 'false';
+    if (e.currentTarget.dataset.beamyHover !== on) e.currentTarget.dataset.beamyHover = on;
   };
 
   /* ── A tap on Beamy's own hit area (nothing else captures). ─────────── */
@@ -1447,16 +1646,6 @@ export default function BeamyPage() {
 
   /* ── The story: pinned, one card at a time, Beamy + one 3D effect beside him ── */
   const n = STORY_STEPS.length;
-  const [storySnaps, setStorySnaps] = useState<number[]>([]);
-  useLayoutEffect(() => {
-    const st = storyRef.current;
-    if (st === null) return;
-    const hh = headerRef.current?.offsetHeight ?? headerH;
-    const [a0, a1] = storyEdgeOffsets(st.offsetHeight, window.innerHeight, hh);
-    // The two ends first and last (snap-stop normal), the steps between (snap-stop always).
-    const next = [a0, ...storySnapOffsets(n, st.offsetHeight, window.innerHeight, hh), a1].map((v) => Math.round(v));
-    setStorySnaps((prev) => (prev.join() === next.join() ? prev : next));
-  }, [n, vp.w, vp.h, phone, headerH]);
   const goStep = (k: number) => {
     const sc = scrollerRef.current;
     const st = storyRef.current;
@@ -1467,6 +1656,7 @@ export default function BeamyPage() {
     const run = r.height - (vh - headerH);
     sc.scrollTo({ top: top + ((k + 0.5) / n) * run, behavior: reduced ? 'auto' : 'smooth' });
   };
+  useStoryPager(scrollerRef, storyRef, headerRef, n, reducedRef);
   // Phones and portrait tablets stack the scene above him; wide screens set it round him.
   const stacked = phone || vp.w < WIDE_HERO_MIN;
   const storyIds = STORY_STEPS.map((s) => s.id);
@@ -1515,10 +1705,7 @@ export default function BeamyPage() {
   );
   const story = (
     <section ref={storyRef} id="how" data-stop="story" aria-labelledby="h-story" className="bw-sec relative" style={{ height: `${storyHeightVh(n, phone)}vh` }}>
-      {/* Touch screens: one snap anchor mid-step (lib/beamyScroll
-          storySnapOffsets). With scroll-snap-stop (brand.css, coarse pointers
-          only) a momentum flick stops at the next step instead of flying past it. */}
-      {storySnaps.map((top, k) => <span key={k} aria-hidden className={k === 0 || k === storySnaps.length - 1 ? 'bw-story-snap bw-story-edge' : 'bw-story-snap'} style={{ top }} />)}
+      {/* Touch screens: the story pager (useStoryPager) settles every swipe on one step. */}
       <div className="sticky overflow-hidden" style={{ top: 'var(--bw-header-h)', height: 'calc(100svh - var(--bw-header-h))' }}>
         {stacked ? (
           <div className="flex h-full flex-col px-4 pb-3 pt-3 sm:px-8">
@@ -1544,63 +1731,6 @@ export default function BeamyPage() {
           </div>
         )}
       </div>
-    </section>
-  );
-
-  /* ── The films: one fixed 16:9 frame, a tab per film (FILM_TABS); Beamy
-     stands beside it and says a line for each. Nothing here moves on a
-     switch: the box keeps its size and the bubble its height. ── */
-  const cur = FILM_TABS.find((f) => f.key === film) ?? FILM_TABS[0];
-  // Straight on from the story (its pinned panel already ends on open space),
-  // so the films start right under it, like the options do after them. Phones
-  // give it no slot of its own: a second Beamy box above the heading was a
-  // blank screen while he dissolved between two slots. He stays in the story
-  // until the film fills the screen, then stands above the options.
-  const filmsClass = `bw-sec relative mx-auto w-full max-w-[1320px] ${phone ? 'px-5 pb-14 pt-4' : 'px-[clamp(40px,6vw,104px)] pb-[clamp(88px,13vh,150px)] pt-[clamp(8px,2vh,24px)]'}`;
-  // His line, in a bubble of fixed height (its tail points at him; on phones,
-  // where he is not here, it sits over the film).
-  const filmLine = (
-    <p data-film-line className="bw-film-line" data-phone={phone ? 'true' : 'false'} aria-live="polite">
-      <span key={cur.key} className="bw-film-line-text">{cur.line}</span>
-    </p>
-  );
-  const films = (
-    <section id="films" data-stop="films" aria-labelledby="h-films" className={filmsClass}>
-      {split('right', phone ? null : (
-        <div className="flex w-full max-w-[280px] flex-col items-center">
-          {filmLine}
-          <div data-slot="films" data-yaw={-0.5} data-bubble="none" aria-hidden className="aspect-[1.1] max-h-[46vh] w-full" />
-        </div>
-      ), (
-        <>
-          <div className="bw-in">
-            <h2 id="h-films" className="bw-h2">{FILMS_COPY.heading}</h2>
-          </div>
-          <div role="group" aria-label="Pick a film" className="bw-in bw-film-tabs mt-5 flex flex-wrap gap-2" style={i(1)}>
-            {FILM_TABS.map((f) => {
-              const Icon = f.Icon;
-              const on = film === f.key;
-              return (
-                <button key={f.key} type="button" className="bw-glass-chip bw-pane-chip" aria-pressed={on} onClick={(e) => { setFilm(f.key); logStep(`film:${f.key}`); if (phone) e.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' }); }}>
-                  {Icon !== undefined
-                    ? <Icon size={18} from={on ? '#2B2A8C' : '#FFFFFF'} to={on ? '#5B4BE0' : '#C9CCFF'} />
-                    : <Clapperboard className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden />}
-                  {f.label}
-                </button>
-              );
-            })}
-          </div>
-          {phone && filmLine}
-          <div ref={filmFrameRef} data-film-frame data-lit="true" className={`bw-in bw-film bw-film-fixed bw-thick-frame ${phone ? 'mt-3' : 'mt-6'}`} style={i(2)}>
-            <FilmEmbed key={cur.key} src={cur.video} poster={cur.poster} label={`${cur.title ?? cur.label}: feature film`} chipClassName="bw-film-chip" />
-          </div>
-          {(cur.title !== undefined || cur.hook !== undefined) && (
-            <p className="bw-small bw-film-caption mt-4 max-w-[56ch]">
-              {cur.title !== undefined && <span className="font-semibold" style={{ color: 'var(--bw-ink)' }}>{cur.title}.</span>} {cur.hook}
-            </p>
-          )}
-        </>
-      ))}
     </section>
   );
 
@@ -1794,6 +1924,8 @@ export default function BeamyPage() {
       data-arrival={arrival}
       data-stop-active={active}
       ref={scrollerRef}
+      onClick={onRootClick}
+      onPointerMove={onRootHover}
       tabIndex={-1}
       className="bw-root bw-scroll relative h-full overflow-y-auto overflow-x-clip"
       style={{ outline: 'none', ['--bw-header-h' as string]: `${headerH}px` }}
@@ -1828,6 +1960,7 @@ export default function BeamyPage() {
           hitRef={hitRef}
           decorRef={decorRef}
           frameRef={stageFrame}
+          sceneProps={A.sceneProps}
           startHidden
           reducedMotion={reduced}
           onReady={() => { logStep('model:ready'); setReady(true); }}
@@ -1871,9 +2004,6 @@ export default function BeamyPage() {
       <main ref={mainRef} className="relative z-10">
         {hero}
         {story}
-        {films}
-        {/* Virtual celebrations (VirtualCelebrations.tsx): its own stop; he beams at the card when the link goes out. */}
-        <VirtualCelebrations phone={phone} wide={wideHero} beamyHere={active === 'virtual'} onBeam={(to) => { const b = api.current; if (b !== null && readyRef.current) void b.beam(to, undefined, 'mouth'); }} />
         {pick}
         {tryIt}
         {pricingSec}
@@ -1897,7 +2027,7 @@ export default function BeamyPage() {
           onClick={onPoke}
           data-beamy-hit
           aria-label="Tap Beamy"
-          className="bw-focus fixed left-0 top-0 z-[45] cursor-pointer touch-manipulation rounded-full"
+          className="bw-focus pointer-events-none fixed left-0 top-0 z-[45] rounded-full"
           style={{ visibility: arrival === 'done' ? 'visible' : 'hidden' }}
         />
       )}

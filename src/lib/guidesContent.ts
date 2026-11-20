@@ -1260,6 +1260,84 @@ export function guideHighlights(doc: GuideDoc): string[] {
 }
 
 /* ------------------------------------------------------------------ */
+/* Feature films — the hub's "Watch it in action" section              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The five product films that used to sit in the homepage's film section.
+ * Their media is the SAME bundled files (src/assets/landing/*-feature.*, wired
+ * in guidesMedia.FEATURE_FILM_MEDIA), so a re-render reaches both pages.
+ *
+ * The words are copied in rather than imported: this module stays import-free
+ * (see the header), and the homepage is free to retire its own copy without
+ * breaking the guides. They read the same as the homepage did on the day they
+ * moved: brandLanding FILMS for the first four, beamyVirtual VC_FILM for the
+ * fifth. The celebrations line is held to beamyVirtual's AUTO_DELIVERY_RE in
+ * guidesContent.test.ts. The film itself ends on the host pressing "Send", and
+ * nothing may promise automatic delivery while that does not exist.
+ */
+export type FeatureFilmId = 'booth' | 'wall' | 'challenges' | 'cards' | 'celebrations';
+
+export interface FeatureFilm {
+  id: FeatureFilmId;
+  /** The short tile label. */
+  eyebrow: string;
+  title: string;
+  /** ONE line. The film carries the detail as in-video callouts, so the copy
+   *  never pre-states it. */
+  hook: string;
+  /** Tile accent, from the guides' own spectrum. */
+  hue: string;
+}
+
+export const FEATURE_FILMS_COPY = {
+  eyebrow: 'Watch it in action',
+  title: 'Five short films, one for every part of the night',
+  blurb:
+    'From the first scan to the keepsake everyone takes home. Each one is under half a minute and plays muted, so pick one and watch it right here.',
+} as const;
+
+export const FEATURE_FILMS: readonly FeatureFilm[] = [
+  {
+    id: 'booth',
+    eyebrow: 'Photo booth',
+    title: 'A photo booth that lives in every pocket',
+    hook: 'One scan drops every guest into a magical booth, right in their browser.',
+    hue: '#FB923C',
+  },
+  {
+    id: 'wall',
+    eyebrow: 'Live photo wall',
+    title: 'Every shot beams onto the wall',
+    hook: 'The moment a photo lands, the whole room turns to look.',
+    hue: '#22D3EE',
+  },
+  {
+    id: 'challenges',
+    eyebrow: 'Challenges',
+    title: 'Turn the room into the game',
+    hook: 'Give guests a mission, and watch every table race to beat it.',
+    hue: '#34D399',
+  },
+  {
+    id: 'cards',
+    eyebrow: 'Digital keepsakes',
+    title: 'The morning-after keepsake',
+    hook: 'Long after the lights go up, everyone still has a piece of the night.',
+    hue: '#E879F9',
+  },
+  {
+    id: 'celebrations',
+    eyebrow: 'Celebrations',
+    title: 'Celebrate together, from anywhere',
+    hook: 'One link gathers notes, photos and videos from friends everywhere onto one card.',
+    // Lighter than the 3D-props guide's #7C6CF7, which reads at ~2.9:1 as
+    // 10px label text on the purple page; this is ~6:1.
+    hue: '#C4B5FD',
+  },
+];
+
+/* ------------------------------------------------------------------ */
 /* GUIDE_COVERAGE — the contract guidesDrift.test.ts enforces          */
 /* ------------------------------------------------------------------ */
 

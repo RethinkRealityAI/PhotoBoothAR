@@ -114,10 +114,32 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     { id: 'ar-countdown', name: 'New Year countdown', category: 'frame', occasion: 'New Year’s Eve', url: `${F}nye-countdown.png`, opening: { top: 0.212, bottom: 0.812, left: 0.144, right: 0.863 } },
     { id: 'ar-asoebi', name: 'Aso ebi arch', category: 'frame', occasion: 'Nigerian wedding', url: `${F}cultural-asoebi-arch.png`, opening: { top: 0.177, bottom: 0.89, left: 0, right: 1 } },
     { id: 'ar-gala', name: 'Gala cover', category: 'frame', occasion: 'Gala', url: `${F}gala-magazine-cover.png`, opening: { top: 0.318, bottom: 0.906, left: 0.074, right: 0.926 } },
-    { id: 'ar-holly', name: 'Holly crown', category: 'prop', url: `${P}holly-crown.glb`, fit: { width: 0.36, at: [0, 0.31, 0], align: 'base' } },
-    // (No Rudolph nose: floating in the carousel it read as a plain red ball.)
-    { id: 'ar-santa', name: 'Santa hat', category: 'prop', url: `${P}santa-hat.glb`, fit: { width: 0.36, at: [0, 0.34, -0.01], align: 'base', tilt: -0.12 } },
-    { id: 'ar-snowflake', name: 'Snowflake tiara', category: 'prop', url: `${P}snowflake-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' } },
+    // One premium piece per kind a host can add: crown, hat, necklace,
+    // earrings, glasses, mask, face paint. Every one carries real materials
+    // (beamyAssets.test.ts reads each GLB). Library pieces are fitted to his
+    // shape here; the crown, necklace, mask and face paint are baked for him
+    // (scripts/bake-silver-crown.mjs: the hero's old Royal crown in polished
+    // silver with seated gems; bake-beamy-necklace.mjs: a gold chain that
+    // wraps round his body; bake-beamy-mask.mjs: a porcelain full-face
+    // Venetian mask on his face; bake-beamy-face-paint.mjs). Their metals
+    // carry glTF extras `beamyEnv`, which BeamyStage answers with studio
+    // reflections.
+    // The hat's brim rests where his head is as wide as its crown, so it
+    // sits ON him (seated lower, its crown sank into his head). The stage
+    // draws props over the frame, so a hat may rise onto its masthead.
+    // He has no neck or ears: the necklace's chain rests round his body,
+    // dipping under his mouth, and the earrings hang at his sides at eye height (a split pair,
+    // `pair`), forward enough that the far one still shows when he turns (the
+    // How it works step yaws him about 26 degrees).
+    { id: 'ar-crown', name: 'Royal crown', category: 'prop', url: `${P}silver-crown.glb`, fit: { width: 0.4, at: [0, 0.29, 0], align: 'base' } },
+    // Smaller than the hero's: at full size it hid most of a cover frame's masthead on phones.
+    { id: 'ar-tophat', name: 'Top hat', category: 'prop', url: `${P}top-hat.glb`, fit: { width: 0.27, at: [0, 0.4, 0], align: 'base', tilt: -0.06 } },
+    { id: 'ar-necklace', name: 'Emerald necklace', category: 'prop', url: `${P}beamy-necklace.glb`, fit: { width: 0.545, at: [0, 0.132, 0.015], align: 'centre' } },
+    { id: 'ar-earrings', name: 'Garnet earrings', category: 'prop', url: `${P}garnet-earrings.glb`, fit: { width: 0.042, pair: 0.4, at: [0, 0.15, 0.135], align: 'centre' } },
+    { id: 'ar-aviators', name: 'Aviators', category: 'prop', url: `${P}aviator-glasses.glb`, fit: { width: 0.42, at: [0, 0.235, -0.01], align: 'centre' } },
+    // The id stays (the picker's selection and the tests key on it); the piece is now a full-face mask.
+    { id: 'ar-masquerade', name: 'Venetian mask', category: 'prop', url: `${P}beamy-mask.glb`, fit: { width: 0.431, at: [0, 0.231, 0.126], align: 'centre' } },
+    { id: 'ar-facepaint', name: 'Butterfly face paint', category: 'prop', url: `${P}beamy-face-paint.glb`, fit: { width: 0.54, at: [0, 0.255, 0.09], align: 'centre' } },
     { id: 'ar-prismatic', name: 'Prismatic', category: 'filter', url: 'tint:prismatic' },
     { id: 'ar-aurora', name: 'Aurora', category: 'filter', url: 'tint:#34D399' },
     { id: 'ar-neon', name: 'Neon pulse', category: 'filter', url: 'tint:#E879F9' },
@@ -390,11 +412,14 @@ export function arStage(i: { box: { top: number; bottom: number; left: number; r
 }
 
 /**
- * How much his worn prop shrinks on the AR stage, FROZEN to the reference
- * frame's window (so cycling frames never resizes it): its top stays under
- * the window's top edge, never smaller than PROP_MIN_SCALE (a taller hat
- * then pops past it). `lift`/`liftBase`: how far it reaches above his tip
- * at full size and at its seat, in px. 1 when it fits as fitted.
+ * How much his worn prop shrinks on the AR stage, FROZEN to the stage's frame
+ * box (so cycling frames never resizes it). The stage draws what he wears
+ * OVER the frame (BeamyStage decor.arOver), so a hat may rise past the
+ * window onto the frame's masthead, but its top stays under the frame's top
+ * edge (the carousel's title sits right above it); never smaller than
+ * PROP_MIN_SCALE (a taller hat then pops past it). `lift`/`liftBase`: how far
+ * it reaches above his tip at full size and at its seat, in px. 1 when it
+ * fits as fitted.
  */
 export function arPropScale(i: { stand: { y: number; heightPx: number }; frame: { top: number; h: number }; lift: number; liftBase: number }): number {
   const hp = Math.max(1, i.stand.heightPx);
@@ -402,7 +427,7 @@ export function arPropScale(i: { stand: { y: number; heightPx: number }; frame: 
   const span = i.lift - base;
   if (!(span > 0.5)) return 1;
   const tip = i.stand.y - hp * 1.02;
-  const room = tip - (i.frame.top + AR_REF_OPENING.top * i.frame.h) - hp * 0.03 - base;
+  const room = tip - i.frame.top - hp * 0.03 - base;
   return Math.min(1, Math.max(PROP_MIN_SCALE, room / span));
 }
 

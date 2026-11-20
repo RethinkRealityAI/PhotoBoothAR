@@ -138,7 +138,8 @@ describe('copy', () => {
     expect(new Set(FILMS.map((f) => f.beamy)).size).toBe(FILMS.length);
     // Step bodies stay short (about two lines on a card), each with its own effect.
     expect(STORY_STEPS.length).toBeGreaterThanOrEqual(3);
-    expect(STORY_STEPS.length).toBeLessThanOrEqual(5);
+    // Six: the owner moved virtual celebrations in as step 6 (2026-11-20).
+    expect(STORY_STEPS.length).toBeLessThanOrEqual(6);
     expect(new Set(STORY_STEPS.map((x) => x.id)).size).toBe(STORY_STEPS.length);
     for (const x of STORY_STEPS) expect(x.body.length, x.title).toBeLessThanOrEqual(80);
     for (const x of STORY_STEPS) expect(x.body, x.title).not.toMatch(/—|–/);
