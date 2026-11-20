@@ -37,7 +37,7 @@
  */
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
-  type CSSProperties, type HTMLAttributes, type ReactNode,
+  type CSSProperties, type HTMLAttributes, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode,
 } from 'react';
 import { Link } from 'react-router-dom';
 import { Camera, Check, Lock } from 'lucide-react';
@@ -58,7 +58,8 @@ import {
   startFacts, type Celebration, type Reaction, type StoryFxId,
 } from '../../lib/brandLanding';
 import {
-  STOPS, blendSlots, pageProgress, pinProgress, storyEdgeOffsets, storyHeightVh, storySnapOffsets, storySnapOn, storyStep, weightedNight,
+  STOPS, blendSlots, pageProgress, pinProgress, storyEdgeOffsets, storyEntry, storyHeightVh, storySnapOffsets, storySnapOn, storyStep, storySwipe,
+  storySwipeLeaves, weightedNight,
   type Pose, type SlotSample, type StopId,
 } from '../../lib/beamyScroll';
 import { BEAMY_LOOKS, LOOK_HOLD_MS, LOOK_HOLD_REDUCED_MS, nextLook, preloadUrl, type BeamyLook } from '../../lib/beamyLooks';
@@ -76,6 +77,189 @@ import {
 } from '../../lib/beamyAssets';
 import { motionAttrs } from '../../lib/beamyMotion';
 import type { ArFxKind } from '../../lib/arFx';
+
+/** What a tap on Beamy never steals: anything with its own tap under him. */
+const POKE_SKIP = 'a, button, input, select, textarea, label, summary, [role="button"], [role="tab"], [contenteditable="true"]';
+const inEllipse = (x: number, y: number, r: DOMRect) => {
+  if (r.width === 0 || r.height === 0) return false;
+  const nx = (x - (r.left + r.width / 2)) / (r.width / 2);
+  const ny = (y - (r.top + r.height / 2)) / (r.height / 2);
+  return nx * nx + ny * ny <= 1;
+};
+
+/**
+ * The story pager, touch screens (lib/beamyScroll storySwipe): inside the
+ * pinned story a vertical swipe moves the page with the finger, 1:1, and on
+ * release settles on the next or previous step (never further, never back
+ * where it began unless it was a mere touch). A swipe past either end is
+ * left to the native scroll, so it leaves the story with its momentum. A
+ * native flick that flies INTO the story is caught on its first or last
+ * step, and a native drag left between steps settles on the nearest one.
+ * Horizontal swipes (the AR carousel) and pinches are never touched.
+ */
+function useStoryPager(
+  scrollerRef: MutableRefObject<HTMLDivElement | null>,
+  storyRef: MutableRefObject<HTMLElement | null>,
+  headerRef: MutableRefObject<HTMLElement | null>,
+  n: number,
+  reducedRef: MutableRefObject<boolean>,
+) {
+  useEffect(() => {
+    const sc = scrollerRef.current;
+    if (sc === null) return;
+    const coarse = () => window.matchMedia('(pointer: coarse)').matches;
+    /** The stretch in the scroller's own scrollTop: its two ends and each step's middle. */
+    const geo = () => {
+      const st = storyRef.current;
+      if (st === null) return null;
+      const vh = window.innerHeight;
+      const hh = headerRef.current?.offsetHeight ?? 64;
+      const base = sc.scrollTop + st.getBoundingClientRect().top;
+      const [e0, e1] = storyEdgeOffsets(st.offsetHeight, vh, hh);
+      const mids = storySnapOffsets(n, st.offsetHeight, vh, hh).map((m) => base + m);
+      const a0 = base + e0, a1 = base + e1;
+      const stepAt = (top: number) => storyStep(pinProgress(-(top - base) - hh, st.offsetHeight, vh - hh), n);
+      return { a0, a1, mids, stepAt };
+    };
+    type G = { mode: 'pending' | 'track' | 'native'; x0: number; y0: number; top0: number; step0: number; y: number; t: number; vy: number };
+    let g: G | null = null;
+    let finger = false;
+    let anim = 0;
+    let idle = 0;
+    let prevTop = sc.scrollTop;
+    /** The last scroll's direction (+1 down the page), for the settle. */
+    let lastDir = 0;
+    /* While the pager settles, the scroller is not user-scrollable
+       (overflow hidden; scrollTop still writes): that is what stops a native
+       fling for good. A scrollTop write alone did not (measured: the fling
+       carried on 900px past the catch, fighting the settle). */
+    let unlockAt = 0;
+    const unlock = () => { window.clearTimeout(unlockAt); if (sc.style.overflowY !== '') sc.style.overflowY = ''; };
+    const stopAnim = () => { if (anim !== 0) { window.cancelAnimationFrame(anim); anim = 0; } unlock(); };
+    /** Only scrolls that follow a real touch are the pager's (a nav link, a deep link or the step dots are left alone). */
+    let touchedAt = -1e9;
+    const touchy = () => performance.now() - touchedAt < 3000;
+    const animateTo = (to: number) => {
+      stopAnim();
+      const from = sc.scrollTop;
+      const d = to - from;
+      if (Math.abs(d) < 1) { sc.scrollTop = to; prevTop = to; return; }
+      sc.style.overflowY = 'hidden';
+      const dur = reducedRef.current ? 220 : Math.min(620, Math.max(320, 260 + Math.abs(d) * 0.35));
+      const t0 = performance.now();
+      const frame = (now: number) => {
+        const u = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - u, 3);
+        sc.scrollTop = from + d * e;
+        prevTop = sc.scrollTop;
+        if (u < 1) anim = window.requestAnimationFrame(frame);
+        // Hold the lock a moment past the end, so a fling still in flight cannot resume.
+        else { anim = 0; unlockAt = window.setTimeout(unlock, 120); }
+      };
+      anim = window.requestAnimationFrame(frame);
+    };
+    /* A native drag that stopped short inside the stretch (no momentum, so
+       no more scroll events): settle on the step it shows, but only onward
+       in the way it was going, so a swipe leaving the story is never pulled
+       back in. */
+    const settleSoon = () => {
+      window.clearTimeout(idle);
+      idle = window.setTimeout(() => {
+        if (anim !== 0 || finger || !coarse() || !touchy()) return;
+        const q = geo();
+        if (q === null) return;
+        const t = sc.scrollTop;
+        if (t <= q.a0 + 1 || t >= q.a1 - 1) return;
+        const m = q.mids[q.stepAt(t)];
+        if ((lastDir > 0 && t < m - 2) || (lastDir < 0 && t > m + 2)) animateTo(m);
+      }, 160);
+    };
+    const onStart = (e: TouchEvent) => {
+      finger = true;
+      touchedAt = performance.now();
+      window.clearTimeout(idle);
+      if (e.touches.length !== 1) { g = null; return; }
+      const q = geo();
+      const top = sc.scrollTop;
+      const inside = q !== null && top >= q.a0 - 1 && top <= q.a1 + 1;
+      if (anim !== 0 && inside) stopAnim();
+      const p = e.touches[0];
+      g = { mode: inside && q !== null ? 'pending' : 'native', x0: p.clientX, y0: p.clientY, top0: top, step0: q?.stepAt(top) ?? 0, y: p.clientY, t: e.timeStamp, vy: 0 };
+    };
+    const onMove = (e: TouchEvent) => {
+      if (g === null || g.mode === 'native') return;
+      if (e.touches.length !== 1) { g.mode = 'native'; return; }
+      const p = e.touches[0];
+      const dx = p.clientX - g.x0, dy = p.clientY - g.y0;
+      if (g.mode === 'pending') {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 6) return;
+        g.mode = Math.abs(dx) > Math.abs(dy) || storySwipeLeaves(g.step0, n, dy) ? 'native' : 'track';
+        if (g.mode === 'native') return;
+      }
+      e.preventDefault();
+      const q = geo();
+      if (q === null) return;
+      const dt = Math.max(1, e.timeStamp - g.t);
+      g.vy = 0.6 * ((p.clientY - g.y) / dt) + 0.4 * g.vy;
+      g.y = p.clientY;
+      g.t = e.timeStamp;
+      sc.scrollTop = Math.min(q.a1, Math.max(q.a0, g.top0 - dy));
+      prevTop = sc.scrollTop;
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length > 0) return;
+      finger = false;
+      touchedAt = performance.now();
+      const was = g;
+      g = null;
+      if (was === null || was.mode !== 'track') {
+        // A native swipe from outside that the finger already carried inside: catch it now
+        // (its momentum starts inside, so the crossing check never sees it).
+        const q = geo();
+        const t = sc.scrollTop;
+        if (was !== null && q !== null && coarse()) {
+          if (was.top0 < q.a0 - 1 && t > q.a0 + 1) { animateTo(q.mids[0]); return; }
+          if (was.top0 > q.a1 + 1 && t < q.a1 - 1) { animateTo(q.mids[n - 1]); return; }
+        }
+        settleSoon();
+        return;
+      }
+      const q = geo();
+      if (q === null) return;
+      // A finger that stopped before lifting carries no speed.
+      const vy = e.timeStamp - was.t > 90 ? 0 : was.vy;
+      const k = storySwipe(was.step0, n, was.y - was.y0, vy);
+      animateTo(q.mids[k === 'leave' ? was.step0 : k]);
+    };
+    const onScroll = () => {
+      const top = sc.scrollTop;
+      const before = prevTop;
+      prevTop = top;
+      if (top !== before) lastDir = Math.sign(top - before);
+      if (anim !== 0 || finger || !coarse() || !touchy()) return;
+      const q = geo();
+      if (q === null) return;
+      const entry = storyEntry(before, top, q.a0, q.a1);
+      if (entry !== null) { animateTo(q.mids[entry === 'first' ? 0 : n - 1]); return; }
+      settleSoon();
+    };
+    sc.addEventListener('touchstart', onStart, { passive: true });
+    sc.addEventListener('touchmove', onMove, { passive: false });
+    sc.addEventListener('touchend', onEnd, { passive: true });
+    sc.addEventListener('touchcancel', onEnd, { passive: true });
+    sc.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      stopAnim();
+      window.clearTimeout(idle);
+      window.clearTimeout(unlockAt);
+      sc.removeEventListener('touchstart', onStart);
+      sc.removeEventListener('touchmove', onMove);
+      sc.removeEventListener('touchend', onEnd);
+      sc.removeEventListener('touchcancel', onEnd);
+      sc.removeEventListener('scroll', onScroll);
+    };
+  }, [scrollerRef, storyRef, headerRef, n, reducedRef]);
+}
 
 /** The beam's calm palette for the photo dissolve (palette[0] tints the core). */
 const BEAM_PALETTE = ['#C9CCFF', '#FFFFFF', '#A5ABFF', '#FFC56B'];
@@ -1128,6 +1312,27 @@ export default function BeamyPage() {
     });
   };
 
+  /* ── A tap on Beamy. His hit button is a fixed element over the canvas,
+     and a touch that starts on a fixed element scrolls the VIEWPORT, not
+     this page's own scroller: every swipe that began on him was dead
+     (measured: 0px moved). So the button takes no pointer events (it
+     stays focusable for the keyboard) and the page hit-tests taps instead,
+     letting anything interactive under him keep its own tap. ── */
+  const onBeamy = (x: number, y: number, target: EventTarget | null): boolean => {
+    const hit = hitRef.current;
+    if (hit === null || hit.dataset.away === 'true' || hit.style.visibility === 'hidden') return false;
+    if (target instanceof Element && target.closest(POKE_SKIP) !== null) return false;
+    return inEllipse(x, y, hit.getBoundingClientRect());
+  };
+  const onRootClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (!e.defaultPrevented && onBeamy(e.clientX, e.clientY, e.target)) onPoke();
+  };
+  const onRootHover = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return;
+    const on = onBeamy(e.clientX, e.clientY, e.target) ? 'true' : 'false';
+    if (e.currentTarget.dataset.beamyHover !== on) e.currentTarget.dataset.beamyHover = on;
+  };
+
   /* ── A tap on Beamy's own hit area (nothing else captures). ─────────── */
   const onPoke = () => {
     const b = api.current;
@@ -1394,16 +1599,6 @@ export default function BeamyPage() {
 
   /* ── The story: pinned, one card at a time, Beamy + one 3D effect beside him ── */
   const n = STORY_STEPS.length;
-  const [storySnaps, setStorySnaps] = useState<number[]>([]);
-  useLayoutEffect(() => {
-    const st = storyRef.current;
-    if (st === null) return;
-    const hh = headerRef.current?.offsetHeight ?? headerH;
-    const [a0, a1] = storyEdgeOffsets(st.offsetHeight, window.innerHeight, hh);
-    // The two ends first and last (snap-stop normal), the steps between (snap-stop always).
-    const next = [a0, ...storySnapOffsets(n, st.offsetHeight, window.innerHeight, hh), a1].map((v) => Math.round(v));
-    setStorySnaps((prev) => (prev.join() === next.join() ? prev : next));
-  }, [n, vp.w, vp.h, phone, headerH]);
   const goStep = (k: number) => {
     const sc = scrollerRef.current;
     const st = storyRef.current;
@@ -1414,6 +1609,7 @@ export default function BeamyPage() {
     const run = r.height - (vh - headerH);
     sc.scrollTo({ top: top + ((k + 0.5) / n) * run, behavior: reduced ? 'auto' : 'smooth' });
   };
+  useStoryPager(scrollerRef, storyRef, headerRef, n, reducedRef);
   // Phones and portrait tablets stack the scene above him; wide screens set it round him.
   const stacked = phone || vp.w < WIDE_HERO_MIN;
   const storyIds = STORY_STEPS.map((s) => s.id);
@@ -1462,10 +1658,7 @@ export default function BeamyPage() {
   );
   const story = (
     <section ref={storyRef} id="how" data-stop="story" aria-labelledby="h-story" className="bw-sec relative" style={{ height: `${storyHeightVh(n, phone)}vh` }}>
-      {/* Touch screens: one snap anchor mid-step (lib/beamyScroll
-          storySnapOffsets). With scroll-snap-stop (brand.css, coarse pointers
-          only) a momentum flick stops at the next step instead of flying past it. */}
-      {storySnaps.map((top, k) => <span key={k} aria-hidden className={k === 0 || k === storySnaps.length - 1 ? 'bw-story-snap bw-story-edge' : 'bw-story-snap'} style={{ top }} />)}
+      {/* Touch screens: the story pager (useStoryPager) settles every swipe on one step. */}
       <div className="sticky overflow-hidden" style={{ top: 'var(--bw-header-h)', height: 'calc(100svh - var(--bw-header-h))' }}>
         {stacked ? (
           <div className="flex h-full flex-col px-4 pb-3 pt-3 sm:px-8">
@@ -1684,6 +1877,8 @@ export default function BeamyPage() {
       data-arrival={arrival}
       data-stop-active={active}
       ref={scrollerRef}
+      onClick={onRootClick}
+      onPointerMove={onRootHover}
       tabIndex={-1}
       className="bw-root bw-scroll relative h-full overflow-y-auto overflow-x-clip"
       style={{ outline: 'none', ['--bw-header-h' as string]: `${headerH}px` }}
@@ -1784,7 +1979,7 @@ export default function BeamyPage() {
           onClick={onPoke}
           data-beamy-hit
           aria-label="Tap Beamy"
-          className="bw-focus fixed left-0 top-0 z-[45] cursor-pointer touch-manipulation rounded-full"
+          className="bw-focus pointer-events-none fixed left-0 top-0 z-[45] rounded-full"
           style={{ visibility: arrival === 'done' ? 'visible' : 'hidden' }}
         />
       )}

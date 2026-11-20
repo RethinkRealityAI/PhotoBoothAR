@@ -2189,19 +2189,10 @@
 [data-brand="2"][data-content-motion="soft"] .bw-ch-row::after { animation: none; opacity: 0; }
 [data-brand="2"][data-content-motion="soft"] .bw-ch-medal { animation-iteration-count: 1; }
 
-/* How it works, touch screens: one native snap stop mid-step (the anchors
-   come from lib/beamyScroll storySnapOffsets). A momentum flick on a phone
-   used to fly from step 1 past step 2 into step 3; `scroll-snap-stop:
-   always` makes every swipe stop at the next step. Snapping is on only
-   strictly inside the pinned stretch (the page sets data-story-snap, lib/
-   beamyScroll storySnapOn); its two end anchors let a swipe leave, and the
-   rest of the page never snaps. */
-@media (pointer: coarse) {
-  [data-brand="2"].bw-scroll[data-story-snap="on"] { scroll-snap-type: y mandatory; }
-  [data-brand="2"] .bw-story-snap { scroll-snap-align: start; scroll-snap-stop: always; }
-  [data-brand="2"] .bw-story-snap.bw-story-edge { scroll-snap-stop: normal; }
-}
-[data-brand="2"] .bw-story-snap { position: absolute; left: 0; width: 1px; height: 1px; pointer-events: none; opacity: 0; }
+/* How it works, touch screens: no CSS scroll snapping. Mandatory snapping
+   pulled every slow drag back to the same step and let a flick that began
+   outside the story fly past steps; the page's story pager (BeamyPage
+   useStoryPager, lib/beamyScroll storySwipe) settles each swipe on one step. */
 
 /* ── Shimmering outline (components/beamy/ShineText): the glow CTA's
    travelling light, on the letters' OUTLINE or a rim around the word.
@@ -2608,3 +2599,8 @@
   color: #1A1740;
   background-color: #FFC56B;
 }
+
+/* Beamy's hit area takes no pointer events (a touch starting on a fixed
+   element scrolled nothing); the page hit-tests taps and marks a mouse
+   hovering him. */
+[data-brand="2"][data-beamy-hover="true"] { cursor: pointer; }

@@ -1897,8 +1897,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       hit.style.width = `${hw}px`;
       hit.style.height = `${heightPx}px`;
       hit.style.transform = `translate3d(${(pos.current.x - hw / 2).toFixed(1)}px, ${top.toFixed(1)}px, 0)`;
-      const away = presence < 0.6 || layout.hitAway === true ? 'none' : '';
-      if (hit.style.pointerEvents !== away) hit.style.pointerEvents = away;
+      // The page hit-tests taps against this box (it takes no pointer events itself).
+      const away = presence < 0.6 || layout.hitAway === true ? 'true' : 'false';
+      if (hit.dataset.away !== away) hit.dataset.away = away;
     }
   });
 
