@@ -2,43 +2,49 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The asset chooser behind every slot on /admin/home-assets. Three sources,
- * one grid: the shared Studio library (admin-api list_library_items), the
- * props, frames, filters and effects bundled with the homepage, and files
- * already uploaded for the landing pages (assets/_platform/landing/); plus a
- * fresh upload. Every pick is re-checked through lib/homeAssets
- * resolveAssetUrl / lookUrlKind for the slot before it is handed back, so a
- * wrong-kind file can never land in a slot.
+ * The asset chooser behind every slot on /admin/home-assets. Everything the
+ * owner has, in one searchable grid (lib/homeAssetCatalog): the props,
+ * frames, filters and effects bundled with the homepage; every shared-library
+ * row in every state (live, hidden from hosts, withdrawn, host-only) and the
+ * bulk-import drafts; every 3D prop and scene made inside an event; and the
+ * files uploaded for the landing pages (assets/_platform/landing/); plus a
+ * fresh upload. Source tabs, kind chips and a search narrow it down.
+ *
+ * Only what the slot can render is choosable; everything else is shown dimmed
+ * with the reason (a frame offered as a 3D prop, a .gltf, an SVG frame…), so
+ * nothing the owner has is silently missing. Every pick is re-checked
+ * through lib/homeAssets resolveAssetUrl / lookUrlKind when it lands.
+ *
+ * All reads are the existing platform-admin paths (admin-api list_* actions,
+ * the admin-only `_platform/landing/` storage listing): nothing new is opened.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Check, Film, ImageIcon, Sparkles, Upload } from 'lucide-react';
+import { AlertTriangle, Box, Check, Film, ImageIcon, Search, Sparkles, Upload } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { useToast } from '../ui/Toast';
-import { fetchLibraryItems, type LibraryItemRow } from '../../lib/adminLibrary';
-import { listLandingMedia, uploadLandingMedia, type LandingMediaItem } from '../../lib/landingMedia';
-import { lookUrlKind, resolveAssetUrl, tintSwatch, type AssetKind, type HomeLook, type LookCategory, type LookUrlKind } from '../../lib/homeAssets';
 import {
-  BUILTIN_ASSETS, BUILTIN_EFFECT_LOOKS, categoryForLibraryKind, fitForProp, lookFromBuiltin, lookFromLibraryItem,
-} from '../../lib/homeAssetSources';
+  fetchEventModels, fetchLibraryCategories, fetchLibraryDrafts, fetchLibraryItems, type EventModelRow, type LibraryDraftRow, type LibraryItemRow,
+} from '../../lib/adminLibrary';
+import type { LibraryCategory } from '../../lib/libraryTaxonomy';
+import { listLandingMedia, uploadLandingMedia, type LandingMediaItem } from '../../lib/landingMedia';
+import { resolveAssetUrl, tintSwatch, type AssetKind, type LookCategory, type LookUrlKind } from '../../lib/homeAssets';
+import {
+  CATALOG_SOURCES, CATALOG_SOURCE_LABEL, CATALOG_TYPES, CATALOG_TYPE_LABEL, buildCatalog, filterCatalog, typeCounts, uploadPick,
+  type CatalogEntry, type CatalogQuery, type CatalogSourceFilter, type CatalogType, type PickedAsset,
+} from '../../lib/homeAssetCatalog';
 
-/** One choosable asset: always a URL; a ready look when it came from a look source. */
-export interface PickedAsset {
-  url: string;
-  /** 'builtin' = a file-less `tint:` / `fx:` look. */
-  kind: LookUrlKind;
-  name: string;
-  thumb?: string;
-  look?: HomeLook;
-}
-
-type Source = 'builtin' | 'library' | 'uploads';
-const SOURCE_LABEL: Record<Source, string> = { builtin: 'Built-in', library: 'Studio library', uploads: 'Uploaded' };
+export type { PickedAsset };
 
 const ACCEPT_ATTR: Record<AssetKind, string> = {
   image: 'image/png,image/webp,image/jpeg',
   video: 'video/mp4,video/webm',
   model: '.glb,model/gltf-binary',
 };
+
+const chip = (on: boolean) =>
+  `pressable min-h-11 shrink-0 rounded-full px-4 font-label uppercase tracking-luxe text-[10px] border transition-colors ${
+    on ? 'bg-[color:var(--color-accent)]/15 border-[color:var(--color-accent)]/50 text-brand-fg' : 'bg-white/[0.03] border-white/10 text-brand-muted/70 hover:text-brand-fg'
+  }`;
 
 function kindOf(url: string | null | undefined, accept: AssetKind[]): AssetKind | undefined {
   return accept.find((k) => resolveAssetUrl(url, k) !== undefined);
@@ -56,13 +62,9 @@ function retype(file: File): File {
   return file;
 }
 
-/** An uploaded file as a pick (a look when the slot is a look slot). */
-function filePick(url: string, kind: AssetKind, name: string, category: LookCategory | undefined): PickedAsset {
-  const thumb = kind === 'image' ? url : undefined;
-  if (category === undefined) return { url, kind, name, thumb };
-  const look: HomeLook = { id: '', name, category, url, ...(thumb !== undefined ? { thumb } : {}), ...(category === 'prop' ? { fit: fitForProp(url, name) } : {}) };
-  return { url, kind, name, thumb, look };
-}
+/** One list's load: its rows, null while loading, or failed. */
+type Load<T> = { rows: T[] | null; failed: boolean };
+const loading = <T,>(): Load<T> => ({ rows: null, failed: false });
 
 export default function HomeAssetPicker({
   title, accept, category, multiple = false, onPick, onClose,
@@ -78,66 +80,46 @@ export default function HomeAssetPicker({
 }) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [source, setSource] = useState<Source>('builtin');
-  const [library, setLibrary] = useState<LibraryItemRow[] | null>(null);
-  const [libraryErr, setLibraryErr] = useState(false);
-  const [uploads, setUploads] = useState<LandingMediaItem[] | null>(null);
-  const [uploadsErr, setUploadsErr] = useState(false);
+  const [q, setQ] = useState<CatalogQuery>({ source: 'all', type: 'all', text: '', fitsOnly: false });
+  const [library, setLibrary] = useState<Load<LibraryItemRow>>(loading);
+  const [drafts, setDrafts] = useState<Load<LibraryDraftRow>>(loading);
+  const [events, setEvents] = useState<Load<EventModelRow>>(loading);
+  const [uploads, setUploads] = useState<Load<LandingMediaItem>>(loading);
+  const [categories, setCategories] = useState<LibraryCategory[]>([]);
   const [uploading, setUploading] = useState(0);
   const [selected, setSelected] = useState<PickedAsset[]>([]);
 
   useEffect(() => {
     let live = true;
+    // Every state, every access: the admin sees all of it (the picker says which are hidden or host-only).
     void fetchLibraryItems().then(({ data, error }) => {
-      if (!live) return;
-      if (error !== null || data === null) setLibraryErr(true);
-      else setLibrary(data.items.filter((i) => i.state === 'listed'));
+      if (live) setLibrary(error !== null || data === null ? { rows: [], failed: true } : { rows: data.items, failed: false });
     });
-    void listLandingMedia().then(({ rows, failed }) => {
-      if (!live) return;
-      setUploads(rows);
-      setUploadsErr(failed);
+    void fetchLibraryDrafts().then(({ data, error }) => {
+      if (live) setDrafts(error !== null || data === null ? { rows: [], failed: true } : { rows: data.drafts, failed: false });
     });
+    void fetchEventModels().then(({ data, error }) => {
+      if (live) setEvents(error !== null || data === null ? { rows: [], failed: true } : { rows: data.models, failed: false });
+    });
+    // Shelf names only make search better: a failed read just leaves them out.
+    void fetchLibraryCategories().then(({ data }) => { if (live && data !== null) setCategories(data.categories); });
+    void listLandingMedia().then(({ rows, failed }) => { if (live) setUploads({ rows, failed }); });
     return () => { live = false; };
   }, []);
 
-  const options = useMemo((): PickedAsset[] => {
-    const asPick = (look: HomeLook | null): PickedAsset | null => {
-      if (look === null) return null;
-      const k = category !== undefined ? lookUrlKind(look.url, category) : kindOf(look.url, accept);
-      if (k === undefined) return null;
-      return { url: look.url, kind: k, name: look.name, thumb: look.thumb, look: category !== undefined ? { ...look, category } : undefined };
-    };
-    const keep = (p: PickedAsset | null): p is PickedAsset => p !== null;
-    if (source === 'library') {
-      // A look slot offers only items OF that category (a 3D prop's thumbnail
-      // is an image, but it is not a frame). Filters and effects share sources.
-      const loose = (c: LookCategory) => c === 'filter' || c === 'effect';
-      const fits = (kind: string) => {
-        if (category === undefined) return true;
-        const own = categoryForLibraryKind(kind);
-        return own === category || (loose(own) && loose(category));
-      };
-      return (library ?? []).filter((item) => fits(item.kind)).map((item) => {
-        if (category !== undefined) return asPick(lookFromLibraryItem(item, category));
-        // A plain slot (wall photos, scene props) takes the item's file directly.
-        const url = [item.modelUrl, item.assetUrl, item.thumbnailUrl].find((u) => kindOf(u, accept) !== undefined);
-        return url == null ? null : { url, kind: kindOf(url, accept)!, name: item.name, thumb: resolveAssetUrl(item.thumbnailUrl, 'image') };
-      }).filter(keep);
-    }
-    if (source === 'builtin') {
-      const effects = category === 'filter' || category === 'effect' ? BUILTIN_EFFECT_LOOKS.filter((l) => l.category === category).map(asPick).filter(keep) : [];
-      const files = BUILTIN_ASSETS
-        .filter((a) => (category === undefined ? kindOf(a.url, accept) !== undefined : a.category === category))
-        .map((a) => (category !== undefined ? asPick(lookFromBuiltin(a)) : { url: a.url, kind: kindOf(a.url, accept)!, name: a.name, thumb: a.thumb }))
-        .filter(keep);
-      return [...effects, ...files];
-    }
-    return (uploads ?? []).map((u) => {
-      const k = kindOf(u.url, accept);
-      return k === undefined ? null : filePick(u.url, k, stem(u.name.replace(/^[0-9a-f-]{36}-/i, '')), category);
-    }).filter(keep);
-  }, [source, library, uploads, accept, category]);
+  const slot = useMemo(() => ({ accept, category }), [accept, category]);
+  const all = useMemo(() => buildCatalog({
+    library: library.rows, drafts: drafts.rows, events: events.rows, categories,
+    uploads: uploads.rows?.map((u) => ({ url: u.url, name: u.name })) ?? null,
+  }, slot), [library.rows, drafts.rows, events.rows, uploads.rows, categories, slot]);
+  const shown = useMemo(() => filterCatalog(all, q), [all, q]);
+  const counts = useMemo(() => typeCounts(all, q), [all, q]);
+  const fitting = shown.filter((e) => e.pick !== null).length;
+
+  const pending = [library, drafts, events, uploads].some((l) => l.rows === null);
+  const failedNames = [
+    library.failed && 'the library', drafts.failed && 'library drafts', events.failed && 'event pieces', uploads.failed && 'uploads',
+  ].filter((x): x is string => typeof x === 'string');
 
   const isSelected = (p: PickedAsset) => selected.some((s) => s.url === p.url);
   const toggle = (p: PickedAsset) => {
@@ -158,93 +140,104 @@ export default function HomeAssetPicker({
         toast.push(url === null ? `Couldn't upload ${raw.name}. Nothing was changed.` : `${raw.name} isn't a file this slot takes.`, 'error');
         continue;
       }
-      done.push(filePick(url, k, stem(raw.name), category));
+      done.push(uploadPick(url, k, stem(raw.name), category));
     }
     if (done.length === 0) return;
     // A fresh upload is the obvious intent: hand it straight back.
     onPick(multiple ? [...selected, ...done] : done.slice(0, 1));
   }
 
-  const loading = (source === 'library' && library === null && !libraryErr) || (source === 'uploads' && uploads === null);
-  const failed = (source === 'library' && libraryErr) || (source === 'uploads' && uploadsErr);
+  const types = CATALOG_TYPES.filter((t) => counts[t] > 0);
 
   return (
-    <Modal title={title} onClose={onClose} maxWidthClass="max-w-3xl">
-      <div className="flex flex-wrap items-center gap-2">
-        <div role="tablist" aria-label="Where to pick from" className="flex flex-wrap gap-1.5">
-          {(Object.keys(SOURCE_LABEL) as Source[]).map((s) => (
-            <button
-              key={s}
-              role="tab"
-              aria-selected={source === s}
-              onClick={() => setSource(s)}
-              className={`pressable min-h-11 rounded-full px-4 font-label uppercase tracking-luxe text-[10px] border transition-colors ${
-                source === s ? 'bg-[color:var(--color-accent)]/15 border-[color:var(--color-accent)]/50 text-brand-fg' : 'bg-white/[0.03] border-white/10 text-brand-muted/70 hover:text-brand-fg'
-              }`}
-            >
-              {SOURCE_LABEL[s]}
+    <Modal title={title} onClose={onClose} maxWidthClass="max-w-4xl">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative min-w-0 flex-1 basis-52">
+            <span className="sr-only">Search everything</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-muted/60" />
+            <input
+              type="search"
+              value={q.text}
+              onChange={(e) => setQ({ ...q, text: e.target.value })}
+              placeholder="Search names, tags, shelves, events"
+              className="w-full min-h-11 rounded-full border border-white/10 bg-white/[0.04] pl-9 pr-4 font-sans text-sm text-brand-fg placeholder:text-brand-muted/50 focus:outline-none focus:border-[color:var(--color-accent)]/50"
+            />
+          </label>
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading > 0}
+            className="pressable min-h-11 rounded-full px-4 inline-flex items-center gap-1.5 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[10px] disabled:opacity-50"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            {uploading > 0 ? `Uploading ${uploading}…` : multiple ? 'Upload files' : 'Upload'}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple={multiple}
+            accept={accept.map((k) => ACCEPT_ATTR[k]).join(',')}
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = '';
+              void onFiles(files);
+            }}
+          />
+        </div>
+
+        <div role="tablist" aria-label="Where to pick from" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+          {CATALOG_SOURCES.map((s) => (
+            <button key={s} role="tab" aria-selected={q.source === s} onClick={() => setQ({ ...q, source: s as CatalogSourceFilter })} className={chip(q.source === s)}>
+              {CATALOG_SOURCE_LABEL[s]}
             </button>
           ))}
         </div>
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading > 0}
-          className="pressable ml-auto min-h-11 rounded-full px-4 inline-flex items-center gap-1.5 bg-foil text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[10px] disabled:opacity-50"
-        >
-          <Upload className="w-3.5 h-3.5" />
-          {uploading > 0 ? `Uploading ${uploading}…` : multiple ? 'Upload files' : 'Upload'}
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          multiple={multiple}
-          accept={accept.map((k) => ACCEPT_ATTR[k]).join(',')}
-          className="hidden"
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            e.target.value = '';
-            void onFiles(files);
-          }}
-        />
+
+        <div role="group" aria-label="Kind" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+          <button aria-pressed={q.type === 'all'} onClick={() => setQ({ ...q, type: 'all' })} className={chip(q.type === 'all')}>
+            All <span className="opacity-60">{counts.all}</span>
+          </button>
+          {types.map((t) => (
+            <button key={t} aria-pressed={q.type === t} onClick={() => setQ({ ...q, type: t as CatalogType })} className={chip(q.type === t)}>
+              {CATALOG_TYPE_LABEL[t]} <span className="opacity-60">{counts[t]}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 font-sans text-xs text-brand-fg/85">
+            <input type="checkbox" checked={q.fitsOnly} onChange={(e) => setQ({ ...q, fitsOnly: e.target.checked })}
+              className="h-4 w-4 accent-[color:var(--color-accent)]" />
+            Only what fits this slot
+          </label>
+          <span className="font-sans text-[11px] text-brand-muted/70">
+            {fitting} of {shown.length} fit{pending ? ' · loading more…' : ''}
+          </span>
+        </div>
+        {failedNames.length > 0 && (
+          <p className="flex items-start gap-2 font-sans text-xs text-amber-300/90">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            Couldn't load {failedNames.join(', ')}. The rest is here; close and reopen to try again.
+          </p>
+        )}
       </div>
 
       <div className="mt-4 min-h-[12rem]">
-        {loading ? (
-          <p className="py-10 text-center font-sans text-sm text-brand-muted/60">Loading…</p>
-        ) : failed ? (
-          <p className="py-10 text-center font-sans text-sm text-amber-300/90">
-            Couldn't load the {SOURCE_LABEL[source].toLowerCase()} list. Try another source, or upload a file.
+        {shown.length === 0 ? (
+          <p className="py-10 text-center font-sans text-sm text-brand-muted/60">
+            {pending ? 'Loading…' : q.text !== '' ? 'Nothing matches that search.' : 'Nothing here yet. Try another source, or upload a file.'}
           </p>
-        ) : options.length === 0 ? (
-          <p className="py-10 text-center font-sans text-sm text-brand-muted/60">Nothing here fits this slot yet. Try another source, or upload a file.</p>
         ) : (
-          <ul className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
-            {options.map((p) => (
-              <li key={p.url}>
-                <button
-                  onClick={() => toggle(p)}
-                  aria-pressed={multiple ? isSelected(p) : undefined}
-                  className={`pressable group relative w-full rounded-xl border p-1.5 text-left transition-colors ${
-                    isSelected(p) ? 'border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/10' : 'border-white/10 bg-white/[0.03] hover:border-white/25'
-                  }`}
-                >
-                  <AssetThumb thumb={p.thumb} kind={p.kind} url={p.url} />
-                  <span className="mt-1.5 block truncate font-sans text-[11px] text-brand-fg/85">{p.name}</span>
-                  {isSelected(p) && (
-                    <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--on-accent)]">
-                      <Check className="h-3.5 w-3.5" />
-                    </span>
-                  )}
-                </button>
-              </li>
-            ))}
+          <ul className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
+            {shown.map((e) => <Tile key={e.key} e={e} selected={e.pick !== null && isSelected(e.pick)} multiple={multiple} onPick={toggle} />)}
           </ul>
         )}
       </div>
 
       {multiple && (
-        <div className="mt-4 flex items-center gap-3">
-          <span className="font-sans text-xs text-brand-muted/60">{selected.length} selected</span>
+        <div className="sticky bottom-0 -mx-6 -mb-6 mt-4 flex items-center gap-3 border-t border-white/[0.06] bg-black/40 px-6 py-3 backdrop-blur md:-mx-8 md:-mb-8 md:px-8">
+          <span className="font-sans text-xs text-brand-muted/70">{selected.length} selected</span>
           <button
             disabled={selected.length === 0}
             onClick={() => onPick(selected)}
@@ -255,6 +248,45 @@ export default function HomeAssetPicker({
         </div>
       )}
     </Modal>
+  );
+}
+
+function Tile({ e, selected, multiple, onPick }: { e: CatalogEntry; selected: boolean; multiple: boolean; onPick: (p: PickedAsset) => void }) {
+  const p = e.pick;
+  const kind: LookUrlKind = p?.kind ?? (e.type === '3d' || e.type === 'scene' ? 'model' : e.type === 'video' ? 'video' : 'image');
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={p !== null ? () => onPick(p) : undefined}
+        aria-disabled={p === null}
+        aria-pressed={multiple && p !== null ? selected : undefined}
+        title={p === null ? (e.reason ?? undefined) : e.warn}
+        className={`group relative w-full rounded-xl border p-1.5 text-left transition-colors ${
+          p === null ? 'cursor-not-allowed border-white/[0.06] bg-white/[0.015]'
+            : selected ? 'pressable border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/10' : 'pressable border-white/10 bg-white/[0.03] hover:border-white/25'
+        }`}
+      >
+        <span className={p === null ? 'block opacity-45 grayscale' : 'block'}>
+          <AssetThumb thumb={e.thumb ?? p?.thumb} kind={kind} url={p?.url} />
+        </span>
+        <span className={`mt-1.5 block truncate font-sans text-[11px] ${p === null ? 'text-brand-muted/70' : 'text-brand-fg/85'}`}>{e.name}</span>
+        <span className="block truncate font-sans text-[10px] text-brand-muted/70">
+          {CATALOG_TYPE_LABEL[e.type]}{e.badges.length > 0 ? ` · ${e.badges.join(' · ')}` : ''}
+        </span>
+        {p === null && e.reason !== null && (
+          <span className="mt-0.5 block font-sans text-[10px] leading-snug text-amber-200/80">{e.reason}</span>
+        )}
+        {p !== null && e.warn !== undefined && (
+          <span className="mt-0.5 block font-sans text-[10px] leading-snug text-brand-muted/70">Linked to its event</span>
+        )}
+        {selected && (
+          <span className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--on-accent)]">
+            <Check className="h-3.5 w-3.5" />
+          </span>
+        )}
+      </button>
+    </li>
   );
 }
 
