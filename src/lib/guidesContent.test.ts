@@ -21,6 +21,8 @@ import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
+  FEATURE_FILMS,
+  FEATURE_FILMS_COPY,
   FRAME_CATEGORY_LABELS,
   FRAME_PACK,
   FRAME_PACK_BY_ID,
@@ -35,12 +37,14 @@ import {
   TOOL_HOST_ALLOWLIST,
   guideHighlights,
   isGuideSlug,
+  type FeatureFilmId,
   type FrameCategory,
   type GuideBlock,
   type GuideDoc,
   type GuideSlug,
   type GuideVideoKey,
 } from './guidesContent';
+import { AUTO_DELIVERY_RE } from './beamyVirtual';
 
 const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -434,6 +438,9 @@ describe('voice', () => {
     for (const p of PROMPT_CARDS) expect(/documentation/i.test(p.label)).toBe(false);
     for (const f of FRAME_PACK) expect(/documentation/i.test(f.blurb)).toBe(false);
     for (const t of TOOL_CARDS) expect(/documentation/i.test(t.blurb)).toBe(false);
+    for (const s of [...Object.values(FEATURE_FILMS_COPY), ...FEATURE_FILMS.flatMap((f) => [f.eyebrow, f.title, f.hook])]) {
+      expect(/documentation/i.test(s), `feature-film copy says "documentation": "${s.slice(0, 80)}"`).toBe(false);
+    }
   });
 
   it('writes prose in paragraphs, not one-word stubs', () => {
@@ -462,6 +469,47 @@ describe('voice', () => {
       if (block.kind !== 'callout') continue;
       expect(['tip', 'watch']).toContain(block.tone);
       expect(block.body.length).toBeGreaterThan(60);
+    }
+  });
+});
+
+/**
+ * The file stem each feature film plays from (src/assets/landing/<stem>-feature.*).
+ * Keyed on the union so tsc fails this file if a sixth film is added and its
+ * media forgotten; the celebrations film keeps its homepage name, `virtual`.
+ */
+const FEATURE_FILM_STEMS: Record<FeatureFilmId, string> = {
+  booth: 'booth',
+  wall: 'wall',
+  challenges: 'challenges',
+  cards: 'cards',
+  celebrations: 'virtual',
+};
+
+describe('feature films', () => {
+  it('lists every film exactly once', () => {
+    const ids = FEATURE_FILMS.map((f) => f.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect([...ids].sort()).toEqual((Object.keys(FEATURE_FILM_STEMS) as FeatureFilmId[]).sort());
+  });
+
+  it('gives every film a label, a title, one short hook and a spectrum hue', () => {
+    for (const f of FEATURE_FILMS) {
+      expect(f.eyebrow.length, f.id).toBeGreaterThan(0);
+      expect(f.eyebrow.length, `${f.id} tile label must fit a tile`).toBeLessThanOrEqual(20);
+      expect(f.title.length, f.id).toBeGreaterThan(10);
+      // ONE line: a hook that grows a second sentence starts pre-stating the film.
+      expect(f.hook.length, `${f.id} hook is a line, not a paragraph`).toBeLessThanOrEqual(100);
+      expect(f.hook.split(/[.!?](\s|$)/).filter((x) => x !== undefined && x.trim().length > 0).length, `${f.id} hook is one sentence`).toBe(1);
+      expect(f.hue, f.id).toMatch(HEX);
+    }
+  });
+
+  it('never promises automatic delivery on any film', () => {
+    // A card goes out when its host presses Send; the celebrations film shows
+    // exactly that. Nothing on /guides may promise more while it does not exist.
+    for (const s of [...Object.values(FEATURE_FILMS_COPY), ...FEATURE_FILMS.flatMap((f) => [f.eyebrow, f.title, f.hook])]) {
+      expect(AUTO_DELIVERY_RE.test(s), `promises automatic delivery: "${s}"`).toBe(false);
     }
   });
 });
@@ -499,6 +547,14 @@ describe('media files', () => {
     for (const key of Object.keys(KNOWN_VIDEOS) as GuideVideoKey[]) {
       expect(exists(`src/assets/guides/guide-${key}.mp4`), `guide-${key}.mp4 missing`).toBe(true);
       expect(exists(`src/assets/guides/guide-${key}.jpg`), `guide-${key}.jpg poster missing`).toBe(true);
+    }
+  });
+
+  it('ships the mp4 and poster behind every feature film', () => {
+    for (const f of FEATURE_FILMS) {
+      const stem = FEATURE_FILM_STEMS[f.id];
+      expect(exists(`src/assets/landing/${stem}-feature.mp4`), `${stem}-feature.mp4 missing (film '${f.id}')`).toBe(true);
+      expect(exists(`src/assets/landing/${stem}-feature-poster.jpg`), `${stem}-feature-poster.jpg missing (film '${f.id}')`).toBe(true);
     }
   });
 

@@ -18,6 +18,7 @@
  * above his head, he stands big below) and wide (pieces on both sides of
  * him, clear of the caption at the top left). The page marks each step's
  * main piece with `data-fx-anchor` and aims his projector cone at it.
+ * Step 6's pieces (virtual celebrations) live in VirtualCelebrations.tsx.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -25,11 +26,12 @@ import { Camera, Check, ChevronsUp, CircleCheck, Crown, Play, Trophy } from 'luc
 import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import type { StoryFxId } from '../../lib/brandLanding';
 import { STORY_SCENE, STORY_SEQ } from '../../lib/beamyStory';
-import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
+import { useBeamyAssets } from './useBeamyAssets';
 import { currentCue, nextChange, passAt, phaseAt, reached, type Sequence } from '../../lib/beamyMotion';
 import { WALL_CENTRE } from '../../lib/beamyWall';
 import { HERO_WEDDING } from '../../lib/landingAssets';
 import { salesImage } from '../sales/salesImages';
+import { VcCard, VcLinkPanel } from './VirtualCelebrations';
 
 type SeqScene = keyof typeof STORY_SEQ;
 type Pt = { x: number; y: number };
@@ -89,13 +91,14 @@ export default function StoryScenes({ step, live, ids, stacked, qrUrl, wallCentr
   const S = STORY_SCENE;
   const on = (id: StoryFxId) => tf(ids[step] === id);
   const photo = (k: number) => WALL_POOL[k % WALL_POOL.length];
-  const A = HOME_ASSET_DEFAULTS;
+  const A = useBeamyAssets();
   const album = (k: number) => (A.keepsakePhotos !== undefined && A.keepsakePhotos.length >= 6 ? A.keepsakePhotos[k] : photo(seed + 4 + k * 3));
 
   const qrSeq = useSeq(live && ids[step] === 'qr', STORY_SEQ.qr);
   const wallSeq = useSeq(live && ids[step] === 'wall', STORY_SEQ.wall);
   const medalSeq = useSeq(live && ids[step] === 'medal', STORY_SEQ.medal);
   const ksSeq = useSeq(live && ids[step] === 'keepsake', STORY_SEQ.keepsake);
+  const vcSeq = useSeq(live && ids[step] === 'virtual', STORY_SEQ.virtual);
 
   /* Tell the page about each cue as it starts (every one, in order, even
      if a slow frame let two start between ticks). */
@@ -117,6 +120,7 @@ export default function StoryScenes({ step, live, ids, stacked, qrUrl, wallCentr
   useCueEvents('wall', wallSeq);
   useCueEvents('medal', medalSeq);
   useCueEvents('keepsake', ksSeq);
+  useCueEvents('virtual', vcSeq);
 
   /* ── 1. The scan ──────────────────────────────────────────────────── */
   const q = (id: string) => reached(STORY_SEQ.qr, qrSeq.phase, id);
@@ -396,8 +400,21 @@ export default function StoryScenes({ step, live, ids, stacked, qrUrl, wallCentr
     </div>
   );
 
+  /* ── 6. Virtual celebrations: the link goes out, friends' pieces land on one card, it goes out ── */
+  const vOn = ids[step] === 'virtual';
+  const virtual = (
+    <div className="bw-scene bw-vcs" data-on={on('virtual')}>
+      <Piece show={reached(STORY_SEQ.virtual, vcSeq.phase, 'link')} tilt={stacked ? 0 : 6} cls={stacked ? 'inset-x-[4%] top-[0%]' : 'left-[8%] bottom-[10%] w-[22%] max-w-[340px]'}>
+        <VcLinkPanel phase={vcSeq.phase} compact={stacked} />
+      </Piece>
+      <Piece anchor="virtual" tilt={stacked ? 0 : -5} cls={stacked ? 'left-[15%] right-[15%] top-[10%]' : 'right-[4%] top-[9%] w-[25%] max-w-[400px]'}>
+        <VcCard phase={vcSeq.phase} on={vOn} compact={stacked} />
+      </Piece>
+    </div>
+  );
+
   // The AR step's picker is real, interactive UI: BeamyPage renders it (ArPicker).
-  const byId: Record<StoryFxId, ReactNode> = { qr, prop: null, wall, medal, keepsake };
+  const byId: Record<StoryFxId, ReactNode> = { qr, prop: null, wall, medal, keepsake, virtual };
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0" data-stacked={tf(stacked)}>
       {ids.map((id) => <div key={id} className="contents">{byId[id]}</div>)}

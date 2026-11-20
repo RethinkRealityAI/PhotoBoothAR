@@ -33,12 +33,12 @@ HOST STUDIO (/host/events/<id>, tabs):
 - Branding: theme colours, background, fonts, copy. Settings: landing route, defaults. Manager access: mint day-of staff links.
 
 CREATING EVENTS:
-- /host/new — the Event Concierge: describe the event in chat and the AI designs it (name, style template, accent colour, date, link, remote mode) with a live preview card; or use the manual 3-step wizard. On success the chosen template's look is seeded and the same chat continues in build mode — add frames, filters, 3D props and challenges, go live, and grab the QR right there; frames come from Frames & filters (library or quick AI frame), that build chat, or — with the Studio add-on — the Studio (Director).
+- /host/new — the setup wizard: a step-by-step guide that creates the event (name, occasion, date), then designs the welcome page (template, colour or your own photo with a fit tool, border, welcome line), the booth & big-screen wall, the looks (pick frames, 3D props and effects guests choose from, plus one-tap filters: ready-made, library or your own), power-ups (gesture surprises), challenges, and launch (go live, QR). Progress saves as you go; an unfinished event shows "Continue setup" on the dashboard. /host/new/assistant — the Event Concierge: describe the event in chat and the AI designs it (name, style template, accent colour, date, link, remote mode) with a live preview card; on success the same chat continues in build mode — add frames, filters, 3D props and challenges, go live, and grab the QR right there.
 - /host/concierge — the Concierge workspace: every event as a card (rename inline, go live/end, copy link, open studio) beside this chat; pick an event and manage it in plain words. Ask for a "challenge pack" to get a themed set of 3-6 challenges added in one confirm.
 - Remote/virtual celebrations: guests contribute to a greeting card from anywhere; the card can be pinned as the event landing.
 
 PLANS & CREDITS:
-- Tiers per event: free (25 posts, photo only, watermark, 7-day retention) → essentials (500 posts, video, no watermark, AI studio) → premium (unlimited posts, cards) → deluxe (premium render/keepsake film). An org-level Pro subscription raises every event to premium-level.
+- Tiers per event: free (25 posts, photos + 30s video clips, watermark, 7-day retention) → essentials (500 posts, 30s clips, no watermark, AI studio, 90 days) → premium (unlimited posts, 60s clips, cards, 1 year) → deluxe (90s clips, premium render/keepsake film, 2 years). "Unlimited" has a fair-use line of 2,000 new posts a day per event. An org-level Pro subscription raises every event to premium-level.
 - Credits: AI generation currency (1 credit ≈ one AI image; 3D and film cost more). Bought in packs; first 3 images per event are free. Billing lives at /host/billing.
 
 COMMON HOW-TOS:

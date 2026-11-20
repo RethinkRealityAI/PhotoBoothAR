@@ -2,7 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The /guides index: a hero and five cards.
+ * The /guides index: a hero, five cards, and the five product films
+ * (FeatureFilms, moved here from the homepage).
  *
  * Cards are ordered by GUIDE_ORDER — the sequence a new host should read them
  * in, not alphabetically. Each one is tinted with its guide's spectrum hue so
@@ -10,8 +11,9 @@
  * makes "the green one" a usable way to remember where something was.
  */
 import { Link } from 'react-router-dom';
-import { ArrowRight, Clock } from 'lucide-react';
+import { ArrowRight, Clock, Play } from 'lucide-react';
 import { GUIDES, GUIDE_ORDER, guideHighlights } from '../../lib/guidesContent';
+import FeatureFilms from './FeatureFilms';
 
 export default function GuideHub({ notice }: { notice?: string }) {
   return (
@@ -30,6 +32,13 @@ export default function GuideHub({ notice }: { notice?: string }) {
           the Studio add-on will find how to design their own frames and props here too. Free frames
           and copy-paste prompts included.
         </p>
+        <a
+          href="#films"
+          className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full px-3 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-muted/80 transition hover:text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+        >
+          <Play className="h-3 w-3 fill-current" aria-hidden />
+          Or watch it in action first
+        </a>
       </section>
 
       {notice !== undefined && (
@@ -97,6 +106,10 @@ export default function GuideHub({ notice }: { notice?: string }) {
           );
         })}
       </div>
+
+      {/* After the guides, not before: a visitor who came for help gets the
+          walkthroughs first, and the films are the "see it" for everyone else. */}
+      <FeatureFilms />
     </div>
   );
 }

@@ -19,12 +19,18 @@ interface Props {
   slug: string;
   /** On-screen QR size in CSS px. */
   qrSize?: number;
+  /**
+   * 'row' (default): QR beside the link and three buttons.
+   * 'stacked': Download QR full-width under the QR; the link, Copy link and
+   * Share stacked beside it — no button text ever wraps.
+   */
+  layout?: 'row' | 'stacked';
 }
 
 const BTN =
   'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-white/15 px-4 text-[13px] font-semibold text-brand-fg transition hover:bg-white/[0.06] active:scale-[0.98]';
 
-export default function ShareActions({ url, eventName, slug, qrSize = 132 }: Props) {
+export default function ShareActions({ url, eventName, slug, qrSize = 132, layout = 'row' }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -67,6 +73,38 @@ export default function ShareActions({ url, eventName, slug, qrSize = 132 }: Pro
       flash('Couldn’t make the QR image — use Print signage instead');
     }
   };
+
+  if (layout === 'stacked') {
+    const wide = `${BTN} w-full whitespace-nowrap`;
+    return (
+      // Sized by its CONTAINER, not the viewport: side by side once the card
+      // has room, stacked in a narrow column (the wizard's launch card).
+      <div className="@container w-full">
+      <div className="flex flex-col items-center gap-4 @min-[380px]:flex-row @min-[380px]:items-start">
+        <div className="flex shrink-0 flex-col gap-2" style={{ width: qrSize + 20 }}>
+          <div className="rounded-xl bg-[#faf6ef] p-2.5">
+            <QRCodeSVG value={url} size={qrSize} bgColor="#faf6ef" fgColor="#1a1108" level="M" title={`QR code for ${eventName}`} />
+          </div>
+          <button type="button" onClick={download} className={wide}>
+            <Download className="h-4 w-4 shrink-0" aria-hidden /> Download QR
+          </button>
+        </div>
+        <QRCodeCanvas ref={canvasRef} value={url} size={1024} marginSize={4} bgColor="#ffffff" fgColor="#000000" level="M" className="hidden" aria-hidden />
+        <div className="flex w-full min-w-0 flex-col gap-2 @min-[380px]:max-w-[300px]">
+          <p className="text-[11.5px] font-semibold uppercase tracking-[0.06em] text-brand-muted">Guest link</p>
+          <p className="break-all font-mono text-[12.5px] text-brand-fg/90 rounded-xl bg-white/[0.06] px-3 py-2.5">{url.replace(/^https?:\/\//, '')}</p>
+          <button type="button" onClick={() => void copy()} className={wide}>
+            {note === 'Link copied' ? <Check className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden /> : <Copy className="h-4 w-4 shrink-0" aria-hidden />} Copy link
+          </button>
+          <button type="button" onClick={() => void share()} className={wide}>
+            <Share2 className="h-4 w-4 shrink-0" aria-hidden /> Share
+          </button>
+          <p role="status" aria-live="polite" className="min-h-[1.25rem] text-[12px] text-brand-muted">{note}</p>
+        </div>
+      </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">

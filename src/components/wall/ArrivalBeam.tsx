@@ -48,7 +48,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import ParticleBeam from '../landing/ParticleBeam';
+import ParticleBeam, { type ParticleVariant } from '../landing/ParticleBeam';
 import BeamIn from './BeamIn';
 import { transformedUrl } from '../../lib/mediaUrl';
 import {
@@ -82,6 +82,13 @@ export interface ArrivalBeamProps {
    *  exactly these tiles; an empty set means "reveal everything now". */
   onCarry: (ids: Set<string>) => void;
   onDone: () => void;
+  /** The host's arrival effect (platform walls). Default: the beam. */
+  variant?: ParticleVariant;
+  /** '#RRGGBB' the particles are tinted with; absent = the brand spectrum. */
+  glowColor?: string;
+  /** Play the particle ceremony even under prefers-reduced-motion (the host's
+   *  "Beam a photo" button in the wall preview is an explicit request). */
+  forceMotion?: boolean;
 }
 
 /* ── Media loading ─────────────────────────────────────────────────── */
@@ -212,8 +219,11 @@ async function composeCeremonyImage(
 
 /* ── Component ─────────────────────────────────────────────────────── */
 
-export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: ArrivalBeamProps) {
-  const reducedMotion = usePrefersReducedMotion();
+export default function ArrivalBeam({
+  ceremony, tileRects, onCarry, onDone, variant = 'beam', glowColor, forceMotion = false,
+}: ArrivalBeamProps) {
+  const reducedMotion = usePrefersReducedMotion() && !forceMotion;
+  const palette = glowColor !== undefined ? [glowColor, '#FFFFFF', glowColor, '#FFF4D6'] : undefined;
   const [phase, setPhase] = useState<Phase>('preparing');
   const [shot, setShot] = useState<string | null>(null);
   const [rects, setRects] = useState<{ from: BeamRect; to: BeamRect; vw: number; vh: number } | null>(null);
@@ -281,7 +291,8 @@ export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: Ar
         return;
       }
       setShot(url);
-      setRects({ from: beamOriginRect(to, vw, vh), to, vw, vh });
+      // Sparkle and reveal gather AT the tile, so the flight starts there.
+      setRects({ from: variant === 'beam' ? beamOriginRect(to, vw, vh) : to, to, vw, vh });
       setPhase('flying');
     });
 
@@ -291,11 +302,24 @@ export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: Ar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ceremony.key, reducedMotion, releaseTiles]);
 
+  // Sparkle and reveal settle into the finished photo; hold that settled
+  // frame while the real tile fades in under it (the tile's 0.35 s opacity
+  // transition), so the photo never blinks out between the two.
+  const [holdSettled, setHoldSettled] = useState(false);
+  useEffect(() => {
+    if (!holdSettled) return;
+    const t = setTimeout(() => setHoldSettled(false), 420);
+    return () => clearTimeout(t);
+  }, [holdSettled]);
+
   // ---- Land ------------------------------------------------------------
   const handleFlightDone = useCallback(() => {
     releaseTiles(); // the real tile takes over exactly where the particles settled
+    // Set in the SAME update as the phase, so the particle canvas is never
+    // unmounted for a frame (a remount would replay the flight from zero).
+    if (variant !== 'beam') setHoldSettled(true);
     setPhase('landed');
-  }, [releaseTiles]);
+  }, [releaseTiles, variant]);
 
   useEffect(() => {
     if (phase !== 'landed') return;
@@ -320,7 +344,7 @@ export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: Ar
     <div className="pointer-events-none fixed inset-0 z-[9999] overflow-hidden" aria-hidden>
       {/* Beam corridor — a soft rise of light along the flight, so the photo
           reads as travelling rather than crossfading. */}
-      <motion.div
+      {variant === 'beam' && <motion.div
         className="absolute inset-x-0 bottom-0"
         initial={{ opacity: 0 }}
         animate={{ opacity: [0, 0.55, 0.28, 0] }}
@@ -328,20 +352,40 @@ export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: Ar
         style={{
           height: '72vh',
           background:
-            'radial-gradient(ellipse 42% 100% at 50% 100%, rgba(251,243,217,0.30) 0%, rgba(var(--accent-rgb),0.18) 34%, rgba(var(--accent-rgb),0) 78%)',
+            'radial-gradient(ellipse 42% 100% at 50% 100%, rgba(251,243,217,0.30) 0%, rgba(var(--wall-glow-rgb, var(--accent-rgb)),0.18) 34%, rgba(var(--wall-glow-rgb, var(--accent-rgb)),0) 78%)',
           filter: 'blur(6px)',
         }}
-      />
+      />}
+
+      {/* Sparkle and reveal: a soft bloom on the landing spot instead of a
+          corridor up the screen. */}
+      {variant !== 'beam' && rects !== null && (
+        <motion.div
+          className="absolute rounded-full"
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{ opacity: [0, 0.7, 0.35, 0], scale: [0.6, 1.1, 1.25, 1.3] }}
+          transition={{ duration: ceremony.durationMs / 1000, times: [0, 0.3, 0.7, 1], ease: 'easeOut' }}
+          style={{
+            left: rects.to.left - rects.to.width * 0.35,
+            top: rects.to.top - rects.to.height * 0.35,
+            width: rects.to.width * 1.7,
+            height: rects.to.height * 1.7,
+            background: 'radial-gradient(closest-side, rgba(var(--wall-glow-rgb, var(--accent-rgb)),0.34), rgba(var(--wall-glow-rgb, var(--accent-rgb)),0) 100%)',
+          }}
+        />
+      )}
 
       {/* The photo in flight. Mounted ONLY during 'flying' so the WebGL
           context is released the frame the flight ends. */}
-      {phase === 'flying' && shot !== null && rects !== null && (
+      {(phase === 'flying' || holdSettled) && shot !== null && rects !== null && (
         <ParticleBeam
           from={rects.from}
           to={rects.to}
           shot={shot}
           durationMs={Math.max(900, ceremony.durationMs - LABEL_MS)}
           onDone={handleFlightDone}
+          variant={variant}
+          {...(palette !== undefined ? { palette } : {})}
         />
       )}
 
@@ -361,7 +405,7 @@ export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: Ar
             top: rects.to.top,
             width: rects.to.width,
             height: rects.to.height,
-            boxShadow: '0 0 0 2px rgba(var(--accent-rgb),0.5), 0 0 60px 18px rgba(var(--accent-rgb),0.28)',
+            boxShadow: '0 0 0 2px rgba(var(--wall-glow-rgb, var(--accent-rgb)),0.5), 0 0 60px 18px rgba(var(--wall-glow-rgb, var(--accent-rgb)),0.28)',
           }}
         />
       )}
@@ -379,7 +423,7 @@ export default function ArrivalBeam({ ceremony, tileRects, onCarry, onDone }: Ar
             top: rects.to.top,
             width: rects.to.width,
             height: rects.to.height,
-            boxShadow: '0 0 0 2px rgba(251,243,217,0.75), 0 0 70px 22px rgba(var(--accent-rgb),0.45)',
+            boxShadow: '0 0 0 2px rgba(251,243,217,0.75), 0 0 70px 22px rgba(var(--wall-glow-rgb, var(--accent-rgb)),0.45)',
           }}
         />
       )}

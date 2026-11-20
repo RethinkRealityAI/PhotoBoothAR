@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react';
 import type { IcpId } from '../../../lib/salesTypes';
+import { BEAMY } from '../salesImages';
 
 export const ICP_LABEL: Record<IcpId, string> = {
   planners: 'Planners',
@@ -55,5 +56,20 @@ export function PlaceholderBadge() {
     <span className="inline-flex items-center rounded-full border border-amber-300/40 bg-amber-300/10 px-2 py-0.5 font-label text-[9.5px] font-bold uppercase tracking-[0.16em] text-amber-200">
       Placeholder
     </span>
+  );
+}
+
+/** The top bar shared by the hub and the CRM page: Beamy, the page title
+ *  (big enough to read as a title, not a label) and a right-hand slot. */
+export function HubTopBar({ title, right }: { title: string; right?: ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6 lg:px-8">
+      <img src={BEAMY.src} width={BEAMY.width} height={BEAMY.height} alt="" className="h-9 w-auto shrink-0 sm:h-11" />
+      <div className="min-w-0 flex-1 leading-tight">
+        <p className="hidden truncate font-label text-[10px] font-semibold uppercase tracking-[0.24em] text-brand-muted sm:block">Beamwall</p>
+        <p className="font-serif [font-variant-numeric:lining-nums_tabular-nums] text-[19px] font-semibold leading-[1.05] text-foil-static sm:truncate sm:text-[26px] sm:leading-tight">{title}</p>
+      </div>
+      {right}
+    </div>
   );
 }

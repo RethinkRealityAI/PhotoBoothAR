@@ -203,9 +203,11 @@ describe('plan week', () => {
 describe('route wiring', () => {
   it('App.tsx hub route literal matches SALES_HUB_PATH, and netlify noindex covers it', async () => {
     const { readFileSync } = await import('node:fs');
-    const { SALES_HUB_PATH, PITCH_BASE } = await import('./salesTypes');
+    const { SALES_HUB_PATH, SALES_CRM_PATH, PITCH_BASE } = await import('./salesTypes');
     const app = readFileSync('src/App.tsx', 'utf8');
     expect(app).toContain(`<Route path="${SALES_HUB_PATH}"`);
+    expect(app).toContain(`<Route path="${SALES_CRM_PATH}"`);
+    expect(SALES_CRM_PATH.startsWith(`${SALES_HUB_PATH}/`)).toBe(true);
     expect(app).toContain(`<Route path="${PITCH_BASE}/:slug"`);
     // App must not import the sales contract eagerly (bundle size, see App.tsx).
     expect(app).not.toMatch(/from '\.\/lib\/sales/);

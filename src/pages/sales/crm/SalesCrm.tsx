@@ -2,10 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The sales hub's CRM tab. Self-contained: no router layout, no page chrome,
- * its own ToastProvider — the hub just renders `<SalesCrm />`.
+ * The sales CRM. Self-contained: no router layout, no page chrome, its own
+ * ToastProvider — CrmPage (its own route) just renders `<SalesCrm />`.
  *
- * The hub page is a hidden link and its decks are not secret; THIS tab holds
+ * The hub page is a hidden link and its decks are not secret; THIS page holds
  * third parties' contact details, so it has a real sign-in and the data is
  * behind RLS (migration 041). The gate below is UX only — Postgres decides.
  *
@@ -86,7 +86,7 @@ function Card({ children }: { children: React.ReactNode }) {
 
 function Skeleton() {
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6" aria-busy="true" aria-label="Loading the CRM">
+    <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8" aria-busy="true" aria-label="Loading the CRM">
       <div className="liquid-glass rounded-3xl p-5 flex items-center gap-4">
         <div className="w-16 h-16 rounded-full bg-white/[0.06] motion-safe:animate-pulse" />
         <div className="flex-1 space-y-2">

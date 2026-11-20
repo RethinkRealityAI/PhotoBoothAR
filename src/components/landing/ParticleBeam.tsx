@@ -79,7 +79,12 @@ interface ParticleData {
  * attribute. Returns null on any unreadable-image path (no 2D context, or a
  * tainted canvas from a cross-origin shot) so the caller can bail cleanly.
  */
-function buildParticles(img: HTMLImageElement, from: Rect, to: Rect, palette: string[] = SPECTRUM): ParticleData | null {
+/** How the photo travels. 'beam' = the original flight from `from` to `to`;
+ *  'sparkle' = a swirl of stars gathers into `to`; 'reveal' = the photo
+ *  glows into place at `to` in a top-down wave (`from` is only the crop). */
+export type ParticleVariant = 'beam' | 'sparkle' | 'reveal';
+
+function buildParticles(img: HTMLImageElement, from: Rect, to: Rect, palette: string[] = SPECTRUM, variant: ParticleVariant = 'beam'): ParticleData | null {
   const count = GRID_W * GRID_H;
   if (count > MAX_PARTICLES) return null; // guard the cap if the grid is ever retuned
 
@@ -144,8 +149,25 @@ function buildParticles(img: HTMLImageElement, from: Rect, to: Rect, palette: st
       const startX = from.left + u * from.width;
       const startY = from.top + v * from.height;
 
-      positions[i * 3] = startX;
-      positions[i * 3 + 1] = startY;
+      // Deterministic per-particle hashes in [0, 1).
+      const hh = (k: number) => {
+        const x = Math.sin(i * k + 78.233) * 43758.5453;
+        return x - Math.floor(x);
+      };
+      if (variant === 'sparkle') {
+        // Scattered in a loose halo round the landing tile, spiralling in.
+        const angle = hh(3.71) * Math.PI * 2;
+        const reach = (Math.max(to.width, to.height) * 0.55 + 70) * (0.45 + hh(9.13) * 0.9);
+        positions[i * 3] = to.left + u * to.width + Math.cos(angle) * reach;
+        positions[i * 3 + 1] = to.top + v * to.height + Math.sin(angle) * reach;
+      } else if (variant === 'reveal') {
+        // Settles from just above its final spot.
+        positions[i * 3] = to.left + u * to.width + (hh(5.3) - 0.5) * 14;
+        positions[i * 3 + 1] = to.top + v * to.height - (14 + hh(7.7) * 26);
+      } else {
+        positions[i * 3] = startX;
+        positions[i * 3 + 1] = startY;
+      }
       positions[i * 3 + 2] = 0;
       // Same normalised uv, spread over the landing tile.
       targets[i * 3] = to.left + u * to.width;
@@ -161,16 +183,23 @@ function buildParticles(img: HTMLImageElement, from: Rect, to: Rect, palette: st
       const h = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
       const seed = h - Math.floor(h);
       seeds[i] = seed;
-      sizes[i] = 1.7 + seed * 2.0; // base point size in CSS px (1.7 – 3.7)
+      sizes[i] = variant === 'sparkle'
+        ? (sprinkleOf(seed) < 0.22 ? 5.5 + seed * 4 : 4.0 + seed * 1.0) // big stars among the dust
+        : variant === 'reveal'
+          ? 4.4 + seed * 1.0 // dense enough that the photo reads solid as it forms
+          : 1.7 + seed * 2.0; // base point size in CSS px (1.7 – 3.7)
 
       // Spectrum sprinkle — a decorrelated second hash elects the particle,
       // the first hash picks its hue; mixed strongly enough to read on white.
-      const sprinkle = (seed * 7.31) % 1;
+      const sprinkle = sprinkleOf(seed);
       if (sprinkle < 0.22) {
         const hue = spectrumColors[Math.floor(seed * spectrumColors.length) % spectrumColors.length];
-        colors[i * 3] = colors[i * 3] * 0.3 + hue.r * 0.7;
-        colors[i * 3 + 1] = colors[i * 3 + 1] * 0.3 + hue.g * 0.7;
-        colors[i * 3 + 2] = colors[i * 3 + 2] * 0.3 + hue.b * 0.7;
+        // The gathering effects settle INTO the photo, so their tint stays
+        // light enough that the settled picture is still the guest's.
+        const k = variant === 'beam' ? 0.7 : 0.22;
+        colors[i * 3] = colors[i * 3] * (1 - k) + hue.r * k;
+        colors[i * 3 + 1] = colors[i * 3 + 1] * (1 - k) + hue.g * k;
+        colors[i * 3 + 2] = colors[i * 3 + 2] * (1 - k) + hue.b * k;
       }
 
       const proj = (startX - aCx) * bux + (startY - aCy) * buy;
@@ -182,8 +211,16 @@ function buildParticles(img: HTMLImageElement, from: Rect, to: Rect, palette: st
 
   const span = maxProj - minProj || 1;
   for (let i = 0; i < count; i += 1) {
-    const norm = (projs[i] - minProj) / span; // 0 = beam-start edge, 1 = far edge
-    delays[i] = norm * STAGGER + seeds[i] * JITTER;
+    if (variant === 'reveal') {
+      // Top-down wave with a ragged front (the row is i / GRID_W).
+      const row = Math.floor(i / GRID_W) / GRID_H;
+      delays[i] = row * 0.3 + seeds[i] * 0.06;
+    } else if (variant === 'sparkle') {
+      delays[i] = ((seeds[i] * 3.17) % 1) * 0.34;
+    } else {
+      const norm = (projs[i] - minProj) / span; // 0 = beam-start edge, 1 = far edge
+      delays[i] = norm * STAGGER + seeds[i] * JITTER;
+    }
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -200,18 +237,34 @@ function buildParticles(img: HTMLImageElement, from: Rect, to: Rect, palette: st
     uniforms: {
       uProgress: { value: 0 },
       uPixelRatio: { value: 1 },
-      uArc: { value: ARC_PX },
-      uHot: { value: hot },
+      uArc: { value: variant === 'reveal' ? 0 : variant === 'sparkle' ? ARC_PX * 1.6 : ARC_PX },
+      uHot: { value: variant === 'beam' ? hot : new THREE.Color('#ffffff').lerp(new THREE.Color(palette[0]), 0.45) },
+      uStar: { value: variant === 'sparkle' ? 1 : 0 },
+      // How white-hot a point burns mid-flight: the reveal keeps the photo's
+      // own colours so the picture reads while it forms.
+      uHotMix: { value: variant === 'reveal' ? 0.28 : 0.55 },
+      // Gathering effects settle into SQUARE, opaque points that tile the
+      // picture like pixels, so the photo is whole before the real tile
+      // takes over (round soft points leave a dotted, see-through grid).
+      uSolid: { value: variant === 'beam' ? 0 : 1 },
     },
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
     transparent: true,
     depthWrite: false,
     depthTest: false,
-    blending: THREE.AdditiveBlending,
+    // Additive light reads on the dark field the beam was designed for; the
+    // gathering effects must also read as the PHOTO on light and mid walls,
+    // where adding a dark pixel to a pale background adds nothing.
+    blending: variant === 'beam' ? THREE.AdditiveBlending : THREE.NormalBlending,
   });
 
   return { geometry, material };
+}
+
+/** Decorrelated second hash of a particle seed (elects sprinkled / star points). */
+function sprinkleOf(seed: number): number {
+  return (seed * 7.31) % 1;
 }
 
 /* ── GLSL (ShaderMaterial injects precision, `position`, and the matrices) ─ */
@@ -268,6 +321,9 @@ const VERTEX_SHADER = /* glsl */ `
 
 const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uHot;
+  uniform float uStar;
+  uniform float uHotMix;
+  uniform float uSolid;
 
   varying vec3 vColor;
   varying float vT;
@@ -275,15 +331,30 @@ const FRAGMENT_SHADER = /* glsl */ `
   const float PI = 3.141592653589793;
 
   void main() {
-    // Soft round sprite from the point's local coordinate.
-    float d = distance(gl_PointCoord, vec2(0.5));
+    // Soft round sprite from the point's local coordinate; the sparkle
+    // variant adds a four-point star (two thin crossed rays) mid-flight.
+    vec2 c = gl_PointCoord - vec2(0.5);
+    float d = length(c);
     float sprite = smoothstep(0.5, 0.08, d);
+    if (uSolid > 0.5) {
+      float square = 1.0 - smoothstep(0.46, 0.5, max(abs(c.x), abs(c.y)));
+      sprite = mix(square, sprite, smoothstep(0.0, 0.35, sin(vT * PI)));
+    }
+    if (uStar > 0.5) {
+      float rays = max(
+        smoothstep(0.07, 0.0, abs(c.x)) * smoothstep(0.5, 0.0, abs(c.y)),
+        smoothstep(0.07, 0.0, abs(c.y)) * smoothstep(0.5, 0.0, abs(c.x))
+      );
+      float core = smoothstep(0.22, 0.0, d);
+      sprite = mix(sprite, max(core, rays), sin(vT * PI));
+    }
     if (sprite <= 0.0) discard;
 
     float wave = sin(vT * PI);
-    vec3 col = mix(vColor, uHot, 0.55 * wave);          // white-hot through the flight
+    vec3 col = mix(vColor, uHot, uHotMix * wave);          // white-hot through the flight
     float fadeIn = smoothstep(0.0, 0.08, vT);            // dissolve-in over the first 8%
-    float alpha = sprite * fadeIn * (0.9 + 0.35 * wave); // ~0.9 settled, brighter mid-flight
+    float settled = uSolid > 0.5 ? 1.0 : 0.9;
+    float alpha = sprite * fadeIn * (settled + 0.35 * wave); // opaque/0.9 settled, brighter mid-flight
     gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
   }
 `;
@@ -356,12 +427,14 @@ export interface ParticleBeamProps {
   /** Sprinkle hues; palette[0] tints the hot core. Default = the brand
    *  spectrum (the landing). Brand v2 passes its calm beam palette. */
   palette?: string[];
+  /** How the photo travels (see ParticleVariant). Default: the beam. */
+  variant?: ParticleVariant;
 }
 
 type Status = 'init' | 'ready' | 'failed';
 
 export default function ParticleBeam({
-  from, to, shot, durationMs, onDone, palette = SPECTRUM,
+  from, to, shot, durationMs, onDone, palette = SPECTRUM, variant = 'beam',
 }: ParticleBeamProps): JSX.Element | null {
   const [status, setStatus] = useState<Status>('init');
   const dataRef = useRef<ParticleData | null>(null);
@@ -400,7 +473,7 @@ export default function ParticleBeam({
     img.onerror = fail;
     img.onload = () => {
       if (cancelled) return;
-      const built = buildParticles(img, from, to, palette);
+      const built = buildParticles(img, from, to, palette, variant);
       if (built === null) {
         fail();
         return;

@@ -62,9 +62,11 @@ import { SELFIE_CLIP, SELFIE_SPEED, selfieTimeline, type SelfieTimeline } from '
 import type { Rect } from '../../lib/beamGeometry';
 import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } from '../../lib/beamyScroll';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { snapshotPortrait, snapshotRect } from '../../components/beamy/selfieFx';
 import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
-import { fitProp, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
+import { fitPair, wornPlacement, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
+import { splitScenePair } from '../../lib/studio/earPair';
 
 export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle' | typeof SELFIE_CLIP;
 
@@ -115,6 +117,15 @@ export interface StageDecor {
    *  stage draws each one's real GLB there; the page's peek is a see-through
    *  button over it. Absent or empty = none. */
   peeks?: { url: string; x: number; y: number; size: number }[];
+  /** The AR step, settled (absent = not on it): the stage steps in front of the
+   *  page so what he wears draws OVER the frame. The page's frame images (live
+   *  rect and opacity, viewport px) and its round arrows still cover HIM, as
+   *  they did when the stage was behind: his body is masked where they are
+   *  (see AR_MASK), never his props. */
+  arOver?: {
+    frames: { url: string; left: number; top: number; width: number; height: number; a: number }[];
+    holes: { x: number; y: number; r: number }[];
+  };
 }
 
 /** One frame of the Selfie clip on the stage, for the page's DOM overlays. */
@@ -192,6 +203,15 @@ export interface BeamyApi {
   wornLiftAt(k: number): number;
   /** Shrink the worn prop about its anchor (1 = as fitted; a frame's window may need it smaller). */
   wornScale(k: number): void;
+  /** Re-place the worn prop with a new fit at once, keeping the model (the admin's adjust mode). */
+  refit(fit: PropFit): void;
+  /**
+   * The worn prop's anchor on screen (viewport px) and how many px one unit
+   * of his body bone's x, y and z moves it (y down), measured from the live
+   * bone this frame (lib/beamyFitAdjust turns a drag into a fit). Null when
+   * nothing is worn.
+   */
+  wornHandle(): { anchor: Pt; axes: { x: Pt; y: Pt; z: Pt } } | null;
   /** A colour filter over his body (a lens look): a CSS colour, 'prismatic' (a slow hue
    *  cycle), or null to take it off. Fades in and out. */
   tint(color: string | null): void;
@@ -215,6 +235,8 @@ interface Props {
   children?: ReactNode;
   /** Run first in every stage frame (the page reads its slots here, so he and the page agree on the frame). */
   frameRef?: MutableRefObject<(() => void) | null>;
+  /** The decor props' GLBs by spot (the page's merged asset slots); absent = HOME_ASSET_DEFAULTS'. */
+  sceneProps?: readonly string[];
 }
 
 /** `?debug` on the URL: a small readout of fps, frame time, resolution and how far he trails his target. */
@@ -227,6 +249,21 @@ function dprCap(): number {
 }
 
 const MODEL_URL = '/mascot/beamy.glb';
+
+/** The far earring's group, as lib/studio/earPair names it. */
+const EAR_FAR = 'ear-pair-far';
+const pairCache = new WeakMap<THREE.Object3D, { model: THREE.Object3D; delta: [number, number, number] } | null>();
+/** A loaded earring pair split into its two earrings, once per model (null: not a pair). */
+function splitPair(master: THREE.Object3D): { model: THREE.Object3D; delta: [number, number, number] } | null {
+  const hit = pairCache.get(master);
+  if (hit !== undefined) return hit;
+  const model = master.clone(true);
+  const p = splitScenePair(model);
+  const out = p === null ? null : { model, delta: p.authoredDelta };
+  pairCache.set(master, out);
+  return out;
+}
+
 /** Model height in metres (body bbox, feet at y≈0). */
 const MODEL_H = 0.6;
 const BEAM_FIRE_S = 1.2;
@@ -306,8 +343,44 @@ interface CrystalSpec {
   layer?: 'back' | 'front';
 }
 const PROP_DIR = '/models/props/';
-/** How many carousel stops the stage can draw at once (the one before and the one after). */
-const PEEK_SLOTS = 2;
+/** How many carousel stops the stage can draw at once (the props rail: the worn one and two each side). */
+const PEEK_SLOTS = 5;
+
+/**
+ * The AR step's mask on his body (decor.arOver): with the stage in front of
+ * the page, a fragment of his body is dropped wherever one of the page's
+ * frame images is opaque (its alpha over 0.5, times its live opacity) or one
+ * of its round arrows sits, so the frame's border and its decorations (the
+ * "2027" balloons) still cover him and he stays inside its window, while his
+ * props, which never get this mask, draw over it. Three frame slots (the
+ * worn one and the two beside it, or the two of a glide), two circles.
+ * Positions are CSS px from the viewport's top left.
+ */
+const AR_MASK_DECL = `uniform sampler2D uArM0;
+uniform sampler2D uArM1;
+uniform sampler2D uArM2;
+uniform vec4 uArR0;
+uniform vec4 uArR1;
+uniform vec4 uArR2;
+uniform vec3 uArA;
+uniform vec3 uArH0;
+uniform vec3 uArH1;
+uniform vec2 uArView;
+float arCover(sampler2D t, vec4 r, float a, vec2 p) {
+  if (a <= 0.0) return 0.0;
+  vec2 uv = (p - r.xy) / r.zw;
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
+  return texture2D(t, vec2(uv.x, 1.0 - uv.y)).a * a;
+}
+`;
+const AR_MASK_TEST = `{
+  vec2 arP = vec2(gl_FragCoord.x / uArView.x, uArView.y - gl_FragCoord.y / uArView.x);
+  float arC = max(arCover(uArM0, uArR0, uArA.x, arP), max(arCover(uArM1, uArR1, uArA.y, arP), arCover(uArM2, uArR2, uArA.z, arP)));
+  if (arC > 0.5 || (uArH0.z > 0.0 && distance(arP, uArH0.xy) < uArH0.z) || (uArH1.z > 0.0 && distance(arP, uArH1.xy) < uArH1.z)) discard;
+}`;
+/** A transparent 1x1 for an empty mask slot. */
+const AR_BLANK = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+AR_BLANK.needsUpdate = true;
 
 /** A clone of a cached library model, fitted into a unit box about its centre (masters are never disposed). */
 function unitClone(master: THREE.Object3D): THREE.Object3D {
@@ -319,6 +392,32 @@ function unitClone(master: THREE.Object3D): THREE.Object3D {
   const mid = box.getCenter(new THREE.Vector3());
   obj.scale.multiplyScalar(k);
   obj.position.set(-mid.x * k, -mid.y * k, -mid.z * k);
+  obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 1; } });
+  return obj;
+}
+/**
+ * A props-rail stop's model: unitClone, except a split earring pair, which
+ * hangs its two earrings side by side (a third of an earring apart) instead
+ * of the ~15 cm its model bakes in, so each earring fills the stop rather
+ * than shrinking to a sliver at either edge of it.
+ */
+function peekClone(master: THREE.Object3D): THREE.Object3D {
+  const pair = splitPair(master);
+  if (pair === null) return unitClone(master);
+  master.updateMatrixWorld(true);
+  // The whole model's box: the halves keep the pair's full vertex buffers.
+  const box = new THREE.Box3().setFromObject(master);
+  const lo = box.min.toArray() as [number, number, number], hi = box.max.toArray() as [number, number, number];
+  const w = hi[0] - lo[0] - Math.abs(pair.delta[0]);
+  const laid = w > 0 ? fitPair(lo, hi, pair.delta, { width: w, pair: w * 1.35, at: [0, 0, 0], align: 'centre' }) : null;
+  const obj = pair.model.clone(true);
+  const far = obj.getObjectByName(EAR_FAR);
+  if (laid === null || far === undefined) return unitClone(master);
+  far.position.set(...laid.farShift);
+  // Laid out at scale 1: 2.35 earrings wide, the pair's own height and depth.
+  const k = 1 / Math.max(1e-6, w * 2.35, hi[1] - lo[1], hi[2] - lo[2]);
+  obj.scale.multiplyScalar(k * laid.scale);
+  obj.position.set(laid.offset[0] * k, laid.offset[1] * k, laid.offset[2] * k);
   obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 1; } });
   return obj;
 }
@@ -461,7 +560,7 @@ interface Reveal {
 
 /* ── The scene ─────────────────────────────────────────────────────────── */
 
-function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = false, reducedMotion = false, onReady, onError, frameRef, debugRef }: Props & { debugRef?: MutableRefObject<HTMLDivElement | null> }) {
+function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = false, reducedMotion = false, onReady, onError, frameRef, sceneProps, debugRef }: Props & { debugRef?: MutableRefObject<HTMLDivElement | null> }) {
   const { size, gl, scene, camera, setDpr } = useThree();
   const glRef = useRef({ gl, scene, camera });
   glRef.current = { gl, scene, camera };
@@ -474,6 +573,28 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const motesRef = useRef<THREE.Points>(null);
   const handBone = useRef<THREE.Object3D | null>(null);
   const handLocal = useRef(new THREE.Vector3(0, -0.12, 0));
+  /** Studio reflections for the prop materials that ask for them (glTF
+   *  extras `beamyEnv` = env-map intensity, e.g. the silver crown): this
+   *  stage has no environment, and a real metal with nothing to reflect
+   *  renders black. Built on first use for this renderer; every other prop
+   *  is left exactly as it was. */
+  const propEnv = useRef<THREE.Texture | null>(null);
+  const litProps = (master: THREE.Object3D) => {
+    master.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        const k: unknown = (m as THREE.Material).userData.beamyEnv;
+        if (typeof k !== 'number' || !(m instanceof THREE.MeshStandardMaterial)) continue;
+        if (propEnv.current === null) {
+          const pm = new THREE.PMREMGenerator(gl);
+          propEnv.current = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+          pm.dispose();
+        }
+        if (m.envMap !== propEnv.current) { m.envMap = propEnv.current; m.envMapIntensity = k; m.needsUpdate = true; }
+      }
+    });
+  };
+  useEffect(() => () => { propEnv.current?.dispose(); propEnv.current = null; }, []);
   const shown = useRef(!startHidden);
   const appear = useRef(startHidden ? 0 : 1);
   const arrival = useRef<{ t: number; landed: boolean; resolve: () => void } | null>(null);
@@ -535,9 +656,28 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const reflect = useRef<{ root: THREE.Object3D; pairs: [THREE.Object3D, THREE.Object3D][]; floorY: { value: number }; fade: { value: number } } | null>(null);
   const [reflectObj, setReflectObj] = useState<THREE.Object3D | null>(null);
   const wrapEl = useRef<HTMLElement | null>(null);
+  /** The AR mask's uniforms (AR_MASK), shared by every material of his body and his reflection. */
+  const arU = useMemo(() => ({
+    uArM0: { value: AR_BLANK as THREE.Texture }, uArM1: { value: AR_BLANK as THREE.Texture }, uArM2: { value: AR_BLANK as THREE.Texture },
+    uArR0: { value: new THREE.Vector4(0, 0, 1, 1) }, uArR1: { value: new THREE.Vector4(0, 0, 1, 1) }, uArR2: { value: new THREE.Vector4(0, 0, 1, 1) },
+    uArA: { value: new THREE.Vector3() },
+    uArH0: { value: new THREE.Vector3() }, uArH1: { value: new THREE.Vector3() },
+    uArView: { value: new THREE.Vector2(1, 1) },
+  }), []);
+  const arMask = (sh: { uniforms: Record<string, THREE.IUniform>; fragmentShader: string }) => {
+    Object.assign(sh.uniforms, arU);
+    sh.fragmentShader = AR_MASK_DECL + sh.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${AR_MASK_TEST}`);
+  };
+  /** The page's frame images as textures (for the mask's alpha), loaded once each. */
+  const arTex = useRef(new Map<string, THREE.Texture | null>());
+  useEffect(() => () => { for (const t of arTex.current.values()) t?.dispose(); arTex.current.clear(); }, []);
   /** What he is wearing: a fitted prop on his body bone (popping in over `t`), a frame behind him. */
   /** The worn prop: its pop-in `t`, its crown `top` and seat `anchor` in his heights, and its scale `k`. */
-  const worn = useRef<{ holder: THREE.Group; t: number; top: number; anchor: number; k: number } | null>(null);
+  const worn = useRef<{
+    holder: THREE.Group; t: number; top: number; anchor: number; k: number;
+    /** What refit needs: the fitted clone, its own scale, its far earring, the model's box and pair delta. */
+    obj: THREE.Object3D; base: THREE.Vector3; far: THREE.Object3D | null; lo: [number, number, number]; hi: [number, number, number]; delta: [number, number, number] | null;
+  } | null>(null);
   /** Props he just took off: each shrinks away over ~0.26s instead of vanishing (never a pop). */
   const leaving = useRef<{ holder: THREE.Group; t: number; s0: number }[]>([]);
   const wornTopAt = (wn: { top: number; anchor: number }, k: number) => wn.anchor + (wn.top - wn.anchor) * k;
@@ -582,6 +722,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
             o.renderOrder = 2;
             // The filter look tints his light body only (never the dark eyes).
             for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+              m.onBeforeCompile = arMask;
+              m.customProgramCacheKey = () => 'beamy-ar-mask';
               if (!(m instanceof THREE.MeshStandardMaterial)) continue;
               const c = m.color;
               if (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.3) tintS.current.mats.push({ m, e: m.emissive.clone(), c: c.clone(), i: m.emissiveIntensity });
@@ -683,6 +825,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       c.depthWrite = false;
       c.side = THREE.DoubleSide; // a negative scale flips the winding
       c.onBeforeCompile = (sh) => {
+        arMask(sh);
         sh.uniforms.uReflFloor = floorY;
         sh.uniforms.uReflFade = fade;
         sh.vertexShader = `varying float vReflY;\n${sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  vReflY = (modelMatrix * vec4(transformed, 1.0)).y;')}`;
@@ -810,6 +953,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         propAt.current = atGet;
         const at = atGet();
         return loadModel(url).then((master) => new Promise<void>((resolve) => {
+          litProps(master);
           const obj = master.clone(true);
           const box = new THREE.Box3().setFromObject(obj);
           const dims = box.getSize(new THREE.Vector3());
@@ -993,6 +1137,26 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         const wn = worn.current;
         if (wn !== null) wn.k = Math.min(1, Math.max(0.05, k));
       },
+      refit(fit) {
+        const wn = worn.current;
+        if (wn === null) return;
+        const m = place(wn.obj, wn.holder, wn.far, wn.base, wn.lo, wn.hi, wn.delta, fit);
+        wn.top = m.top;
+        wn.anchor = m.anchor;
+      },
+      wornHandle() {
+        const wn = worn.current;
+        const bone = bodyBone.current;
+        if (wn === null || bone === null) return null;
+        bone.updateWorldMatrix(true, false);
+        const at = wn.holder.position;
+        const o = bone.localToWorld(new THREE.Vector3(at.x, at.y, at.z));
+        const axis = (dx: number, dy: number, dz: number): Pt => {
+          const v = bone.localToWorld(new THREE.Vector3(at.x + dx, at.y + dy, at.z + dz));
+          return { x: v.x - o.x, y: -(v.y - o.y) };
+        };
+        return { anchor: toScreen(o), axes: { x: axis(1, 0, 0), y: axis(0, 1, 0), z: axis(0, 0, 1) } };
+      },
       tint(color) {
         tintS.current.target = color;
       },
@@ -1025,29 +1189,51 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     const wearProp = (url: string, fit: PropFit, tok: number): Promise<void> =>
       loadModel(url).then((master) => {
         if (tok !== wearToken.current) return;
+        litProps(master);
         // The body bone carries every clip (hop, dance, the party spin).
         const bone = bodyBone.current;
         if (bone === null) return;
-        const obj = master.clone(true);
+        // A pair of earrings is split once per model (its halves share the
+        // cached vertex buffers) and cloned from then on, so a tour that
+        // comes round to it again allocates nothing new.
+        const pair = fit.pair !== undefined ? splitPair(master) : null;
+        const obj = (pair?.model ?? master).clone(true);
         obj.updateMatrixWorld(true);
-        const box = new THREE.Box3().setFromObject(obj);
-        const f = fitProp(box.min.toArray() as [number, number, number], box.max.toArray() as [number, number, number], fit);
+        // Measured on the whole model: the halves keep the pair's full vertex buffers.
+        master.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(master);
+        const lo = box.min.toArray() as [number, number, number], hi = box.max.toArray() as [number, number, number];
+        const far = pair !== null ? (obj.getObjectByName(EAR_FAR) ?? null) : null;
+        const delta = pair !== null && far !== null ? pair.delta : null;
         obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 3; } });
-        obj.scale.multiplyScalar(f.scale);
-        // Tilt about the anchor itself: the holder sits ON the anchor.
-        obj.position.set(f.offset[0] - fit.at[0], f.offset[1] - fit.at[1], f.offset[2] - fit.at[2]);
+        const base = obj.scale.clone();
         const holder = new THREE.Group();
         holder.add(obj);
-        holder.position.set(fit.at[0], fit.at[1], fit.at[2]);
-        holder.rotation.x = fit.tilt ?? 0;
+        const m = place(obj, holder, far, base, lo, hi, delta, fit);
         holder.scale.setScalar(0.0001);
         bone.add(holder);
-        // Its crown in his height units (body bone 0.12 above the feet, 0.6 tall)
-        // so the bubble can clear it.
-        const top = (0.12 + f.offset[1] + box.max.y * f.scale) / 0.6;
-        const anchor = (0.12 + fit.at[1]) / 0.6;
-        worn.current = { holder, t: 0, top: Number.isFinite(top) ? top : 1, anchor: Number.isFinite(anchor) ? anchor : 1, k: 1 };
+        worn.current = { holder, t: 0, top: m.top, anchor: m.anchor, k: 1, obj, base, far, lo, hi, delta };
       }, () => undefined);
+    /**
+     * Hang `obj` in `holder` where `fit` says (lib/beamyLooks wornPlacement):
+     * the holder sits ON the anchor, so tilt and roll turn about it. Returns
+     * its crown and seat in his height units (body bone 0.12 above the feet,
+     * 0.6 tall) so the bubble can clear it.
+     */
+    const place = (
+      obj: THREE.Object3D, holder: THREE.Object3D, far: THREE.Object3D | null, base: THREE.Vector3,
+      lo: [number, number, number], hi: [number, number, number], delta: [number, number, number] | null, fit: PropFit,
+    ): { top: number; anchor: number } => {
+      const p = wornPlacement(lo, hi, fit, delta);
+      if (far !== null && p.farShift !== null) far.position.set(...p.farShift);
+      obj.scale.copy(base).multiplyScalar(p.scale);
+      obj.position.set(...p.objPos);
+      holder.position.set(...p.holderPos);
+      holder.rotation.set(...p.holderRot);
+      const top = (0.12 + p.holderPos[1] + p.objPos[1] + hi[1] * p.scale) / 0.6;
+      const anchor = (0.12 + fit.at[1]) / 0.6;
+      return { top: Number.isFinite(top) ? top : 1, anchor: Number.isFinite(anchor) ? anchor : 1 };
+    };
     apiRef.current = api;
     return () => { apiRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs only
@@ -1186,20 +1372,27 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   }, [beamMat, floorMat, flashMat, sparkGeo, sparkMat, sparkTex, moteGeo, moteMat, crystalShadowMat, coneMat, coneGeo, coneGlowMat, coneSrcMat]);
   /* The decor props: real library assets, each fitted into a unit box and
      dropped into its holder once Beamy himself is on screen (they share the
-     glb cache with the hero try-on; masters are cloned, never disposed). */
+     glb cache with the hero try-on; masters are cloned, never disposed).
+     A spot whose file changes (the owner's overrides arrived) swaps its prop. */
+  const sceneKey = (sceneProps ?? HOME_ASSET_DEFAULTS.sceneProps).join('\n');
   useEffect(() => {
     let live = true;
+    const urls = sceneKey.split('\n');
     const id = window.setTimeout(() => {
       CRYSTALS.forEach((c, i) => {
-        void loadModel(HOME_ASSET_DEFAULTS.sceneProps[i] ?? `${PROP_DIR}${c.prop}.glb`).then((master) => {
+        const url = urls[i] !== undefined && urls[i] !== '' ? urls[i] : `${PROP_DIR}${c.prop}.glb`;
+        if (crystalRefs.current[i]?.userData.propUrl === url) return;
+        void loadModel(url).then((master) => {
           const holder = crystalRefs.current[i];
-          if (!live || holder === null || holder.children.length > 0) return;
+          if (!live || holder === null || holder === undefined || holder.userData.propUrl === url) return;
+          holder.clear();
           holder.add(unitClone(master));
+          holder.userData.propUrl = url;
         }, () => undefined);
       });
     }, 1200);
     return () => { live = false; window.clearTimeout(id); };
-  }, []);
+  }, [sceneKey]);
 
   /* The page reads its slots first, every frame, so the target he follows is
      this frame's (a separate loop could run after the render: a frame late). */
@@ -1552,20 +1745,36 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     }
 
     /* The AR props carousel: each stop's real GLB floats in its peek, small
-       and turning slowly (it bobs with the peek, which the page reads). Still
+       and swaying slowly (it bobs with the peek, which the page reads). Still
        when reduced. */
     const pk = dec.peeks ?? [];
+    // Each slot keeps its model while its stop stays on the rail (a step
+    // moves the stops, it must not reload them): a peek takes the slot that
+    // already holds its URL, else a slot no current peek wants.
+    const want = new Set(pk.map((q) => q.url));
+    const slotPeek: (number | undefined)[] = Array.from({ length: PEEK_SLOTS }, () => undefined);
+    const later: number[] = [];
+    pk.forEach((q, j) => {
+      const s = peekUrls.current.findIndex((u, k) => u === q.url && slotPeek[k] === undefined);
+      if (s >= 0) slotPeek[s] = j; else later.push(j);
+    });
+    for (const j of later) {
+      const s = slotPeek.findIndex((v, k) => v === undefined && !want.has(peekUrls.current[k] ?? ''));
+      const f = s >= 0 ? s : slotPeek.findIndex((v) => v === undefined);
+      if (f >= 0) slotPeek[f] = j;
+    }
     for (let i = 0; i < PEEK_SLOTS; i++) {
       const holder = peekRefs.current[i];
       if (!holder) continue;
-      const p = pk[i];
+      const pj = slotPeek[i];
+      const p = pj !== undefined ? pk[pj] : undefined;
       if (p === undefined || p.url === '') { holder.visible = false; continue; }
       if (peekUrls.current[i] !== p.url) {
         const url = p.url;
         peekUrls.current[i] = url;
         holder.clear();
         void loadModel(url).then((master) => {
-          if (peekUrls.current[i] === url && holder.children.length === 0) holder.add(unitClone(master));
+          if (peekUrls.current[i] === url && holder.children.length === 0) { litProps(master); holder.add(peekClone(master)); }
         }, () => undefined);
       }
       holder.visible = holder.children.length > 0;
@@ -1573,7 +1782,10 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       holder.position.set(wp.x, wp.y, 260);
       holder.scale.setScalar(Math.max(1, p.size * 0.86));
       if (!reduced) {
-        holder.rotation.y += dt * 0.55;
+        // A sway about the front, never a full turn: glasses, masks, face
+        // paint and earrings are flat and front-facing, so a spin left their
+        // stop empty for the half-turn they spent edge-on or back-facing.
+        holder.rotation.y = 0.5 * Math.sin(state.clock.elapsedTime * 0.7 + i * 1.3);
         holder.rotation.x = 0.2;
       } else {
         holder.rotation.set(0.2, 0.5, 0);
@@ -1835,9 +2047,31 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const over = pn !== null && g !== null && g.visible
         && pos.current.x + half > pn.left && pos.current.x - half < pn.left + pn.width
         && pos.current.y > pn.top && pos.current.y - heightPx < pn.top + pn.height;
-      const z = over ? 'front' : 'back';
+      // The AR step: in front, so a hat or an earring draws over the frame.
+      const z = over || dec.arOver !== undefined ? 'front' : 'back';
       if (wrap.dataset.layer !== z) wrap.dataset.layer = z;
     }
+    // ...while the frame (and its arrows) still cover his body.
+    const ao = dec.arOver;
+    const mSlots = [arU.uArM0, arU.uArM1, arU.uArM2], rSlots = [arU.uArR0, arU.uArR1, arU.uArR2];
+    for (let i = 0; i < 3; i++) {
+      const f = ao?.frames[i];
+      let tex: THREE.Texture | null = null;
+      if (f !== undefined) {
+        if (!arTex.current.has(f.url)) {
+          arTex.current.set(f.url, null);
+          new THREE.TextureLoader().load(f.url, (t) => { arTex.current.set(f.url, t); }, undefined, () => undefined);
+        }
+        tex = arTex.current.get(f.url) ?? null;
+      }
+      mSlots[i].value = tex ?? AR_BLANK;
+      if (f !== undefined) rSlots[i].value.set(f.left, f.top, Math.max(1, f.width), Math.max(1, f.height));
+      arU.uArA.value.setComponent(i, tex !== null && f !== undefined ? f.a : 0);
+    }
+    const h0 = ao?.holes[0], h1 = ao?.holes[1];
+    arU.uArH0.value.set(h0?.x ?? 0, h0?.y ?? 0, h0?.r ?? 0);
+    arU.uArH1.value.set(h1?.x ?? 0, h1?.y ?? 0, h1?.r ?? 0);
+    arU.uArView.value.set(gl.getPixelRatio(), sizeRef.current.height);
 
     /* DOM followers: speech bubble over (or beside) the head, poke button over the body. */
     const top = pos.current.y - heightPx * 1.02;
@@ -1897,8 +2131,9 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       hit.style.width = `${hw}px`;
       hit.style.height = `${heightPx}px`;
       hit.style.transform = `translate3d(${(pos.current.x - hw / 2).toFixed(1)}px, ${top.toFixed(1)}px, 0)`;
-      const away = presence < 0.6 || layout.hitAway === true ? 'none' : '';
-      if (hit.style.pointerEvents !== away) hit.style.pointerEvents = away;
+      // The page hit-tests taps against this box (it takes no pointer events itself).
+      const away = presence < 0.6 || layout.hitAway === true ? 'true' : 'false';
+      if (hit.dataset.away !== away) hit.dataset.away = away;
     }
   });
 

@@ -13,33 +13,34 @@
  * and sourcing. The hub is the ONLY surface that shows notes, internal
  * audiences and placeholder prices — prospects get /pitch links, never this.
  *
- * Like Landing/Guides, this page owns its scroll container (the app shell is
- * h-screen overflow-hidden), so observers use it as their root.
+ * Layout: one section at a time, like tabs. The top bar and the section nav
+ * stay put and the open section scrolls on its own inside the viewport (the
+ * app shell is h-screen overflow-hidden). The open tab lives in the URL hash
+ * (#decks, #plan, …) so a refresh or a shared hub link lands on the same tab.
+ * The CRM is its own full page (SALES_CRM_PATH); its nav item links there.
  */
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  BookOpen, CalendarCheck, ClipboardList, Compass, ExternalLink, Library, Link2, MessageSquareText, Play, Presentation,
-  Search, ShieldAlert, Target, Users, type LucideIcon,
+  ArrowUpRight, BookOpen, CalendarCheck, ClipboardList, Compass, ExternalLink, Library, Link2, MessageSquareText, Play,
+  Presentation, Search, ShieldAlert, Target, Users, type LucideIcon,
 } from 'lucide-react';
 import {
   CHEAT_SHEET, DAILY_TARGETS, DECKS, DISCOVERY_QUESTIONS, OBJECTIONS, RESEARCH_NOTES, SALES_CONTACT, SOURCING,
 } from '../../lib/salesContent';
 import { offersFor } from '../../lib/salesOffers';
 import { buildShareLink, normalizeRef, parseMarket, searchObjections } from '../../lib/salesHub';
-import { COLLATERAL, ICP_IDS, MARKETS, PITCH_BASE, type Deck, type Market } from '../../lib/salesTypes';
+import { COLLATERAL, ICP_IDS, MARKETS, PITCH_BASE, SALES_CRM_PATH, type Deck, type Market } from '../../lib/salesTypes';
 import { usePageTitle } from '../../lib/usePageTitle';
-import ErrorBoundary from '../../components/ui/ErrorBoundary';
 import CopyButton from './components/CopyButton';
 import SlideDeck, { SlideThumb, type DeckEnv } from './components/SlideDeck';
 import HubTemplates from './components/HubTemplates';
 import HubDeliver from './components/HubDeliver';
 import { HubPlan, HubTargets } from './components/HubPlan';
-import { ICP_LABEL, PlaceholderBadge, SectionHead } from './components/hubUi';
+import { HubTopBar, ICP_LABEL, PlaceholderBadge, SectionHead } from './components/hubUi';
 import { asksFor, contactLine, offersFromIds } from './components/deckEnv';
 import { useNoIndex, useStoredString } from './components/pageMeta';
 import { BEAMY } from './salesImages';
-
-const SalesCrm = lazy(() => import('./crm/SalesCrm'));
 
 const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: 'start', label: 'Start here', Icon: Compass },
@@ -51,9 +52,15 @@ const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: 'templates', label: 'Templates', Icon: MessageSquareText },
   { id: 'links', label: 'Links', Icon: Link2 },
   { id: 'sourcing', label: 'Find prospects', Icon: Search },
-  { id: 'crm', label: 'CRM', Icon: Users },
   { id: 'research', label: 'Research', Icon: Library },
 ];
+const SECTION_IDS = new Set(SECTIONS.map((s) => s.id));
+
+/** The tab named by the URL hash, or 'start' for none / an unknown one. */
+function tabFromHash(hash: string): string {
+  const id = hash.replace(/^#/, '');
+  return SECTION_IDS.has(id) ? id : 'start';
+}
 
 function MarketSwitch({ market, onChange }: { market: Market; onChange: (m: Market) => void }) {
   return (
@@ -67,7 +74,7 @@ function MarketSwitch({ market, onChange }: { market: Market; onChange: (m: Mark
             role="radio"
             aria-checked={on}
             onClick={() => onChange(m.id)}
-            className={`min-h-10 whitespace-nowrap rounded-full px-3 font-label text-[10.5px] font-bold uppercase tracking-[0.14em] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:px-4 ${
+            className={`min-h-10 whitespace-nowrap rounded-full px-2.5 font-label text-[10px] font-bold uppercase tracking-[0.08em] transition sm:text-[10.5px] sm:tracking-[0.14em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] sm:px-4 ${
               on ? 'bg-foil text-white shadow-[0_6px_20px_-8px_rgba(91,140,255,0.8)]' : 'text-brand-muted hover:text-brand-fg'
             }`}
           >
@@ -97,11 +104,38 @@ function RefInput({ value, onChange }: { value: string; onChange: (v: string) =>
   );
 }
 
-function Section({ id, children }: { id: string; children: ReactNode }) {
+/** One tab's panel. Only the open tab renders. */
+function Section({ id, active, children }: { id: string; active: string; children: ReactNode }) {
+  if (id !== active) return null;
   return (
-    <section id={id} data-hub-section className="scroll-mt-32 border-t border-white/[0.06] py-12 first:border-t-0 first:pt-6 md:scroll-mt-24 md:py-16">
+    <section id={id} aria-labelledby={`tab-${id}`} className="pb-16 pt-6 md:pt-10">
       {children}
     </section>
+  );
+}
+
+/** The CRM nav item: a link to its own page, styled like a tab but marked as
+ *  leaving the hub. */
+function CrmNavLink({ variant }: { variant: 'rail' | 'chip' }) {
+  if (variant === 'chip') {
+    return (
+      <Link
+        to={SALES_CRM_PATH}
+        className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-[color:var(--color-accent)]/40 bg-[color:var(--color-accent)]/10 px-3.5 text-[13px] font-semibold text-brand-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+      >
+        <Users className="h-4 w-4" aria-hidden /> CRM <ArrowUpRight className="h-3.5 w-3.5 text-brand-muted" aria-hidden />
+      </Link>
+    );
+  }
+  return (
+    <Link
+      to={SALES_CRM_PATH}
+      className="mt-3 flex min-h-12 items-center gap-3 rounded-xl border border-[color:var(--color-accent)]/35 bg-[color:var(--color-accent)]/10 px-3 text-[14px] font-semibold text-brand-fg transition hover:bg-[color:var(--color-accent)]/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+    >
+      <Users className="h-4 w-4 text-accent" aria-hidden />
+      <span className="flex-1">Open the CRM</span>
+      <ArrowUpRight className="h-4 w-4 text-brand-muted" aria-hidden />
+    </Link>
   );
 }
 
@@ -109,14 +143,13 @@ export default function SalesHub() {
   usePageTitle('Partnerships hub · Beamwall');
   useNoIndex();
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
   const [marketRaw, setMarketRaw] = useStoredString('beamwall.sales.market', 'ng');
   const market = parseMarket(marketRaw);
   const [refCode, setRefCode] = useStoredString('beamwall.sales.ref', '');
-  const [active, setActive] = useState('start');
+  const [active, setActive] = useState(() => (typeof window !== 'undefined' ? tabFromHash(window.location.hash) : 'start'));
   const [presenting, setPresenting] = useState<Deck | null>(null);
-  const [crmMounted, setCrmMounted] = useState(false);
   const [objQuery, setObjQuery] = useState('');
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
@@ -126,30 +159,11 @@ export default function SalesHub() {
   const sourcing = useMemo(() => SOURCING.filter((s) => s.market === market), [market]);
   const marketLabel = MARKETS.find((m) => m.id === market)?.label ?? '';
 
-  // Which section is on screen → the nav highlight. Also mounts the CRM
-  // (and its supabase chunk) only once someone scrolls near it.
+  // Back/forward and hand-edited hashes switch tabs too.
   useEffect(() => {
-    const root = scrollRef.current;
-    if (root === null) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) if (e.isIntersecting) setActive(e.target.id);
-      },
-      { root, rootMargin: '-25% 0px -65% 0px' },
-    );
-    const near = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) setCrmMounted(true);
-      },
-      { root, rootMargin: '600px 0px' },
-    );
-    root.querySelectorAll('[data-hub-section]').forEach((el) => io.observe(el));
-    const crm = root.querySelector('#crm');
-    if (crm !== null) near.observe(crm);
-    return () => {
-      io.disconnect();
-      near.disconnect();
-    };
+    const onHash = () => setActive(tabFromHash(window.location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
   // Keep the active chip visible in the phone nav strip.
@@ -160,13 +174,14 @@ export default function SalesHub() {
     strip.scrollTo({ left: chip.offsetLeft - strip.clientWidth / 2 + chip.clientWidth / 2, behavior: 'smooth' });
   }, [active]);
 
-  const jump = (id: string) => {
-    if (id === 'crm') setCrmMounted(true);
-    const el = document.getElementById(id);
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    el?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  /** Open a tab: swap the panel, start it at the top, record it in the hash
+   *  (replace, so tab hopping doesn't bury the browser's Back button). */
+  const jump = useCallback((id: string) => {
     setActive(id);
-  };
+    scrollRef.current?.scrollTo({ top: 0 });
+    const url = `${window.location.pathname}${window.location.search}${id === 'start' ? '' : `#${id}`}`;
+    window.history.replaceState(window.history.state, '', url);
+  }, []);
 
   const envFor = (d: Deck): DeckEnv => {
     const asks = asksFor(d.market, refCode);
@@ -180,7 +195,7 @@ export default function SalesHub() {
     };
   };
 
-  // Lock the hub's own scroll behind the presenter.
+  // Lock the open tab's scroll behind the presenter.
   useEffect(() => {
     const root = scrollRef.current;
     if (root === null) return;
@@ -193,29 +208,22 @@ export default function SalesHub() {
   const rep = SALES_CONTACT.name.trim().split(/\s+/)[0] ?? '';
 
   return (
-    <div ref={scrollRef} className="relative h-full w-full overflow-x-hidden overflow-y-auto app-bg text-brand-fg">
-      {/* Sticky header (+ phone chip nav) */}
-      <div className="sticky top-0 z-40 border-b border-white/[0.06] bg-brand-bg/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5 sm:px-6">
-          <img src={BEAMY.src} width={BEAMY.width} height={BEAMY.height} alt="" className="h-9 w-auto shrink-0" />
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate font-serif [font-variant-numeric:lining-nums_tabular-nums] text-[19px] font-semibold text-foil-static sm:text-[22px]">Beamwall</p>
-            <p className="truncate font-label text-[9.5px] font-semibold uppercase tracking-[0.22em] text-brand-muted">
-              <span className="sm:hidden">Hub</span>
-              <span className="hidden sm:inline">Partnerships hub</span>
-            </p>
-          </div>
-          <MarketSwitch market={market} onChange={(m) => setMarketRaw(m)} />
-        </div>
+    <div className="relative flex h-full w-full flex-col overflow-hidden app-bg text-brand-fg">
+      {/* Top bar (+ phone tab strip) — fixed above the scrolling panel */}
+      <header className="z-40 shrink-0 border-b border-white/[0.06] bg-brand-bg/80 backdrop-blur-md">
+        <HubTopBar title="Partnerships Hub" right={<MarketSwitch market={market} onChange={(m) => setMarketRaw(m)} />} />
         <nav aria-label="Hub sections" className="md:hidden">
-          <div ref={chipsRef} className="hide-scrollbar flex gap-1.5 overflow-x-auto px-4 pb-2.5">
+          <div ref={chipsRef} role="tablist" className="hide-scrollbar flex gap-1.5 overflow-x-auto px-4 pb-2.5">
             {SECTIONS.map((s) => (
               <button
                 key={s.id}
+                id={`tab-${s.id}`}
                 data-chip={s.id}
                 type="button"
+                role="tab"
+                aria-selected={active === s.id}
+                aria-controls={s.id}
                 onClick={() => jump(s.id)}
-                aria-current={active === s.id ? 'true' : undefined}
                 className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] ${
                   active === s.id ? 'border-[color:var(--color-accent)]/60 bg-[color:var(--color-accent)]/15 text-brand-fg' : 'border-white/10 bg-white/[0.03] text-brand-muted'
                 }`}
@@ -224,35 +232,44 @@ export default function SalesHub() {
                 {s.label}
               </button>
             ))}
+            <CrmNavLink variant="chip" />
           </div>
         </nav>
-      </div>
+      </header>
 
-      <div className="mx-auto flex max-w-7xl gap-10 px-4 sm:px-6">
+      <div className="flex min-h-0 flex-1">
         {/* Desktop rail */}
-        <nav aria-label="Hub sections" className="sticky top-[76px] hidden h-[calc(100vh-100px)] w-52 shrink-0 flex-col gap-1 py-8 md:flex">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => jump(s.id)}
-              aria-current={active === s.id ? 'true' : undefined}
-              className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-left text-[14px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] ${
-                active === s.id ? 'bg-white/[0.07] font-semibold text-brand-fg' : 'text-brand-muted hover:bg-white/[0.04] hover:text-brand-fg'
-              }`}
-            >
-              <s.Icon className={`h-4 w-4 ${active === s.id ? 'text-accent' : ''}`} aria-hidden />
-              {s.label}
-            </button>
-          ))}
-          <p className="mt-auto px-3 text-[11.5px] leading-snug text-brand-muted/60">
+        <nav aria-label="Hub sections" className="hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] px-3 py-6 md:flex lg:w-64 lg:px-4">
+          <div role="tablist" aria-orientation="vertical" className="flex flex-col gap-1">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                id={`tab-${s.id}`}
+                type="button"
+                role="tab"
+                aria-selected={active === s.id}
+                aria-controls={s.id}
+                onClick={() => jump(s.id)}
+                className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-left text-[14.5px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] ${
+                  active === s.id ? 'bg-white/[0.08] font-semibold text-brand-fg' : 'text-brand-muted hover:bg-white/[0.04] hover:text-brand-fg'
+                }`}
+              >
+                <s.Icon className={`h-4 w-4 ${active === s.id ? 'text-accent' : ''}`} aria-hidden />
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <CrmNavLink variant="rail" />
+          <p className="mt-auto px-3 pt-6 text-[11.5px] leading-snug text-brand-muted/60">
             Internal only. Prospects get /pitch links.
           </p>
         </nav>
 
-        <main className="min-w-0 flex-1 pb-24">
+        {/* The open tab — the only thing that scrolls */}
+        <main ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
+          <div className="mx-auto w-full max-w-[1500px] px-4 sm:px-6 lg:px-10 xl:px-12">
           {/* 1 · Start here */}
-          <Section id="start">
+          <Section id="start" active={active}>
             <div className="relative overflow-hidden rounded-[32px] liquid-glass p-6 sm:p-10">
               <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-[color:var(--color-accent)]/25 blur-3xl" />
               <div className="relative grid items-center gap-6 sm:grid-cols-[1fr_auto]">
@@ -325,7 +342,7 @@ export default function SalesHub() {
           </Section>
 
           {/* 2 · Decks */}
-          <Section id="decks">
+          <Section id="decks" active={active}>
             <SectionHead
               eyebrow={`Decks · ${marketLabel}`}
               title="Present, then share"
@@ -393,7 +410,7 @@ export default function SalesHub() {
             ) : (
               <p className="mt-1 text-[13.5px] text-brand-muted">Prices as prospects see them. Quote these; anything custom goes to Dapo first.</p>
             )}
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {packages.map((o) => (
                 <div key={o.id} className="flex flex-col rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
                   <div className="flex items-start justify-between gap-2">
@@ -411,7 +428,7 @@ export default function SalesHub() {
           </Section>
 
           {/* 3 · Selling guide */}
-          <Section id="guide">
+          <Section id="guide" active={active}>
             <SectionHead eyebrow="Selling guide" title="Know it cold" intro="The cheat sheet, the objections you’ll hear, and the questions that open a real conversation." />
             <div className="grid gap-4 md:grid-cols-2">
               {CHEAT_SHEET.map((c) => (
@@ -477,31 +494,31 @@ export default function SalesHub() {
           </Section>
 
           {/* 3b · Deliver an event */}
-          <Section id="deliver">
+          <Section id="deliver" active={active}>
             <SectionHead eyebrow="Deliver an event" title="From signed to shining" intro="You run what you sell. This is the delivery playbook, step by step, with a time budget for each." />
             <HubDeliver />
           </Section>
 
           {/* 4 · 30-day plan */}
-          <Section id="plan">
+          <Section id="plan" active={active}>
             <SectionHead eyebrow="30-day plan" title="Your first month" intro="Set the day you started and the current week lights up. Tick tasks as you go." />
             <HubPlan />
           </Section>
 
           {/* 5 · Daily targets */}
-          <Section id="targets">
+          <Section id="targets" active={active}>
             <SectionHead eyebrow="Daily targets" title="Today’s scoreboard" intro="Tap + as you go. Hitting these every working day is what fills the pipeline." />
             <HubTargets />
           </Section>
 
           {/* 6 · Templates */}
-          <Section id="templates">
+          <Section id="templates" active={active}>
             <SectionHead eyebrow={`Templates · ${marketLabel}`} title="Copy, personalise, send" intro={market === 'ng' ? 'WhatsApp is the main channel in Nigeria — start there.' : 'Email and LinkedIn first; Instagram for creators.'} />
             <HubTemplates market={market} refCode={refCode} origin={origin} />
           </Section>
 
           {/* 7 · Links */}
-          <Section id="links">
+          <Section id="links" active={active}>
             <SectionHead eyebrow={`Links · ${marketLabel}`} title="Everything you can send" intro="Every link carries your ref code when you’ve set one." />
             <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
               <RefInput value={refCode} onChange={setRefCode} />
@@ -535,7 +552,7 @@ export default function SalesHub() {
           </Section>
 
           {/* 8 · Sourcing */}
-          <Section id="sourcing">
+          <Section id="sourcing" active={active}>
             <SectionHead eyebrow={`Find prospects · ${marketLabel}`} title="Where they are" />
             <div className="grid gap-5 lg:grid-cols-3">
               {ICP_IDS.map((icp) => {
@@ -559,24 +576,8 @@ export default function SalesHub() {
             {sourcing.length === 0 && <p className="text-brand-muted">No sourcing notes for this market yet.</p>}
           </Section>
 
-          {/* 9 · CRM */}
-          <Section id="crm">
-            <SectionHead eyebrow="CRM" title="Your pipeline" intro="Signed in separately. Every prospect, every touch, every next step." />
-            <div className="min-h-[320px] rounded-[24px] border border-white/10 bg-white/[0.02] p-2 sm:p-4">
-              {crmMounted ? (
-                <ErrorBoundary label="CRM">
-                  <Suspense fallback={<CrmLoading />}>
-                    <SalesCrm />
-                  </Suspense>
-                </ErrorBoundary>
-              ) : (
-                <CrmLoading />
-              )}
-            </div>
-          </Section>
-
           {/* 10 · Research */}
-          <Section id="research">
+          <Section id="research" active={active}>
             <SectionHead eyebrow="Research" title="Why this plan" intro="The sourced facts behind the decks and the plan. Quote the source if a prospect asks." />
             <ul className="flex flex-col gap-3">
               {RESEARCH_NOTES.map((r, i) => (
@@ -594,6 +595,7 @@ export default function SalesHub() {
               ))}
             </ul>
           </Section>
+          </div>
         </main>
       </div>
 
@@ -606,15 +608,6 @@ export default function SalesHub() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function CrmLoading() {
-  return (
-    <div className="flex min-h-[300px] flex-col items-center justify-center gap-3 text-center">
-      <img src={BEAMY.src} width={BEAMY.width} height={BEAMY.height} alt="" className="h-auto w-20 opacity-80 motion-safe:animate-pulse" />
-      <p className="text-[13.5px] text-brand-muted">Loading the CRM…</p>
     </div>
   );
 }

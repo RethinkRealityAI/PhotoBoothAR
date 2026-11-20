@@ -11,15 +11,50 @@
  * and the wall keeps rendering EventBackground instead — this component is
  * never mounted for legacy builds.
  */
-import type { ResolvedScene } from '../../lib/sceneThemes';
+import type { ResolvedScene, WallAmbient } from '../../lib/sceneThemes';
 
 interface Props {
   scene: ResolvedScene;
   /** Preview thumbnails pass false: no drifting layers in a 200px card. */
   animated?: boolean;
+  /** The host's ambience pick: drifting glow (today), twinkles, or still. */
+  ambient?: WallAmbient;
 }
 
-export default function WallBackdrop({ scene, animated = true }: Props) {
+/** Deterministic star field (no Math.random: every screen and every render
+ *  of the same wall twinkles identically). */
+const TWINKLES = Array.from({ length: 46 }, (_, i) => {
+  const h = (n: number) => {
+    const x = Math.sin((i + 1) * n) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  return { left: h(12.99) * 100, top: h(78.23) * 100, size: 1.5 + h(37.7) * 3, delay: h(4.1) * 5, dur: 3.8 + h(9.3) * 3.4 };
+});
+
+/** Twinkling lights in the glow colour (`--wall-glow-rgb`). */
+export function WallTwinkles() {
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden>
+      {TWINKLES.map((t, i) => (
+        <span
+          key={i}
+          className="wall-twinkle"
+          style={{
+            left: `${t.left}%`,
+            top: `${t.top}%`,
+            width: `calc(${t.size.toFixed(2)}px * var(--wall-scale, 1))`,
+            height: `calc(${t.size.toFixed(2)}px * var(--wall-scale, 1))`,
+            animationDelay: `${t.delay.toFixed(2)}s`,
+            animationDuration: `${t.dur.toFixed(2)}s`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export default function WallBackdrop({ scene, animated = true, ambient = 'glow' }: Props) {
+  const drift = animated && ambient !== 'still';
   const light = scene.tone === 'light';
   const scrim = light ? `rgba(246, 245, 252, ${scene.dim})` : `rgba(10, 9, 32, ${scene.dim})`;
   return (
@@ -45,13 +80,14 @@ export default function WallBackdrop({ scene, animated = true }: Props) {
           />
         </>
       ) : (
-        animated && (
+        drift && (
           <>
             <div className="wall-backdrop-glow wall-backdrop-glow-a" style={{ background: scene.accent }} />
             <div className="wall-backdrop-glow wall-backdrop-glow-b" style={{ background: scene.accent }} />
           </>
         )
       )}
+      {ambient === 'sparkle' && animated && <WallTwinkles />}
     </div>
   );
 }

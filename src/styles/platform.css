@@ -73,6 +73,12 @@
   --pf-accent-2: #E4E5FF;
   --pf-accent-3: #BFC2FF;
   --pf-accent-rgb: 212, 214, 255;
+  /* Card glow (owner, 2026-11-20: "Ship it everywhere"): the live wall's
+     fresh-photo halo, softened, plus Liquid Glass edge light — a light bleed
+     just inside the rim (thickness) and a brighter lip along the top
+     (specular). Lifts glass cards off the dusk field. */
+  --pf-halo: 0 0 0 1px rgba(var(--pf-accent-rgb), 0.26), 0 0 48px 4px rgba(var(--pf-accent-rgb), 0.3);
+  --pf-edge: inset 0 0 28px rgba(255, 255, 255, 0.09), inset 0 14px 20px -16px rgba(255, 255, 255, 0.7);
 }
 
 :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) [data-surface="night"],
@@ -210,7 +216,11 @@
     -webkit-backdrop-filter: blur(18px) saturate(130%);
     backdrop-filter: blur(18px) saturate(130%);
     border: 0;
+    /* --pf-card-glow: the lifted-edge light (halo + inner edge bleed). Unset
+       = a transparent no-op, so only surfaces that opt in change. First in
+       the list so its inset part paints above the frost layer. */
     box-shadow:
+      var(--pf-card-glow, 0 0 #0000),
       inset 1px 1px 0 rgba(255, 255, 255, 0.36),
       inset -1px -1px 0 rgba(255, 255, 255, 0.08),
       inset 0 0 0 1px rgba(255, 255, 255, 0.08),
@@ -218,6 +228,13 @@
       0 18px 36px -22px var(--pf-shadow);
   }
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .liquid-glass::before { display: none; }
+  /* Every glass CARD wears the glow. Pills/chips (rounded-full), pinned bars
+     (fixed/sticky) and square-edged strips stay as they were: a 48px halo on
+     a chip or a full-width bar reads as a smudge, not a lift. Buttons
+     (.liquid-glass-raised) keep their own frosted pill. */
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.glass, .glass-strong, .liquid-glass):not(.rounded-full, .rounded-none, .fixed, .sticky) {
+    --pf-card-glow: var(--pf-edge), var(--pf-halo);
+  }
 
   /* The lit rim on every glass surface (owner, 2026-11-19: "all the borders
      should have the shimmering border ... so things lift off the page"): the

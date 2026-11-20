@@ -32,6 +32,7 @@ export default function CopilotFab() {
     hasSession &&
     pathname.startsWith('/host') &&
     !pathname.startsWith('/host/new') &&        // full create concierge lives there
+    !pathname.startsWith('/host/setup') &&      // the setup wizard: its footer owns that corner
     !pathname.startsWith('/host/concierge') &&  // inline chat lives there
     !pathname.includes('/studio') &&            // one assistant: the docked
                                                  // AI Director owns the studio

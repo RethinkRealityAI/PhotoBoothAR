@@ -33,7 +33,7 @@ export const OFFERS: Offer[] = [
     features: [
       '1 live event',
       'Photo booth + live wall',
-      'Up to 25 photos',
+      'Up to 25 photos & videos',
       'Photos kept for 7 days',
       'A subtle Beamwall credit',
     ],
@@ -50,6 +50,7 @@ export const OFFERS: Offer[] = [
     blurb: 'Everything a small celebration needs.',
     features: [
       'Up to 500 photos & videos',
+      '30-second video clips',
       'Every frame & effect',
       'No watermark',
       'Photos kept for 90 days',
@@ -67,9 +68,10 @@ export const OFFERS: Offer[] = [
     blurb: 'The full experience — most hosts pick this.',
     features: [
       'Unlimited photos & video',
+      '60-second video clips',
       'AI event studio',
       'Greeting cards',
-      'Photos kept for 365 days',
+      'Photos kept for 1 year',
       'Priority support',
     ],
     placeholder: false,
@@ -85,9 +87,10 @@ export const OFFERS: Offer[] = [
     blurb: 'A keepsake film, and every finishing touch.',
     features: [
       'Everything in Premium',
+      '90-second video clips',
       'Keepsake highlight film',
       'Premium card renders',
-      'Photos kept for 365 days',
+      'Photos kept for 2 years',
     ],
     placeholder: false,
     fallbackPrice: '$169',

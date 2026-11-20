@@ -310,6 +310,28 @@ publishes itself and is emailed. Pieces:
       is always written first — only the notification is skipped.
       Uses the same `RESEND_API_KEY` + `PUBLIC_SITE_URL` as §4.
 
+## 4c. Media retention — enforcing what the plans promise (added 2026-11-19)
+
+Plans promise 7 / 90 / 365 / 730 days; until this, nothing removed anything.
+Ships **off**: nothing is emailed or deleted until the owner moves the mode.
+
+- [ ] Apply `043_video_length_tiers` (clip lengths, video on Free, Deluxe 730 d)
+      and `044_media_retention` (`event_retention` ledger, service-role only).
+- [ ] Deploy `media-retention` with **verify_jwt OFF** (pg_cron sends no JWT;
+      the shared secret is the authorization). Also redeploy `stripe-webhook`
+      (its fallback feature snapshot gained `videoMaxSec`; verify_jwt OFF as before).
+- [ ] Secrets: `RETENTION_CRON_SECRET` (≥16 chars, random), optional
+      `RETENTION_FROM_EMAIL`; reuses `RESEND_API_KEY` + `PUBLIC_SITE_URL`.
+- [ ] Dry run: POST with header `x-retention-secret` and read the `report`
+      (mode `off` = report only). Then schedule the daily cron (commented block
+      at the end of migration 044).
+- [ ] `RETENTION_ENFORCE=notify` → reminders go out (14 days ahead); after
+      reading a few, `RETENTION_ENFORCE=purge`. A purge never happens without a
+      reminder sent ≥14 days earlier, never on a live event, never on the three
+      legacy slugs, and the clock never starts before 2026-11-19.
+- Removes guest captures only (`posts/<slug>/` + `posts` rows). Frames, assets,
+  keepsake cards and the event itself stay.
+
 ## 5. Keepsake MP4 film — HeyGen HyperFrames (Deluxe add-on)
 
 Ships **disabled** by default (`card-render` returns `render_not_configured`,

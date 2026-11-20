@@ -1846,11 +1846,13 @@
   .bw-ar-car > .bw-ar-arrow:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
   .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: -22px; }
   .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: -22px; }
-  /* Phones: the stage nearly fills the width, so the arrows step inside its
-     edges, low by his feet (the orbs float by his head), on every tab. */
-  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow { top: 74%; }
-  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: 6px; }
-  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: 6px; }
+  /* Phones: the arrows sit at the screen's edges, level with the middle of
+     his stage, the same spot on every tab. The stage is centred, so
+     50% - 50vw is the screen's edge; capped at 64px outside the box so a
+     portrait tablet keeps them near him. 48px: a full thumb target. */
+  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow { top: 50%; width: 48px; height: 48px; margin-top: -24px; }
+  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: max(calc(50% - 50vw + 8px), -64px); }
+  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: max(calc(50% - 50vw + 8px), -64px); }
   .bw-ar[data-stacked="true"] .bw-ar-item:is([data-kind="orb"], [data-kind="none"]) { top: 20%; }
   /* Laptops: the switcher under the story card, there only while the AR step is up. */
   .bw-ar-tabs-under { margin-top: 20px; opacity: 0; visibility: hidden; transition: opacity 240ms ease, visibility 0s linear 260ms; }
@@ -2189,19 +2191,10 @@
 [data-brand="2"][data-content-motion="soft"] .bw-ch-row::after { animation: none; opacity: 0; }
 [data-brand="2"][data-content-motion="soft"] .bw-ch-medal { animation-iteration-count: 1; }
 
-/* How it works, touch screens: one native snap stop mid-step (the anchors
-   come from lib/beamyScroll storySnapOffsets). A momentum flick on a phone
-   used to fly from step 1 past step 2 into step 3; `scroll-snap-stop:
-   always` makes every swipe stop at the next step. Snapping is on only
-   strictly inside the pinned stretch (the page sets data-story-snap, lib/
-   beamyScroll storySnapOn); its two end anchors let a swipe leave, and the
-   rest of the page never snaps. */
-@media (pointer: coarse) {
-  [data-brand="2"].bw-scroll[data-story-snap="on"] { scroll-snap-type: y mandatory; }
-  [data-brand="2"] .bw-story-snap { scroll-snap-align: start; scroll-snap-stop: always; }
-  [data-brand="2"] .bw-story-snap.bw-story-edge { scroll-snap-stop: normal; }
-}
-[data-brand="2"] .bw-story-snap { position: absolute; left: 0; width: 1px; height: 1px; pointer-events: none; opacity: 0; }
+/* How it works, touch screens: no CSS scroll snapping. Mandatory snapping
+   pulled every slow drag back to the same step and let a flick that began
+   outside the story fly past steps; the page's story pager (BeamyPage
+   useStoryPager, lib/beamyScroll storySwipe) settles each swipe on one step. */
 
 /* ── Shimmering outline (components/beamy/ShineText): the glow CTA's
    travelling light, on the letters' OUTLINE or a rim around the word.
@@ -2581,3 +2574,93 @@
   [data-brand="2"] .bw-film-tabs::-webkit-scrollbar { display: none; }
   [data-brand="2"] .bw-film-tabs .bw-glass-chip { flex: none; scroll-snap-align: start; }
 }
+
+/* Round 8: virtual celebrations is How it works step 6 (StoryScenes places
+   VirtualCelebrations' two pieces round Beamy). The pieces fly in from the
+   screen's edges, so their wrappers never clip (the old stop clipped x). */
+[data-brand="2"] .bw-vcs .bw-vc { overflow: visible; }
+[data-brand="2"] .bw-vcs .bw-vc-cardbox { max-width: none; }
+/* Phones: the link is one row, the card a size that leaves his head clear. */
+[data-brand="2"] .bw-vc-link[data-compact="true"] { padding: 9px 10px; }
+[data-brand="2"] .bw-vc-link[data-compact="true"] .bw-vc-url { margin-top: 0; }
+[data-brand="2"] .bw-vc-badge-sm { width: 32px; height: 32px; }
+[data-brand="2"] .bw-vc-cardbox[data-compact="true"] .bw-vc-page { padding: 10px; }
+[data-brand="2"] .bw-vc-cardbox[data-compact="true"] .bw-vc-page .grid { gap: 6px; }
+[data-brand="2"] .bw-vc-cardbox[data-compact="true"] .bw-vc-cover { padding: 9% 14px 14px; }
+[data-brand="2"] .bw-vc-cardbox[data-compact="true"] .bw-vc-cover-title { margin-top: 12px; }
+/* The closed card says when it goes out (only the day the host picked). */
+[data-brand="2"] .bw-vc-when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1A1740;
+  background-color: #FFC56B;
+}
+
+/* Beamy's hit area takes no pointer events (a touch starting on a fixed
+   element scrolled nothing); the page hit-tests taps and marks a mouse
+   hovering him. */
+[data-brand="2"][data-beamy-hover="true"] { cursor: pointer; }
+
+/* Round 8: on the 3D props, filters and effects tabs the carousel is a rail
+   ABOVE Beamy and the frame (ArPicker .bw-ar-top): bigger stops in a row,
+   the worn one in the middle with a ring, two each side. Its room (rail +
+   title) is kept on every tab, the Frames tab included, so a tab change
+   never moves him or the frame. Frames keep their peeks at his sides. */
+[data-brand="2"] .bw-ar-top {
+  --rail-size: clamp(64px, 5.2vw, 88px);
+  --rail-step: calc(var(--rail-size) + 20px);
+  --rail-arrow: 44px;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: calc(var(--rail-step) * 4 + var(--rail-size) * 0.8 + (var(--rail-arrow) + 10px) * 2);
+  max-width: calc(100vw - 24px);
+  translate: -50% 0;
+  pointer-events: none;
+}
+[data-brand="2"] .bw-ar[data-stacked="true"] .bw-ar-top {
+  --rail-size: clamp(48px, 13.6vw, 60px);
+  --rail-step: calc(var(--rail-size) + 8px);
+  --rail-arrow: 40px;
+  bottom: calc(100% + 4px);
+}
+[data-brand="2"] .bw-ar-rail { position: relative; width: 100%; height: calc(var(--rail-size) * 1.2 + 10px); touch-action: pan-y; }
+[data-brand="2"] .bw-ar-rail[data-on="true"] { pointer-events: auto; }
+[data-brand="2"] .bw-ar-top > .bw-ar-title { position: static; translate: none; margin-top: 2px; }
+/* The rail's stops: centred, each placed by its distance from the worn one. */
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item {
+  left: calc(50% - var(--rail-size) / 2);
+  top: calc(50% - var(--rail-size) / 2);
+  width: var(--rail-size);
+  height: var(--rail-size);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  opacity: 1;
+  animation: bw-ar-peek-in 420ms var(--bw-ease) backwards;
+}
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="0"] {
+  transform: scale(1.16);
+  box-shadow: 0 0 0 2px #FFFFFF, 0 0 22px -2px rgba(255, 197, 107, 0.75);
+}
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="1"] { transform: translateX(var(--rail-step)) scale(0.92); }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="-1"] { transform: translateX(calc(var(--rail-step) * -1)) scale(0.92); }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="2"] { transform: translateX(calc(var(--rail-step) * 2)) scale(0.72); opacity: 0.55; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="-2"] { transform: translateX(calc(var(--rail-step) * -2)) scale(0.72); opacity: 0.55; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="3"] { transform: translateX(calc(var(--rail-step) * 3)) scale(0.5); opacity: 0; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="-3"] { transform: translateX(calc(var(--rail-step) * -3)) scale(0.5); opacity: 0; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item:is([data-at="1"], [data-at="-1"], [data-at="2"], [data-at="-2"]) { pointer-events: auto; cursor: pointer; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item:is([data-at="2"], [data-at="-2"]):hover { opacity: 0.85; }
+/* None on the rail: an orb like the rest (its label is the title below). */
+[data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none { width: 100%; height: 100%; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none-chip { width: 100%; height: 100%; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none-label { display: none; }

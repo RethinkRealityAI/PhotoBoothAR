@@ -2,48 +2,44 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * beamyVirtual — the homepage's "Celebrate from anywhere" section: its copy,
- * the people and messages its scene shows, and the order the scene plays in.
+ * beamyVirtual — "How it works" step 6 (virtual celebrations): its copy, the
+ * people and messages its scene shows, and the order the scene plays in.
  * Pure, DOM-free, tested in node (beamyVirtual.test.ts). The scene itself is
- * DOM (pages/beamy/VirtualCelebrations.tsx).
+ * DOM (pages/beamy/VirtualCelebrations.tsx), run by the story's sequencer
+ * (lib/beamyStory STORY_SEQ.virtual = VC_SEQ).
  *
- * WHAT SHIPS TODAY (checked against the code, so the page only promises it):
+ * WHAT SHIPS TODAY (checked 2026-11-20 against the code AND the live project,
+ * so the page only promises it):
  *   • A host creates a card for one person and shares its contribution link
  *     (/c/<publicId>/contribute?t=<token>, pages/cards/CardContribute.tsx).
- *   • Anyone with the link adds a NOTE, a PHOTO or a SHORT VIDEO (recorded in
- *     the browser, up to 20s, or uploaded). Recording uses CaptureSurface — a
- *     plain camera, deliberately NOT the AR booth — so this copy never says
- *     "booth", filters or props.
- *   • Publishing makes the card viewable at /c/<publicId>; the host can then
- *     press "Email recipient" (card-publish `send_email`). That is a HOST
- *     action: there is no send date on `cards` (migration 007), no scheduler,
- *     no cron job for cards, and the email needs RESEND_API_KEY (absent →
- *     503 email_not_configured). The host can always share the card link.
+ *   • Anyone with the link adds a NOTE, a PHOTO or a SHORT VIDEO. Contributors
+ *     may use a frames-only booth (cardBoothKit), never props or filters, so
+ *     this copy still never says "booth", filters or props.
+ *   • The host picks the day it goes out (host/CardsTab "Pick a date",
+ *     cards.deliver_at, migration 047); the `card-deliveries` cron (every 5
+ *     min) runs card-publish, which closes, publishes and emails it. Verified
+ *     live: a card reached delivery_state 'sent' through that path and Resend
+ *     reports the email delivered. The host can still send or share by hand.
  *   • Publishing / emailing a card needs a Premium event (or org Pro).
  *   • Everything is digital.
  *
- * So the copy says the HOST sends it on the big day. AUTO_DELIVERY is the
- * switch the test reads: flip it only when timed delivery really ships.
+ * AUTO_DELIVERY is the switch the test reads: with it off, the copy falls back
+ * to "you send it" and the timed-delivery words are banned.
  */
 import { sequence, type Sequence } from './beamyMotion';
 
-/** Does the platform deliver a card on its own (a set date, a birthday)? Not today. */
-export const AUTO_DELIVERY = false;
+/** Does the platform deliver a card on its own, on a day the host picks? Yes (verified live 2026-11-20). */
+export const AUTO_DELIVERY: boolean = true;
 
-/** The section's words. */
+/** The step's words (a How it works card: a title, and a body of 80 chars max). */
 export const VC_COPY = {
-  heading: 'Celebrate from',
-  /** The heading's last word, set with the page's outline shine. */
-  shine: 'anywhere',
-  line: 'Share one link. Friends add a note, a photo or a short video from their phone, and it all lands on one digital card that you send on the big day.',
-  cta: 'Start a celebration card',
-  /** What Beamy says when he gets here. */
-  beamy: 'Far away? Everyone can still sign the card.',
-  /** The stop's short name (logs, the style guide's progress specimen). */
-  stop: 'Anywhere',
+  title: 'Friends anywhere sign one digital card',
+  body: AUTO_DELIVERY
+    ? 'Share one link for notes, photos and videos. You pick the day it goes out.'
+    : 'Share one link for notes, photos and videos. You send it on the big day.',
 } as const;
 
-/** Its tab in "See it in motion" (the virtual celebrations film). */
+/** The virtual celebrations film's words (the homepage no longer shows films; kept for the film's new home in /guides). */
 export const VC_FILM = {
   label: 'Celebrations',
   title: 'Celebrate together, from anywhere',
@@ -93,10 +89,13 @@ export const VC_SCENE = {
   mailTitle: 'Happy birthday, Tolu!',
   mailBody: '12 friends sent love',
   mailFrom: 'From Maya',
+  /** On the closed card: when it goes out (only a date the host set, when that ships). */
+  when: AUTO_DELIVERY ? 'Goes out on Tolu’s birthday' : 'Ready for the big day',
 } as const;
 
 /**
- * The order the scene plays in (ms from the moment it comes into view):
+ * The order the scene plays in (ms from the moment its step comes up; about
+ * as long as the other steps' scenes):
  *   link     the share link appears;
  *   share    it goes out to friends (Beamy beams at the card);
  *   notes    two notes fly in from the edges and land on the card;
@@ -104,26 +103,27 @@ export const VC_SCENE = {
  *   videos   then two short videos;
  *   assemble the card closes into its cover;
  *   deliver  it goes into an envelope and arrives for Tolu.
- * The last frame holds; leaving the section resets it, so it replays.
+ * The last frame holds; leaving the step resets it, so it replays.
  */
 export const VC_SEQ: Sequence = sequence([
-  ['link', 300], ['share', 1100], ['notes', 2000], ['photos', 2900], ['videos', 3800], ['assemble', 5200], ['deliver', 6600],
+  ['link', 300], ['share', 1000], ['notes', 1700], ['photos', 2400], ['videos', 3100], ['assemble', 4400], ['deliver', 5600],
 ]);
 
 /** Every line the section puts on screen, for the copy rules. */
 export function vcLines(): string[] {
   const s = VC_SCENE;
   return [
-    VC_COPY.heading, VC_COPY.shine, VC_COPY.line, VC_COPY.cta, VC_COPY.beamy, VC_COPY.stop,
+    VC_COPY.title, VC_COPY.body,
     VC_FILM.label, VC_FILM.title, VC_FILM.hook, VC_FILM.beamy,
     ...VC_PIECES.flatMap((p) => [p.who, p.from, ...(p.text !== undefined ? [p.text] : [])]),
-    s.linkTitle, s.linkUrl, s.copy, s.shared, s.sentTo, s.page, s.more, s.cover, s.coverSub, s.mailTitle, s.mailBody, s.mailFrom,
+    s.linkTitle, s.linkUrl, s.copy, s.shared, s.sentTo, s.page, s.more, s.cover, s.coverSub, s.mailTitle, s.mailBody, s.mailFrom, s.when,
   ];
 }
 
 /**
- * Words that would promise timed or automatic delivery. Banned from the copy
- * while AUTO_DELIVERY is false (the test enforces it).
+ * Words that over-promise delivery ("automatic", "scheduled", "we'll send").
+ * Banned from the copy always; while AUTO_DELIVERY is false the copy must also
+ * say the host sends it (the test enforces both).
  */
 export const AUTO_DELIVERY_RE =
   /\bauto(matic(ally)?|[- ]?(send|sent|sends|deliver\w*|email\w*|mail\w*))\b|\bschedul\w*|\bon (their|his|her|your|the) (birth)?day\b|\bbirthday (e-?mail|delivery)\b|\be-?mailed to\b|\bdelivered (automatically|on)\b|\bset (it )?and forget\b|\bwe(['’]| wi)ll (send|email|deliver)\b/i;
