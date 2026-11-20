@@ -2,53 +2,105 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * FilmStrip card template — a vertical film strip with sprocket-hole rails;
- * every contribution is a frame. Dark, premium, theme-neutral styling.
+ * FilmStrip card template — one long reel of frosted film; every
+ * contribution is a frame. The Beamwall twist: light runs down the sprocket
+ * rails like a projector's beam threading the film, and the frame you are on
+ * is lit from its rim.
  *
  * Progress model (see ./types.ts): the whole strip renders unconditionally as
- * a pure function of its props; `index` marks the ACTIVE frame (highlight
- * ring). In the interactive viewer a scroll effect keeps the active frame in
- * view (and free scrolling remains available); a frame renderer can ignore
- * the scroll side-effect entirely and derive its crop from `index` /
- * `frameProgress`, because the DOM output for a given `index` is
- * deterministic.
+ * a pure function of its props; `index` marks the ACTIVE frame. In the
+ * interactive viewer a scroll effect keeps the active frame in view (free
+ * scrolling stays available); a frame renderer can ignore that side effect,
+ * because the DOM for a given `index` is deterministic.
  */
 import { useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { clampIndex, type CardTemplateProps } from './types';
+import CardOrnament from './cardOrnament';
+import { ShimmerRim } from './cardChrome';
+import {
+  ClosingContent,
+  ContributionMedia,
+  CoverArch,
+  CoverTitle,
+  Message,
+  NoteCard,
+  OpenButton,
+  PageMark,
+  Pager,
+  Signature,
+  TiltSheen,
+} from './cardParts';
 
-/** Sprocket-hole rail as a repeating gradient — cheap and resolution-independent. */
-const RAIL_STYLE: React.CSSProperties = {
+/** Sprocket holes: a repeating gradient — cheap and resolution-independent. */
+const RAIL_HOLES: React.CSSProperties = {
   backgroundImage:
-    'repeating-linear-gradient(to bottom, transparent 0px, transparent 7px, rgba(250,246,239,0.16) 7px, rgba(250,246,239,0.16) 19px, transparent 19px, transparent 26px)',
-  backgroundSize: '55% 26px',
+    'linear-gradient(to bottom, transparent 0, transparent 8px, rgba(255,255,255,0.16) 8px, rgba(255,255,255,0.16) 20px, transparent 20px)',
+  backgroundSize: '12px 28px',
   backgroundRepeat: 'repeat-y',
   backgroundPosition: 'center top',
 };
+
+function Rail({ side, reducedMotion }: { side: 'left' | 'right'; reducedMotion: boolean }) {
+  return (
+    <div
+      className={`pointer-events-none absolute top-0 bottom-0 w-7 ${side === 'left' ? 'left-0' : 'right-0'}`}
+      style={{
+        boxShadow:
+          side === 'left'
+            ? 'inset -1px 0 0 rgba(255,255,255,0.14)'
+            : 'inset 1px 0 0 rgba(255,255,255,0.14)',
+      }}
+      aria-hidden
+    >
+      <div className="absolute inset-0" style={RAIL_HOLES} />
+      {/* The light threading the film. */}
+      <div
+        className="absolute inset-y-0 left-1/2 w-[2px] -translate-x-1/2"
+        style={{
+          backgroundImage:
+            'linear-gradient(to bottom, transparent, rgba(var(--accent-rgb),0.95) 45%, rgba(255,226,176,0.95) 52%, transparent)',
+          backgroundSize: '100% 22%',
+          backgroundRepeat: 'no-repeat',
+          filter: 'drop-shadow(0 0 6px rgba(var(--accent-rgb),0.9))',
+          opacity: reducedMotion ? 0.45 : 1,
+          animation: `bw-reel-run ${reducedMotion ? 22 : 9}s linear ${side === 'left' ? 0 : -4.5}s infinite`,
+        }}
+      />
+    </div>
+  );
+}
 
 function Frame({
   active,
   reducedMotion,
   frameRef,
   children,
+  ornament = false,
+  sheen = false,
 }: {
   active: boolean;
   reducedMotion: boolean;
   frameRef?: React.Ref<HTMLDivElement>;
   children: React.ReactNode;
+  ornament?: boolean;
+  sheen?: boolean;
 }) {
   return (
     <div
       ref={frameRef}
-      className={`relative rounded-lg border bg-brand-bg/70 px-5 py-6 text-center transition-all ${
-        reducedMotion ? '' : 'duration-300'
-      } ${
-        active
-          ? 'border-accent/60 ring-1 ring-accent/25 shadow-[0_0_46px_rgba(var(--accent-rgb),0.24)]'
-          : 'border-white/10 opacity-80'
-      }`}
+      className={`relative overflow-hidden rounded-[1.4rem] px-6 py-9 text-center transition-[opacity,box-shadow] ${
+        reducedMotion ? '' : 'duration-500'
+      } ${active ? 'opacity-100' : 'opacity-75'}`}
+      style={{
+        background: 'rgba(255,255,255,0.07)',
+        boxShadow: active
+          ? 'inset 0 0 0 1px rgba(var(--accent-rgb),0.7), inset 0 1px 0 rgba(255,255,255,0.4), 0 0 46px -8px rgba(var(--accent-rgb),0.55)'
+          : 'inset 0 0 0 1px rgba(255,255,255,0.14), inset 0 1px 0 rgba(255,255,255,0.18)',
+      }}
     >
-      {children}
+      {sheen && <TiltSheen reducedMotion={reducedMotion} />}
+      {ornament && <CardOrnament density="full" reducedMotion={reducedMotion} />}
+      <div className="relative flex flex-col items-center">{children}</div>
     </div>
   );
 }
@@ -62,10 +114,11 @@ export default function FilmStrip({
   reducedMotion = false,
 }: CardTemplateProps) {
   const active = clampIndex(index, contributions);
+  const total = contributions.length + 2;
   const frameRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const interactive = onNext !== undefined || onPrev !== undefined;
 
-  // Interactive convenience only: keep the active frame in view. Static/frame
-  // renderers get identical markup without depending on this effect.
+  // Interactive convenience only: keep the active frame in view.
   useEffect(() => {
     const el = frameRefs.current[active];
     el?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
@@ -76,92 +129,73 @@ export default function FilmStrip({
   };
 
   return (
-    <div className="relative w-full h-full overflow-y-auto">
-      <div className="relative mx-auto max-w-md min-h-full bg-brand-bg/90 border-x border-white/10">
-        {/* sprocket rails */}
-        <div className="absolute left-0 top-0 bottom-0 w-8 border-r border-white/10" style={RAIL_STYLE} aria-hidden />
-        <div className="absolute right-0 top-0 bottom-0 w-8 border-l border-white/10" style={RAIL_STYLE} aria-hidden />
+    <div className="relative flex h-full w-full flex-col">
+      <style>{'@keyframes bw-reel-run{from{background-position:0 -30%}to{background-position:0 130%}}'}</style>
+      <div className="relative min-h-0 flex-1 overflow-y-auto p-1.5" style={{ scrollbarWidth: 'none' }}>
+        <div
+          className="relative mx-auto min-h-full max-w-[30rem] rounded-[1.8rem] px-9 py-7"
+          style={{
+            background: 'rgba(36, 32, 112, 0.32)',
+            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 30px 80px -40px rgba(10,8,40,0.9)',
+            backdropFilter: 'blur(16px) saturate(125%)',
+            WebkitBackdropFilter: 'blur(16px) saturate(125%)',
+          }}
+        >
+          <ShimmerRim radius="1.8rem" lapS={11} reducedMotion={reducedMotion} />
+          <Rail side="left" reducedMotion={reducedMotion} />
+          <Rail side="right" reducedMotion={reducedMotion} />
 
-        <div className="relative px-12 py-8 flex flex-col gap-6">
-          {/* Cover frame (index 0) */}
-          <Frame active={active === 0} reducedMotion={reducedMotion} frameRef={setFrameRef(0)}>
-            {card.eventName && (
-              <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">{card.eventName}</p>
-            )}
-            <h1 className="mt-3 font-serif italic text-3xl leading-tight text-foil-static">{card.title}</h1>
-            {card.recipientName && (
-              <p className="mt-3 font-sans text-sm text-brand-muted/80">for {card.recipientName}</p>
-            )}
-            <p className="mt-5 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
-              {contributions.length} {contributions.length === 1 ? 'frame' : 'frames'} · scroll the reel
-            </p>
-          </Frame>
-
-          {/* Contribution frames (index 1..N) */}
-          {contributions.map((c, i) => (
-            <Frame key={c.id} active={active === i + 1} reducedMotion={reducedMotion} frameRef={setFrameRef(i + 1)}>
-              {c.mediaType === 'photo' && c.url && (
-                <img
-                  src={c.url}
-                  alt={c.contributorName ? `From ${c.contributorName}` : 'Contribution'}
-                  className="w-full rounded-md object-cover max-h-80"
-                  loading="lazy"
+          <div className="relative flex flex-col gap-5">
+            {/* Cover frame (index 0) */}
+            <Frame active={active === 0} reducedMotion={reducedMotion} frameRef={setFrameRef(0)} ornament sheen>
+              <div className="py-10">
+                <CoverArch
+                  card={card}
+                  contributions={contributions}
+                  reducedMotion={reducedMotion}
+                  width="clamp(150px, 42vw, 220px)"
+                  className="mb-8"
                 />
-              )}
-              {c.mediaType === 'video' && c.url && (
-                <video src={c.url} controls playsInline preload="metadata" className="w-full rounded-md max-h-80" />
-              )}
-              {c.message && (
-                <p className={`mt-4 font-serif italic leading-relaxed text-brand-fg/90 ${c.mediaType === 'text' ? 'text-lg' : 'text-sm'}`}>
-                  “{c.message}”
-                </p>
-              )}
-              <p className="mt-3 font-label uppercase tracking-luxe text-[10px] text-accent-2/80">
-                — {c.contributorName || 'A friend'}
-              </p>
+                <CoverTitle card={card} contributions={contributions} size="md" />
+                <div className="mt-7">
+                  <OpenButton onClick={onNext} label="Start the reel" reducedMotion={reducedMotion} />
+                </div>
+              </div>
             </Frame>
-          ))}
 
-          {/* End frame (index N+1) */}
-          <Frame
-            active={active === contributions.length + 1}
-            reducedMotion={reducedMotion}
-            frameRef={setFrameRef(contributions.length + 1)}
-          >
-            <p className="font-serif italic text-2xl text-foil-static">Fin.</p>
-            <p className="mt-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">Made with Beamwall</p>
-            <Link
-              to="/"
-              className="mt-4 inline-flex min-h-[44px] items-center rounded-full border border-white/15 bg-white/[0.05] px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg hover:bg-white/[0.1] transition"
+            {/* Contribution frames (index 1..N) */}
+            {contributions.map((c, i) => (
+              <Frame key={c.id} active={active === i + 1} reducedMotion={reducedMotion} frameRef={setFrameRef(i + 1)}>
+                <PageMark n={i + 1} of={contributions.length} />
+                {c.mediaType === 'text' || !c.url ? (
+                  <NoteCard c={c} className="mt-4" />
+                ) : (
+                  <>
+                    <ContributionMedia c={c} reducedMotion={reducedMotion} className="mt-4 aspect-[4/5] w-full" />
+                    <Message message={c.message} className="mt-5" />
+                    <Signature name={c.contributorName} className="mt-4" />
+                  </>
+                )}
+              </Frame>
+            ))}
+
+            {/* End frame (index N+1) */}
+            <Frame
+              active={active === total - 1}
+              reducedMotion={reducedMotion}
+              frameRef={setFrameRef(total - 1)}
+              ornament
             >
-              Create your own
-            </Link>
-          </Frame>
+              <div className="py-12">
+                <ClosingContent card={card} contributions={contributions} scratch={interactive} />
+              </div>
+            </Frame>
+          </div>
         </div>
       </div>
 
-      {/* Interactive step buttons (optional) */}
       {(onPrev || onNext) && (
-        <div className="pointer-events-none sticky bottom-4 flex justify-center gap-3">
-          {onPrev && (
-            <button
-              onClick={onPrev}
-              disabled={active === 0}
-              className="pointer-events-auto inline-flex min-h-[44px] items-center rounded-full bg-black/60 border border-white/15 px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg disabled:opacity-30"
-            >
-              Prev frame
-            </button>
-          )}
-          {onNext && (
-            <button
-              onClick={onNext}
-              disabled={active === contributions.length + 1}
-              className="pointer-events-auto inline-flex min-h-[44px] items-center rounded-full bg-black/60 border border-white/15 px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg disabled:opacity-30"
-            >
-              Next frame
-            </button>
-          )}
-        </div>
+        <Pager page={active} total={total} onPrev={onPrev} onNext={onNext} noun="frame" className="shrink-0 pb-1 pt-3" />
       )}
     </div>
   );

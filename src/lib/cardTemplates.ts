@@ -24,10 +24,10 @@
 /* The closed set                                                      */
 /* ------------------------------------------------------------------ */
 
-export type CardTemplateId = 'storybook' | 'filmstrip' | 'polaroid' | 'carousel';
+export type CardTemplateId = 'storybook' | 'filmstrip' | 'polaroid' | 'carousel' | 'constellation';
 
 /** Every shipped template id, in the order hosts should see them. */
-export const CARD_TEMPLATE_IDS = ['storybook', 'filmstrip', 'polaroid', 'carousel'] as const;
+export const CARD_TEMPLATE_IDS = ['storybook', 'filmstrip', 'polaroid', 'carousel', 'constellation'] as const;
 
 /** What a card falls back to: an unknown id must still render something. */
 export const DEFAULT_CARD_TEMPLATE: CardTemplateId = 'storybook';
@@ -60,6 +60,12 @@ export const CARD_TEMPLATE_OPTIONS: readonly CardTemplateOption[] = [
     id: 'carousel',
     label: 'Carousel',
     description: 'A 3D ring of photos that turns as you read — the showpiece.',
+  },
+  {
+    id: 'constellation',
+    label: 'Constellation',
+    // Premium tier (WebGL); phones without it get the Storybook pages instead.
+    description: 'Photos and videos floating in 3D around you. Drag to explore, tap one to bring it close.',
   },
 ];
 
@@ -186,4 +192,452 @@ export function polaroidFan(ids: readonly string[]): PolaroidPlacement[] {
       offsetYPct: round2(Math.abs(spread) * POLAROID_FAN_LIFT_PCT + jitter.offsetYPct / 2),
     };
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Cover + closing copy decisions                                      */
+/* ------------------------------------------------------------------ */
+
+/** The slice of a contribution these copy helpers read. */
+export interface ContributorLike {
+  contributorName: string | null;
+}
+
+const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim();
+
+/**
+ * Does the title already say who the card is for? "Happy birthday, Dapo!"
+ * with recipient "Dapo" → true. Case-insensitive, whitespace-normalised. An
+ * empty recipient never "matches" (there is nothing to repeat).
+ */
+export function titleMentionsRecipient(title: string | null | undefined, recipient: string | null | undefined): boolean {
+  const r = clean(recipient).toLocaleLowerCase();
+  if (r === '') return false;
+  return clean(title).toLocaleLowerCase().includes(r);
+}
+
+/**
+ * The "for Maya" line under a cover title, or null when it would only repeat
+ * the title (the owner called repeated names redundant). The event name is
+ * never shown on a card: the recipient knows which party it was.
+ */
+export function coverRecipientLine(title: string | null | undefined, recipient: string | null | undefined): string | null {
+  const r = clean(recipient);
+  if (r === '' || titleMentionsRecipient(title, r)) return null;
+  return `for ${r}`;
+}
+
+/** "8 messages inside" / "1 message inside" / "Nothing inside yet". */
+export function contributionCountLabel(n: number): string {
+  const count = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  if (count === 0) return 'Nothing inside yet';
+  return `${count} ${count === 1 ? 'message' : 'messages'} inside`;
+}
+
+/**
+ * Up to two initials for an avatar: "The Squad" → "TS", "Tola & Femi" → "TF",
+ * "Beamy" → "B". Letters and digits only (any script). An empty name gets a
+ * star, never an empty circle.
+ */
+export function contributorInitials(name: string | null | undefined): string {
+  const words = clean(name)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length > 0);
+  if (words.length === 0) return '✦';
+  return words
+    .slice(0, 2)
+    .map((w) => w[0].toLocaleUpperCase())
+    .join('');
+}
+
+/** Distinct contributor names, first-seen order, compared case-insensitively. */
+export function uniqueContributors(contributions: readonly ContributorLike[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of contributions) {
+    const name = clean(c.contributorName);
+    if (name === '') continue;
+    const key = name.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+/**
+ * How many people signed the card: distinct names, plus every unsigned
+ * contribution (two anonymous notes cannot be proven to be one person, and
+ * undercounting someone's note is the worse error on a keepsake).
+ */
+export function contributorCount(contributions: readonly ContributorLike[]): number {
+  const anonymous = contributions.filter((c) => clean(c.contributorName) === '').length;
+  return uniqueContributors(contributions).length + anonymous;
+}
+
+/** The closing page's headline: "With love from 8 people" / "With love from Kemi". */
+export function closingHeadline(contributions: readonly ContributorLike[]): string {
+  const people = contributorCount(contributions);
+  if (people === 0) return 'With love';
+  const names = uniqueContributors(contributions);
+  if (people === 1) return names.length === 1 ? `With love from ${names[0]}` : 'With love';
+  return `With love from ${people} people`;
+}
+
+/**
+ * "Kemi, Marcus and Aunty Bisi" — at most `max` names, then "and 3 more".
+ * No Oxford comma (the way a card is signed).
+ */
+export function formatNameList(names: readonly string[], max = 6): string {
+  const list = names.map(clean).filter((n) => n !== '');
+  const cap = Math.max(1, Math.floor(max));
+  if (list.length === 0) return '';
+  if (list.length === 1) return list[0];
+  if (list.length <= cap) return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+  const rest = list.length - cap;
+  return `${list.slice(0, cap).join(', ')} and ${rest} more`;
+}
+
+/** Messages up to this many characters are set in the display face. */
+export const SHORT_MESSAGE_MAX_CHARS = 110;
+
+/**
+ * How a message is set: a short line reads like a headline in the display
+ * face; anything longer is set in the readable text face (≥15px) so a
+ * heartfelt paragraph never shrinks into a wall of display type.
+ */
+export function messageTone(message: string | null | undefined): 'display' | 'text' | 'none' {
+  const m = clean(message);
+  if (m === '') return 'none';
+  return [...m].length <= SHORT_MESSAGE_MAX_CHARS ? 'display' : 'text';
+}
+
+/**
+ * Which contributions headline the cover: media first (photos, then videos,
+ * in card order), written notes only to fill. A cover is a picture of the
+ * people in the card.
+ */
+export function coverPicks<T extends { mediaType: string; url: string | null }>(
+  contributions: readonly T[],
+  max = 5,
+): T[] {
+  const cap = Math.max(0, Math.floor(max));
+  const photos = contributions.filter((c) => c.mediaType === 'photo' && c.url !== null && c.url !== '');
+  const videos = contributions.filter((c) => c.mediaType === 'video' && c.url !== null && c.url !== '');
+  const rest = contributions.filter((c) => !photos.includes(c) && !videos.includes(c));
+  return [...photos, ...videos, ...rest].slice(0, cap);
+}
+
+/** One tile of the cover's arc. Percentages are of the tile's own size. */
+export interface CoverArcSlot {
+  rotationDeg: number;
+  offsetXPct: number;
+  offsetYPct: number;
+  scale: number;
+  zIndex: number;
+}
+
+/**
+ * The cover hero: tiles fanned on a shallow arc, the centre one forward and
+ * largest, the outer ones dropping and turning away — like a hand of cards
+ * held up to the light. Symmetric for any count; pure.
+ */
+export function coverArc(n: number): CoverArcSlot[] {
+  const count = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  const mid = (count - 1) / 2;
+  return Array.from({ length: count }, (_, i) => {
+    const s = i - mid; // …-1, 0, +1…
+    const a = Math.abs(s);
+    return {
+      rotationDeg: round2(s * 7),
+      offsetXPct: round2(s * 46),
+      offsetYPct: round2(a * a * 5 + a * 4),
+      scale: round2(Math.max(0.72, 1 - a * 0.11)),
+      zIndex: 10 - Math.round(a * 2),
+    };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Letterpress ornament — the frame geometry, sized to its box         */
+/* ------------------------------------------------------------------ */
+
+export interface OrnamentFrame {
+  /** Two hairline rules just inside the edge (outer, inner). */
+  rules: [string, string];
+  /** The notched inner border with an ogee arch at top and bottom. */
+  arch: string;
+  /** A rule to bead with round dots (dasharray 0 + gap). */
+  beads: string;
+  /** Transforms for the four filigree corners: TL, TR, BR, BL. */
+  corners: [string, string, string, string];
+  /** Transforms for the top and bottom crests (the sprig in each arch). */
+  crests: [string, string];
+}
+
+const f1 = (n: number) => (Number.isFinite(n) ? Math.round(n * 10) / 10 : 0);
+
+function roundedRect(x: number, y: number, w: number, h: number, r: number): string {
+  const ww = Math.max(0, w);
+  const hh = Math.max(0, h);
+  const rr = Math.max(0, Math.min(r, ww / 2, hh / 2));
+  return (
+    `M${f1(x + rr)} ${f1(y)}H${f1(x + ww - rr)}A${f1(rr)} ${f1(rr)} 0 0 1 ${f1(x + ww)} ${f1(y + rr)}` +
+    `V${f1(y + hh - rr)}A${f1(rr)} ${f1(rr)} 0 0 1 ${f1(x + ww - rr)} ${f1(y + hh)}` +
+    `H${f1(x + rr)}A${f1(rr)} ${f1(rr)} 0 0 1 ${f1(x)} ${f1(y + hh - rr)}` +
+    `V${f1(y + rr)}A${f1(rr)} ${f1(rr)} 0 0 1 ${f1(x + rr)} ${f1(y)}Z`
+  );
+}
+
+/**
+ * The frame for a box of `width`×`height` CSS px. Drawn in pixels (never a
+ * stretched viewBox) so the corners stay round and the hairlines stay one
+ * hairline at every size. Degenerate sizes return valid geometry — never NaN
+ * in a `d` attribute.
+ */
+export function ornamentFrame(width: number, height: number): OrnamentFrame {
+  const w = Number.isFinite(width) && width > 0 ? width : 0;
+  const h = Number.isFinite(height) && height > 0 ? height : 0;
+  const short = Math.min(w, h);
+  const m = Math.max(18, Math.min(34, short * 0.07)); // inner border inset
+  const rise = Math.max(8, Math.min(34, h * 0.045)); // arch height
+  const yTop = m + rise;
+  const c = m * 0.7; // corner notch radius
+  const cx = w / 2;
+  const aw = Math.max(24, Math.min(118, w * 0.22)); // arch half-width
+  const s = Math.max(0.6, Math.min(1.05, short / 440)); // motif scale
+
+  const arch =
+    `M${f1(m + c)} ${f1(yTop)}` +
+    `H${f1(cx - aw)}` +
+    `C${f1(cx - aw * 0.4)} ${f1(yTop)} ${f1(cx - aw * 0.15)} ${f1(m + rise * 0.2)} ${f1(cx)} ${f1(m)}` +
+    `C${f1(cx + aw * 0.15)} ${f1(m + rise * 0.2)} ${f1(cx + aw * 0.4)} ${f1(yTop)} ${f1(cx + aw)} ${f1(yTop)}` +
+    `H${f1(w - m - c)}` +
+    `A${f1(c)} ${f1(c)} 0 0 0 ${f1(w - m)} ${f1(yTop + c)}` +
+    `V${f1(h - yTop - c)}` +
+    `A${f1(c)} ${f1(c)} 0 0 0 ${f1(w - m - c)} ${f1(h - yTop)}` +
+    `H${f1(cx + aw)}` +
+    `C${f1(cx + aw * 0.4)} ${f1(h - yTop)} ${f1(cx + aw * 0.15)} ${f1(h - m - rise * 0.2)} ${f1(cx)} ${f1(h - m)}` +
+    `C${f1(cx - aw * 0.15)} ${f1(h - m - rise * 0.2)} ${f1(cx - aw * 0.4)} ${f1(h - yTop)} ${f1(cx - aw)} ${f1(h - yTop)}` +
+    `H${f1(m + c)}` +
+    `A${f1(c)} ${f1(c)} 0 0 0 ${f1(m)} ${f1(h - yTop - c)}` +
+    `V${f1(yTop + c)}` +
+    `A${f1(c)} ${f1(c)} 0 0 0 ${f1(m + c)} ${f1(yTop)}Z`;
+
+  const k = (x: number, y: number, sx: number, sy: number) =>
+    `translate(${f1(x)} ${f1(y)}) scale(${round2(sx * s)} ${round2(sy * s)})`;
+  const ci = m + 5; // corner motif origin, inside the notch
+  const cyTop = yTop + 5;
+
+  return {
+    rules: [roundedRect(9, 9, w - 18, h - 18, 22), roundedRect(13.5, 13.5, w - 27, h - 27, 18)],
+    arch,
+    beads: roundedRect(m - 5, m - 5, w - 2 * (m - 5), h - 2 * (m - 5), 14),
+    corners: [k(ci, cyTop, 1, 1), k(w - ci, cyTop, -1, 1), k(w - ci, h - cyTop, -1, -1), k(ci, h - cyTop, 1, -1)],
+    crests: [k(cx, m + 9, 1, 1), k(cx, h - m - 9, 1, -1)],
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Constellation — deterministic 3D placement                          */
+/* ------------------------------------------------------------------ */
+
+export type Vec3 = [number, number, number];
+
+export interface ConstellationNode {
+  id: string;
+  position: Vec3;
+  /** Phase 0..2π for the tile's slow drift (seeded, so tiles never bob in sync). */
+  phase: number;
+  /** Tile scale multiplier, 0.9..1.1 (seeded). */
+  scale: number;
+}
+
+/** Golden angle in radians — the Fibonacci sphere's even spiral step. */
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+/** Tiles stay inside ±this (as sin(latitude)): the poles sit straight above /
+ *  below the viewer, where a tile reads as a sliver. */
+export const CONSTELLATION_MAX_LAT = 0.62;
+
+/** Shell radius for `n` tiles: room for the title inside, and more room as
+ *  the card fills so tiles never crowd. */
+export function constellationRadius(n: number): number {
+  const count = Number.isFinite(n) && n > 0 ? n : 0;
+  return round2(Math.max(3.6, 1.15 * Math.sqrt(count) + 1.6));
+}
+
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/**
+ * Tiles on a latitude-limited Fibonacci sphere, each nudged by its OWN id's
+ * seed (radius ±8%, longitude ±0.18 rad) — so the same card always forms the
+ * same constellation. No Math.random.
+ */
+export function constellationLayout(ids: readonly string[]): ConstellationNode[] {
+  const n = ids.length;
+  const R = constellationRadius(n);
+  return ids.map((id, i) => {
+    const y = n === 1 ? 0 : (1 - ((i + 0.5) / n) * 2) * CONSTELLATION_MAX_LAT;
+    const ring = Math.sqrt(1 - y * y);
+    const theta = i * GOLDEN_ANGLE + signedUnit(id, 11) * 0.18;
+    const radius = R * (1 + signedUnit(id, 12) * 0.08);
+    return {
+      id,
+      position: [r3(Math.sin(theta) * ring * radius), r3(y * radius), r3(Math.cos(theta) * ring * radius)],
+      phase: r3(unit(id, 13) * Math.PI * 2),
+      scale: r3(1 + signedUnit(id, 14) * 0.1),
+    };
+  });
+}
+
+/**
+ * The faint threads of light between tiles: each tile to its `k` nearest
+ * neighbours, deduplicated, as index pairs [a, b] with a < b, sorted. Ties
+ * break on index, so the star map is stable.
+ */
+export function constellationThreads(positions: readonly Vec3[], k = 2): Array<[number, number]> {
+  const edges = new Set<string>();
+  const out: Array<[number, number]> = [];
+  const kk = Math.max(0, Math.floor(k));
+  positions.forEach((p, i) => {
+    const near = positions
+      .map((q, j) => ({ j, d: (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2 }))
+      .filter((e) => e.j !== i)
+      .sort((a, b) => a.d - b.d || a.j - b.j)
+      .slice(0, kk);
+    for (const { j } of near) {
+      const a = Math.min(i, j);
+      const b = Math.max(i, j);
+      const key = `${a}-${b}`;
+      if (edges.has(key)) continue;
+      edges.add(key);
+      out.push([a, b]);
+    }
+  });
+  return out.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+}
+
+/**
+ * Where the camera stands to look at a tile: outward from the centre along
+ * the tile's own direction, `distance` in front of it — so the focused tile
+ * is nearest, with the rest of the constellation behind it.
+ */
+export function focusCameraPosition(position: Vec3, distance: number): Vec3 {
+  const len = Math.hypot(position[0], position[1], position[2]);
+  const dir: Vec3 = len > 1e-6 ? [position[0] / len, position[1] / len, position[2] / len] : [0, 0, 1];
+  const d = Number.isFinite(distance) ? distance : 0;
+  return [r3(position[0] + dir[0] * d), r3(position[1] + dir[1] * d), r3(position[2] + dir[2] * d)];
+}
+
+/**
+ * How far back the overview camera stands so a shell of `radius` fits the
+ * canvas: the narrower of the vertical and horizontal fields of view decides,
+ * which keeps a portrait phone from cropping the sides.
+ */
+export function overviewDistance(radius: number, aspect: number, fovDeg: number): number {
+  const a = Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
+  const v = ((Number.isFinite(fovDeg) && fovDeg > 0 ? fovDeg : 50) * Math.PI) / 180;
+  const hfov = 2 * Math.atan(Math.tan(v / 2) * a);
+  const fov = Math.min(v, hfov);
+  return round2((Math.max(0, radius) * 1.15) / Math.sin(fov / 2));
+}
+
+/* ── The field behind the card ───────────────────────────────────────── */
+
+/** One soft out-of-focus light. Positions and radius in % of the field. */
+export interface FieldBokeh {
+  x: number;
+  y: number;
+  r: number;
+  opacity: number;
+  tint: 'accent' | 'warm' | 'white';
+  /** Seconds for one slow drift loop, and where in it this light starts. */
+  driftS: number;
+  delayS: number;
+}
+
+/** One faint star of the linework. Positions in % of the field, r in px. */
+export interface FieldStar {
+  x: number;
+  y: number;
+  r: number;
+  twinkleDelayS: number;
+}
+
+export interface CardFieldLayout {
+  bokeh: FieldBokeh[];
+  stars: FieldStar[];
+  /** Constellation linework: index pairs into `stars`. */
+  links: Array<[number, number]>;
+}
+
+export const FIELD_BOKEH_COUNT = 14;
+export const FIELD_STAR_COUNT = 22;
+/** Longest constellation line, in % of the field. */
+export const FIELD_LINK_MAX = 22;
+
+/**
+ * The designed space behind a card: a few large soft lights and a sparse
+ * star map joined by hairlines. Seeded by the card (its public id), so every
+ * card has its own sky but the same card always gets the same one — and a
+ * frame render matches the live page.
+ *
+ * Stars keep to the outer thirds, where the card does not stand: the
+ * linework frames the card instead of running behind its copy.
+ */
+export function cardFieldLayout(seed: string): CardFieldLayout {
+  const s = seed === '' ? 'beamwall' : seed;
+  const tints: FieldBokeh['tint'][] = ['accent', 'accent', 'white', 'warm'];
+  const bokeh: FieldBokeh[] = Array.from({ length: FIELD_BOKEH_COUNT }, (_, i) => {
+    const id = `${s}:b${i}`;
+    return {
+      x: round2(unit(id, 31) * 100),
+      y: round2(unit(id, 32) * 100),
+      r: round2(3 + unit(id, 33) * 11),
+      opacity: round2(0.12 + unit(id, 34) * 0.28),
+      tint: tints[Math.floor(unit(id, 35) * tints.length)],
+      driftS: round2(18 + unit(id, 36) * 22),
+      delayS: round2(-unit(id, 37) * 40),
+    };
+  });
+
+  const stars: FieldStar[] = Array.from({ length: FIELD_STAR_COUNT }, (_, i) => {
+    const id = `${s}:s${i}`;
+    // Alternate sides; within a side, keep to the outer 30% of the width.
+    const left = i % 2 === 0;
+    const band = unit(id, 41) * 30;
+    return {
+      x: round2(left ? 2 + band : 98 - band),
+      y: round2(3 + unit(id, 42) * 94),
+      r: round2(0.6 + unit(id, 43) * 1.3),
+      twinkleDelayS: round2(-unit(id, 44) * 6),
+    };
+  });
+
+  // Each star joins its nearest neighbour on its own side when that is close:
+  // short constellations, never a web across the card.
+  const links: Array<[number, number]> = [];
+  const seen = new Set<string>();
+  stars.forEach((p, i) => {
+    let best = -1;
+    let bestD = Infinity;
+    stars.forEach((q, j) => {
+      if (j === i || j % 2 !== i % 2) return;
+      const d = Math.hypot(p.x - q.x, p.y - q.y);
+      if (d < bestD) {
+        best = j;
+        bestD = d;
+      }
+    });
+    if (best < 0 || bestD > FIELD_LINK_MAX) return;
+    const a = Math.min(i, best);
+    const b = Math.max(i, best);
+    const key = `${a}-${b}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    links.push([a, b]);
+  });
+  links.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+
+  return { bokeh, stars, links };
 }
