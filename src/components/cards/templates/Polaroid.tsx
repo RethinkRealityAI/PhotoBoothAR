@@ -2,36 +2,50 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Polaroid card template — scattered instant prints. Warm paper, a squared
- * photo window, a handwritten-feel caption in the platform serif, and every
- * print tilted a little off true.
+ * Polaroid card template — instant prints laid on the dusk. White print
+ * stock with a squared window, a caption in the display face, every print
+ * tilted a little off true, and a gloss that catches the light as you tilt
+ * the phone (or move the mouse). The close is a print pressed with the
+ * letterpress border, light running along its lines.
  *
  * Pure function of the normalized progress model (see ./types.ts): the page
  * shown is entirely determined by `index` (0 = the fanned cover stack,
- * 1..N = one print per contribution, N+1 = the closing print), and the tilt /
- * nudge of each print is a pure function of the CONTRIBUTION ID via
- * lib/cardTemplates.ts — no Math.random, so a print lands at the same angle on
- * every render, in StrictMode's double-invoke, and in a frame-by-frame render.
+ * 1..N = one print per contribution, N+1 = the closing print), and each
+ * print's tilt/nudge is a pure function of the CONTRIBUTION ID via
+ * lib/cardTemplates.ts — no Math.random.
  *
  * `frameProgress`, when a renderer supplies it, drives the entrance
- * deterministically (polaroidEntrance) instead of the interactive spring —
- * which is what makes this template render identically frame for frame.
+ * deterministically (polaroidEntrance) instead of the interactive spring.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import { clampIndex, pageCount, type CardTemplateProps } from './types';
 import {
   polaroidEntrance,
+  coverPicks,
   polaroidFan,
   polaroidPlacement,
   type PolaroidPlacement,
 } from '../../../lib/cardTemplates';
 import type { CardViewContribution } from '../../../lib/cards';
+import CardOrnament from './cardOrnament';
+import { ShimmerRim } from './cardChrome';
+import {
+  BeamGlow,
+  CardPhoto,
+  CardVideo,
+  ClosingContent,
+  CoverTitle,
+  NoteCard,
+  OpenButton,
+  Pager,
+  TiltSheen,
+  useSwipe,
+} from './cardParts';
 
-/** Warm print stock + its ink, both from semantic tokens (never raw hex). */
+/** Print stock + its ink, both from semantic tokens (never raw hex). */
 const PAPER = 'bg-[color:var(--color-brand-text)] text-[color:var(--color-brand-bg)]';
-const PRINT_SHADOW = 'shadow-[0_18px_44px_rgba(0,0,0,0.55)]';
+const PRINT_SHADOW =
+  'shadow-[0_26px_50px_-18px_rgba(10,8,40,0.85),0_2px_6px_rgba(10,8,40,0.25),inset_0_0_0_1px_rgba(255,255,255,0.9)]';
 /** How many prints the cover fans (a stack, not a contact sheet). */
 const COVER_FAN_MAX = 3;
 
@@ -56,7 +70,7 @@ function Print({
 }) {
   return (
     <div
-      className={`${PAPER} ${PRINT_SHADOW} rounded-[3px] p-2.5 pb-4 ${className}`}
+      className={`${PAPER} ${PRINT_SHADOW} rounded-[4px] p-3 pb-5 ${className}`}
       style={{ transform: transformFor(placement, centered), zIndex }}
     >
       {children}
@@ -67,41 +81,39 @@ function Print({
 /** The squared photo window — dark inside, so a loading image is never a hole. */
 function Window({ children, className = '' }: { children?: React.ReactNode; className?: string }) {
   return (
-    <div className={`relative w-full aspect-square overflow-hidden bg-[color:var(--color-brand-bg)] ${className}`}>
+    <div
+      className={`relative w-full aspect-square overflow-hidden bg-[color:var(--color-brand-bg)] ${className}`}
+      style={{ boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.12)' }}
+    >
       {children}
     </div>
   );
 }
 
-function ContributionMedia({ c }: { c: CardViewContribution }) {
-  if (c.mediaType === 'photo' && c.url) {
-    return (
-      <img
-        src={c.url}
-        alt={c.contributorName ? `From ${c.contributorName}` : 'Contribution'}
-        className="absolute inset-0 h-full w-full object-cover"
-      />
-    );
+function FanTile({ c }: { c: CardViewContribution | undefined }) {
+  if (c?.mediaType === 'photo' && c.url) {
+    return <img src={c.url} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />;
   }
-  if (c.mediaType === 'video' && c.url) {
+  if (c?.mediaType === 'video' && c.url) {
     return (
       <video
-        key={c.id}
-        src={c.url}
-        controls
+        src={`${c.url}#t=0.1`}
+        muted
         playsInline
         preload="metadata"
         className="absolute inset-0 h-full w-full object-cover"
+        aria-hidden
+        tabIndex={-1}
       />
     );
   }
-  // A written note still gets a print — the message IS the picture.
   return (
-    <div className="absolute inset-0 flex items-center justify-center px-5 text-center">
-      <p className="font-serif italic text-[15px] leading-relaxed text-brand-fg/90 line-clamp-6">
-        “{c.message}”
-      </p>
-    </div>
+    <span
+      className="absolute inset-0 flex items-center justify-center font-serif text-4xl text-[color:var(--color-accent)]"
+      aria-hidden
+    >
+      “
+    </span>
   );
 }
 
@@ -119,6 +131,8 @@ export default function Polaroid({
   const isCover = page === 0;
   const isEnd = page === total - 1;
   const contribution = !isCover && !isEnd ? contributions[page - 1] : null;
+  const swipe = useSwipe(onNext, onPrev);
+  const interactive = onNext !== undefined || onPrev !== undefined;
 
   // Driven (frame-by-frame) renders get the deterministic entrance; the
   // interactive viewer gets the spring; reduced motion gets neither.
@@ -135,167 +149,135 @@ export default function Polaroid({
 
   // A cover is a stack of PHOTOS: prints with media come first, and written
   // notes only fill the fan when there are not enough pictures to fill it.
-  const withMedia = contributions.filter((c) => Boolean(c.url));
-  const fanSource = (withMedia.length > 0 ? withMedia : contributions).slice(0, COVER_FAN_MAX);
+  // Photos lead (a video's first frame is often dark), and the best pick
+  // goes in the middle of the fan, where it stands largest.
+  const picks = coverPicks(contributions, COVER_FAN_MAX);
+  const fanSource = picks.length === 3 ? [picks[1], picks[0], picks[2]] : picks;
   const fan = polaroidFan(fanSource.length > 0 ? fanSource.map((c) => c.id) : [card.title]);
 
   return (
-    <div className="relative w-full h-full flex flex-col items-center">
-      <div className="relative flex-1 w-full max-w-md min-h-0 py-2">
+    <div className="relative flex h-full w-full flex-col items-center">
+      <div className="relative w-full max-w-[30rem] min-h-0 flex-1 py-2" style={{ touchAction: 'pan-y' }} {...swipe}>
+        {/* The light-table the prints are laid on, ringed with the rim. */}
+        <div
+          className="pointer-events-none absolute inset-x-0 inset-y-2 rounded-[2rem]"
+          style={{
+            background:
+              'radial-gradient(90% 60% at 50% 38%, rgba(var(--accent-rgb),0.16), transparent 70%), rgba(255,255,255,0.035)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 30px 80px -40px rgba(10,8,40,0.9)',
+          }}
+          aria-hidden
+        >
+          <ShimmerRim radius="2rem" lapS={10} reducedMotion={reducedMotion} />
+        </div>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={page}
-            className="absolute inset-0 flex flex-col items-center justify-center overflow-y-auto px-3 py-2 text-center"
+            className="absolute inset-0 flex flex-col items-center overflow-y-auto px-4 py-4 text-center"
+            style={{ scrollbarWidth: 'none' }}
             initial={initial}
             animate={animate}
             exit={reducedMotion || driven ? { opacity: 1 } : { opacity: 0, y: -14, scale: 0.98 }}
             transition={transition}
           >
-            {isCover && (
-              <>
-                {/* Fanned stack of the first prints. */}
-                <div className="relative mb-7 h-44 w-full shrink-0">
-                  {fan.map((placement, i) => {
-                    const c = fanSource[i];
-                    return (
-                      <Print
-                        key={c ? c.id : 'cover-blank'}
-                        placement={placement}
-                        centered
-                        zIndex={i === Math.floor(fan.length / 2) ? 3 : 1}
-                        className="absolute left-1/2 top-1/2 w-[7rem]"
-                      >
-                        <Window>
-                          {c?.mediaType === 'photo' && c.url && (
-                            <img src={c.url} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                          )}
-                          {c?.mediaType === 'video' && c.url && (
-                            <video
-                              src={c.url}
-                              muted
-                              playsInline
-                              preload="metadata"
-                              className="absolute inset-0 h-full w-full object-cover"
-                            />
-                          )}
-                          {!c?.url && (
-                            <span
-                              className="absolute inset-0 flex items-center justify-center font-serif italic text-3xl text-accent/40"
-                              aria-hidden
-                            >
-                              “
-                            </span>
-                          )}
-                        </Window>
-                        <p className="mt-1.5 truncate font-serif italic text-[10px] text-[color:var(--color-brand-bg)]/60">
-                          {c?.contributorName || card.recipientName || 'Beamwall'}
-                        </p>
-                      </Print>
-                    );
-                  })}
+            <div className="my-auto flex w-full flex-col items-center">
+              {isCover && (
+                <>
+                  {/* Fanned stack of the first prints, in front of a beam. */}
+                  <div className="relative mb-12 mt-4 h-[15.5rem] w-full shrink-0">
+                    <BeamGlow reducedMotion={reducedMotion} className="inset-x-[6%] -inset-y-[10%]" />
+                    {fan.map((placement, i) => {
+                      const c = fanSource[i];
+                      const centre = i === Math.floor(fan.length / 2);
+                      return (
+                        <Print
+                          key={c ? c.id : 'cover-blank'}
+                          placement={placement}
+                          centered
+                          zIndex={centre ? 3 : 1}
+                          className={`absolute left-1/2 top-1/2 p-2.5 pb-4 ${centre ? 'w-[10.4rem]' : 'w-[9rem]'}`}
+                        >
+                          <Window>
+                            <FanTile c={c} />
+                            {centre && <TiltSheen reducedMotion={reducedMotion} />}
+                          </Window>
+                          <p className="mt-2 truncate font-serif text-[12px] font-medium opacity-70">
+                            {c?.contributorName || card.recipientName || 'Beamwall'}
+                          </p>
+                        </Print>
+                      );
+                    })}
+                  </div>
+                  <CoverTitle card={card} contributions={contributions} />
+                  <div className="mt-8">
+                    <OpenButton onClick={onNext} label="Look through the prints" reducedMotion={reducedMotion} />
+                  </div>
+                </>
+              )}
+
+              {contribution && (contribution.mediaType === 'text' || !contribution.url) && (
+                <div className="w-full max-w-sm">
+                  <NoteCard c={contribution} />
                 </div>
+              )}
 
-                {card.eventName && (
-                  <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">{card.eventName}</p>
-                )}
-                <h1 className="mt-3 font-serif italic text-[2rem] leading-tight text-foil-static">{card.title}</h1>
-                {card.recipientName && (
-                  <p className="mt-3 font-sans text-sm text-brand-muted/80">for {card.recipientName}</p>
-                )}
-                <div className="mt-6 h-px w-24 bg-accent/40" />
-                <p className="mt-5 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
-                  {contributions.length} {contributions.length === 1 ? 'print' : 'prints'} inside
-                </p>
-              </>
-            )}
-
-            {contribution && (
-              <Print
-                placement={polaroidPlacement(contribution.id)}
-                className="w-[min(84%,17rem)] shrink-0"
-              >
-                <Window>
-                  <ContributionMedia c={contribution} />
-                </Window>
-                {contribution.message && contribution.mediaType !== 'text' && (
-                  <p className="mt-3 px-1 font-serif italic text-[13px] leading-snug text-[color:var(--color-brand-bg)]/80 line-clamp-3">
-                    {contribution.message}
-                  </p>
-                )}
-                <p className="mt-2.5 px-1 font-serif italic text-[15px] text-[color:var(--color-brand-bg)]/70">
-                  — {contribution.contributorName || 'A friend'}
-                </p>
-              </Print>
-            )}
-
-            {isEnd && (
-              <>
-                <Print placement={polaroidPlacement(`${card.title}-end`)} className="w-[min(72%,14rem)] shrink-0">
+              {contribution && contribution.mediaType !== 'text' && contribution.url && (
+                <Print placement={polaroidPlacement(contribution.id)} className="w-[min(88%,22rem)] shrink-0">
                   <Window>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                      <p className="font-serif italic text-2xl text-foil-static">The end</p>
-                      <div className="h-px w-12 bg-accent/40" />
-                    </div>
+                    {contribution.mediaType === 'photo' ? (
+                      <CardPhoto c={contribution} reducedMotion={reducedMotion} className="absolute inset-0" />
+                    ) : (
+                      <CardVideo c={contribution} className="absolute inset-0" compact />
+                    )}
+                    {contribution.mediaType === 'photo' && <TiltSheen reducedMotion={reducedMotion} />}
                   </Window>
-                  <p className="mt-3 font-serif italic text-[13px] text-[color:var(--color-brand-bg)]/70">
-                    {card.recipientName ? `With love — to ${card.recipientName}.` : 'With love, from everyone.'}
+                  {contribution.message && (
+                    <p className="mt-4 px-1 font-serif text-[18px] font-medium leading-snug text-balance">
+                      {contribution.message}
+                    </p>
+                  )}
+                  <p className="mt-3 flex items-center justify-center gap-2 px-1 font-serif text-[15px] opacity-70">
+                    <span className="h-px w-5 bg-current opacity-50" aria-hidden />
+                    {contribution.contributorName || 'A friend'}
                   </p>
                 </Print>
-                <p className="mt-7 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
-                  Made with Beamwall
-                </p>
-                <Link
-                  to="/"
-                  className="mt-3 inline-flex min-h-[44px] items-center rounded-full border border-white/15 bg-white/[0.05] px-6 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.1]"
-                >
-                  Create your own
-                </Link>
-              </>
-            )}
+              )}
+
+              {isEnd && (
+                <div className="relative w-full rounded-[1.8rem] px-10 pb-[5.5rem] pt-[5.5rem]">
+                  <div className="liquid-glass absolute inset-0 rounded-[1.8rem]" aria-hidden />
+                  <ShimmerRim radius="1.8rem" lapS={8} phaseS={-3} reducedMotion={reducedMotion} />
+                  <CardOrnament density="full" reducedMotion={reducedMotion} />
+                  <div className="relative">
+                    <ClosingContent card={card} contributions={contributions} scratch={interactive} />
+                  </div>
+                </div>
+              )}
+            </div>
           </motion.div>
         </AnimatePresence>
 
-        {/* Click zones (interactive mode only; skipped on video pages so the
-            player controls stay fully clickable). */}
+        {/* Desktop click zones (touch swipes); skipped on video pages so the
+            player stays fully clickable. */}
         {contribution?.mediaType !== 'video' && onPrev && page > 0 && (
-          <button aria-label="Previous print" onClick={onPrev} className="absolute left-0 top-0 h-full w-1/5 cursor-w-resize" />
+          <button
+            type="button"
+            aria-label="Previous print"
+            onClick={onPrev}
+            className="absolute left-0 top-0 hidden h-full w-[12%] cursor-w-resize md:block"
+          />
         )}
         {contribution?.mediaType !== 'video' && onNext && page < total - 1 && (
-          <button aria-label="Next print" onClick={onNext} className="absolute right-0 top-0 h-full w-1/5 cursor-e-resize" />
+          <button
+            type="button"
+            aria-label="Next print"
+            onClick={onNext}
+            className="absolute right-0 top-0 hidden h-full w-[12%] cursor-e-resize md:block"
+          />
         )}
       </div>
 
-      {/* Pager */}
-      <div className="shrink-0 flex items-center gap-4 pb-2">
-        {onPrev && (
-          <button
-            onClick={onPrev}
-            disabled={page === 0}
-            aria-label="Previous print"
-            className="w-11 h-11 rounded-full bg-white/[0.06] flex items-center justify-center text-brand-fg/80 hover:bg-white/[0.12] transition disabled:opacity-30"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        )}
-        <div className="flex items-center gap-1.5">
-          {Array.from({ length: total }, (_, i) => (
-            <span
-              key={i}
-              className={`rounded-full transition-all ${i === page ? 'w-5 h-1.5 bg-accent/80' : 'w-1.5 h-1.5 bg-white/20'}`}
-            />
-          ))}
-        </div>
-        {onNext && (
-          <button
-            onClick={onNext}
-            disabled={page === total - 1}
-            aria-label="Next print"
-            className="w-11 h-11 rounded-full bg-white/[0.06] flex items-center justify-center text-brand-fg/80 hover:bg-white/[0.12] transition disabled:opacity-30"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+      <Pager page={page} total={total} onPrev={onPrev} onNext={onNext} noun="print" className="shrink-0 pb-1 pt-2" />
     </div>
   );
 }

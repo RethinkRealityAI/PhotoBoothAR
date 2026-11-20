@@ -2,51 +2,102 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Storybook card template — one contribution per "page" with an elegant page
- * transition. Dark, premium, theme-neutral platform styling (no event theme),
- * token-based (--color-accent/-2) so it follows the platform default.
+ * Storybook card template — one contribution per page, turned like a book.
+ *
+ * Each page is a pane of liquid glass pressed with letterpress linework (see
+ * cardOrnament.tsx) that a slow light pulse runs along. The cover is the
+ * lead photo in an arched window ringed with travelling light (the face the
+ * reveals land on, one step richer), the title set big in
+ * the display face; contributions get their photo or video large, the message
+ * set by its length, and a signature; written-only notes are frosted paper
+ * you can hold to warm; the close names everyone under a scratch-off foil.
  *
  * Pure function of the normalized progress model (see ./types.ts): the page
  * shown is entirely determined by `index`; onNext/onPrev only wire the
- * interactive affordances. Renders identically frame-by-frame under a future
- * Remotion driver.
+ * interactive affordances (arrows, desktop click zones, touch swipe). With
+ * no handlers (a static/frame render) the close renders already revealed.
  */
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import { clampIndex, pageCount, type CardTemplateProps } from './types';
+import type { CardViewContribution } from '../../../lib/cards';
+import CardOrnament from './cardOrnament';
+import { ShimmerRim } from './cardChrome';
+import {
+  ClosingContent,
+  ContributionMedia,
+  CoverArch,
+  CoverTitle,
+  Message,
+  NoteCard,
+  OpenButton,
+  PageMark,
+  Pager,
+  Signature,
+  TiltSheen,
+  useSwipe,
+} from './cardParts';
 
-/** Ornate corner flourish (GoldFrameCard-style, standalone copy). */
-function Corner({ className }: { className: string }) {
+function PageShell({
+  children,
+  density,
+  reducedMotion,
+  sheen = false,
+}: {
+  children: React.ReactNode;
+  density: 'full' | 'light';
+  reducedMotion: boolean;
+  sheen?: boolean;
+}) {
   return (
-    <svg
-      viewBox="0 0 40 40"
-      className={`absolute w-7 h-7 text-accent/60 ${className}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      aria-hidden
-    >
-      <path d="M3 20 C3 10.6 10.6 3 20 3" />
-      <path d="M3 13 C3 7.5 7.5 3 13 3" strokeWidth="0.7" />
-      <circle cx="10" cy="10" r="1.7" fill="currentColor" stroke="none" />
-    </svg>
+    <div className="absolute inset-0 rounded-[2rem]">
+      <div className="liquid-glass h-full w-full overflow-hidden rounded-[2rem]">
+        {sheen && <TiltSheen reducedMotion={reducedMotion} />}
+        <CardOrnament density={density} reducedMotion={reducedMotion} />
+        <div
+          className="relative flex h-full w-full flex-col items-center overflow-y-auto overscroll-contain px-8 py-11 text-center sm:px-12"
+          style={{ scrollbarWidth: 'none' }}
+        >
+          <div className="my-auto flex w-full flex-col items-center">{children}</div>
+        </div>
+      </div>
+      {/* The signature rim: light travelling round the page's edge. */}
+      <ShimmerRim radius="2rem" width={1.5} lapS={9} reducedMotion={reducedMotion} />
+    </div>
   );
 }
 
-function PageShell({ children }: { children: React.ReactNode }) {
+export function ContributionPage({
+  c,
+  n,
+  of,
+  reducedMotion,
+}: {
+  c: CardViewContribution;
+  n: number;
+  of: number;
+  reducedMotion: boolean;
+}) {
+  if (c.mediaType === 'text' || !c.url) {
+    return (
+      <>
+        <PageMark n={n} of={of} />
+        <div className="mt-5 w-full max-w-sm">
+          <NoteCard c={c} />
+        </div>
+      </>
+    );
+  }
   return (
-    <div className="relative w-full h-full rounded-[1.8rem] overflow-hidden border border-accent/25 bg-gradient-to-b from-white/[0.05] to-white/[0.015] shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
-      <div className="absolute inset-[10px] rounded-[1.4rem] border border-accent/15 pointer-events-none" />
-      <Corner className="top-3 left-3" />
-      <Corner className="top-3 right-3 rotate-90" />
-      <Corner className="bottom-3 right-3 rotate-180" />
-      <Corner className="bottom-3 left-3 -rotate-90" />
-      <div className="relative w-full h-full flex flex-col items-center justify-center px-7 py-10 text-center overflow-y-auto">
-        {children}
-      </div>
-    </div>
+    <>
+      <PageMark n={n} of={of} />
+      <ContributionMedia
+        c={c}
+        reducedMotion={reducedMotion}
+        className="mt-4 aspect-[4/5] w-full max-w-[22rem] max-h-[min(52dvh,30rem)]"
+      />
+      <Message message={c.message} className="mt-6 max-w-md" />
+      <Signature name={c.contributorName} className="mt-4" />
+    </>
   );
 }
 
@@ -63,139 +114,70 @@ export default function Storybook({
   const isCover = page === 0;
   const isEnd = page === total - 1;
   const contribution = !isCover && !isEnd ? contributions[page - 1] : null;
+  const swipe = useSwipe(onNext, onPrev);
+  const interactive = onNext !== undefined || onPrev !== undefined;
 
-  // A page turn should settle like paper, not stop dead: a light spring gives
-  // the leaf a touch of overshoot where the old fixed easeOut felt mechanical.
+  // A page turn should settle like paper, not stop dead.
   const transition = reducedMotion
     ? { duration: 0 }
     : ({ type: 'spring', stiffness: 190, damping: 24, mass: 0.9 } as const);
 
   return (
-    <div className="relative w-full h-full flex flex-col items-center">
-      {/* Page */}
-      <div className="relative flex-1 w-full max-w-md min-h-0 py-4">
+    <div className="relative flex h-full w-full flex-col items-center">
+      <div
+        className="relative w-full max-w-[30rem] min-h-0 flex-1 py-3"
+        style={{ touchAction: 'pan-y' }}
+        {...swipe}
+      >
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={page}
-            className="absolute inset-0 py-4"
+            className="absolute inset-0 py-3"
             initial={reducedMotion ? { opacity: 1 } : { opacity: 0, rotateY: 14, x: 42 }}
             animate={{ opacity: 1, rotateY: 0, x: 0 }}
             exit={reducedMotion ? { opacity: 1 } : { opacity: 0, rotateY: -12, x: -42 }}
             transition={transition}
             style={{ transformPerspective: 1100 }}
           >
-            <PageShell>
+            <PageShell density={contribution ? 'light' : 'full'} reducedMotion={reducedMotion} sheen={isCover}>
               {isCover && (
                 <>
-                  {card.eventName && (
-                    <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">{card.eventName}</p>
-                  )}
-                  <h1 className="mt-4 font-serif italic text-4xl leading-tight text-foil-static">{card.title}</h1>
-                  {card.recipientName && (
-                    <p className="mt-4 font-sans text-sm text-brand-muted/80">for {card.recipientName}</p>
-                  )}
-                  <div className="mt-8 h-px w-24 bg-accent/40" />
-                  <p className="mt-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
-                    {contributions.length} {contributions.length === 1 ? 'message' : 'messages'} inside
-                  </p>
+                  <CoverArch card={card} contributions={contributions} reducedMotion={reducedMotion} className="mb-8 mt-3" />
+                  <CoverTitle card={card} contributions={contributions} />
+                  <div className="mt-7">
+                    <OpenButton onClick={onNext} reducedMotion={reducedMotion} />
+                  </div>
                 </>
               )}
-
               {contribution && (
-                <>
-                  {contribution.mediaType === 'photo' && contribution.url && (
-                    <img
-                      src={contribution.url}
-                      alt={contribution.contributorName ? `From ${contribution.contributorName}` : 'Contribution'}
-                      className="max-h-[52%] max-w-full rounded-xl object-contain shadow-[0_12px_44px_rgba(0,0,0,0.5)]"
-                    />
-                  )}
-                  {contribution.mediaType === 'video' && contribution.url && (
-                    <video
-                      key={contribution.id}
-                      src={contribution.url}
-                      controls
-                      playsInline
-                      preload="metadata"
-                      className="max-h-[52%] max-w-full rounded-xl shadow-[0_12px_44px_rgba(0,0,0,0.5)]"
-                    />
-                  )}
-                  {contribution.message && (
-                    <p className={`mt-5 font-serif italic leading-relaxed text-brand-fg/90 ${contribution.mediaType === 'text' ? 'text-xl' : 'text-sm'}`}>
-                      “{contribution.message}”
-                    </p>
-                  )}
-                  <p className="mt-5 font-label uppercase tracking-luxe text-[10px] text-accent-2/80">
-                    — {contribution.contributorName || 'A friend'}
-                  </p>
-                </>
+                <ContributionPage c={contribution} n={page} of={contributions.length} reducedMotion={reducedMotion} />
               )}
-
-              {isEnd && (
-                <>
-                  <p className="font-serif italic text-3xl text-foil-static">The end</p>
-                  {card.recipientName && (
-                    <p className="mt-3 font-sans text-sm text-brand-muted/70">With love, from everyone — to {card.recipientName}.</p>
-                  )}
-                  <div className="mt-8 h-px w-24 bg-accent/40" />
-                  <p className="mt-7 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">Made with Beamwall</p>
-                  <Link
-                    to="/"
-                    className="mt-4 inline-flex min-h-[44px] items-center rounded-full border border-white/15 bg-white/[0.05] px-6 font-label uppercase tracking-luxe text-[10px] text-brand-fg hover:bg-white/[0.1] transition"
-                  >
-                    Create your own
-                  </Link>
-                </>
-              )}
+              {isEnd && <ClosingContent card={card} contributions={contributions} scratch={interactive} />}
             </PageShell>
           </motion.div>
         </AnimatePresence>
 
-        {/* Click zones (interactive mode only; skipped on video pages so the
-            player controls stay fully clickable) */}
+        {/* Desktop click zones at the page edges (touch swipes instead);
+            skipped on video pages so the player stays fully clickable. */}
         {contribution?.mediaType !== 'video' && onPrev && page > 0 && (
-          <button aria-label="Previous page" onClick={onPrev} className="absolute left-0 top-0 h-full w-1/5 cursor-w-resize" />
+          <button
+            type="button"
+            aria-label="Previous page"
+            onClick={onPrev}
+            className="absolute left-0 top-0 hidden h-full w-[12%] cursor-w-resize md:block"
+          />
         )}
         {contribution?.mediaType !== 'video' && onNext && page < total - 1 && (
-          <button aria-label="Next page" onClick={onNext} className="absolute right-0 top-0 h-full w-1/5 cursor-e-resize" />
+          <button
+            type="button"
+            aria-label="Next page"
+            onClick={onNext}
+            className="absolute right-0 top-0 hidden h-full w-[12%] cursor-e-resize md:block"
+          />
         )}
       </div>
 
-      {/* Pager */}
-      <div className="shrink-0 flex items-center gap-4 pb-2">
-        {onPrev && (
-          <button
-            onClick={onPrev}
-            disabled={page === 0}
-            aria-label="Previous page"
-            className="w-11 h-11 rounded-full bg-white/[0.06] flex items-center justify-center text-brand-fg/80 hover:bg-white/[0.12] transition disabled:opacity-30"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        )}
-        <div className="flex items-center gap-1.5">
-          {Array.from({ length: total }, (_, i) => (
-            <span
-              key={i}
-              className={`rounded-full transition-all ${
-                i === page
-                  ? 'w-5 h-1.5 bg-accent/80 shadow-[0_0_10px_rgba(var(--accent-rgb),0.55)]'
-                  : 'w-1.5 h-1.5 bg-white/20'
-              }`}
-            />
-          ))}
-        </div>
-        {onNext && (
-          <button
-            onClick={onNext}
-            disabled={page === total - 1}
-            aria-label="Next page"
-            className="w-11 h-11 rounded-full bg-white/[0.06] flex items-center justify-center text-brand-fg/80 hover:bg-white/[0.12] transition disabled:opacity-30"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+      <Pager page={page} total={total} onPrev={onPrev} onNext={onNext} className="shrink-0 pb-1 pt-2" />
     </div>
   );
 }

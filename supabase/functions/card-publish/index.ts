@@ -15,6 +15,10 @@
  *
  *   DEPLOY FILES: index.ts + email.ts + deno.json (email.ts is the template;
  *   leaving it out is an import error at boot, so every request 500s).
+ *   NEEDS migration 049 (cards.presentation) live first: the host-action
+ *   select names the column, so deploying before 049 makes every host action
+ *   a 500. (The scheduled path reads `setof cards`, which picks the column up
+ *   by itself.)
  *
  *   DEPLOY WITH verify_jwt OFF: the cron request carries no JWT, so the
  *   gateway check would reject it before this code runs. Every host action
@@ -37,6 +41,9 @@
  *             'Beamwall <cards@beamwall.app>'); viewer link base:
  *             PUBLIC_SITE_URL (default: 'https://beamwall.app' — the
  *             attacker-controllable request Origin is deliberately NOT used).
+ *             Email art: EMAIL_ASSET_BASE (default `${PUBLIC_SITE_URL}/email`)
+ *             — the images ship with the SITE, so deploy this function only
+ *             after the commit adding public/email/v1/ is live on Netlify.
  *
  * 200 → { card: { id, status, publishedAt, publicId } } | { sent: true }
  *       | { delivery: DeliveryView } (schedule / unschedule)
@@ -54,8 +61,8 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
 import {
-  cardEmailHtml, cardEmailSubject, summarizeContributions,
-  type ContributionRow, type EmailExtras,
+  cardEmailHtml, cardEmailSubject, cardEmailText, summarizeContributions,
+  type CardEmailInput, type ContributionRow, type EmailExtras,
 } from './email.ts';
 
 const corsHeaders = {
@@ -103,6 +110,9 @@ interface CardForEmail {
   recipient_email: string | null;
   status: string;
   theme: unknown;
+  /** Migration 049: { reveal, email, look }. email.ts normalises it, so a
+   *  missing or junk value sends the default (glow) style. */
+  presentation?: unknown;
 }
 
 /** Link base is trusted config only: PUBLIC_SITE_URL env, else a hardcoded
@@ -180,6 +190,18 @@ async function sendCardViaResend(
     Authorization: `Bearer ${resendKey}`,
   };
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+  const email: CardEmailInput = {
+    title: card.title,
+    url,
+    theme: card.theme,
+    extras,
+    presentation: card.presentation,
+    recipientName: card.recipient_name,
+    // the rendered email art (public/email/ on the Netlify site); email.ts
+    // accepts only https:// (or file:/// for local renders) and otherwise
+    // falls back to https://beamwall.app/email
+    assetBase: Deno.env.get('EMAIL_ASSET_BASE') || `${siteUrl()}/email`,
+  };
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -188,7 +210,8 @@ async function sendCardViaResend(
         from: Deno.env.get('CARDS_FROM_EMAIL') || 'Beamwall <cards@beamwall.app>',
         to: recipient,
         subject: cardEmailSubject(card.title, extras?.summary ?? null),
-        html: cardEmailHtml(card.title, card.recipient_name, url, card.theme, extras),
+        html: cardEmailHtml(email),
+        text: cardEmailText(email),
       }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -450,7 +473,7 @@ Deno.serve(async (req: Request) => {
     // 3. Card → event → org, then verify the caller's membership.
     const { data: card, error: cardErr } = await sb
       .from('cards')
-      .select(`id, event_id, org_id, public_id, title, recipient_name, recipient_email, status, theme, ${DELIVERY_COLUMNS}`)
+      .select(`id, event_id, org_id, public_id, title, recipient_name, recipient_email, status, theme, presentation, ${DELIVERY_COLUMNS}`)
       .eq('id', cardId)
       .maybeSingle();
     if (cardErr) throw cardErr;

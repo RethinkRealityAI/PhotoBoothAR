@@ -21,6 +21,7 @@ import Storybook from './Storybook';
 import FilmStrip from './FilmStrip';
 import Polaroid from './Polaroid';
 import Carousel from './Carousel';
+import Constellation from './Constellation';
 import {
   CARD_TEMPLATE_OPTIONS,
   DEFAULT_CARD_TEMPLATE,
@@ -36,13 +37,19 @@ export interface CardTemplateDef {
   /** One line a host can decide from, in their language — not ours. */
   blurb: string;
   Component: ComponentType<CardTemplateProps>;
+  /** Wants the whole viewport (a 3D scene), not the centred reading column. */
+  fullBleed: boolean;
 }
+
+/** Templates whose canvas should run edge to edge. */
+const FULL_BLEED: ReadonlySet<CardTemplateId> = new Set<CardTemplateId>(['carousel', 'constellation']);
 
 const COMPONENTS: Record<CardTemplateId, ComponentType<CardTemplateProps>> = {
   storybook: Storybook,
   filmstrip: FilmStrip,
   polaroid: Polaroid,
   carousel: Carousel,
+  constellation: Constellation,
 };
 
 export const CARD_TEMPLATES: CardTemplateDef[] = CARD_TEMPLATE_OPTIONS.map((o) => ({
@@ -50,6 +57,7 @@ export const CARD_TEMPLATES: CardTemplateDef[] = CARD_TEMPLATE_OPTIONS.map((o) =
   name: o.label,
   blurb: o.description,
   Component: COMPONENTS[o.id],
+  fullBleed: FULL_BLEED.has(o.id),
 }));
 
 /**
