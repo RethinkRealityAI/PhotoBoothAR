@@ -11,7 +11,9 @@
  *     carousel starts on a "None" stop, which is how a look comes off again
  *     (lib/beamyAssets arStops / wearStop). One look per category, and the
  *     categories combine. Arrows, a tap on a stop, a sideways swipe or the
- *     arrow keys step through the stops.
+ *     arrow keys step through the stops. The arrows are ONE pair on the
+ *     carousel box, in the same place on every tab (phones: the screen's
+ *     edges, at the middle of his stage).
  *       - Frames: the current frame is on Beamy; the frames before and after
  *         it peek in at his sides.
  *       - 3D props, filters, effects: a rail ABOVE him (and above the frame),
@@ -259,11 +261,13 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
             onPointerCancel={() => { swipe.current = null; }}
           >
             {tab !== 'frame' && <Track key={tab} cat={tab} stops={stops} cur={cur} show noun={noun} onWear={wear} rail />}
-            {tab !== 'frame' && n > 1 && arrows}
           </div>
           <p className="bw-ar-title" aria-hidden><ShineText key={title} text={title} className="bw-ar-title-text" /></p>
         </div>
-        {tab === 'frame' && n > 1 && arrows}
+        {/* ONE pair of arrows, in the same place on every tab (owner: "consistently
+            in the same spot for all the different tabs"): on the box's edges at
+            his middle (phones: the screen's edges), never on the rail. */}
+        {n > 1 && arrows}
       </div>
       <p className="sr-only">{AR_COPY.line}</p>
       <p className="sr-only" aria-live="polite">{worn.length > 0 ? `Beamy is wearing: ${worn.map((l) => l.name).join(', ')}` : 'Beamy is wearing nothing yet'}</p>

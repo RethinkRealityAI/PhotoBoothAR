@@ -1846,11 +1846,13 @@
   .bw-ar-car > .bw-ar-arrow:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
   .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: -22px; }
   .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: -22px; }
-  /* Phones: the stage nearly fills the width, so the arrows step inside its
-     edges, low by his feet (the orbs float by his head), on every tab. */
-  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow { top: 74%; }
-  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: 6px; }
-  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: 6px; }
+  /* Phones: the arrows sit at the screen's edges, level with the middle of
+     his stage, the same spot on every tab. The stage is centred, so
+     50% - 50vw is the screen's edge; capped at 64px outside the box so a
+     portrait tablet keeps them near him. 48px: a full thumb target. */
+  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow { top: 50%; width: 48px; height: 48px; margin-top: -24px; }
+  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="prev"] { left: max(calc(50% - 50vw + 8px), -64px); }
+  .bw-ar[data-stacked="true"] .bw-ar-car > .bw-ar-arrow[data-side="next"] { right: max(calc(50% - 50vw + 8px), -64px); }
   .bw-ar[data-stacked="true"] .bw-ar-item:is([data-kind="orb"], [data-kind="none"]) { top: 20%; }
   /* Laptops: the switcher under the story card, there only while the AR step is up. */
   .bw-ar-tabs-under { margin-top: 20px; opacity: 0; visibility: hidden; transition: opacity 240ms ease, visibility 0s linear 260ms; }
@@ -2662,23 +2664,3 @@
 [data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none { width: 100%; height: 100%; }
 [data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none-chip { width: 100%; height: 100%; }
 [data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none-label { display: none; }
-/* The rail's arrows, at its ends. */
-[data-brand="2"] .bw-ar-rail > .bw-ar-arrow {
-  position: absolute;
-  top: 50%;
-  display: grid;
-  place-items: center;
-  width: var(--rail-arrow);
-  height: var(--rail-arrow);
-  margin-top: calc(var(--rail-arrow) / -2);
-  border-radius: 999px;
-  pointer-events: auto;
-  color: var(--bw-ink);
-  background-color: var(--bw-card-veil);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  backdrop-filter: blur(14px) saturate(140%);
-  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 12px 24px -14px var(--bw-shadow);
-}
-[data-brand="2"] .bw-ar-rail > .bw-ar-arrow:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
-[data-brand="2"] .bw-ar-rail > .bw-ar-arrow[data-side="prev"] { left: 0; }
-[data-brand="2"] .bw-ar-rail > .bw-ar-arrow[data-side="next"] { right: 0; }
