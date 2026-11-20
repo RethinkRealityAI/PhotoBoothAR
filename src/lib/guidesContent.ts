@@ -1136,6 +1136,7 @@ const RUN_THE_NIGHT: GuideDoc = {
       body: [
         'When the party is over, hit End on the event. The booth shuts to new photos immediately — anyone who scans the QR after that gets your thank-you screen instead of a camera, so give guests their last call before you press it.',
         'Later, once an old event is just taking up room in Your events, open its ⋯ menu and choose Archive. It slides into a collapsed Archived shelf at the bottom of the page and nothing is deleted — the wall, every photo, the keepsake cards and the credits you spent are all exactly where you left them, and one click brings it back.',
+        'Your plan keeps guest photos and videos for a set time, counted from the end of the event: 7 days on Free, 90 days on Essentials, a year on Premium and two years on Deluxe. The Dashboard shows the exact date under Your photos, with a Download everything button that saves the lot as a zip (a big event comes in a few parts). We email you two weeks before anything is removed, and nothing goes without that email.',
       ],
     },
     {
@@ -1186,6 +1187,16 @@ const RUN_THE_NIGHT: GuideDoc = {
           label: 'Keepsake film render',
           value: '≈30 credits',
           why: 'One render turns a full card into a shareable film.',
+        },
+        {
+          label: 'Photos and videos',
+          value: 'Unlimited on Premium and up',
+          why: 'No cap on how many your guests take. Fair use is up to 2,000 new shots a day per event, more than a big gala takes. Free carries 25 and Essentials 500.',
+        },
+        {
+          label: 'Video clip length',
+          value: '30 s · 60 s on Premium · 90 s on Deluxe',
+          why: 'Every plan records video, Free included. Longer clips come with the bigger plans, and every clip stays small enough to upload on busy venue wifi.',
         },
       ],
     },
@@ -1393,13 +1404,14 @@ export const GUIDE_COVERAGE: {
   },
   featureKeys: {
     maxPosts: { guide: 'run-the-night', note: 'What things cost — how many photos a plan carries.' },
+    videoMaxSec: { guide: 'run-the-night', note: 'What things cost — video clip length per plan (30 / 60 / 90 seconds).' },
     videoEnabled: { guide: 'make-3d-props', note: 'Put a crown on every guest — video capture is what makes a reacting prop worth having.' },
     watermark: { guide: 'run-the-night', note: 'What things cost — paid plans remove the Beamwall signature from guest photos.' },
     aiStudio: { guide: 'make-a-frame', note: 'Describe it to AI Frame Studio, and the credit table in run-the-night.' },
     cardsStandard: { guide: 'run-the-night', note: 'Keepsake cards, after the night — contributing photos and messages.' },
     cardsPremiumRender: { guide: 'run-the-night', note: 'Keepsake cards / What things cost — the ≈30-credit film render.' },
     projectionMode: { guide: 'run-the-night', note: 'Set up the wall — Projection mode for an actual projector.' },
-    retentionDays: { guide: 'run-the-night', note: 'Keepsake cards, after the night — guests bulk-save before photos age out.' },
+    retentionDays: { guide: 'run-the-night', note: 'After the event — how long each plan keeps photos, the Dashboard date, Download everything and the reminder email.' },
     studio: { guide: 'use-the-studio', note: 'Opening prose — the Studio and Assets tabs are an add-on for teams and large organisations; every host gets Frames & filters.' },
   },
 };

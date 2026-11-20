@@ -14,7 +14,7 @@
  */
 import { useState } from 'react';
 import { ArrowUpRight, Check, Sparkles, X } from 'lucide-react';
-import { ENTITLEMENTS, formatPostCap, formatRetention, normalizeTier, type PlanTier } from '../../lib/plans';
+import { ENTITLEMENTS, formatPostCap, formatRetention, formatVideoLength, normalizeTier, type PlanTier } from '../../lib/plans';
 import { startCheckout } from '../../lib/host';
 import Modal from '../../components/ui/Modal';
 
@@ -35,7 +35,7 @@ export const PACKAGES: { tier: PaidTier; price: string; credits: number; tagline
     bullets: [
       fmtPosts(ENTITLEMENTS.essentials.maxPosts, ENTITLEMENTS.essentials.videoEnabled),
       'No watermark',
-      'Video capture',
+      formatVideoLength(ENTITLEMENTS.essentials.videoMaxSec),
       'AI studio (basic)',
       fmtRetention(ENTITLEMENTS.essentials.retentionDays),
       '20 credits included',
@@ -49,6 +49,7 @@ export const PACKAGES: { tier: PaidTier; price: string; credits: number; tagline
     bullets: [
       'Everything in Essentials',
       fmtPosts(ENTITLEMENTS.premium.maxPosts, ENTITLEMENTS.premium.videoEnabled),
+      formatVideoLength(ENTITLEMENTS.premium.videoMaxSec),
       'Standard photo cards',
       fmtRetention(ENTITLEMENTS.premium.retentionDays),
       '100 credits included',
@@ -61,6 +62,7 @@ export const PACKAGES: { tier: PaidTier; price: string; credits: number; tagline
     tagline: 'The full experience',
     bullets: [
       'Everything in Premium',
+      formatVideoLength(ENTITLEMENTS.deluxe.videoMaxSec),
       'Premium MP4 card render',
       fmtRetention(ENTITLEMENTS.deluxe.retentionDays),
       '130 credits included',

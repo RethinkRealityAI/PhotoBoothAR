@@ -29,7 +29,7 @@ import {
   visibleHostNav, visibleStudioTabs, guestCapabilities,
   type FeatureSet, type HostNavKey, type StudioTabKey,
 } from '../../lib/features';
-import { formatPostCap, formatRetention } from '../../lib/plans';
+import { formatPostCap, formatRetention, formatVideoLength } from '../../lib/plans';
 
 const HOST_NAV_META: Record<HostNavKey, { label: string; Icon: LucideIcon }> = {
   events: { label: 'Events', Icon: CalendarRange },
@@ -151,6 +151,11 @@ export default function FeaturePreview({ features }: { features: FeatureSet }) {
               <p className="font-sans text-[11px] text-brand-fg/80">
                 {formatPostCap(caps.postCap, caps.video)}
               </p>
+              {caps.video && (
+                <p className="font-sans text-[11px] text-brand-fg/80">
+                  {formatVideoLength(caps.videoMaxSec)}
+                </p>
+              )}
               <p className="font-sans text-[11px] text-brand-fg/80">
                 {formatRetention(caps.retentionDays)}
               </p>

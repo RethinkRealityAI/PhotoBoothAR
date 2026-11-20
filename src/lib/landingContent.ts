@@ -243,12 +243,12 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
       q: 'What if the venue wifi is patchy?',
       a: 'The magic runs on each guest’s device, so only the finished photo needs to upload — it works on cellular data, and you moderate what hits the wall from your phone.',
     },
-    // The numbers below mirror ENTITLEMENTS.free (maxPosts 25, retentionDays 7),
+    // The numbers below mirror ENTITLEMENTS.free (maxPosts 25, videoMaxSec 30, retentionDays 7),
     // the billing catalogue (029: $49 Essentials, $79/mo Pro) and
     // ai-generate-image's FREE_IMAGES_PER_EVENT = 3.
     {
       q: 'What does it cost?',
-      a: `${BETA_FREE ? 'Nothing during the beta — no credit card needed. After the beta: ' : ''}Start free — one event, up to 25 photos, kept 7 days. Paid packages start at $49 per event; Beamwall Pro is $79/month for frequent hosts. AI frames: 3 free per event, then credits.`,
+      a: `${BETA_FREE ? 'Nothing during the beta — no credit card needed. After the beta: ' : ''}Start free — one event, up to 25 photos and 30-second videos, kept 7 days. Paid packages start at $49 per event; Beamwall Pro is $79/month for frequent hosts. AI frames: 3 free per event, then credits.`,
     },
     ...(BETA_FREE
       ? [
