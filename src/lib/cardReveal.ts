@@ -132,36 +132,77 @@ export function envelopeStage(vw: number, vh: number): EnvelopeStage {
 // ── Curtain (grand reveal) ────────────────────────────────────────────────
 
 export interface CurtainBeats {
-  /** The seam of light between the doors blazes. */
+  /** A beam of light slices down the seam between the curtains. */
   blaze: RevealBeat;
-  /** The doors swing apart like stage doors. */
+  /** The satin curtains draw apart onto the light. */
   doors: RevealBeat;
   /** The 3D card floats, free to be dragged — "Read your card" ends it early. */
   float: RevealBeat;
-  /** The card squares up to the camera and the camera dollies in. */
+  /** The card turns to its cover side and the camera dollies in. */
   dolly: RevealBeat;
   /** A held beat on the card face, then onDone. */
   hold: RevealBeat;
 }
 
 const CURTAIN_NORMAL: CurtainBeats = {
-  blaze: { at: 0, dur: 0.45 },
-  doors: { at: 0.25, dur: 1.3 },
-  float: { at: 0.9, dur: 1.9 },
-  dolly: { at: 2.8, dur: 1.35 },
-  hold: { at: 4.15, dur: 0.25 },
+  blaze: { at: 0, dur: 0.5 },
+  doors: { at: 0.35, dur: 1.9 },
+  float: { at: 1.25, dur: 1.95 },
+  dolly: { at: 3.2, dur: 1.4 },
+  hold: { at: 4.6, dur: 0.45 },
 };
 
 const CURTAIN_REDUCED: CurtainBeats = {
-  blaze: { at: 0, dur: 0.5 },
-  doors: { at: 0.3, dur: 1.5 },
-  float: { at: 1.1, dur: 1.8 },
-  dolly: { at: 2.9, dur: 1.6 },
-  hold: { at: 4.5, dur: 0.25 },
+  blaze: { at: 0, dur: 0.55 },
+  doors: { at: 0.4, dur: 2.2 },
+  float: { at: 1.4, dur: 1.9 },
+  dolly: { at: 3.3, dur: 1.7 },
+  hold: { at: 5.0, dur: 0.45 },
 };
 
 export function curtainBeats(reducedMotion: boolean): CurtainBeats {
   return reducedMotion ? CURTAIN_REDUCED : CURTAIN_NORMAL;
+}
+
+/** 0 before the beat, 1 after it, linear in between. */
+export function beatProgress(beat: RevealBeat, t: number): number {
+  if (!(beat.dur > 0)) return t >= beat.at ? 1 : 0;
+  return Math.min(1, Math.max(0, (t - beat.at) / beat.dur));
+}
+
+export const easeInOutCubic = (x: number): number =>
+  x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+
+export const easeOutCubic = (x: number): number => 1 - Math.pow(1 - x, 3);
+
+/**
+ * "Read your card" pressed at `readAt` (s after the tap, or null) pulls the
+ * dolly forward — but never before the card has floated into view.
+ */
+export function curtainDollyStart(beats: CurtainBeats, readAt: number | null): number {
+  if (readAt === null || !Number.isFinite(readAt)) return beats.dolly.at;
+  const earliest = beats.float.at + 0.4;
+  return Math.max(earliest, Math.min(beats.dolly.at, readAt));
+}
+
+/**
+ * Where the camera must stand (looking straight down −z at a card centred on
+ * the origin) for a card `cardH` world units tall to cover `rect` on a
+ * screen `vh` px tall: distance `z`, and a vertical offset `y` that puts the
+ * card's centre where the rect's centre is.
+ */
+export function dollyTarget(
+  cardH: number,
+  fovDeg: number,
+  rect: Rect,
+  vh: number,
+): { z: number; y: number } {
+  const half = Math.tan(((fovDeg * Math.PI) / 180) / 2);
+  const frac = rect.h / Math.max(1, vh);
+  const z = cardH / (Math.max(0.01, frac) * 2 * half);
+  const worldPerPx = (2 * z * half) / Math.max(1, vh);
+  const offsetPx = rect.y + rect.h / 2 - vh / 2; // + = below the screen's centre
+  return { z, y: offsetPx * worldPerPx };
 }
 
 // ── Hand-off rectangle ────────────────────────────────────────────────────

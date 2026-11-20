@@ -2,12 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   REVEAL_MAX_S,
   REVEAL_MIN_S,
+  beatProgress,
   beatsEnd,
   burstMotes,
   collageRects,
   coverCrop,
   curtainBeats,
+  curtainDollyStart,
+  dollyTarget,
   dragTilt,
+  easeInOutCubic,
+  easeOutCubic,
   envelopeBeats,
   envelopeStage,
   handoffCardRect,
@@ -61,6 +66,55 @@ describe('reveal choreography stays inside the contract', () => {
   it('reduced motion is never a skip: every beat still has real duration', () => {
     for (const beats of [envelopeBeats(true), curtainBeats(true)]) {
       for (const b of Object.values(beats)) expect(b.dur).toBeGreaterThan(0.2);
+    }
+  });
+});
+
+describe('curtain timing helpers', () => {
+  it('beatProgress clamps and is linear inside the beat', () => {
+    const b = { at: 1, dur: 2 };
+    expect(beatProgress(b, 0)).toBe(0);
+    expect(beatProgress(b, 2)).toBe(0.5);
+    expect(beatProgress(b, 9)).toBe(1);
+    expect(beatProgress({ at: 1, dur: 0 }, 1)).toBe(1);
+  });
+  it('the eases start at 0, end at 1, and are monotonic', () => {
+    for (const ease of [easeInOutCubic, easeOutCubic]) {
+      expect(ease(0)).toBe(0);
+      expect(ease(1)).toBe(1);
+      let prev = 0;
+      for (let i = 1; i <= 20; i++) {
+        const v = ease(i / 20);
+        expect(v).toBeGreaterThanOrEqual(prev);
+        prev = v;
+      }
+    }
+  });
+  it('"Read your card" pulls the dolly forward, never before the card is up', () => {
+    const b = curtainBeats(false);
+    expect(curtainDollyStart(b, null)).toBe(b.dolly.at);
+    expect(curtainDollyStart(b, 2)).toBe(2);
+    expect(curtainDollyStart(b, 0.1)).toBeCloseTo(b.float.at + 0.4);
+    expect(curtainDollyStart(b, 99)).toBe(b.dolly.at);
+    expect(curtainDollyStart(b, Number.NaN)).toBe(b.dolly.at);
+  });
+});
+
+describe('dollyTarget', () => {
+  it('puts a card exactly on the cover rect (projected back)', () => {
+    for (const [vw, vh] of [
+      [390, 844],
+      [1440, 900],
+    ] as const) {
+      const rect = handoffCardRect(vw, vh);
+      const fov = 35;
+      const { z, y } = dollyTarget(2.4, fov, rect, vh);
+      const half = Math.tan((fov * Math.PI) / 360);
+      // projected height in px
+      expect((2.4 / (2 * z * half)) * vh).toBeCloseTo(rect.h, 6);
+      // the card's centre lands on the rect's centre
+      const pxPerWorld = vh / (2 * z * half);
+      expect(vh / 2 + y * pxPerWorld).toBeCloseTo(rect.y + rect.h / 2, 6);
     }
   });
 });
