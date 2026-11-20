@@ -78,7 +78,7 @@ describe('beamyAssets', () => {
       const glb = readFileSync(pub(l.url));
       expect(glb.readUInt32LE(0), l.url).toBe(0x46546c67); // 'glTF'
       const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8')) as {
-        materials?: { pbrMetallicRoughness?: { baseColorTexture?: unknown; baseColorFactor?: number[] } }[];
+        materials?: { name?: string; pbrMetallicRoughness?: { baseColorTexture?: unknown; baseColorFactor?: number[]; metallicFactor?: number; metallicRoughnessTexture?: unknown }; extras?: { beamyEnv?: unknown } }[];
         meshes?: { primitives: { material?: number }[] }[];
       };
       const mats = json.materials ?? [];
@@ -89,6 +89,14 @@ describe('beamyAssets', () => {
         const pbr = m.pbrMetallicRoughness ?? {};
         const c = pbr.baseColorFactor ?? [1, 1, 1, 1];
         expect(pbr.baseColorTexture !== undefined || c.slice(0, 3).some((v) => v < 0.99), l.url).toBe(true);
+        // A bare polished metal (the silver crown, the gold chain and filigree)
+        // reflects its surroundings and has no colour of its own to show: the
+        // stage has no environment, so it must ask for one (BeamyStage
+        // litProps answers glTF extras `beamyEnv`), or it renders black.
+        if ((pbr.metallicFactor ?? 1) >= 0.9 && pbr.metallicRoughnessTexture === undefined) {
+          expect(m.extras?.beamyEnv, `${l.url} ${m.name ?? ''}`).toBeTypeOf('number');
+          expect(Number(m.extras?.beamyEnv), `${l.url} ${m.name ?? ''}`).toBeGreaterThan(0);
+        }
       }
       // Earrings are a split pair: they say how far apart his hooks are.
       if (l.id === 'ar-earrings') expect(l.fit?.pair, l.id).toBeGreaterThan(0);

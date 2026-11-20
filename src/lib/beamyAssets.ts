@@ -117,13 +117,18 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     // One premium piece per kind a host can add: crown, hat, necklace,
     // earrings, glasses, mask, face paint. Every one carries real materials
     // (beamyAssets.test.ts reads each GLB). Library pieces are fitted to his
-    // shape here; the crown, mask and face paint are baked for him (scripts/
-    // bake-royal-crown.mjs, bake-beamy-masquerade.mjs, bake-beamy-face-paint.mjs).
+    // shape here; the crown, necklace, mask and face paint are baked for him
+    // (scripts/bake-silver-crown.mjs: the hero's old Royal crown in polished
+    // silver with seated gems; bake-beamy-necklace.mjs: a gold chain that
+    // wraps round his body; bake-beamy-mask.mjs: a porcelain full-face
+    // Venetian mask on his face; bake-beamy-face-paint.mjs). Their metals
+    // carry glTF extras `beamyEnv`, which BeamyStage answers with studio
+    // reflections.
     // The hat's brim rests where his head is as wide as its crown, so it
     // sits ON him (seated lower, its crown sank into his head). The stage
     // draws props over the frame, so a hat may rise onto its masthead.
-    // He has no neck or ears: the necklace hangs on his chest from under his
-    // mouth and the earrings hang at his sides at eye height (a split pair,
+    // He has no neck or ears: the necklace's chain rests round his body,
+    // dipping under his mouth, and the earrings hang at his sides at eye height (a split pair,
     // `pair`), forward enough that the far one still shows when he turns (the
     // How it works step yaws him about 26 degrees).
     { id: 'ar-crown', name: 'Royal crown', category: 'prop', url: `${P}silver-crown.glb`, fit: { width: 0.4, at: [0, 0.29, 0], align: 'base' } },
@@ -131,7 +136,8 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     { id: 'ar-necklace', name: 'Emerald necklace', category: 'prop', url: `${P}beamy-necklace.glb`, fit: { width: 0.545, at: [0, 0.132, 0.015], align: 'centre' } },
     { id: 'ar-earrings', name: 'Garnet earrings', category: 'prop', url: `${P}garnet-earrings.glb`, fit: { width: 0.042, pair: 0.4, at: [0, 0.15, 0.135], align: 'centre' } },
     { id: 'ar-aviators', name: 'Aviators', category: 'prop', url: `${P}aviator-glasses.glb`, fit: { width: 0.42, at: [0, 0.235, -0.01], align: 'centre' } },
-    { id: 'ar-masquerade', name: 'Gold masquerade', category: 'prop', url: `${P}beamy-masquerade.glb`, fit: { width: 0.574, at: [0, 0.267, 0.102], align: 'centre' } },
+    // The id stays (the picker's selection and the tests key on it); the piece is now a full-face mask.
+    { id: 'ar-masquerade', name: 'Venetian mask', category: 'prop', url: `${P}beamy-mask.glb`, fit: { width: 0.431, at: [0, 0.231, 0.126], align: 'centre' } },
     { id: 'ar-facepaint', name: 'Butterfly face paint', category: 'prop', url: `${P}beamy-face-paint.glb`, fit: { width: 0.54, at: [0, 0.255, 0.09], align: 'centre' } },
     { id: 'ar-prismatic', name: 'Prismatic', category: 'filter', url: 'tint:prismatic' },
     { id: 'ar-aurora', name: 'Aurora', category: 'filter', url: 'tint:#34D399' },
