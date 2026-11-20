@@ -48,9 +48,6 @@ export interface CardRow {
   delivery_state?: string | null;
   delivery_error?: string | null;
   delivered_at?: string | null;
-  /** How the card arrives — reveal / email style / look (migration 049,
-   *  lib/cardPresentation.ts). Absent on rows read before it. */
-  presentation?: Record<string, unknown>;
   /** Filled by listCards via a nested count. */
   contribution_count?: number;
 }
@@ -95,9 +92,6 @@ export interface CardViewData {
    *  finished render. Absent/null whenever there is none (or signing failed),
    *  so the viewer's film affordance simply doesn't appear. */
   filmUrl?: string | null;
-  /** Host's presentation choice (lib/cardPresentation.ts normalises it).
-   *  Absent from a card-view deployment older than migration 049. */
-  presentation?: Record<string, unknown>;
 }
 
 export interface CardViewContribution {
@@ -261,9 +255,6 @@ export interface UpdateCardInput {
   title?: string;
   recipientName?: string | null;
   recipientEmail?: string | null;
-  /** Reveal / email style / look (lib/cardPresentation.ts). Like `template`,
-   *  it restyles an already-published card the next time it is opened. */
-  presentation?: Record<string, unknown>;
 }
 
 /**
@@ -281,7 +272,6 @@ export async function updateCard(cardId: string, patch: UpdateCardInput): Promis
   if (patch.title !== undefined) row.title = patch.title.trim();
   if (patch.recipientName !== undefined) row.recipient_name = patch.recipientName?.trim() || null;
   if (patch.recipientEmail !== undefined) row.recipient_email = patch.recipientEmail?.trim() || null;
-  if (patch.presentation !== undefined) row.presentation = patch.presentation;
   if (Object.keys(row).length === 0) return null;
 
   const { data, error } = await supabase

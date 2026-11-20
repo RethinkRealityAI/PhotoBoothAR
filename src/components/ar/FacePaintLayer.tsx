@@ -39,8 +39,7 @@ import { getTrackedFaceMesh, getTrackedFaceMeshTopology, getTrackedFrameSource }
 import { FACE_LANDMARKS, faceFrameFromUvs, frameUvFromNdc, mirrorPairs, outerRingDistance } from '../../lib/facePaint/features';
 import { FACE_PAINT_DESIGN_MAP } from '../../lib/facePaint/designs';
 import { paintFacePaint, type LogoImage } from '../../lib/facePaint/painter';
-import { facePaintKey, hasFacePaintPigment, isSafeLogoUrl, type FacePaintSpec } from '../../lib/facePaint/spec';
-import ContactLensLayer from './ContactLensLayer';
+import { facePaintKey, isSafeLogoUrl, type FacePaintSpec } from '../../lib/facePaint/spec';
 
 /** Texture side. 1024 keeps strokes crisp at a 1080×1920 capture (the face is ~600px wide there). */
 export const FACE_PAINT_TEXTURE_PX = 1024;
@@ -403,12 +402,9 @@ export default function FacePaintLayer({
 
   return (
     <group ref={group} visible={false}>
-      {/* A contacts-only look has no pigment: skip the (empty) paint mesh. */}
-      {built && hasFacePaintPigment(spec) && (
+      {built && (
         <mesh ref={meshRef} geometry={built.geometry} material={material} renderOrder={-3} frustumCulled={false} />
       )}
-      {/* Coloured Contacts ride this tracked group (same pose, same "fresh mesh or hidden" rule). */}
-      {built && spec.eyes && <ContactLensLayer spec={spec.eyes} videoId={videoId} mirror={mirror} />}
     </group>
   );
 }

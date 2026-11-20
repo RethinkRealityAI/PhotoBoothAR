@@ -177,13 +177,6 @@ interface Props {
    * default: only the platform booth opts in.
    */
   multiFace?: boolean;
-  /**
-   * DOM id of the wrapper a StageCanvas finds this canvas by (`threeCanvasId`).
-   * Only a SECOND composited stage on the same page needs its own (the contacts
-   * builder's live tab sits over the studio stage, which may itself be in
-   * Preview). Absent ⇒ 'booth-3d-layer', as always.
-   */
-  layerId?: string;
 }
 
 const noFaceSlots = () => 0;
@@ -253,7 +246,7 @@ function AnimatedPiece({ animation, reveal, pulse, children }: { animation?: Lay
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false, multiFace = false, layerId = 'booth-3d-layer' }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false, multiFace = false }: Props) {
   // Extra faces 8th Wall can track right now (0 unless opted in AND a multi-face
   // 8th Wall engine is the active pose engine on a platform session).
   const extraSlots = useSyncExternalStore(
@@ -277,7 +270,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
     ? firstOptIn
     : (occlude && headPieces ? headPieces.findIndex((p) => p.facePaint === undefined) : -1);
   return (
-    <div id={layerId} className="absolute inset-0 pointer-events-none z-20" style={composited ? { opacity: 0 } : undefined}>
+    <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20" style={composited ? { opacity: 0 } : undefined}>
       <Canvas
         camera={{ position: RIG_CAMERA.position, fov: RIG_CAMERA.fov, near: RIG_CAMERA.near, far: RIG_CAMERA.far }}
         dpr={dpr}

@@ -34,58 +34,6 @@ function TemplateMini({ id, active }: { id: string; active: boolean }) {
       </span>
     );
   }
-  if (id === 'constellation') {
-    // Tiles scattered on a sphere, joined by threads of light.
-    const stars: Array<[number, number, number]> = [
-      [18, 30, 1], [40, 18, 0.8], [62, 34, 1.2], [82, 20, 0.7], [30, 66, 0.9], [56, 72, 1], [78, 60, 0.8],
-    ];
-    const threads: Array<[number, number]> = [[0, 1], [1, 2], [2, 3], [0, 4], [4, 5], [5, 2], [5, 6], [6, 3]];
-    return (
-      <svg viewBox="0 0 100 90" className="h-full w-full" aria-hidden>
-        {threads.map(([a, b]) => (
-          <line
-            key={`${a}-${b}`}
-            x1={stars[a][0]}
-            y1={stars[a][1]}
-            x2={stars[b][0]}
-            y2={stars[b][1]}
-            stroke={ink}
-            strokeWidth="0.8"
-            opacity="0.7"
-          />
-        ))}
-        {stars.map(([x, y, k], i) => (
-          <rect
-            key={i}
-            x={x - 5 * k}
-            y={y - 6.5 * k}
-            width={10 * k}
-            height={13 * k}
-            rx={2}
-            fill={i === 2 ? ink : soft}
-            stroke={ink}
-            strokeWidth="0.6"
-          />
-        ))}
-      </svg>
-    );
-  }
-  if (id === 'polaroid') {
-    // Two tilted prints with wide bottom lips.
-    return (
-      <span className="relative flex h-full w-full items-center justify-center" aria-hidden>
-        {[-9, 7].map((r, i) => (
-          <span
-            key={r}
-            className="absolute h-[78%] w-[30%] rounded-[2px] p-[3px] pb-[9px]"
-            style={{ background: i === 1 ? ink : soft, transform: `translateX(${i === 0 ? -22 : 22}%) rotate(${r}deg)` }}
-          >
-            <span className="block h-full w-full rounded-[1px]" style={{ background: 'rgba(5,6,11,0.55)' }} />
-          </span>
-        ))}
-      </span>
-    );
-  }
   if (id === 'carousel') {
     // A ring seen at an angle: the front card upright, its neighbours receding.
     return (
@@ -154,16 +102,18 @@ export default function TemplatePicker({
             </span>
             <span className="flex items-center gap-1.5">
               <span
-                className="font-serif text-[14px] font-medium"
+                className="font-label uppercase tracking-luxe text-[10px]"
                 style={{ color: active ? 'var(--color-accent)' : 'var(--color-brand-fg)' }}
               >
                 {t.name}
               </span>
               {defaultId === t.id && (
-                <span className="rounded-full bg-white/10 px-1.5 text-[12px] text-brand-muted/80">Default</span>
+                <span className="font-label uppercase tracking-luxe text-[8px] text-brand-muted/50">
+                  default
+                </span>
               )}
             </span>
-            <span className="font-sans text-[12px] leading-snug text-brand-muted/80">{t.blurb}</span>
+            <span className="font-sans text-[11px] leading-snug text-brand-muted/70">{t.blurb}</span>
           </button>
         );
       })}

@@ -8,11 +8,8 @@
  * is exposed).
  *
  * POST { publicId }
- * 200 → { card: { title, recipientName, template, theme, presentation,
- *                 publishedAt, eventName, filmUrl? },
- *       (`presentation` = cards.presentation from migration 049, verbatim; the
- *        viewer normalises it — DEPLOY ONLY AFTER 049 IS APPLIED, or the
- *        select names a missing column and every card 500s)
+ * 200 → { card: { title, recipientName, template, theme, publishedAt, eventName,
+ *                 filmUrl? },
  *         contributions: [{ id, contributorName, message, mediaType,
  *                           durationSeconds, url, sortOrder }] }
  *       (approved && !hidden only, ordered by sort_order then created_at;
@@ -124,7 +121,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: card, error: cardErr } = await sb
       .from('cards')
-      .select('id, event_id, title, recipient_name, template, theme, presentation, status, published_at')
+      .select('id, event_id, title, recipient_name, template, theme, status, published_at')
       .eq('public_id', publicId)
       .maybeSingle();
     if (cardErr) throw cardErr;
@@ -177,7 +174,6 @@ Deno.serve(async (req: Request) => {
         recipientName: card.recipient_name,
         template: card.template,
         theme: card.theme ?? {},
-        presentation: card.presentation ?? {},
         publishedAt: card.published_at,
         eventName: (event?.name as string | undefined) ?? null,
         ...(filmUrl ? { filmUrl } : {}),

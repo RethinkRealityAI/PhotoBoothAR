@@ -42,7 +42,6 @@ import {
   FACE_PAINT_PLACEMENTS,
   FACE_PAINT_PROCEDURAL_ID,
   facePaintKey,
-  hasFacePaintPigment,
   normalizeHex,
   type FacePaintPlacement,
   type FacePaintSpec,
@@ -179,18 +178,8 @@ export default function FacePaintBuilder({ eventId, dispatch, draft, onClose, on
     [draft],
   );
 
-  // A contacts-only face layer has no paint yet: start from the default look
-  // and keep its lenses (they ride the same layer).
-  const existingPainted = existing?.facePaint !== undefined && hasFacePaintPigment(existing.facePaint);
   const [spec, setSpec] = useState<FacePaintSpec>(() =>
-    existing?.facePaint && existingPainted
-      ? existing.facePaint
-      : {
-          design: 'game-day',
-          colors: defaultColorsFor('game-day', theme),
-          opacity: FACE_PAINT_OPACITY.default,
-          ...(existing?.facePaint?.eyes ? { eyes: existing.facePaint.eyes } : {}),
-        });
+    existing?.facePaint ?? { design: 'game-day', colors: defaultColorsFor('game-day', theme), opacity: FACE_PAINT_OPACITY.default });
   const initialRef = useRef(spec);
   const touched = facePaintKey(spec) !== facePaintKey(initialRef.current);
   const [logo, setLogo] = useState<LogoImage | null>(null);
@@ -237,7 +226,7 @@ export default function FacePaintBuilder({ eventId, dispatch, draft, onClose, on
     }
   };
 
-  const paintable = hasFacePaintPigment(spec);
+  const paintable = spec.design !== 'none' || spec.logo !== undefined;
   const plan = draft && !existing ? planSlotAdd(draft, [{}], 'both') : null;
   const full = plan !== null && !plan.fits;
 
@@ -265,10 +254,8 @@ export default function FacePaintBuilder({ eventId, dispatch, draft, onClose, on
 
   if (typeof document === 'undefined') return null;
 
-  // data-platform: a portal leaves the studio's themed chrome, and <html> wears
-  // the EVENT's theme here, so the dialog opts back into the platform look.
   return createPortal(
-    <div data-platform data-surface="night" className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
       <div
         ref={panelRef}
         {...dialogProps}
@@ -469,10 +456,8 @@ export default function FacePaintBuilder({ eventId, dispatch, draft, onClose, on
             />
 
             <p className="font-sans text-[10px] text-brand-muted/50 leading-relaxed">
-              {existingPainted
+              {existing
                 ? 'This scene already has face paint — your changes update it.'
-                : existing
-                  ? 'The paint joins this scene’s contacts layer, so the two show and hide together.'
                 : 'Adds one face-paint layer you can rename, hide or delete like any other.'}
             </p>
           </div>
@@ -509,7 +494,7 @@ export default function FacePaintBuilder({ eventId, dispatch, draft, onClose, on
               className="pressable flex-1 flex items-center justify-center gap-1.5 min-h-11 px-3 bg-foil text-[color:var(--on-accent)] rounded-xl font-bold text-[10px] font-label uppercase tracking-widest disabled:opacity-40 glow-accent transition"
             >
               <Sparkles className="w-3.5 h-3.5 shrink-0" />
-              {existingPainted ? 'Update face paint' : 'Add to scene'}
+              {existing ? 'Update face paint' : 'Add to scene'}
             </button>
           </div>
         </div>

@@ -37,7 +37,7 @@
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowRight, Boxes, Check, ChevronDown, ChevronRight, Crown, Eye, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Palette, Search, Sparkles, Sun, Upload, Wand2, X, Zap as ZapIcon, type LucideIcon } from 'lucide-react';
+import { ArrowRight, Boxes, Check, ChevronDown, ChevronRight, Crown, FileStack, Gem, Glasses, Image as ImageIcon, Loader2, Palette, Search, Sparkles, Sun, Upload, Wand2, X, Zap as ZapIcon, type LucideIcon } from 'lucide-react';
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES, HEAD_PIECE_MAP } from '../../lib/headPieces';
@@ -94,7 +94,6 @@ import {
 const Text3DBuilder = lazy(() => import('./Text3DBuilder'));
 const PowerFxBuilder = lazy(() => import('./PowerFxBuilder'));
 const FacePaintBuilder = lazy(() => import('./FacePaintBuilder'));
-const ContactsBuilder = lazy(() => import('./ContactsBuilder'));
 
 /** Power-Up modal per registry id (lib/studio/addOns.ts). Both share the same
  *  props contract, so future add-ons register here with one line each. */
@@ -102,10 +101,9 @@ const ADDON_VIEWS = {
   'power-fx': PowerFxBuilder,
   'name-jewelry': Text3DBuilder,
   'face-paint': FacePaintBuilder,
-  contacts: ContactsBuilder,
 } as const;
 /** lucide icons for the React-free registry's icon names. */
-const ADDON_ICONS: Record<string, LucideIcon> = { Zap: ZapIcon, Gem, Palette, Eye };
+const ADDON_ICONS: Record<string, LucideIcon> = { Zap: ZapIcon, Gem, Palette };
 
 interface Props {
   state: StudioState;

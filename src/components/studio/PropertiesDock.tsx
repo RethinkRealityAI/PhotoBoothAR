@@ -77,8 +77,7 @@ import {
 import { HOST_LIGHTING_PRESETS, type LightingPresetId } from '../../lib/studio/lighting';
 import { alignTransform, snapRotation, stepRotation, type AlignAction } from '../../lib/studio/align';
 import { HEAD_PIECE_MAP } from '../../lib/headPieces';
-import { FACE_PAINT_OPACITY, hasFacePaintPigment } from '../../lib/facePaint/spec';
-import { CONTACT_OPACITY } from '../../lib/contacts/spec';
+import { FACE_PAINT_OPACITY } from '../../lib/facePaint/spec';
 import {
   DEFAULT_TRANSFORM,
   MAX_OBJECTS,
@@ -2021,14 +2020,12 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                 layer); only the strength is a quick tweak here. */}
             {sel3D && sel3D.facePaint !== undefined && (
               <div className="flex flex-col gap-3">
-                <SectionLabel>{hasFacePaintPigment(sel3D.facePaint) ? 'Face paint' : 'Contacts'}</SectionLabel>
+                <SectionLabel>Face paint</SectionLabel>
                 <p className="font-sans text-[11px] leading-snug text-brand-muted/70">
-                  {hasFacePaintPigment(sel3D.facePaint)
-                    ? 'Painted onto the guest\'s face and moves with it, so there is nothing to place. To change the look or logo, open Power-Ups, then Face Paint.'
-                    : 'Lenses that follow the guest\'s eyes, so there is nothing to place. To change the style or colour, open Power-Ups, then Coloured Contacts.'}
+                  Painted onto the guest's face and moves with it, so there is nothing to place. To change the look or logo, open Power-Ups, then Face Paint.
                 </p>
                 {/* Driven in whole percent so the typed field reads "88", like the slider's "88%". */}
-                {hasFacePaintPigment(sel3D.facePaint) && <SliderRow
+                <SliderRow
                   label="Paint strength"
                   numericLabel="Paint strength (%)"
                   value={Math.round(sel3D.facePaint.opacity * 100)}
@@ -2038,22 +2035,9 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                   defaultValue={Math.round(FACE_PAINT_OPACITY.default * 100)}
                   format={(v) => `${Math.round(v)}%`}
                   onChange={(v) => dispatch({ type: 'UPDATE_OBJECT', id: sel3D.id, patch: { facePaint: { ...sel3D.facePaint!, opacity: v / 100 } } })}
-                />}
-                {sel3D.facePaint.eyes && (
-                  <SliderRow
-                    label="Lens strength"
-                    numericLabel="Lens strength (%)"
-                    value={Math.round(sel3D.facePaint.eyes.opacity * 100)}
-                    min={Math.round(CONTACT_OPACITY.min * 100)}
-                    max={Math.round(CONTACT_OPACITY.max * 100)}
-                    step={5}
-                    defaultValue={Math.round(CONTACT_OPACITY.default * 100)}
-                    format={(v) => `${Math.round(v)}%`}
-                    onChange={(v) => dispatch({ type: 'UPDATE_OBJECT', id: sel3D.id, patch: { facePaint: { ...sel3D.facePaint!, eyes: { ...sel3D.facePaint!.eyes!, opacity: v / 100 } } } })}
-                  />
-                )}
+                />
                 <p className="font-sans text-[10px] leading-snug text-brand-muted/50">
-                  Face paint and contacts use our advanced face tracker. On the few phones that can’t run it, guests get the rest of your scene without them, and the stage shows “Paint not shown”.
+                  Face paint uses our advanced face tracker. On the few phones that can’t run it, guests get the rest of your scene without the paint, and the stage shows “Paint not shown”.
                 </p>
               </div>
             )}

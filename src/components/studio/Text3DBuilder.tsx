@@ -300,10 +300,8 @@ export default function Text3DBuilder({ eventId, dispatch, draft, onClose, onUpl
   // breakpoint, and any non-`none` transform makes that aside the containing
   // block for `position: fixed` children — an in-place overlay would be
   // clipped into a 19rem column instead of covering the screen.
-  // data-platform: a portal leaves the studio's themed chrome, and <html> wears
-  // the EVENT's theme here, so the dialog opts back into the platform look.
   return createPortal(
-    <div data-platform data-surface="night" className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
       <div
         ref={panelRef}
         {...dialogProps}

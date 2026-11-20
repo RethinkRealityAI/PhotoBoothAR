@@ -36,15 +36,12 @@ import {
 } from './features';
 import { ENTITLEMENTS } from './plans';
 import { ADD_ONS } from './studio/addOns';
-import { CONTACT_STYLES } from './contacts/lens';
 import { TRIGGER_SOURCES, type TriggerAction } from './studio/triggers';
 import { MAX_OBJECTS, MAX_TRIGGERS } from './studio/state';
 import { FRAME_LAYOUT_SPEC } from './assetPrompt';
 import { MAX_ACTIONS } from './copilot';
 import { CONTENT_PACKS, PACK_IDS } from './contentPacks';
 import { FACE_PAINT_DESIGNS } from './facePaint/designs';
-import { CARD_TEMPLATE_OPTIONS } from './cardTemplates';
-import { CARD_EMAIL_STYLE_OPTIONS, CARD_LOOK_OPTIONS, CARD_REVEAL_OPTIONS } from './cardPresentation';
 import { GUIDES, GUIDE_COUNTS, GUIDE_COVERAGE, type GuideCoverageEntry } from './guidesContent';
 import type { FeatureHelpTopic } from './studio/featureHelp';
 
@@ -254,45 +251,6 @@ describe('guides counts — the numbers the copy says out loud', () => {
         para!.includes(d.name),
         `The Face Paint guide does not name the "${d.name}" design (src/lib/facePaint/designs.ts). ${FIX}.`,
       ).toBe(true);
-    }
-  });
-
-  it('names every Coloured Contacts style in the paragraph that lists them', () => {
-    const paragraphs = Object.values(GUIDES).flatMap((g) =>
-      g.blocks.flatMap((b) => (b.kind === 'prose' ? b.body : [])),
-    );
-    const para = paragraphs.find((p) => p.startsWith('Coloured Contacts is the fourth'));
-    expect(para, `no Coloured Contacts paragraph found in src/lib/guidesContent.ts. ${FIX}.`).toBeDefined();
-    for (const s of CONTACT_STYLES) {
-      expect(
-        para!.includes(s.name),
-        `The Coloured Contacts guide does not name the "${s.name}" style (src/lib/contacts/lens.ts). ${FIX}.`,
-      ).toBe(true);
-    }
-  });
-
-  it('names every keepsake card style, opening, email style and colour choice', () => {
-    // "How it arrives" is four host-facing closed sets. The keepsake section
-    // lists each option by its label, so a new opening or email style
-    // shipping without copy goes red here, like a Face Paint design does.
-    const block = Object.values(GUIDES)
-      .flatMap((g) => g.blocks)
-      .find((b) => b.kind === 'prose' && b.title === 'Keepsake cards, after the night');
-    expect(block, `no "Keepsake cards, after the night" section in src/lib/guidesContent.ts. ${FIX}.`).toBeDefined();
-    const text = block && block.kind === 'prose' ? block.body.join(' ') : '';
-    const sets: [string, readonly { label: string }[]][] = [
-      ['card style (src/lib/cardTemplates.ts CARD_TEMPLATE_OPTIONS)', CARD_TEMPLATE_OPTIONS],
-      ['opening (src/lib/cardPresentation.ts CARD_REVEAL_OPTIONS)', CARD_REVEAL_OPTIONS],
-      ['email style (src/lib/cardPresentation.ts CARD_EMAIL_STYLE_OPTIONS)', CARD_EMAIL_STYLE_OPTIONS],
-      ['colour choice (src/lib/cardPresentation.ts CARD_LOOK_OPTIONS)', CARD_LOOK_OPTIONS],
-    ];
-    for (const [what, options] of sets) {
-      for (const o of options) {
-        expect(
-          text.includes(o.label),
-          `The keepsake guide does not name the "${o.label}" ${what}. ${FIX}.`,
-        ).toBe(true);
-      }
     }
   });
 });

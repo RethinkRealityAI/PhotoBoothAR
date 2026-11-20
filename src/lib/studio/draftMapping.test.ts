@@ -1026,17 +1026,6 @@ describe('round-trip: face paint', () => {
     expect(JSON.stringify(again.config?.layers?.[0].facePaint)).toBe(JSON.stringify(payload.config?.layers?.[0].facePaint));
   });
 
-  it('a LONE contacts-only face layer saves through config.layers and reloads with its lenses', () => {
-    const eyes = { style: 'cat', colors: ['#d9a514'], opacity: 0.9, size: 1.1 };
-    const o = paintObject({ design: 'none', colors: [], opacity: 0.88, eyes });
-    const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [o], selectedId: o.id };
-    const payload = draftToPayload(draft, resolver({}), null);
-    expect(payload.config?.layers?.[0].facePaint).toEqual({ design: 'none', colors: [], opacity: 0.88, eyes });
-    const back = experienceToDraft(expFromPayload(payload))!.objects[0] as Object3D;
-    expect(back.facePaint?.eyes).toEqual(eyes);
-    expect(layerToPiece(payload.config!.layers![0]).facePaint?.eyes).toEqual(eyes);
-  });
-
   it('a logo stamp survives the round trip; a hostile stored spec is normalized, never rendered raw', () => {
     const withLogo = paintObject({ ...PAINT(), logo: { url: 'https://cdn/brand.png', placement: 'bothCheeks', size: 1.2 } });
     const draft: StudioDraft = { ...initialDraft('3d_attachment'), objects: [withLogo], selectedId: withLogo.id };

@@ -581,7 +581,7 @@ export const GUIDE_COUNTS = {
   maxObjects: 20,
   maxTriggers: 6,
   studioTabs: 8,
-  powerUps: 4,
+  powerUps: 3,
   /** copilot.ts MAX_ACTIONS — the most changes the Copilot proposes in one turn. */
   copilotMaxActions: 5,
   /** contentPacks.ts PACK_IDS — one starter pack per event style. */
@@ -823,9 +823,8 @@ const MAKE_3D_PROPS: GuideDoc = {
       body: [
         `Props get much better when they do something. Magic Triggers watch your guest and fire an effect when they make a gesture: there are ${GUIDE_COUNTS.triggerSources} cues to choose from — smile, open mouth, wink, brow raise, closed fist, open palm, pinch, peace sign and hand-to-temple — and ${GUIDE_COUNTS.triggerActions} things they can set off: a Burst of confetti, an energy Blast, a Reveal that makes a hidden object appear, an Animate that shakes or spins a piece, and a Filter pulse that flashes the whole look.`,
         `You can have up to ${GUIDE_COUNTS.maxTriggers} of these in one scene, and each one waits about 2.5 seconds before it can fire again, so a guest holding a grin does not machine-gun the effect.`,
-        `Four Power-Ups build the fancy versions for you. Power FX pairs a visor, wand or gauntlet with a gesture-fired energy blast that erupts from the prop itself. 3D Name Jewelry turns a name into a necklace, earrings or floating text. All four write ordinary objects back into your scene, so you can keep editing them afterwards. A scene holds up to ${GUIDE_COUNTS.maxObjects} pieces on top of its frame.`,
+        `Three Power-Ups build the fancy versions for you. Power FX pairs a visor, wand or gauntlet with a gesture-fired energy blast that erupts from the prop itself. 3D Name Jewelry turns a name into a necklace, earrings or floating text. All three write ordinary objects back into your scene, so you can keep editing them afterwards. A scene holds up to ${GUIDE_COUNTS.maxObjects} pieces on top of its frame.`,
         `Face Paint is the third: living paint that sits on your guest's actual skin, so it stretches when they smile and stays put when they turn. Pick a look — Game Day stripes, Flag Cheeks, Eye Black, Glitter Freckles, Hearts, Stars, Tiger or Sugar Skull, or one of the party looks: Butterfly, Hero Mask, Rainbow, Lightning Bolt, Unicorn, Cat or Neon Festival — and it starts in your event colours. For the holidays there's a Christmas set too: Candy Cane, Rudolph, Snowflakes, Frost Queen and Gingerbread, which start in their classic festive colours. Unicorn, Neon Festival, Snowflakes and Frost Queen even twinkle on your guest's face, and hold still for anyone who has turned motion off on their phone. Every look is yours to adjust: change any colour, soften it with Paint strength, or stamp your own logo on the left cheek, right cheek, both cheeks or forehead. Press Test on my face to see it on you in the 3D Live view. It reads the right way round in the mirror and in the saved photo. Face paint uses our advanced face tracker. On the few phones that can't run it, guests still get the rest of your scene, just without the paint.`,
-        `Coloured Contacts is the fourth: lenses that follow your guest's eyes, move with every glance and disappear behind a blink, just like real ones. Choose a style — Natural, Vivid, Starburst, Cat Eye, Heart Eyes, Star Eyes, Glow or Full Eye — then pick a colour by name (Sapphire, Emerald, Honey, Violet and more) or any colour you like, and set Lens strength and Lens size. Natural keeps your guest's own pupil and the sparkle in their eye, so it reads like everyday coloured contacts; Glow pulses softly; Full Eye covers the whole eye for a blackout or whiteout costume look. Contacts work on their own or together with Face Paint. The preview has two tabs: Example shows the look on a pair of sample eyes, and Live camera shows it on your own eyes as you change it. Test on my eyes adds the lenses and opens the full stage. They follow one guest at a time and use the same advanced face tracker as Face Paint, so on the few phones that can't run it, guests get the rest of your scene without the lenses.`,
       ],
     },
     {
@@ -957,7 +956,7 @@ const USE_THE_STUDIO: GuideDoc = {
         {
           label: 'Power-Ups',
           value: `${GUIDE_COUNTS.powerUps}`,
-          why: 'Power FX, 3D Name Jewelry, Face Paint and Coloured Contacts — guided builders that write normal objects back into your scene.',
+          why: 'Power FX, 3D Name Jewelry and Face Paint — guided builders that write normal objects back into your scene.',
         },
       ],
     },
@@ -1127,10 +1126,7 @@ const RUN_THE_NIGHT: GuideDoc = {
         'A keepsake card is a shareable page for one person or one couple. Friends and family add photos and messages to it — up to 8 MB per photo, 60 MB and 20 seconds for a video — and it becomes something worth keeping rather than a folder of files.',
         'Friends who open the link can step into the same AR booth your guests use, with frames, sparkle effects and 3D props that follow their face, and take a photo or record a short video message there. A plain camera is one tap away for older phones.',
         'You don’t have to remember the big day either. Pick a date, a time and the time zone you mean it in, and the card closes, publishes itself and lands in the recipient’s inbox right then. Friends can keep adding messages until it goes.',
-        'You choose how it looks, and everyone who opens it sees the same thing. Open a card and find How it arrives. The card style sets how the messages are laid out: Storybook turns page by page, Film strip reads as a reel, Polaroid scatters instant prints with their captions, Carousel spins the photos in a 3D ring, and Constellation sets every photo and video floating in 3D. You can set a default style for the whole event and still change any single card.',
-        'Then pick the opening: the moment the link opens, before the card itself. Envelope breaks a wax seal and lets the light out. Satin ribbon unties a bow. Grand reveal parts the screen like stage doors onto a card floating in 3D. Paper airplane glides in and unfolds. Stardust gathers glowing particles into the card. Pop-up paper springs up in layers that drift as the phone tilts. Straight to the card skips the moment entirely. Each tile says which occasions it suits. The ones marked 3D need a phone that can draw 3D, and on one that cannot, the envelope plays instead, so nobody misses the moment.',
-        'The email that delivers it comes in three styles. Glow is calm and roomy: your title, a glimpse of the photos and one button. Sealed is a closed envelope with a glowing wax seal carrying an initial, and it shows nothing until they open it. Spotlight puts one big photo from the card across the whole email with your title over it. None of them print a greeting or your event’s name, so the title you wrote is the headline. Colours sets whose palette the card and the email wear: Automatic uses your event’s colours when you have set custom branding and the Beamwall look otherwise, Beamwall always uses the soft dusk-blue look, and Event colours always uses yours.',
-        'Press Preview to see it full screen, exactly as they will: the opening, then the card, holding every message that is in it so far, even while friends are still adding to it. Flip the opening, the card style and the colours along the bottom and watch it change. Nothing there is saved until you press Use these. Everything else in How it arrives saves the moment you tap it, and you can still change the opening, style and colours after the card has gone out; the next person to open the link sees your new choice.',
+        'You choose how it looks, and everyone who opens it sees the same thing: Storybook turns page by page, Film strip reads as a reel, and Carousel spins the photos in a 3D ring. You can set a default for the whole event and still change any single card.',
         'When it is full you can render it into a short film, which costs around 30 credits. Guests can also bulk-save everything they appear in from their own gallery, so nobody has to ask you for their photos afterwards.',
       ],
     },
@@ -1386,7 +1382,7 @@ export const GUIDE_COVERAGE: {
     assets: { guide: 'make-a-frame', note: 'Four ways to get your frame — the Studio add-on upload path, and the frame-or-sticker chip.' },
     wall: { guide: 'run-the-night', note: 'Set up the wall — the five modes (Gallery, Carousel, Slideshow, Leaderboard, Projection), Give the wall its own look (Wall design: layouts incl. Grid 3/4/5, transitions, backdrops, light or dark) and the projector link.' },
     challenges: { guide: 'run-the-night', note: 'Challenges give people a reason to keep going, including the AI photo check and its checked/passed counts.' },
-    cards: { guide: 'run-the-night', note: 'Keepsake cards, after the night — How it arrives: the card styles (Storybook, Film strip, Polaroid, Carousel, Constellation), the seven openings, the three email styles, Colours and the full-screen Preview; contribution limits and the film render.' },
+    cards: { guide: 'run-the-night', note: 'Keepsake cards, after the night — the four styles (Storybook, Film strip, Polaroid, Carousel), contribution limits and the film render.' },
     share: { guide: 'first-event', note: 'Five steps to a live booth — Print the signage (QR kit).' },
   },
   hostNav: {
@@ -1399,7 +1395,6 @@ export const GUIDE_COVERAGE: {
     'power-fx': { guide: 'make-3d-props', note: 'Make it react — Power FX pairs a visor/wand/gauntlet with a gesture-fired blast.' },
     'name-jewelry': { guide: 'make-3d-props', note: 'Make it react — 3D Name Jewelry builds a necklace, earrings or floating text from a name.' },
     'face-paint': { guide: 'make-3d-props', note: 'Make it react — Face Paint puts a living look or your logo on the guest\'s skin.' },
-    contacts: { guide: 'make-3d-props', note: 'Make it react — Coloured Contacts puts a lens on each of the guest\'s eyes.' },
   },
   helpTopics: {
     library: { guide: 'make-a-frame', note: 'Four ways to get your frame — the library, uploads and AI Frame Studio.' },

@@ -32,7 +32,6 @@ import {
   Boxes,
   Crown,
   Eye,
-  ScanEye,
   EyeOff,
   GripVertical,
   Hand,
@@ -60,8 +59,7 @@ interface Props {
 
 function objectIcon(o: StudioObject) {
   if (o.type === 'overlay') return o.overlayKind === 'border' ? LayoutTemplate : ImageIcon;
-  // A contacts-only face layer (no pigment) reads as lenses, not paint.
-  if (o.facePaint !== undefined) return o.facePaint.design === 'none' && o.facePaint.logo === undefined ? ScanEye : Palette;
+  if (o.facePaint !== undefined) return Palette;
   return o.type === 'headpiece' ? Crown : Boxes;
 }
 

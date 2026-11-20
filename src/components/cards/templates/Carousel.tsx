@@ -7,135 +7,161 @@
  * "cards").
  *
  * Progress model (see ./types.ts): this stays a PURE function of its props.
- * `index` drives which card faces the viewer — 0 is the cover (the ring
- * drifts behind the title), 1..N focus contribution N-1, and the last index
- * is the closing card. No internal timers and no data fetching.
+ * `index` drives which card faces the viewer — 0 is the cover (the ring sits
+ * back, title over it), 1..N focus contribution N-1, and the last index is the
+ * closing card. No internal timers and no data fetching, so a frame renderer
+ * can drive the same component deterministically.
  *
- * Written notes and videos have no photo to hang on a card, so they get a
- * painted card (noteCanvas.ts: frosted paper, the message in the display
- * face, or a glowing play disc for a clip) rather than being dropped — the
- * caption under the ring plays the video for real.
+ * Text and video contributions have no image to hang on a card, so they get a
+ * generated cover (initial + tint) rather than being dropped: a keepsake whose
+ * ring silently omits half the messages would be worse than one that shows
+ * them as cards you read below.
  *
- * FALLBACK: without WebGL, or when the reader asked for less motion, there is
- * no ring — the template renders the Storybook pages instead, so the keepsake
- * always opens and reads the same.
+ * FALLBACK: without WebGL there is no ring, so the template renders the same
+ * readable stack of contributions the ring would otherwise annotate — the
+ * keepsake always opens.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import PhotoCarousel, { hasWebGL, type CarouselItem } from '../../carousel/PhotoCarousel';
 import { clampIndex, type CardTemplateProps } from './types';
-import Storybook from './Storybook';
-import { ShimmerRim } from './cardChrome';
-import { drawNote, fontsReady, readCardPalette } from './noteCanvas';
-import {
-  CardVideo,
-  ClosingContent,
-  CoverTitle,
-  Message,
-  OpenButton,
-  Pager,
-  Signature,
-  useSwipe,
-} from './cardParts';
+import type { CardViewContribution } from '../../../lib/cards';
 
-export default function Carousel(props: CardTemplateProps) {
-  const { card, contributions, index, onNext, onPrev, reducedMotion = false } = props;
+/**
+ * A card face for a contribution with no image of its own.
+ *
+ * Drawn as an SVG data URL so it costs no network and no canvas: the ring
+ * takes plain urls, and this keeps text contributions first-class on it.
+ */
+function placeholderCard(c: CardViewContribution, i: number): string {
+  const hues = ['#5B8CFF', '#22D3EE', '#E879F9', '#FB923C', '#34D399', '#7C6CF7'];
+  const hue = hues[i % hues.length];
+  const initial = (c.contributorName?.trim()?.[0] ?? '·').toUpperCase();
+  const kind = c.mediaType === 'video' ? 'VIDEO MESSAGE' : 'MESSAGE';
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 270 480">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">` +
+    `<stop offset="0" stop-color="${hue}" stop-opacity="0.32"/>` +
+    `<stop offset="1" stop-color="#05060B" stop-opacity="0.95"/></linearGradient></defs>` +
+    `<rect width="270" height="480" fill="#0B0D16"/>` +
+    `<rect width="270" height="480" fill="url(#g)"/>` +
+    `<text x="135" y="250" text-anchor="middle" font-family="Georgia,serif" font-size="112"` +
+    ` fill="${hue}" fill-opacity="0.9">${initial}</text>` +
+    `<text x="135" y="300" text-anchor="middle" font-family="Arial,sans-serif" font-size="15"` +
+    ` letter-spacing="4" fill="#A9B4CC">${kind}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+export default function Carousel({
+  card, contributions, index, onNext, onPrev, reducedMotion = false,
+}: CardTemplateProps) {
   const safeIndex = clampIndex(index, contributions);
-  const total = contributions.length + 2;
   const isCover = safeIndex === 0;
-  const isEnd = safeIndex === total - 1;
-  const active = !isCover && !isEnd ? contributions[safeIndex - 1] : null;
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const swipe = useSwipe(onNext, onPrev);
-  const interactive = onNext !== undefined || onPrev !== undefined;
+  const isEnd = safeIndex === contributions.length + 1;
+  const active = contributions[safeIndex - 1];
 
-  // Painted cards for notes and videos, keyed by contribution id. Painted
-  // once the display face is ready, in the live palette at this element.
-  const [painted, setPainted] = useState<Record<string, string> | null>(null);
-  useEffect(() => {
-    let alive = true;
-    const palette = readCardPalette(rootRef.current);
-    void fontsReady(palette).then(() => {
-      if (!alive) return;
-      const out: Record<string, string> = {};
-      for (const c of contributions) {
-        if (c.mediaType === 'photo' && c.url) continue;
-        out[c.id] = drawNote(
-          { kind: c.mediaType === 'video' ? 'video' : 'text', message: c.message, name: c.contributorName },
-          palette,
-          540,
-          960,
-        ).toDataURL('image/png');
-      }
-      setPainted(out);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [contributions]);
-
-  const items = useMemo<CarouselItem[] | null>(() => {
-    if (painted === null) return null;
-    return contributions.map((c) => ({
-      id: c.id,
-      url: c.mediaType === 'photo' && c.url ? c.url : (painted[c.id] ?? ''),
-    }));
-  }, [contributions, painted]);
+  const items = useMemo<CarouselItem[]>(
+    () =>
+      contributions.map((c, i) => ({
+        id: c.id,
+        url: c.mediaType === 'photo' && c.url ? c.url : placeholderCard(c, i),
+      })),
+    [contributions],
+  );
 
   // The ring is decorative motion; a reader who asked for less of it, or whose
-  // device has no WebGL, gets the Storybook pages instead.
-  const ringUsable = !reducedMotion && hasWebGL() && contributions.length > 0;
-  if (!ringUsable) return <Storybook {...props} />;
+  // device has no WebGL, gets the contributions as a readable stack instead.
+  const ringUsable = !reducedMotion && hasWebGL() && items.length > 0;
 
   return (
-    <div ref={rootRef} className="relative flex min-h-0 flex-1 flex-col" style={{ touchAction: 'pan-y' }} {...swipe}>
-      {items !== null && (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {ringUsable ? (
         <PhotoCarousel
           items={items}
-          // Cover and close have no contribution to face: hold the first card
-          // and let it drift behind the copy.
+          // Cover and closing pages have no contribution to face; hold the ring
+          // on the first card and let the copy take the foreground.
           focusIndex={isCover || isEnd ? 0 : safeIndex - 1}
-          autoSpin={isCover || isEnd ? 0.12 : 0}
+          autoSpin={isCover ? 0.12 : 0}
           className="absolute inset-0"
         />
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-4">
+          {contributions.map((c) => (
+            <div key={c.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">
+                {c.contributorName || 'Anonymous'}
+              </p>
+              {c.message && <p className="mt-1 font-serif text-sm italic text-brand-fg">“{c.message}”</p>}
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Foreground copy — pointer-events-none so the ring stays draggable,
           with the interactive bits opting back in. */}
-      <div className="pointer-events-none relative flex min-h-0 flex-1 flex-col items-center justify-between px-1 pb-1 pt-3 text-center">
-        {isCover && (
-          <div className="flex w-full flex-col items-center">
-            <CoverTitle card={card} contributions={contributions} size="md" />
+      <div className="pointer-events-none relative flex min-h-0 flex-1 flex-col items-center justify-between py-4 text-center">
+        {isCover ? (
+          <div className="mt-6 flex flex-col items-center">
+            <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
+              {card.eventName ?? 'A keepsake'}
+            </p>
+            <h1 className="mt-2 max-w-md font-serif text-3xl italic leading-tight text-foil-static">
+              {card.title}
+            </h1>
+            {card.recipientName && (
+              <p className="mt-2 font-sans text-sm text-brand-muted/70">for {card.recipientName}</p>
+            )}
+            <p className="mt-4 font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
+              {contributions.length} {contributions.length === 1 ? 'message' : 'messages'} inside
+            </p>
+          </div>
+        ) : isEnd ? (
+          <div className="mt-10 flex flex-col items-center">
+            <h2 className="font-serif text-3xl italic text-foil-static">Fin.</h2>
+            <p className="mt-3 font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
+              Made with Beamwall
+            </p>
+            <Link
+              to="/"
+              className="pointer-events-auto mt-5 rounded-full border border-white/15 px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.06]"
+            >
+              Create your own
+            </Link>
+          </div>
+        ) : (
+          <div className="mt-auto w-full max-w-md rounded-2xl bg-void-900/70 px-5 py-4 backdrop-blur-sm">
+            {active?.message && (
+              <p className="font-serif text-base italic leading-relaxed text-brand-fg">
+                “{active.message}”
+              </p>
+            )}
+            <p className="mt-2 font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">
+              — {active?.contributorName || 'Anonymous'}
+            </p>
           </div>
         )}
-        {isEnd && (
-          <div className="liquid-glass pointer-events-auto mt-2 w-full max-w-md rounded-[1.8rem] px-6 py-8">
-            <ShimmerRim radius="1.8rem" lapS={9} reducedMotion={reducedMotion} />
-            <ClosingContent card={card} contributions={contributions} scratch={interactive} />
-          </div>
-        )}
-        {!isCover && !isEnd && <span aria-hidden />}
 
-        <div className="flex w-full flex-col items-center gap-3">
-          {isCover && (
-            <div className="pointer-events-auto">
-              <OpenButton onClick={onNext} label="Turn the ring" reducedMotion={reducedMotion} />
-            </div>
-          )}
-          {/* A written note is already painted on its card in full — a
-              caption would only repeat it over the card's own words. */}
-          {active && active.mediaType !== 'text' && (
-            <div className="liquid-glass pointer-events-auto w-full max-w-md rounded-[1.6rem] px-5 py-4">
-              <ShimmerRim radius="1.6rem" lapS={9} reducedMotion={reducedMotion} />
-              {active.mediaType === 'video' && active.url && (
-                <CardVideo c={active} compact className="mb-4 aspect-video w-full rounded-2xl" />
-              )}
-              <Message message={active.message} />
-              <Signature name={active.contributorName} className="mt-2" />
-            </div>
-          )}
-          <div className="pointer-events-auto">
-            <Pager page={safeIndex} total={total} onPrev={onPrev} onNext={onNext} />
-          </div>
+        {/* Paging — the viewer owns `index`; these just ask for the next one. */}
+        <div className="pointer-events-auto mt-4 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onPrev}
+            disabled={!onPrev || safeIndex === 0}
+            className="min-h-11 rounded-full border border-white/15 px-4 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.06] disabled:opacity-30"
+          >
+            Prev
+          </button>
+          <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
+            {safeIndex + 1} / {contributions.length + 2}
+          </span>
+          <button
+            type="button"
+            onClick={onNext}
+            disabled={!onNext || isEnd}
+            className="min-h-11 rounded-full border border-white/15 px-4 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.06] disabled:opacity-30"
+          >
+            Next
+          </button>
         </div>
       </div>
     </div>

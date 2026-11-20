@@ -334,10 +334,8 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
 
   if (typeof document === 'undefined') return null;
 
-  // data-platform: a portal leaves the studio's themed chrome, and <html> wears
-  // the EVENT's theme here, so the dialog opts back into the platform look.
   return createPortal(
-    <div data-platform data-surface="night" className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={() => { if (!touched) onClose(); }}>
       <div
         ref={panelRef}
         {...dialogProps}
