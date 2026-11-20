@@ -974,7 +974,7 @@ const FIRST_EVENT: GuideDoc = {
   eyebrow: 'Start here',
   title: 'Your first event, start to finish',
   hook: 'One sentence in, a live booth out. No design skills, no app for your guests to install.',
-  minutes: 7,
+  minutes: 9,
   hue: '#34D399',
   blocks: [
     {
@@ -1033,6 +1033,23 @@ const FIRST_EVENT: GuideDoc = {
       ],
     },
     {
+      kind: 'prose',
+      title: 'Make the guest page yours',
+      body: [
+        'Your welcome page is the first thing a guest sees after scanning the QR code, and it already looks like the night itself: the background is your live photo wall, tilted and made of glass, with the newest photos beaming onto it as they are taken. Before anyone has snapped, the empty tiles lift and glow and the page says "Time to fill the wall", so the first guest knows they can be the first photo up there. Beside your event’s name sits a preview of the booth, and its shutter is the button that takes them in.',
+        'To change how it looks, open your event, go to Settings, then Branding, and find Event page look. Pick a ready-made template, a gradient, a single colour, a photo of your own (the venue, the couple, your logo wall), or one of your booth frames. The phone beside the picker shows what guests get as you click, and nothing changes for them until you press Save look. Reset to default puts it back. The gold line-art look, Gilded, is there if you want it, but it is never chosen for you.',
+        'Underneath sits Page border: None, Glow (a thin rim of light that slowly travels round), Glass (a frosted frame), Film strip (sprocket rails down both sides) or Gilded (fine gold lines with corner flourishes). It stays put when you change the look above it.',
+      ],
+    },
+    {
+      kind: 'prose',
+      title: 'What guests see in the booth',
+      body: [
+        'Inside the booth, every frame, 3D prop and effect you left switched on sits in one strip above the shutter. Guests swipe it and tap a look to try it on, and the next one always peeks in from the edge so it is obvious there are more. Looks combine, so a frame and a crown can go on together.',
+        'Beside the shutter is a More looks button. It opens everything at once, sorted into frames, 3D and effects, which is the quickest way through a big set. The first time a guest opens the booth they get a one-off nudge to swipe, and never again on that phone.',
+      ],
+    },
+    {
       kind: 'callout',
       tone: 'tip',
       title: 'Do this the week before, not the hour before',
@@ -1052,7 +1069,7 @@ const RUN_THE_NIGHT: GuideDoc = {
   eyebrow: 'Show night',
   title: 'Run the night like a pro',
   hook: 'Wall on the big screen, moderation set, someone else on the door — and you get to enjoy your own party.',
-  minutes: 9,
+  minutes: 10,
   hue: '#E879F9',
   blocks: [
     {
@@ -1070,6 +1087,11 @@ const RUN_THE_NIGHT: GuideDoc = {
           title: 'Pick how it shows',
           body: 'Gallery lays every photo out in a grid. Carousel turns a slow 3D ring of them, and a new photo beams straight onto the card at the front. Slideshow gives each one the whole screen in turn. Leaderboard puts the challenge scores up so the room starts competing. Projection mode is the one to use on an actual projector — it drops the interface and goes edge to edge.',
           tip: 'Slideshow reads best on a big screen far from the crowd; Gallery reads best on a TV people can walk up to; Carousel is the one people stop and watch.',
+        },
+        {
+          title: 'Give the wall its own look',
+          body: 'In your event’s Wall tab, open Wall design. Layout sets how the photos fill the screen: Grid, Gallery, Scrolling (rows gliding past in opposite directions), Carousel or Slideshow. Grid comes in 3 × 3, 4 × 4 or 5 × 5 live tiles that turn over one at a time, and you choose how a tile changes: Flip, Fade or Zoom. Backdrop sets what sits behind the photos: your event theme, one of the gradients, a solid colour or an image of your own. Light or dark sets the text, and Auto follows the backdrop you picked. The preview updates as you go, so you can see it before the room does.',
+          tip: 'A dark backdrop reads best on a projector; a light one suits a daytime TV in a bright room.',
         },
         {
           title: 'Open it on the screen itself',
@@ -1112,7 +1134,7 @@ const RUN_THE_NIGHT: GuideDoc = {
       title: 'After the event',
       body: [
         'When the party is over, hit End on the event. The booth shuts to new photos immediately — anyone who scans the QR after that gets your thank-you screen instead of a camera, so give guests their last call before you press it.',
-        'Later, once an old event is just taking up room in Your events, hit Archive. It slides into a collapsed Archived shelf at the bottom of the page and nothing is deleted — the wall, every photo, the keepsake cards and the credits you spent are all exactly where you left them, and one click brings it back.',
+        'Later, once an old event is just taking up room in Your events, open its ⋯ menu and choose Archive. It slides into a collapsed Archived shelf at the bottom of the page and nothing is deleted — the wall, every photo, the keepsake cards and the credits you spent are all exactly where you left them, and one click brings it back.',
       ],
     },
     {
@@ -1268,7 +1290,7 @@ export const GUIDE_COVERAGE: {
     studio: { guide: 'use-the-studio', note: 'What each tab is for — Studio (add-on); the 2D/3D/Preview split and the editor hotspots.' },
     experiences: { guide: 'make-a-frame', note: 'Four ways to get your frame — Pick a ready-made one and Make one with AI, both in the Frames & filters tab.' },
     assets: { guide: 'make-a-frame', note: 'Four ways to get your frame — the Studio add-on upload path, and the frame-or-sticker chip.' },
-    wall: { guide: 'run-the-night', note: 'Set up the wall — the five modes (Gallery, Carousel, Slideshow, Leaderboard, Projection) and the projector link.' },
+    wall: { guide: 'run-the-night', note: 'Set up the wall — the five modes (Gallery, Carousel, Slideshow, Leaderboard, Projection), Give the wall its own look (Wall design: layouts incl. Grid 3/4/5, transitions, backdrops, light or dark) and the projector link.' },
     challenges: { guide: 'run-the-night', note: 'Challenges give people a reason to keep going, including the AI photo check and its checked/passed counts.' },
     cards: { guide: 'run-the-night', note: 'Keepsake cards, after the night — the four styles (Storybook, Film strip, Polaroid, Carousel), contribution limits and the film render.' },
     share: { guide: 'first-event', note: 'Five steps to a live booth — Print the signage (QR kit).' },

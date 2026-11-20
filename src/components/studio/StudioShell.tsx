@@ -637,7 +637,7 @@ export default function StudioShell({ eventStatus }: {
 
   if (loadingEdit) {
     return (
-      <div className="absolute inset-0 app-bg flex items-center justify-center">
+      <div data-surface="night" className="absolute inset-0 app-bg flex items-center justify-center">
         <div className="w-10 h-10 rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)] animate-spin" />
       </div>
     );
@@ -647,7 +647,7 @@ export default function StudioShell({ eventStatus }: {
   // retrying could help — a deleted experience will not come back.
   if (loadError) {
     return (
-      <div className="absolute inset-0 app-bg flex items-center justify-center p-6">
+      <div data-surface="night" className="absolute inset-0 app-bg flex items-center justify-center p-6">
         <div className="liquid-glass-raised max-w-sm rounded-2xl p-6 flex flex-col gap-3 text-center">
           <h1 className="font-serif text-lg text-brand-fg">
             {loadError === 'unreachable' ? 'Couldn’t open that experience' : 'That experience is gone'}
@@ -767,7 +767,7 @@ export default function StudioShell({ eventStatus }: {
 
   return (
     <FeatureHelpProvider>
-    <div className="absolute inset-0 flex flex-col app-bg">
+    <div data-surface="night" className="absolute inset-0 flex flex-col app-bg">
       {/* Top bar — every control is IN FLOW (no absolute positioning), so at
           any width items truncate or wrap to the phone name-row; nothing can
           overlap or hide behind another toggle. */}

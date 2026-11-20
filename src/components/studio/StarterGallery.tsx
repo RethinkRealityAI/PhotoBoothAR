@@ -66,25 +66,28 @@ export default function StarterGallery({ onPick, onOpenAssets }: Props) {
           copy and the card blurbs have to survive whatever the host's room
           happens to look like — a bright window turns the whole gallery
           unreadable. Purely presentational, so it never eats a click. */}
-      <div className="absolute inset-0 bg-brand-bg/75 backdrop-blur-[2px] pointer-events-none" aria-hidden />
+      <div className="absolute inset-0 bg-brand-bg/80 backdrop-blur-md pointer-events-none" aria-hidden />
 
-      <div className="relative m-auto w-full max-w-[22rem] sm:max-w-[24rem] flex flex-col gap-2.5">
-        <div className="text-center">
-          <p className="font-label text-[9px] uppercase tracking-widest text-accent-2 flex items-center justify-center gap-1.5">
-            <Sparkles className="w-3 h-3" /> Start with a look
-          </p>
-          {/* One line on purpose: at phone height every wrapped line of this
-              paragraph costs a row of cards its place on screen. */}
-          <p className="font-sans text-[11px] text-brand-muted/60 leading-snug mt-1 px-2">
-            Each card previews the look. Tap one to start.
-          </p>
+      <div className="relative m-auto w-full max-w-[22rem] sm:max-w-[24rem] flex flex-col gap-3">
+        <div className="flex items-center gap-2.5 px-0.5">
+          <span className="rim-glint flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent-2" aria-hidden>
+            <Sparkles className="w-4 h-4" />
+          </span>
+          {/* One line each on purpose: at phone height every wrapped line here
+              costs a row of cards its place on screen. */}
+          <div className="min-w-0 text-left">
+            <h2 className="font-serif text-[17px] leading-tight text-brand-fg">Start with a look</h2>
+            <p className="font-sans text-[12px] text-brand-muted/80 leading-snug truncate">
+              Free and ready to go. Tap one, then make it yours.
+            </p>
+          </div>
         </div>
 
         {/* Three columns of 9:16 cards: the booth's own format, so a card
             previews the actual output shape, and all seven looks fit without
             scrolling on a phone-sized stage. The build-your-own tile fills the
             last row's remaining span, so the grid closes as a rectangle. */}
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-3 gap-2">
           {STARTER_SCENES.map((s, i) => {
             const draft = buildStarterDraft(s.id);
             // A preset whose assets somehow did not resolve is hidden rather
@@ -99,7 +102,7 @@ export default function StarterGallery({ onPick, onOpenAssets }: Props) {
                 onPointerEnter={() => warmProp(starterPropUrl(s))}
                 title={s.blurb}
                 aria-label={`${s.name} — ${s.blurb}`}
-                className="pressable group relative aspect-[9/16] overflow-hidden rounded-xl border border-white/10 hover:border-accent/50 transition-colors"
+                className="rim-glint pressable group relative aspect-[9/16] overflow-hidden rounded-2xl shadow-[0_14px_28px_-16px_rgba(10,8,40,0.8)] transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
                 style={{
                   // Doubles as the loading tint and the fallback if the preview
                   // ever fails: the card is never a blank hole.
@@ -116,8 +119,8 @@ export default function StarterGallery({ onPick, onOpenAssets }: Props) {
                     className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
                   />
                 )}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-1.5 pb-1.5 pt-6">
-                  <p className="truncate text-left font-sans text-[10px] font-medium leading-tight text-white">
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-2 pt-8">
+                  <p className="truncate text-left font-sans text-[12px] font-semibold leading-tight text-white">
                     {s.name}
                   </p>
                 </div>
@@ -130,7 +133,7 @@ export default function StarterGallery({ onPick, onOpenAssets }: Props) {
             // self-center + a fixed height: left to stretch it inherited the
             // 9:16 row height and read as a giant empty panel next to the
             // cards, rather than the secondary action it is.
-            className="pressable col-span-2 flex h-12 items-center justify-center gap-1.5 self-center rounded-xl border border-dashed border-white/15 bg-white/[0.04] text-[10px] font-label uppercase tracking-widest text-brand-muted/60 transition-colors hover:bg-white/[0.08] hover:text-brand-fg"
+            className="glass pressable col-span-2 flex min-h-12 items-center justify-center gap-1.5 self-center rounded-2xl text-[13px] font-medium text-brand-fg/90 transition-colors hover:text-brand-fg"
           >
             <Plus className="w-3.5 h-3.5" /> Or build your own
           </button>

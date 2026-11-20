@@ -47,7 +47,7 @@
  * FALLBACK. No WebGL → render nothing and let the parent keep the mosaic; the
  * wall must never become a black rectangle at an event.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import PhotoCarousel, { hasWebGL, ringSlotsFor, type CarouselItem } from '../carousel/PhotoCarousel';
 import { ringWindow } from '../../lib/carouselRing';
 import type { BeamRect } from '../../lib/wallArrivals';
@@ -65,14 +65,30 @@ interface Props {
   accent?: string;
   /** A projector has no pointer; parallax would just sit still anyway. */
   projectionMode?: boolean;
+  /** Platform wall: the 'stage' framing — bigger cards, a gently downward
+   *  camera, floor reflections. Legacy walls leave it off. */
+  stage?: boolean;
 }
+
+/** 'stage' fades the canvas into the wall at its sides and bottom, so the
+ *  floor reflections dissolve instead of stopping at the canvas edge. A mask
+ *  changes pixels only — the front-slot rect the ceremony reads is untouched. */
+const STAGE_MASK_IMAGE =
+  'linear-gradient(to right, transparent, #000 5%, #000 95%, transparent), linear-gradient(to bottom, #000 72%, transparent)';
+const STAGE_MASK: CSSProperties = {
+  maskImage: STAGE_MASK_IMAGE,
+  WebkitMaskImage: STAGE_MASK_IMAGE,
+  maskComposite: 'intersect',
+  WebkitMaskComposite: 'source-in',
+};
 
 /** Idle drift, radians/sec. One full turn ≈ 75s — present, never distracting. */
 const IDLE_SPIN = (Math.PI * 2) / 75;
 
 export default function CarouselView({
-  posts, beamingIds, onTileRect, onSelect, accent, projectionMode = false,
+  posts, beamingIds, onTileRect, onSelect, accent, projectionMode = false, stage = false,
 }: Props) {
+  const framing = stage ? 'stage' : 'ring';
   const [usable] = useState(() => hasWebGL());
 
   // Measure the box the ring actually gets, not the window: the wall insets
@@ -91,8 +107,8 @@ export default function CarouselView({
   }, []);
 
   const slots = useMemo(
-    () => ringSlotsFor(box.width, box.height, 'ring'),
-    [box.width, box.height],
+    () => ringSlotsFor(box.width, box.height, framing),
+    [box.width, box.height, framing],
   );
 
   const ringPosts = useMemo(() => ringWindow(posts, slots), [posts, slots]);
@@ -163,7 +179,7 @@ export default function CarouselView({
     // resolves its insets against the ancestor's PADDING box, so it would
     // ignore the room the wall reserves for its header and QR rail and spin
     // the ring straight back underneath them.
-    <div ref={boxRef} className="relative h-full w-full">
+    <div ref={boxRef} className="relative h-full w-full" style={stage ? STAGE_MASK : undefined}>
       {items.length > 0 && (
         <PhotoCarousel
           items={items}
@@ -177,7 +193,7 @@ export default function CarouselView({
           // A narrow wall pulls BACK rather than closing in: its header, QR panels
           // and bottom bar overlay this same canvas, and a lone giant photo stops
           // reading as a carousel at all.
-          framing="ring"
+          framing={framing}
           className="absolute inset-0"
         />
       )}

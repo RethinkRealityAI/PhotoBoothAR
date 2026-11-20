@@ -54,6 +54,12 @@ describe('dashboard checklist (studio)', () => {
     expect(missingIds(items)).toEqual(['name', 'look', 'frames', 'test_shot']);
   });
 
+  it('the brand look (config.look, no themeVars) counts as a look', () => {
+    const items = computeChecklist(checklistFromStudio({ look: 'beamwall' }, null, 'draft'), 'dashboard');
+    expect(items.find((i) => i.id === 'look')?.done).toBe(true);
+    expect(computeChecklist(checklistFromStudio({ look: null }, null, 'draft'), 'dashboard').find((i) => i.id === 'look')?.done).toBe(false);
+  });
+
   it('a published experience counts as frames & effects even without template frames', () => {
     expect(computeChecklist(checklistFromStudio({}, { published: 1, posts: 2 }, 'live'), 'dashboard').map((i) => i.done))
       .toEqual([false, false, true, true]);

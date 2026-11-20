@@ -14,6 +14,8 @@ import {
   burnInOffset,
   clampFrameDelta,
   marqueeMetrics,
+  fitMarqueeMetrics,
+  MARQUEE_FIT_MIN_CARD_H,
   mosaicTileMaxH,
   pollActionFor,
   socketStatusFrom,
@@ -305,5 +307,31 @@ describe('burnInOffset', () => {
 
   it('survives a non-finite clock', () => {
     expect(burnInOffset(Number.NaN)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('fitMarqueeMetrics', () => {
+  it('keeps every row inside the measured area (laptop, phone, 4K)', () => {
+    for (const [h, rows] of [[640, 3], [640, 4], [560, 3], [1900, 4], [300, 3]] as const) {
+      const m = fitMarqueeMetrics(h, rows);
+      if (m.cardH > MARQUEE_FIT_MIN_CARD_H) {
+        expect(m.cardH * rows + m.gap * (rows - 1) + 16).toBeLessThanOrEqual(h);
+      }
+    }
+  });
+
+  it('never draws a card below the floor, even in a sliver', () => {
+    expect(fitMarqueeMetrics(120, 4).cardH).toBe(MARQUEE_FIT_MIN_CARD_H);
+  });
+
+  it('keeps the card proportions of the legacy marquee', () => {
+    const m = fitMarqueeMetrics(640, 3);
+    expect(m.minCardW / m.cardH).toBeCloseTo(150 / 290, 1);
+    expect(m.maxCardW / m.cardH).toBeCloseTo(360 / 290, 1);
+  });
+
+  it('survives a bad area or row count', () => {
+    expect(fitMarqueeMetrics(Number.NaN, 0).cardH).toBeGreaterThan(0);
+    expect(fitMarqueeMetrics(0, 3).cardH).toBeGreaterThan(0);
   });
 });

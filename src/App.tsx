@@ -13,7 +13,7 @@
  * Legacy mode (VITE_EVENT set): behaves exactly like the original single-event
  * build — registry event at the top-level routes, studio at /admin/*.
  */
-import { lazy, Suspense, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
+import { lazy, Suspense, useLayoutEffect, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 // Eager: the auth/legal surfaces a first-time visitor hits. Kept in the
 // initial bundle so first paint doesn't wait on a chunk fetch. The homepage
@@ -23,6 +23,17 @@ import EventProvider, { useEvent } from './events/EventContext';
 import { EVENT_ID } from './events/active';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { useNoIndex } from './pages/sales/components/pageMeta';
+
+/** The previous homepage (/classic) keeps its pre-rollout look: brand v2's
+ *  platform mapping (src/styles/platform.css) skips <html data-look="previous">.
+ *  Layout effect, so no first-paint flash. */
+function KeepPreviousLook({ children }: { children: ReactNode }) {
+  useLayoutEffect(() => {
+    document.documentElement.dataset.look = 'previous';
+    return () => { delete document.documentElement.dataset.look; };
+  }, []);
+  return <>{children}</>;
+}
 import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
 import ForgotPassword from './pages/auth/ForgotPassword';
@@ -286,7 +297,7 @@ export default function App() {
               </Route>
 
               <Route path="/" element={<BeamyPage />} />
-              <Route path="/classic" element={<ClassicLanding />} />
+              <Route path="/classic" element={<KeepPreviousLook><ClassicLanding /></KeepPreviousLook>} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />

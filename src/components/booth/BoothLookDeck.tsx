@@ -1,0 +1,440 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * BoothLookDeck — the platform booth's camera deck.
+ *
+ * What it answers (measured on the legacy deck at 390px): a guest had to pick
+ * a category tab before seeing a single look, two of the three tabs rendered
+ * at 55% alpha, and the only way to the full catalogue was an "All" orb at the
+ * END of a scrolling row — the 14th item, off-screen. Nothing said there were
+ * more looks.
+ *
+ * Now, one decision at a time and nothing hidden that matters:
+ *   · one swipeable strip of EVERY look (frames → 3D → effects), snapping, with
+ *     the next tile peeking past a faded edge so it reads as "there's more";
+ *   · the look that just went on is named in a small glass pill that fades;
+ *   · a labelled "More looks" pill beside the shutter opens the full sheet with
+ *     category chips (LooksSheet);
+ *   · a one-time "Swipe for more looks" hint with a single nudge, remembered
+ *     per device.
+ * The shutter stays the hero. Looks stay combinable — a tile toggles only its
+ * own category, exactly like the legacy orbs (lib/lookStrip.lookTapAction).
+ *
+ * Platform events only. Legacy events keep BoothControlDeck untouched.
+ */
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { ArrowLeftRight, Ban, LayoutGrid, Sparkles } from 'lucide-react';
+import FilterThumb from './FilterThumb';
+import LookThumb, { CATEGORY_ICON } from './LookThumb';
+import { CaptureModePill } from './BoothCaptureControls';
+import { isPristine, type DeckSection, type DeckSelection } from '../../lib/boothDeck';
+import {
+  activeLookIds,
+  buildLookStrip,
+  centeredScrollLeft,
+  changedLook,
+  lookHintSeen,
+  lookTapAction,
+  markLookHintSeen,
+  runLookAction,
+  shouldShowLookHint,
+  LOOK_CATEGORY_LABEL,
+  LOOK_HINT_DELAY_MS,
+  LOOK_HINT_MS,
+  LOOK_NAME_MS,
+  type LookHandlers,
+} from '../../lib/lookStrip';
+import { haptic } from '../../lib/haptics';
+import type { GuestColorSlot } from '../../lib/guestPalette';
+
+function safeStorage(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/* ── Tile ─────────────────────────────────────────────────────────────── */
+
+function Tile({
+  active, label, ariaLabel, onClick, pending = false, badge, children, tileRef,
+}: {
+  active: boolean;
+  label: string;
+  ariaLabel: string;
+  onClick: () => void;
+  pending?: boolean;
+  badge?: ReactNode;
+  children: ReactNode;
+  tileRef?: (el: HTMLButtonElement | null) => void;
+}) {
+  const reduced = useReducedMotion() ?? false;
+  return (
+    <button
+      ref={tileRef}
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      aria-busy={pending || undefined}
+      aria-label={ariaLabel}
+      className="group flex w-[60px] shrink-0 snap-start flex-col items-center gap-1.5 rounded-xl"
+    >
+      <span className="relative h-[52px] w-[52px]">
+        <motion.span
+          animate={{ scale: active ? 1.08 : 1 }}
+          transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 20 }}
+          className={`pressable relative flex h-full w-full items-center justify-center overflow-hidden rounded-full ${active ? 'is-selected' : ''}`}
+          style={{
+            background: 'rgba(9, 11, 20, 0.55)',
+            // A plain accent ring under the glimmering rim, so the selected
+            // state still reads on a db event whose look opts out of the
+            // platform's `.is-selected` styling.
+            boxShadow: active
+              ? '0 0 0 2px var(--color-accent), 0 0 22px -4px rgba(var(--accent-rgb), 0.9)'
+              : 'inset 0 0 0 1px rgba(255,255,255,0.16), 0 2px 8px -3px rgba(0,0,0,0.6)',
+          }}
+        >
+          {children}
+          {pending && (
+            <span
+              className={reduced ? 'pointer-events-none absolute inset-0 rounded-full' : 'pointer-events-none absolute inset-0 animate-spin rounded-full'}
+              style={{
+                border: '2px solid transparent',
+                borderTopColor: 'var(--color-accent)',
+                borderRightColor: 'rgba(var(--accent-rgb),0.35)',
+                background: 'rgba(5,6,11,0.35)',
+              }}
+            />
+          )}
+        </motion.span>
+        {badge}
+      </span>
+      <span
+        className="w-full truncate text-center font-sans text-[12px] leading-none transition-colors"
+        style={{ color: active ? 'var(--color-brand-fg)' : 'rgba(205,210,235,0.72)', fontWeight: active ? 600 : 500 }}
+      >
+        {label}
+      </span>
+    </button>
+  );
+}
+
+function CategoryBadge({ category }: { category: keyof typeof CATEGORY_ICON }) {
+  const Icon = CATEGORY_ICON[category];
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full"
+      style={{ background: 'rgba(9,11,20,0.85)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.22)' }}
+    >
+      <Icon className="h-2.5 w-2.5 text-brand-fg/80" strokeWidth={2} />
+    </span>
+  );
+}
+
+/* ── Deck ─────────────────────────────────────────────────────────────── */
+
+export interface BoothLookDeckProps extends LookHandlers {
+  sections: DeckSection[];
+  selection: DeckSelection;
+  sparkles: boolean;
+  onToggleSparkles: (v: boolean) => void;
+  onClearAll: () => void;
+  /** Opens the full "More looks" sheet. */
+  onOpenAll: () => void;
+  sheetOpen: boolean;
+  mediaMode: 'photo' | 'video';
+  onMediaMode: (m: 'photo' | 'video') => void;
+  videoAllowed: boolean;
+  recording: boolean;
+  shutter: ReactNode;
+  pendingIds?: ReadonlySet<string>;
+  stripMode?: boolean;
+  onStripMode?: (on: boolean) => void;
+  stripShots?: number;
+  onOpenStripPicker?: () => void;
+  colorSlot?: GuestColorSlot | null;
+  guestHex?: string | null;
+  onGuestHex?: (hex: string | null) => void;
+  /** False while something sits on top of the booth (onboarding) — the
+   *  first-run hint waits rather than pointing at a hidden strip. */
+  hintEnabled: boolean;
+}
+
+export default function BoothLookDeck({
+  sections, selection, sparkles, onToggleSparkles,
+  onSelectEffect, onSelectFrame, onSelectAttachment, onClearAll, onOpenAll, sheetOpen,
+  mediaMode, onMediaMode, videoAllowed, recording, shutter, pendingIds,
+  stripMode = false, onStripMode, stripShots, onOpenStripPicker,
+  colorSlot = null, guestHex = null, onGuestHex, hintEnabled,
+}: BoothLookDeckProps) {
+  const reduced = useReducedMotion() ?? false;
+  const strip = useMemo(() => buildLookStrip(sections), [sections]);
+  const activeIds = useMemo(() => activeLookIds(strip, selection), [strip, selection]);
+  const handlers: LookHandlers = { onSelectEffect, onSelectFrame, onSelectAttachment };
+
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const tileRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  /** Bring a tile to the middle of the strip without scrolling the page. */
+  const centre = (id: string) => {
+    const scroller = scrollerRef.current;
+    const tile = tileRefs.current.get(id);
+    if (!scroller || !tile) return;
+    const left = centeredScrollLeft(tile.offsetLeft, tile.offsetWidth, scroller.clientWidth, scroller.scrollWidth);
+    scroller.scrollTo({ left, behavior: reduced ? 'auto' : 'smooth' });
+  };
+
+  // ── Name pill: announce whatever just went on, from ANY route (a tile, the
+  // sheet, a stage swipe, the event default arriving).
+  const [named, setNamed] = useState<{ key: number; text: string } | null>(null);
+  const prevSelRef = useRef<DeckSelection | null>(null);
+  useEffect(() => {
+    const change = changedLook(strip, prevSelRef.current, selection);
+    prevSelRef.current = selection;
+    if (change === null) return;
+    setNamed({ key: Date.now(), text: change.on ? change.name : `${change.name} off` });
+    if (change.on) centre(change.id);
+    // centre reads refs only; strip/selection are the real inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strip, selection]);
+  useEffect(() => {
+    if (named === null) return;
+    const t = window.setTimeout(() => setNamed(null), LOOK_NAME_MS);
+    return () => window.clearTimeout(t);
+  }, [named]);
+
+  // On first paint, show the applied look (an event default) mid-strip.
+  const centredOnceRef = useRef(false);
+  useEffect(() => {
+    if (centredOnceRef.current || activeIds.size === 0) return;
+    centredOnceRef.current = true;
+    const first = strip.find((i) => activeIds.has(i.exp.id));
+    if (first) {
+      const scroller = scrollerRef.current;
+      const tile = tileRefs.current.get(first.exp.id);
+      if (scroller && tile) {
+        scroller.scrollLeft = centeredScrollLeft(tile.offsetLeft, tile.offsetWidth, scroller.clientWidth, scroller.scrollWidth);
+      }
+    }
+  }, [activeIds, strip]);
+
+  // ── First-run hint: once per device, one nudge, then never again.
+  const [hint, setHint] = useState(false);
+  const hintDoneRef = useRef(false);
+  useEffect(() => {
+    if (!hintEnabled || hintDoneRef.current) return;
+    const storage = safeStorage();
+    if (!shouldShowLookHint(lookHintSeen(storage), strip.length)) return;
+    const t = window.setTimeout(() => {
+      hintDoneRef.current = true;
+      markLookHintSeen(storage);
+      setHint(true);
+      // The nudge: slide the strip a tile's width and back, so the peek reads
+      // as movable. Skipped under reduced motion — the pill says it in words.
+      const scroller = scrollerRef.current;
+      if (!reduced && scroller && scroller.scrollLeft === 0) {
+        scroller.scrollTo({ left: 70, behavior: 'smooth' });
+        window.setTimeout(() => scroller.scrollTo({ left: 0, behavior: 'smooth' }), 650);
+      }
+    }, LOOK_HINT_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [hintEnabled, strip.length, reduced]);
+  useEffect(() => {
+    if (!hint) return;
+    const t = window.setTimeout(() => setHint(false), LOOK_HINT_MS);
+    return () => window.clearTimeout(t);
+  }, [hint]);
+  useEffect(() => { if (sheetOpen) setHint(false); }, [sheetOpen]);
+
+  const pristine = isPristine(selection, sparkles);
+
+  return (
+    <div
+      className="pb-safe-bottom [--safe-bottom:0.9rem] flex flex-col items-center gap-2.5 pt-12"
+      style={{
+        // A fade, not a panel: the frame stays visible right down to the
+        // shutter, which is what makes it feel like a camera.
+        background: 'linear-gradient(to top, rgba(5,6,11,0.9) 30%, rgba(5,6,11,0.45) 68%, transparent)',
+      }}
+    >
+      {/* Guest colour row — only when the applied 3D piece invites it. */}
+      {colorSlot != null && onGuestHex && (
+        <div className="flex w-full max-w-md items-center gap-2 px-4">
+          <span className="shrink-0 font-sans text-[12px] text-brand-muted/80">{colorSlot.label}</span>
+          <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar">
+            {colorSlot.swatches.map((hex) => {
+              const on = (guestHex ?? colorSlot.currentHex) === hex;
+              return (
+                <button
+                  key={hex}
+                  type="button"
+                  aria-label={`Colour ${hex}`}
+                  aria-pressed={on}
+                  onClick={() => { haptic('toggle'); onGuestHex(hex === colorSlot.currentHex ? null : hex); }}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+                >
+                  <span
+                    className="h-7 w-7 rounded-full transition-shadow"
+                    style={{
+                      background: hex,
+                      boxShadow: on
+                        ? '0 0 0 2px var(--color-accent), 0 0 10px rgba(var(--accent-rgb),0.8)'
+                        : 'inset 0 0 0 1px rgba(255,255,255,0.22)',
+                    }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* The strip, with its name pill / first-run hint floating above it. */}
+      <div className="relative w-full max-w-md">
+        <div aria-live="polite" className="pointer-events-none absolute inset-x-0 -top-9 flex justify-center">
+          <AnimatePresence mode="wait">
+            {named !== null ? (
+              <motion.span
+                key={named.key}
+                initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: reduced ? 0 : 0.22, ease: [0.16, 1, 0.3, 1] }}
+                className="liquid-glass-raised max-w-[80%] truncate rounded-full px-3.5 py-1.5 font-sans text-[13px] font-semibold text-brand-fg"
+              >
+                {named.text}
+              </motion.span>
+            ) : hint ? (
+              <motion.span
+                key="hint"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: reduced ? 0 : 0.3 }}
+                className="liquid-glass-raised flex items-center gap-2 rounded-full px-3.5 py-1.5 font-sans text-[13px] text-brand-fg"
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5 text-[color:var(--color-accent)]" />
+                Swipe for more looks
+              </motion.span>
+            ) : null}
+          </AnimatePresence>
+        </div>
+
+        <div
+          ref={scrollerRef}
+          role="group"
+          aria-label="Looks"
+          onPointerDown={() => setHint(false)}
+          className="flex snap-x snap-mandatory scroll-px-4 gap-2.5 overflow-x-auto overscroll-x-contain px-4 pb-0.5 pt-1.5 hide-scrollbar"
+          style={{
+            // Faded edges: the next tile peeks through, which is what says
+            // "swipe" before anyone has to read a word.
+            WebkitMaskImage: 'linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 30px), transparent 100%)',
+            maskImage: 'linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 30px), transparent 100%)',
+          }}
+        >
+          <Tile
+            active={pristine}
+            label="None"
+            ariaLabel="No look — the plain camera"
+            onClick={() => { haptic('select'); onClearAll(); }}
+          >
+            <FilterThumb shaderId="none">
+              <Ban className="h-4 w-4 text-brand-muted/70" />
+            </FilterThumb>
+          </Tile>
+          <Tile
+            active={sparkles}
+            label="Sparkle"
+            ariaLabel={sparkles ? 'Sparkle on — layers over any look' : 'Sparkle — layers over any look'}
+            onClick={() => {
+              haptic('select');
+              onToggleSparkles(!sparkles);
+              setNamed({ key: Date.now(), text: sparkles ? 'Sparkle off' : 'Sparkle' });
+            }}
+          >
+            <span className="flex h-full w-full items-center justify-center" style={{ background: 'rgba(var(--accent-rgb), 0.2)' }}>
+              <Sparkles className="h-5 w-5 text-brand-fg/85" />
+            </span>
+          </Tile>
+
+          {strip.map((item) => {
+            const on = activeIds.has(item.exp.id);
+            return (
+              <Tile
+                key={item.exp.id}
+                tileRef={(el) => {
+                  if (el) tileRefs.current.set(item.exp.id, el);
+                  else tileRefs.current.delete(item.exp.id);
+                }}
+                active={on}
+                label={item.label}
+                ariaLabel={`${item.exp.name} (${LOOK_CATEGORY_LABEL[item.category]})`}
+                pending={on && (pendingIds?.has(item.exp.id) ?? false)}
+                badge={<CategoryBadge category={item.category} />}
+                onClick={() => {
+                  haptic('select');
+                  setHint(false);
+                  runLookAction(lookTapAction(item, on), handlers);
+                }}
+              >
+                <LookThumb item={item} />
+              </Tile>
+            );
+          })}
+          {/* Trailing gutter so the last tile can snap clear of the faded edge. */}
+          <span aria-hidden className="w-4 shrink-0" />
+        </div>
+      </div>
+
+      {/* Shutter row: capture mode · SHUTTER · More looks. */}
+      <div className="relative flex min-h-[76px] w-full max-w-md items-center justify-center px-3">
+        <CaptureModePill
+          className="liquid-glass-inset absolute left-3 flex items-center gap-0.5 rounded-full p-0.5"
+          mediaMode={mediaMode}
+          onMediaMode={onMediaMode}
+          videoAllowed={videoAllowed}
+          recording={recording}
+          stripMode={stripMode}
+          onStripMode={onStripMode}
+          stripShots={stripShots}
+          onOpenStripPicker={onOpenStripPicker}
+        />
+
+        {shutter}
+
+        {/* Wrapped: the glass classes set `position: relative` for their rim,
+            which would put the pill back in flow and shove the shutter left. */}
+        {!recording && (
+          <div className="absolute right-3">
+          <button
+            type="button"
+            onClick={() => { haptic('tap'); setHint(false); onOpenAll(); }}
+            aria-haspopup="dialog"
+            aria-expanded={sheetOpen}
+            className="pressable liquid-glass-raised flex h-11 items-center gap-1.5 whitespace-nowrap rounded-full pl-3 pr-3.5 font-sans text-[13px] font-medium text-brand-fg"
+          >
+            {/* One soft ring, once, when the first-run hint appears. */}
+            {hint && !reduced && (
+              <motion.span
+                aria-hidden
+                initial={{ opacity: 0.7, scale: 1 }}
+                animate={{ opacity: 0, scale: 1.3 }}
+                transition={{ duration: 1.2, ease: 'easeOut' }}
+                className="pointer-events-none absolute inset-0 rounded-full"
+                style={{ boxShadow: '0 0 0 2px rgba(var(--accent-rgb),0.8)' }}
+              />
+            )}
+            <LayoutGrid className="h-4 w-4 text-[color:var(--color-accent)]" />
+            More looks
+          </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

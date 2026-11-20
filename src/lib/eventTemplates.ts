@@ -47,6 +47,26 @@ export interface EventTemplate {
   tagline: string;
 }
 
+/**
+ * The brand look (events.config.look = 'beamwall'): new events start here
+ * unless the host picks a colour. Concrete values of the brand v2 tokens
+ * (src/styles/brand.css --bw-*), for the places that need literal theme
+ * tokens rather than the stylesheet: TemplatePreview's inline style. The live
+ * guest surfaces get the full look (glass, type, fields) from
+ * src/styles/platform.css via <html data-event-look="beamwall">.
+ */
+export const BEAMWALL_LOOK_VARS: Record<string, string> = {
+  '--color-brand-bg': '#33318A',
+  '--color-brand-surface': '#2E2C7E',
+  '--color-brand-fg': '#FFFFFF',
+  '--color-brand-muted': 'rgba(255, 255, 255, 0.86)',
+  '--color-accent': '#D4D6FF',
+  '--color-accent-2': '#E4E5FF',
+  '--color-accent-3': '#BFC2FF',
+  '--accent-rgb': '212, 214, 255',
+  '--on-accent': '#1A1740',
+};
+
 export const EVENT_TEMPLATES: EventTemplate[] = [
   {
     id: 'wedding',
@@ -256,6 +276,21 @@ export function accentThemePatch(accent: string): Record<string, string> {
  * (which already holds `{ copy: { fullName } }`), so we re-include fullName +
  * eventName to survive the merge.
  */
+/**
+ * True when an event's stored themeVars are empty or exactly one occasion
+ * template's own tokens, i.e. nobody chose its colours: create seeded them
+ * (or seeding never ran). Such events show the brand look (owner decision
+ * 2026-11-18, "Switch them too"); any edited theme is the host's and stays.
+ */
+export function isUntouchedTemplateTheme(vars: Record<string, unknown> | null | undefined): boolean {
+  const entries = Object.entries(vars ?? {});
+  if (entries.length === 0) return true;
+  return EVENT_TEMPLATES.some((t) => {
+    const tv = Object.entries(t.themeVars);
+    return tv.length === entries.length && tv.every(([k, v]) => (vars as Record<string, unknown>)[k] === v);
+  });
+}
+
 export function templateConfigPatch(t: EventTemplate, eventName: string): Record<string, unknown> {
   return {
     themeVars: t.themeVars,

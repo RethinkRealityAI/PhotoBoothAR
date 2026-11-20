@@ -94,8 +94,13 @@ export interface PhotoCarouselProps {
    *            phone-sized wall has less room to give the hero, not more.
    *
    * Both land on the same framing once the canvas is landscape.
+   *
+   *   'stage' — the platform live wall's showpiece. Bigger cards, a camera
+   *            that looks gently DOWN on the ring so its far side rises behind
+   *            the hero and fills the frame, and a mirrored floor reflection
+   *            under every card. The keepsake and legacy walls never pass it.
    */
-  framing?: 'hero' | 'ring';
+  framing?: Framing;
   /** Override the derived ring radius. Normally left alone. */
   radius?: number;
   className?: string;
@@ -104,6 +109,14 @@ export interface PhotoCarouselProps {
 const CARD_H = 2.4;
 const CARD_W = CARD_H * (9 / 16); // booth captures are 9:16
 const CARD_HALF = { x: CARD_W / 2, y: CARD_H / 2 };
+
+type Framing = 'hero' | 'ring' | 'stage';
+
+/** How far the 'stage' camera looks down on the ring. Enough for the far side
+ *  to rise behind the hero card; more and the ring reads as a plate. */
+const STAGE_TILT_DEG = 11;
+/** Peak opacity of a card's floor reflection, scaled by its depth presence. */
+const REFLECTION_OPACITY = 0.26;
 
 /**
  * The ring sits a little above the camera's aim, and the camera stands well
@@ -131,7 +144,8 @@ const CAMERA_FOV = 32;
  * How much of the frame height the hero card takes, for a canvas of this shape.
  * The two surfaces want opposite things on a narrow screen — see `framing`.
  */
-function heroFractionFor(aspect: number, framing: 'hero' | 'ring'): number {
+function heroFractionFor(aspect: number, framing: Framing): number {
+  if (framing === 'stage') return cardHeightFraction(aspect, 0.66, 0.46);
   return framing === 'hero'
     ? cardHeightFraction(aspect)
     // The wall runs its hero taller than the keepsake does. It has the room:
@@ -149,7 +163,7 @@ function heroFractionFor(aspect: number, framing: 'hero' | 'ring'): number {
  * the two quietly drift apart.
  */
 export function ringSlotsFor(
-  width: number, height: number, framing: 'hero' | 'ring' = 'ring',
+  width: number, height: number, framing: Framing = 'ring',
 ): number {
   const aspect = height > 0 ? width / height : 1;
   return ringSlotsForViewport(aspect, {
@@ -175,7 +189,7 @@ export function hasWebGL(): boolean {
 
 function Card({
   item, slotPosition, slotRotationY, slotAngle, ringRotation, hidden, hovered, anyHovered,
-  onOver, onOut, onClick,
+  onOver, onOut, onClick, reflect = false,
 }: {
   item: CarouselItem;
   slotPosition: [number, number, number];
@@ -189,8 +203,11 @@ function Card({
   onOver: () => void;
   onOut: () => void;
   onClick?: () => void;
+  /** Draw a faded mirror image under the card ('stage' framing). */
+  reflect?: boolean;
 }) {
   const ref = useRef<THREE.Mesh>(null);
+  const mirror = useRef<THREE.MeshBasicMaterial>(null);
 
   // The card loads its OWN texture, downscaled (see cardTexture) — which is
   // also what lets a video be a card at all. Nothing suspends: an unloaded
@@ -220,6 +237,8 @@ function Card({
     const presence = hovered ? 1 : depthPresence(slotAngle, ringRotation.current);
     const mat = mesh.material as THREE.Material & { opacity: number };
     mat.opacity = THREE.MathUtils.damp(mat.opacity, hidden ? 0 : presence, 10, d);
+    const m = mirror.current;
+    if (m) m.opacity = THREE.MathUtils.damp(m.opacity, hidden ? 0 : presence * REFLECTION_OPACITY, 10, d);
   });
 
   if (texture === null) return null;
@@ -249,16 +268,68 @@ function Card({
           onClick={onClick ? (e) => { e.stopPropagation(); onClick(); } : undefined}
         />
       </Suspense>
+      {reflect && (
+        // The mirror image: the same texture flipped about the floor line
+        // (the floor sits 0.05 below the card), faded by a shared gradient
+        // alpha so only the strip nearest the floor reads. Not pickable —
+        // a tap on a reflection must not open a photo.
+        <mesh
+          position={[0, -CARD_H - 0.1, 0]}
+          scale={[CARD_W, -CARD_H, 1]}
+          raycast={() => null}
+          renderOrder={-1}
+        >
+          <planeGeometry />
+          <meshBasicMaterial
+            ref={mirror}
+            map={texture}
+            alphaMap={reflectionFade()}
+            transparent
+            opacity={0}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+            toneMapped={false}
+          />
+        </mesh>
+      )}
     </group>
   );
 }
 
+/** One shared vertical fade for every reflection: opaque at the floor line,
+ *  gone by 55% of the card. Built lazily — module scope must not touch the
+ *  DOM (tests import this file in node). */
+let fadeTexture: THREE.CanvasTexture | null = null;
+function reflectionFade(): THREE.CanvasTexture {
+  if (fadeTexture) return fadeTexture;
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 128;
+  const g = c.getContext('2d');
+  if (g) {
+    // Canvas top = uv.y 1 = the reflection's far (lower) edge after the
+    // negative Y scale; canvas bottom = uv.y 0 = the edge touching the floor.
+    const grad = g.createLinearGradient(0, 0, 0, 128);
+    grad.addColorStop(0, '#000');
+    grad.addColorStop(0.45, '#000');
+    grad.addColorStop(1, '#fff');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 4, 128);
+  }
+  fadeTexture = new THREE.CanvasTexture(c);
+  return fadeTexture;
+}
+
 function Ring({
   items, focusIndex, autoSpin, hiddenIds, onFrontRect, onSelect, radius, pointerParallax, aimY,
+  cameraY, reflect = false,
 }: Required<Pick<PhotoCarouselProps, 'items' | 'radius'>> &
   Pick<PhotoCarouselProps, 'focusIndex' | 'autoSpin' | 'hiddenIds' | 'onFrontRect' | 'onSelect' | 'pointerParallax'> & {
     /** Live camera aim, owned above and written by <Framing>. */
     aimY: { current: number };
+    /** Live camera rest height, owned above and written by <Framing>. */
+    cameraY: { current: number };
+    reflect?: boolean;
   }) {
   const group = useRef<THREE.Group>(null);
   const ringRotation = useRef(0);
@@ -292,7 +363,7 @@ function Ring({
     if (pointerParallax) {
       camera.position.x = THREE.MathUtils.damp(camera.position.x, -state.pointer.x * 1.9, 3, d);
       camera.position.y = THREE.MathUtils.damp(
-        camera.position.y, state.pointer.y * 1.2 + CAMERA_HEIGHT, 3, d,
+        camera.position.y, state.pointer.y * 1.2 + cameraY.current, 3, d,
       );
       camera.lookAt(0, aimY.current, 0);
     }
@@ -330,6 +401,7 @@ function Ring({
           onOver={() => setHovered(item.id)}
           onOut={() => setHovered((h) => (h === item.id ? null : h))}
           onClick={onSelect ? () => onSelect(item) : undefined}
+          reflect={reflect}
         />
       ))}
     </group>
@@ -348,28 +420,60 @@ function Ring({
  */
 function Framing({
   radius, framing, onAim,
-}: { radius: number; framing: 'hero' | 'ring'; onAim: (y: number) => void }) {
+}: { radius: number; framing: Framing; onAim: (y: number, cameraY: number) => void }) {
   const { camera, size } = useThree();
   const aspect = size.width / size.height;
   const front = cameraDistanceForCard(CARD_H, CAMERA_FOV, heroFractionFor(aspect, framing));
-  const aimY = aimHeightForFrontCard(CAMERA_HEIGHT, RING_LIFT, radius, front);
+  // 'stage' stands the camera above the ring by a fixed ANGLE rather than a
+  // fixed height, so the tilt reads the same however far back the ring needs it.
+  const cameraY = framing === 'stage'
+    ? RING_LIFT + front * Math.tan((STAGE_TILT_DEG * Math.PI) / 180)
+    : CAMERA_HEIGHT;
+  const aimY = aimHeightForFrontCard(cameraY, RING_LIFT, radius, front);
   useEffect(() => {
+    camera.position.y = cameraY;
     camera.position.z = radius + front;
     camera.lookAt(0, aimY, 0);
     camera.updateProjectionMatrix();
-    onAim(aimY);
-  }, [camera, radius, front, aimY, onAim]);
+    onAim(aimY, cameraY);
+  }, [camera, radius, front, aimY, cameraY, onAim]);
   return null;
 }
 
 /** Soft accent pool under the ring — grounds the cards instead of floating them. */
-function Floor({ accent, radius }: { accent: string; radius: number }) {
+function Floor({ accent, radius, glow = false }: { accent: string; radius: number; glow?: boolean }) {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, RING_LIFT - CARD_H / 2 - 0.05, 0]}>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, RING_LIFT - CARD_H / 2 - 0.05, 0]} raycast={() => null}>
       <circleGeometry args={[radius * 1.5, 64]} />
-      <meshBasicMaterial color={accent} transparent opacity={0.06} />
+      {glow ? (
+        // 'stage': a soft pool that is brightest under the ring's rim and
+        // dissolves outward, instead of a flat disc with a visible edge.
+        <meshBasicMaterial color={accent} alphaMap={floorGlow()} transparent opacity={0.55} depthWrite={false} toneMapped={false} />
+      ) : (
+        <meshBasicMaterial color={accent} transparent opacity={0.06} />
+      )}
     </mesh>
   );
+}
+
+let floorGlowTexture: THREE.CanvasTexture | null = null;
+function floorGlow(): THREE.CanvasTexture {
+  if (floorGlowTexture) return floorGlowTexture;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext('2d');
+  if (g) {
+    const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    grad.addColorStop(0, '#2a2a2a');
+    grad.addColorStop(0.62, '#8a8a8a');
+    grad.addColorStop(0.7, '#5a5a5a');
+    grad.addColorStop(1, '#000');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 256);
+  }
+  floorGlowTexture = new THREE.CanvasTexture(c);
+  return floorGlowTexture;
 }
 
 export default function PhotoCarousel({
@@ -436,7 +540,12 @@ export default function PhotoCarousel({
   // has to keep aiming at the same place, so the value is owned here — in a
   // ref, because it changes with layout and must not re-render the ring.
   const aimY = useRef(RING_LIFT);
-  const handleAim = useCallback((y: number) => { aimY.current = y; }, []);
+  const cameraY = useRef(CAMERA_HEIGHT);
+  const handleAim = useCallback((y: number, camY: number) => {
+    aimY.current = y;
+    cameraY.current = camY;
+  }, []);
+  const stage = framing === 'stage';
 
   const ringRadius = radius ?? ringRadiusForCount(items.length, CARD_W);
 
@@ -456,7 +565,7 @@ export default function PhotoCarousel({
       >
         <ambientLight intensity={1.4} />
         <Framing radius={ringRadius} framing={framing} onAim={handleAim} />
-        <Floor accent={ringAccent} radius={ringRadius} />
+        <Floor accent={ringAccent} radius={ringRadius} glow={stage} />
         <Ring
           items={items}
           focusIndex={focusIndex}
@@ -467,6 +576,8 @@ export default function PhotoCarousel({
           radius={ringRadius}
           pointerParallax={pointerParallax}
           aimY={aimY}
+          cameraY={cameraY}
+          reflect={stage}
         />
       </Canvas>
     </div>

@@ -21,11 +21,15 @@ import { getBranding, setBranding, uploadAsset } from '../../lib/db';
 import { updateEventConfig } from '../../lib/host';
 import { mergeBrief, type BriefPatch, type EventBrief } from '../../lib/eventBrief';
 import { BACKGROUND_TEMPLATES, DEFAULT_BACKGROUND_ID } from '../theme/backgrounds';
+import ScenePicker from '../theme/ScenePicker';
 import { useStore } from '../../store';
 import type { BrandingColors, BrandingOverrides } from '../../types';
 import type { OnboardingStep } from '../../events/types';
 import { TextField, TextArea, ColorField } from './fields';
 import { EVENT_TEMPLATES, accentThemePatch, templateById } from '../../lib/eventTemplates';
+
+/** Branding's id for the brand look in the Look picker (not a template). */
+const BRAND_LOOK_ID = 'beamwall';
 import { deriveTheme, normalizeHex } from '../../lib/themeDerive';
 import { accentHexesFor, followAccentFramePalette } from '../../lib/themeMatch';
 import ColourChooser from '../host/ColourChooser';
@@ -242,18 +246,47 @@ export default function Branding() {
   const [lookSaving, setLookSaving] = useState(false);
   const [lookStatus, setLookStatus] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const lookTemplate = templateById(lookTemplateId ?? undefined);
-  const canApplyLook = Boolean(lookTemplate || lookAccent) && !lookSaving;
+  // 'beamwall' = the brand look (config.look): a complete look with no
+  // themeVars and no colour overrides, so the platform stylesheet drives it.
+  const brandLookPicked = lookTemplateId === BRAND_LOOK_ID;
+  const canApplyLook = Boolean(brandLookPicked || lookTemplate || lookAccent) && !lookSaving;
 
   const applyLook = async () => {
     if (!eventUuid || !canApplyLook) return;
     setLookSaving(true);
     setLookStatus(null);
+    if (brandLookPicked) {
+      const cleared = { ...draft.colors };
+      for (const { key } of COLOR_FIELDS) cleared[key] = '';
+      const ok = await updateEventConfig(eventUuid, { look: 'beamwall', themeVars: {} });
+      let brandingOk = ok;
+      if (ok) {
+        try {
+          await setBranding(eventId, { colors: cleared }, { strict: true });
+          savedBrandingRef.current = { ...savedBrandingRef.current, colors: cleared };
+        } catch {
+          brandingOk = false;
+        }
+        setDraft((d) => ({ ...d, colors: cleared }));
+        await refreshConfig();
+      }
+      setLookSaving(false);
+      setLookStatus(
+        !ok
+          ? { tone: 'error', text: 'Couldn’t change the look — nothing was saved. Check your connection and try again.' }
+          : !brandingOk
+            ? { tone: 'error', text: 'The Beamwall look is saved, but your old custom colours are still set — clear them under Advanced and Save Branding.' }
+            : { tone: 'ok', text: 'Beamwall look applied — your booth and wall use it now.' },
+      );
+      return;
+    }
     const current: Record<string, string> = {};
     for (const { key, cssVar } of COLOR_FIELDS) current[cssVar] = draft.colors[key];
     const baseVars = lookTemplate ? lookTemplate.themeVars : current;
     const colourVars = lookAccent ? (lookDerived ? deriveTheme(lookAccent, 'dark') ?? {} : accentThemePatch(lookAccent)) : {};
     const themeVars = { ...baseVars, ...colourVars };
-    const cfgPatch: Record<string, unknown> = { themeVars };
+    // Any other look leaves the brand look (config.look) behind.
+    const cfgPatch: Record<string, unknown> = { themeVars, look: null };
     // accentHexes leads with the colour the look now uses (it used to stay
     // on the create-time template golds whenever only a colour was picked).
     cfgPatch.accentHexes = accentHexesFor(themeVars['--color-accent'], lookTemplate ? lookTemplate.accentHexes : config.accentHexes);
@@ -505,6 +538,19 @@ export default function Branding() {
               Switch to another style, or build a look from one colour. Your frames, filters and words stay as they are.
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" role="group" aria-label="Style">
+              <button
+                type="button"
+                aria-pressed={brandLookPicked}
+                onClick={() => { setLookStatus(null); setLookAccent(null); setLookTemplateId(brandLookPicked ? null : BRAND_LOOK_ID); }}
+                className={`flex min-h-[48px] items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition ${
+                  brandLookPicked ? 'border-gold-400/70 glow-accent' : 'border-gold-700/25 hover:border-gold-400/45'
+                }`}
+              >
+                <span className="h-7 w-7 shrink-0 rounded-full bg-[#5B54D6] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.4)]" aria-hidden />
+                <span className="font-sans text-[12px] text-ivory/90">
+                  Beamwall{config.look === 'beamwall' ? ' · current' : ''}
+                </span>
+              </button>
               {EVENT_TEMPLATES.map((t) => {
                 const on = t.id === lookTemplateId;
                 return (
@@ -523,6 +569,7 @@ export default function Branding() {
                 );
               })}
             </div>
+            {!brandLookPicked && (
             <div className="mt-4">
               <ColourChooser
                 accent={lookAccent}
@@ -531,6 +578,7 @@ export default function Branding() {
                 onDerivedLook={(on) => { setLookStatus(null); setLookDerived(on); }}
               />
             </div>
+            )}
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -562,6 +610,10 @@ export default function Branding() {
           </div>
         </section>
         </Advanced>
+
+        {/* Event page look — the guest welcome page + booth splash scene
+            (runtime DB events only; events.config.scene). */}
+        {isDbEvent && <ScenePicker />}
 
         {/* Background template (runtime DB events only) */}
         {isDbEvent && (

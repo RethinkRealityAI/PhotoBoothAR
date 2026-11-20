@@ -12,7 +12,7 @@
 import type { CSSProperties } from 'react';
 import { BORDER_MAP, frameDataUrl } from '../../lib/borders';
 import { resolveBackgroundTemplate } from '../theme/backgrounds';
-import { accentThemePatch, type EventTemplate } from '../../lib/eventTemplates';
+import { accentThemePatch, BEAMWALL_LOOK_VARS, type EventTemplate } from '../../lib/eventTemplates';
 
 interface Props {
   template: EventTemplate;
@@ -34,8 +34,11 @@ export default function TemplatePreview({ template, eventName, accent, themeVars
   const border = BORDER_MAP[frameId ?? template.frameId] ?? BORDER_MAP[template.frameId];
   const frameUrl = border ? frameDataUrl(border, accent ? { accent } : null) : null;
 
+  // No colour chosen = the event will be created in the brand look
+  // (NewEvent doCreate), so that is what the preview shows; a chosen colour
+  // keeps the occasion's own theme under it, exactly as create seeds it.
   const themeStyle = {
-    ...template.themeVars,
+    ...(themeVars || accent ? template.themeVars : BEAMWALL_LOOK_VARS),
     // A full theme already carries its (contrast-checked) accent; the bare
     // accent patch is only for re-accenting the template's own tokens.
     ...(themeVars ? themeVars : accent ? accentThemePatch(accent) : {}),

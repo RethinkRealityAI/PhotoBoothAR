@@ -352,7 +352,7 @@ export default function CardContribute() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`flex-1 flex items-center justify-center gap-1.5 rounded-full px-2 py-2 font-label uppercase tracking-luxe text-[9px] transition ${
-                tab === t.id ? 'bg-foil text-white font-bold' : 'text-brand-muted/60 hover:text-brand-fg'
+                tab === t.id ? 'is-selected bg-foil text-white font-bold' : 'text-brand-muted/60 hover:text-brand-fg'
               }`}
             >
               <t.icon className="w-3.5 h-3.5" /> {t.label}

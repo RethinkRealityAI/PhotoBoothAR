@@ -169,3 +169,97 @@ export function duplicateSlugCandidates(slug: string): string[] {
   }
   return out;
 }
+
+/* ── The events dashboard (/host): filter, sort, spotlight, next action ── */
+
+/** The extra fields the dashboard's filters read. */
+export interface DashboardEvent extends ListableEvent {
+  name: string;
+  slug: string;
+  event_type?: string | null;
+}
+
+export type StatusFilter = 'all' | 'live' | 'upcoming' | 'drafts' | 'past';
+export type SortKey = 'event-date' | 'created' | 'name';
+
+/** Which status bucket an event sits in (archived events never reach here). */
+export function statusBucket(ev: ListableEvent, now: Date = new Date()): Exclude<StatusFilter, 'all'> {
+  // Live is live whatever its date says: guests can still post (the same rule
+  // groupEvents keeps), so it is never filed under past.
+  if (ev.status === 'live') return 'live';
+  const g = groupEvents([ev], now);
+  return g.past.length > 0 ? 'past' : g.drafts.length > 0 ? 'drafts' : 'upcoming';
+}
+
+/** Status, type and free-text filters. The query matches the name or the
+ *  guest-link slug, case- and accent-insensitive. */
+export function filterEvents<T extends DashboardEvent>(
+  events: T[],
+  f: { status: StatusFilter; type: string | null; query: string },
+  now: Date = new Date(),
+): T[] {
+  const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const q = fold(f.query.trim());
+  return events.filter((ev) =>
+    (f.status === 'all' || statusBucket(ev, now) === f.status)
+    && (f.type === null || (ev.event_type ?? '') === f.type)
+    && (q === '' || fold(ev.name).includes(q) || fold(ev.slug).includes(q)));
+}
+
+/** Sort for the dashboard. 'event-date' is the grouped order (live and
+ *  upcoming soonest first, then drafts, then past newest first); 'created'
+ *  is newest first; 'name' is A to Z. Never mutates the input. */
+export function sortEvents<T extends DashboardEvent>(events: T[], key: SortKey, now: Date = new Date()): T[] {
+  if (key === 'created') return [...events].sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0));
+  if (key === 'name') return [...events].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  const g = groupEvents(events, now);
+  return [...g.upcoming, ...g.drafts, ...g.past];
+}
+
+/** The one event worth putting first: live now (soonest date first), else the
+ *  soonest upcoming, else the newest draft (still being set up). Ended and
+ *  past events never take the spotlight. */
+export function spotlightOf<T extends ListableEvent>(events: T[], now: Date = new Date()): T | null {
+  const g = groupEvents(events, now);
+  // Among live events, the one dated closest to today (an undated one last).
+  const gap = (e: T) => { const d = parseEventDate(e.starts_at); return d === null ? Infinity : Math.abs(dayDiff(d, now)); };
+  const live = g.upcoming.filter((e) => e.status === 'live').sort((a, b) => gap(a) - gap(b));
+  if (live.length > 0) return live[0];
+  if (g.upcoming.length > 0) return g.upcoming[0];
+  const newestDraft = [...g.drafts].sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0))[0];
+  return newestDraft ?? null;
+}
+
+/** The single most useful action for an event's state. */
+export type NextAction = 'go-live' | 'share' | 'open-wall' | 'recap' | 'restore';
+export function nextAction(ev: ListableEvent, now: Date = new Date()): NextAction {
+  if (ev.status === 'archived') return 'restore';
+  if (ev.status === 'draft') return 'go-live';
+  const bucket = statusBucket(ev, now);
+  if (bucket === 'past') return 'recap';
+  // Live: before the day it is the QR to share; on the day (or undated) the
+  // wall is what the host opens.
+  const d = parseEventDate(ev.starts_at);
+  return d !== null && dayDiff(d, now) > 0 ? 'share' : 'open-wall';
+}
+
+/** "Good morning" / "Good afternoon" / "Good evening" for a local hour. */
+export function greetingFor(hour: number): string {
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+/** The first name from Supabase user metadata (display_name, then
+ *  full_name, then name), or null. Never an email address. */
+export function firstNameOf(meta: unknown): string | null {
+  if (!meta || typeof meta !== 'object') return null;
+  const m = meta as Record<string, unknown>;
+  for (const k of ['display_name', 'full_name', 'name']) {
+    const v = m[k];
+    if (typeof v !== 'string') continue;
+    const first = v.trim().split(/\s+/)[0] ?? '';
+    if (first !== '' && !first.includes('@')) return first.slice(0, 24);
+  }
+  return null;
+}

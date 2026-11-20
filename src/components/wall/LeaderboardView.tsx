@@ -127,7 +127,13 @@ function EntryRow({ entry, rank, delay }: { entry: LeaderboardEntry; rank: numbe
   );
 }
 
-export default function LeaderboardView() {
+/**
+ * `platform` — the platform wall already shows the event name in its header,
+ * so the board drops its own wordmark + name line, and it scrolls (top-safe
+ * centred) inside the room under the header instead of clipping long boards.
+ * Legacy walls leave it off and render exactly as before.
+ */
+export default function LeaderboardView({ platform = false }: { platform?: boolean } = {}) {
   const { leaderboard, fetchLeaderboard, copy } = useStore();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const visible = usePageVisible();
@@ -152,21 +158,27 @@ export default function LeaderboardView() {
     // (rather than every label individually) keeps the composition intact and
     // is exactly 1× at the 1440×900 design size.
     <div
-      className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-6 py-8"
-      style={{ transform: 'scale(var(--wall-scale, 1))', transformOrigin: 'center center' }}
+      className={platform
+        ? 'absolute inset-0 flex flex-col items-center overflow-y-auto hide-scrollbar px-4 py-6 sm:px-6'
+        : 'absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-6 py-8'}
+      style={platform
+        ? { justifyContent: 'safe center' }
+        : { transform: 'scale(var(--wall-scale, 1))', transformOrigin: 'center center' }}
     >
       {/* Header */}
       <motion.div
-        className="flex flex-col items-center mb-8"
+        className={platform ? 'flex flex-col items-center mb-5 shrink-0' : 'flex flex-col items-center mb-8'}
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       >
-        <Wordmark size="md" />
-        <div className="mt-5 flex flex-col items-center gap-1">
-          <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/50">
-            {copy.fullName}
-          </p>
+        {!platform && <Wordmark size="md" />}
+        <div className={platform ? 'flex flex-col items-center gap-1' : 'mt-5 flex flex-col items-center gap-1'}>
+          {!platform && (
+            <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/50">
+              {copy.fullName}
+            </p>
+          )}
           <h2 className="font-serif italic text-4xl text-foil-static">
             Leaderboard
           </h2>
@@ -185,7 +197,7 @@ export default function LeaderboardView() {
 
       {/* Table */}
       <div
-        className="w-full max-w-3xl glass-strong rounded-3xl overflow-hidden"
+        className={platform ? 'w-full max-w-3xl glass-strong rounded-3xl overflow-hidden shrink-0' : 'w-full max-w-3xl glass-strong rounded-3xl overflow-hidden'}
         style={{
           border: '1px solid rgba(var(--accent-rgb),0.20)',
           boxShadow:

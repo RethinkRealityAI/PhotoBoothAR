@@ -10,8 +10,11 @@
    serialized behind the CSS bundle. Legacy/coded events keep injecting their
    own fontHref (incl. Pinyon Script for the gala events) at runtime. */
 @import "tailwindcss";
-/* Brand v2 tokens + components, scoped to [data-brand="2"] (/beamy, /brand). */
+/* Brand v2 tokens + components (bw-*). */
 @import "./styles/brand.css";
+/* Brand v2 as the platform default: re-points the semantic tokens and
+   utilities below on every non-event screen (see the file header). */
+@import "./styles/platform.css";
 
 @theme {
   /* Champagne gold scale */
@@ -538,4 +541,210 @@ select option:disabled {
     break-inside: avoid;
   }
   #share-print-root .share-card p { color: #1a1108; }
+}
+
+/* ----------------------------------------------------------------- */
+/* Live wall: Wall design (platform walls only)                       */
+/* Every selector below is scoped to a class or attribute that only   */
+/* the platform wall renders (GridWall, WallHeader, WallBackdrop,     */
+/* data-wall-tone), so legacy single-event walls are untouched.       */
+/* Unlayered on purpose: it must win over the utilities layer.        */
+/* ----------------------------------------------------------------- */
+
+/* Floating glass for the wall's chrome — calmer than a dark band. */
+.wall-glass {
+  position: relative;
+  background: rgba(18, 16, 54, 0.42);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.26),
+    inset -1px -1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.10),
+    0 18px 44px -24px rgba(6, 5, 26, 0.8);
+}
+
+/* Selected view tab: clear glass with a lit rim (the brand's selected state;
+   platform.css adds the moving glint on beamwall-look events). */
+.wall-tab[aria-pressed="true"] {
+  background-color: rgba(var(--accent-rgb), 0.16);
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--accent-rgb), 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 0 18px -6px rgba(var(--accent-rgb), 0.65);
+}
+
+/* Backdrop glow pools: two slow drifts, nothing at all under reduced motion. */
+.wall-backdrop-glow {
+  position: absolute;
+  width: 62vmax;
+  height: 62vmax;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.2;
+  will-change: transform;
+}
+.wall-backdrop-glow-a { left: -18vmax; top: -24vmax; animation: wall-glow-a 46s ease-in-out infinite alternate; }
+.wall-backdrop-glow-b { right: -22vmax; bottom: -28vmax; opacity: 0.14; animation: wall-glow-b 61s ease-in-out infinite alternate; }
+@keyframes wall-glow-a { to { transform: translate3d(16vmax, 10vmax, 0) scale(1.12); } }
+@keyframes wall-glow-b { to { transform: translate3d(-14vmax, -12vmax, 0) scale(0.9); } }
+
+/* Grid tiles. */
+.wall-tile-face {
+  border-radius: calc(16px * var(--wall-scale, 1));
+  background: rgba(12, 11, 34, 0.55);
+  box-shadow: 0 14px 34px -18px rgba(4, 3, 20, 0.85), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform-style: preserve-3d;
+  outline: none;
+}
+.wall-tile-face:focus-visible { box-shadow: 0 0 0 2px var(--color-accent), 0 14px 34px -18px rgba(4, 3, 20, 0.85); }
+.wall-tile.is-fresh .wall-tile-face {
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    0 0 36px 6px rgba(var(--accent-rgb), 0.38),
+    0 14px 34px -18px rgba(4, 3, 20, 0.85);
+}
+.wall-tile-caption {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  padding: calc(28px * var(--wall-scale, 1)) calc(12px * var(--wall-scale, 1)) calc(10px * var(--wall-scale, 1));
+  background: linear-gradient(to top, rgba(8, 7, 26, 0.78) 0%, rgba(8, 7, 26, 0) 100%);
+  color: #fff;
+  font-family: var(--font-serif);
+  font-size: calc(14px * var(--wall-scale, 1));
+  line-height: 1.15;
+  min-width: 0;
+}
+.wall-tile-chip {
+  position: absolute;
+  top: calc(8px * var(--wall-scale, 1));
+  left: calc(8px * var(--wall-scale, 1));
+  z-index: 2;
+  padding: 3px calc(10px * var(--wall-scale, 1));
+  border-radius: 999px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: calc(12px * var(--wall-scale, 1));
+  color: #fff;
+  background: rgba(14, 12, 44, 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.7);
+}
+/* A single glimmer passes over a tile that just arrived. */
+.wall-tile-glint {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.38) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: wall-tile-glint 1.6s 0.4s ease-out 2 both;
+}
+@keyframes wall-tile-glint { to { transform: translateX(120%); } }
+.wall-tile-empty {
+  border-radius: calc(16px * var(--wall-scale, 1));
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.wall-tile-empty-label {
+  font-family: var(--font-sans);
+  font-size: calc(12px * var(--wall-scale, 1));
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  padding: 0 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wall-backdrop-glow, .wall-tile-glint { animation: none !important; }
+  .wall-tile-glint { display: none; }
+}
+
+/* ── Light tone: dark ink, frosted white glass, soft shadows. ── */
+[data-wall-tone="light"] .wall-chrome {
+  --color-ivory: #1C1A4C;
+  --color-champagne: #3D3A78;
+  --color-brand-fg: #1C1A4C;
+  --color-brand-muted: #4A4783;
+  --bw-ink: #1C1A4C;
+  /* Gold/accent text tokens (leaderboard, empty state) read as indigo ink. */
+  --color-gold-200: #3F3B9A;
+  --color-gold-300: #3F3B9A;
+  --color-gold-400: #4B47B8;
+  --color-gold-500: #4B47B8;
+}
+[data-wall-tone="light"] .wall-glass,
+[data-wall-tone="light"] .wall-chrome :is(.glass, .glass-strong, .liquid-glass) {
+  background: rgba(255, 255, 255, 0.62);
+  border-color: rgba(40, 38, 110, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.65),
+    0 14px 36px -18px rgba(44, 40, 120, 0.45);
+}
+/* Leaderboard on a light wall: the shared board writes its labels as
+   champagne/ivory at 30-50% alpha, which on a near-white panel lands around
+   2:1. Solid ink here (#4A4783 on white is ~8:1, #1C1A4C ~15:1). */
+[data-wall-tone="light"] .wall-leaderboard :is([class*="text-champagne/"], [class*="text-gold-300/"]) {
+  color: #4A4783;
+}
+[data-wall-tone="light"] .wall-leaderboard [class*="text-ivory/"] {
+  color: #1C1A4C;
+}
+/* Platform leaderboard on a phone: Points + Photos + Challenges columns
+   (24+16+20 rem-ish) left the NAME zero pixels. Keep the name and points. */
+@media (max-width: 639px) {
+  .wall-leaderboard :is(.w-16, .w-20).shrink-0 { display: none; }
+  .wall-leaderboard .w-24.shrink-0 { width: 4rem; }
+}
+[data-wall-tone="light"] .wall-leaderboard .glass-strong {
+  background: rgba(255, 255, 255, 0.82);
+}
+[data-wall-tone="light"] .wall-tile-face {
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 16px 36px -18px rgba(44, 40, 120, 0.5), 0 2px 6px -2px rgba(44, 40, 120, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+}
+[data-wall-tone="light"] .wall-tile-empty {
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(44, 40, 120, 0.08), 0 10px 26px -18px rgba(44, 40, 120, 0.35);
+}
+[data-wall-tone="light"] .wall-tile-empty-label { color: rgba(28, 26, 76, 0.6); }
+/* ── Wall design (host): layout glyphs + the live mini preview. ── */
+.wall-glyph { position: relative; overflow: hidden; border-radius: 10px; }
+.wall-glyph i { position: absolute; display: block; border-radius: 3px; background: rgba(255, 255, 255, 0.34); }
+.wall-glyph-grid i:nth-child(5) { animation: wall-glyph-flip 3.2s ease-in-out infinite; }
+.wall-glyph-grid i:nth-child(9) { animation: wall-glyph-flip 3.2s 1.6s ease-in-out infinite; }
+@keyframes wall-glyph-flip { 0%, 40%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(0.05); opacity: 0.6; } 60% { transform: scaleX(1); background: rgba(255, 255, 255, 0.7); } }
+.wall-glyph-marquee .row { position: absolute; left: 0; display: flex; gap: 4px; width: 200%; }
+.wall-glyph-marquee .row i { position: static; flex: 0 0 18px; height: 100%; }
+.wall-glyph-marquee .row-a { animation: wall-glyph-slide 6s linear infinite; }
+.wall-glyph-marquee .row-b { animation: wall-glyph-slide 6s linear infinite reverse; }
+@keyframes wall-glyph-slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.wall-glyph-carousel .ring { position: absolute; inset: 0; transform-style: preserve-3d; animation: wall-glyph-spin 9s linear infinite; }
+@keyframes wall-glyph-spin { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }
+.wall-glyph-slideshow i.slide { animation: wall-glyph-fade 4s ease-in-out infinite; }
+.wall-glyph-slideshow i.slide + i.slide { animation-delay: 2s; }
+@keyframes wall-glyph-fade { 0%, 100% { opacity: 0; transform: scale(1.04); } 20%, 50% { opacity: 1; transform: scale(1); } 65% { opacity: 0; } }
+.wall-glyph-masonry i { animation: wall-glyph-rise 5s ease-in-out infinite; }
+.wall-glyph-masonry i:nth-child(2n) { animation-delay: 1.2s; }
+@keyframes wall-glyph-rise { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+
+.wall-preview-marquee-row { display: flex; gap: 6px; width: max-content; animation: wall-glyph-slide 26s linear infinite; }
+.wall-preview-marquee-row.reverse { animation-direction: reverse; }
+.wall-preview-ring { position: absolute; inset: 0; transform-style: preserve-3d; animation: wall-glyph-spin 28s linear infinite; }
+.wall-upload-bar { animation: wall-upload 1.2s ease-in-out infinite; }
+@keyframes wall-upload { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wall-glyph *, .wall-preview-marquee-row, .wall-preview-ring { animation: none !important; }
+  .wall-upload-bar { animation-duration: 3s; }
+}
+
+[data-wall-tone="light"] .wall-tab[aria-pressed="true"] {
+  background-color: rgba(var(--accent-rgb), 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--accent-rgb), 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 6px 18px -8px rgba(var(--accent-rgb), 0.55);
 }
