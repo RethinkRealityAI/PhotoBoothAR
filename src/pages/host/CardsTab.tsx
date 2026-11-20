@@ -44,7 +44,12 @@ import {
   DEFAULT_SEND_TIME, describeDelivery, formatDelivery, inputValuesFor, relativeWhen, scheduleInstant,
   scheduleProblem, scheduleProblemCopy, timeZoneChoices, type DeliveryFields,
 } from '../../lib/cardDelivery';
-import { buildCardTheme } from '../../lib/cardTheme';
+import { buildCardTheme, normalizeCardTheme } from '../../lib/cardTheme';
+import { normalizeCardPresentation, type CardPresentation } from '../../lib/cardPresentation';
+import { mergePresentation, type PreviewPicks } from '../../lib/cardPreview';
+import CardPresentationSection from '../../components/cards/CardPresentationPicker';
+import CardPreviewModal from '../../components/cards/CardPreviewModal';
+import { useToast } from '../../components/ui/Toast';
 import { curationSummary, filterContributions, shouldOfferFilter } from '../../lib/cardCuration';
 import { DEFAULT_CARD_TEMPLATE, resolveCardTemplate } from '../../components/cards/templates/registry';
 import TemplatePicker from '../../components/cards/TemplatePicker';
@@ -859,6 +864,17 @@ export default function CardsTab() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [emailSentFor, setEmailSentFor] = useState<string | null>(null);
+  const toast = useToast();
+  /** The card whose full-screen preview is open. */
+  const [previewCardId, setPreviewCardId] = useState<string | null>(null);
+  // Stable: useDialog re-runs (refocusing) whenever its onClose changes.
+  const closePreview = useCallback(() => setPreviewCardId(null), []);
+  /** Cards with a presentation write in flight. */
+  const [savingPresentation, setSavingPresentation] = useState<ReadonlySet<string>>(new Set());
+  /** Per card: the last presentation the DB confirmed, and the newest write's
+   *  sequence number — so a stale failure never rolls back a newer pick. */
+  const confirmedPresentation = useRef(new Map<string, Record<string, unknown>>());
+  const presentationSeq = useRef(new Map<string, number>());
 
   const isDb = source === 'db';
   /** The card list read failed — distinct from an event with no cards. */
@@ -999,6 +1015,69 @@ export default function CardsTab() {
           : c,
       ) ?? null,
     );
+  };
+
+  /**
+   * How a card arrives (opening / email style / colours). OPTIMISTIC: the pick
+   * shows at once and saves behind it; a failed save rolls back to what the
+   * database last confirmed and says so — never a silent success.
+   */
+  const setCardPresentation = async (
+    card: CardRow,
+    patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look'>>,
+  ) => {
+    const next: Record<string, unknown> = { ...mergePresentation(card.presentation, patch) };
+    if (!confirmedPresentation.current.has(card.id)) {
+      confirmedPresentation.current.set(card.id, card.presentation ?? {});
+    }
+    const seq = (presentationSeq.current.get(card.id) ?? 0) + 1;
+    presentationSeq.current.set(card.id, seq);
+    patchCard(card.id, { presentation: next });
+    setSavingPresentation((prev) => new Set(prev).add(card.id));
+
+    const updated = await updateCard(card.id, { presentation: next });
+    if (presentationSeq.current.get(card.id) !== seq) return; // a newer pick owns the outcome
+    setSavingPresentation((prev) => {
+      const out = new Set(prev);
+      out.delete(card.id);
+      return out;
+    });
+    if (!updated) {
+      patchCard(card.id, { presentation: confirmedPresentation.current.get(card.id) ?? {} });
+      toast.push("Couldn't save how this card arrives. Try again.", 'error');
+      return;
+    }
+    const saved = updated.presentation ?? next;
+    confirmedPresentation.current.set(card.id, saved);
+    patchCard(card.id, { presentation: saved });
+  };
+
+  /** The preview's "Use these": opening + colours (+ card style) in ONE write. */
+  const applyPreviewPicks = async (card: CardRow, picks: PreviewPicks): Promise<boolean> => {
+    const presentation: Record<string, unknown> = {
+      ...mergePresentation(card.presentation, { reveal: picks.reveal, look: picks.look }),
+    };
+    const templateChanged = picks.template !== card.template;
+    const updated = await updateCard(card.id, {
+      presentation,
+      ...(templateChanged ? { template: picks.template, theme: themeSnapshot } : {}),
+    });
+    if (!updated) {
+      toast.push("Couldn't save these choices. Try again.", 'error');
+      return false;
+    }
+    const saved = updated.presentation ?? presentation;
+    confirmedPresentation.current.set(card.id, saved);
+    // Supersede any single-pick write still in flight: this one is newer.
+    presentationSeq.current.set(card.id, (presentationSeq.current.get(card.id) ?? 0) + 1);
+    setSavingPresentation((prev) => {
+      const out = new Set(prev);
+      out.delete(card.id);
+      return out;
+    });
+    patchCard(card.id, { presentation: saved, template: updated.template, theme: updated.theme });
+    toast.push('Saved. This is how it arrives now.', 'success');
+    return true;
   };
 
   /** Event-wide default new cards start from (host-only; guests never pick). */
@@ -1255,25 +1334,23 @@ export default function CardsTab() {
                       onUpgrade={() => setUpgradeOpen(true)}
                     />
 
-                    {/* Keepsake style — host-only; changeable after publishing
-                        so a host can fix the look without re-collecting. */}
-                    <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
-                      <div className="flex items-baseline justify-between gap-3 mb-3">
-                        <h4 className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
-                          Keepsake style
-                        </h4>
-                        <span className="font-sans text-[10px] text-brand-muted/45">
-                          {published ? 'Applies to everyone with the link' : 'What guests will see'}
-                        </span>
-                      </div>
-                      <TemplatePicker
-                        value={card.template}
-                        onChange={(id) => setCardTemplate(card, id)}
-                        busy={busyCard === card.id}
-                        defaultId={defaultTemplate}
-                        idPrefix={`card-tpl-${card.id}`}
-                      />
-                    </div>
+                    {/* How it arrives — opening, card style, email, colours.
+                        Host-only; all changeable after publishing so a host
+                        can fix the look without re-collecting. */}
+                    <CardPresentationSection
+                      presentation={normalizeCardPresentation(card.presentation)}
+                      template={card.template}
+                      defaultTemplate={defaultTemplate}
+                      onChange={(patch) => setCardPresentation(card, patch)}
+                      onTemplateChange={(id) => setCardTemplate(card, id)}
+                      onPreview={() => setPreviewCardId(card.id)}
+                      saving={savingPresentation.has(card.id)}
+                      templateBusy={busyCard === card.id}
+                      published={published}
+                      eventAccent={normalizeCardTheme(card.theme)?.vars['--color-accent'] ?? null}
+                      eventBg={normalizeCardTheme(card.theme)?.vars['--color-brand-bg'] ?? null}
+                      idPrefix={`card-arrive-${card.id}`}
+                    />
 
                     {/* Keepsake film (deluxe MP4 render) — published cards only */}
                     {entitlements.cardsPremiumRender && published && (
@@ -1289,6 +1366,18 @@ export default function CardsTab() {
           })
         )}
       </div>
+
+      {(() => {
+        const previewCard = previewCardId ? cards?.find((c) => c.id === previewCardId) : undefined;
+        return previewCard ? (
+          <CardPreviewModal
+            card={previewCard}
+            eventName={config.copy.fullName ?? null}
+            onClose={closePreview}
+            onUse={(picks) => applyPreviewPicks(previewCard, picks)}
+          />
+        ) : null;
+      })()}
 
       {upgradeOpen && eventUuid && (
         <UpgradeModal eventUuid={eventUuid} currentTier={planTier} onClose={() => setUpgradeOpen(false)} />
