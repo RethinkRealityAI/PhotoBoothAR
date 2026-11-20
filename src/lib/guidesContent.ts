@@ -1101,6 +1101,8 @@ const RUN_THE_NIGHT: GuideDoc = {
       title: 'Keepsake cards, after the night',
       body: [
         'A keepsake card is a shareable page for one person or one couple. Friends and family add photos and messages to it — up to 8 MB per photo, 60 MB and 20 seconds for a video — and it becomes something worth keeping rather than a folder of files.',
+        'Friends who open the link can step into the same AR booth your guests use, with frames, sparkle effects and 3D props that follow their face, and take a photo or record a short video message there. A plain camera is one tap away for older phones.',
+        'You don’t have to remember the big day either. Pick a date, a time and the time zone you mean it in, and the card closes, publishes itself and lands in the recipient’s inbox right then. Friends can keep adding messages until it goes.',
         'You choose how it looks, and everyone who opens it sees the same thing: Storybook turns page by page, Film strip reads as a reel, and Carousel spins the photos in a 3D ring. You can set a default for the whole event and still change any single card.',
         'When it is full you can render it into a short film, which costs around 30 credits. Guests can also bulk-save everything they appear in from their own gallery, so nobody has to ask you for their photos afterwards.',
       ],

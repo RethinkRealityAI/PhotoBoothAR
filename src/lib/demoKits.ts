@@ -138,3 +138,35 @@ export const FRAME_THEMES: { theme: string; frames: DemoKitFrame[] }[] = [
   { theme: 'Gala & corporate', frames: [F('gala-magazine-cover', 'Gala night', ''), F('gala-artdeco-mask', 'Midnight & gold', ''), F('corporate-badge-mask', 'Team page', '')] },
   { theme: 'Launch & New Year', frames: [F('launch-product-side', 'The reveal', ''), F('nye-countdown', '2027 countdown', '')] },
 ];
+
+/**
+ * The booth look a greeting-card contributor's camera opens on, read from the
+ * card's own title ("Merry Christmas, Grandma" → christmas). Cards are mostly
+ * birthdays and celebrations, so anything unrecognised opens on the party kit;
+ * the contributor can still switch looks inside the booth.
+ */
+export function cardBoothLook(title: string | null | undefined): string {
+  const t = (title ?? '').toLowerCase();
+  if (/christmas|xmas|holiday|festive|noel|santa/.test(t)) return 'christmas';
+  if (/wedding|bride|groom|marriage|anniversary|engage|honeymoon/.test(t)) return 'wedding';
+  return 'party';
+}
+
+/**
+ * Frames safe on ANY card: the demo kits also carry sample-personalised frames
+ * ("30 · AVA", "Sarah & David · June 2026"), which would be wrong on a real
+ * person's card. Only frames whose wording is generic are offered there.
+ */
+const CARD_SAFE_FRAMES: Record<string, readonly string[]> = {
+  party: ['birthday-character-hands'],
+  christmas: ['christmas-santa-cover', 'christmas-elf-hands'],
+  wedding: [],
+};
+
+/** The pinned booth kit for a greeting card's contributors. */
+export function cardBoothKit(title: string | null | undefined): DemoKit {
+  const look = cardBoothLook(title);
+  const base = demoKit(look);
+  const safe = CARD_SAFE_FRAMES[look] ?? [];
+  return { ...base, id: `card-${look}`, frames: base.frames.filter((f) => safe.includes(f.id)) };
+}
