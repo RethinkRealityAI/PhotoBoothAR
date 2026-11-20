@@ -542,6 +542,94 @@ export function overviewDistance(radius: number, aspect: number, fovDeg: number)
   return round2((Math.max(0, radius) * 1.15) / Math.sin(fov / 2));
 }
 
+/* ── Constellation framing (the overview, composed for the screen) ──────── */
+
+/** Tile height in world units (tiles are 3:4 portrait, like a print). */
+export const CONSTELLATION_TILE_H = 1.7;
+/** A tile's on-screen height as a share of the view's height, for up to 8
+ *  tiles: ~100px on an 844px phone. More tiles get smaller. */
+export const CONSTELLATION_TILE_SHARE = 0.12;
+
+/** The band of the screen the cluster should fill, in NDC (−1 bottom … 1
+ *  top): its centre `cy` and half-height `hy`, and the usable half-width
+ *  `hx` (1 = edge to edge). */
+export interface FramingRegion {
+  cy: number;
+  hy: number;
+  hx: number;
+}
+
+export interface ConstellationFraming {
+  /** Scale on x and z (the orbit plane) and on y, applied to the layout. */
+  sx: number;
+  sy: number;
+  /** Camera distance from the cluster's centre. */
+  distance: number;
+  /** Projection lens shift (the matrix's y-offset term): +s shows the
+   *  cluster's centre at NDC y = −s, without tilting the camera. */
+  shiftY: number;
+}
+
+/** True when the viewport is taller than it is wide (enough to restack). */
+export function isPortrait(aspect: number): boolean {
+  return Number.isFinite(aspect) && aspect > 0 && aspect < 0.9;
+}
+
+/**
+ * Where on screen the overview cluster goes. The cover's title and avatars
+ * sit in the upper third and the button + pager at the bottom, so the cluster
+ * fills the band between. On a portrait closing page the message panel holds
+ * the top, so the cluster settles lower and smaller beneath it; on a wide
+ * screen the panel is centred and the cluster frames it at the cover's band.
+ */
+export function constellationRegion(kind: 'cover' | 'close', aspect: number): FramingRegion {
+  if (isPortrait(aspect)) {
+    return kind === 'cover' ? { cy: -0.12, hy: 0.52, hx: 0.94 } : { cy: -0.56, hy: 0.3, hx: 0.94 };
+  }
+  return { cy: -0.08, hy: 0.56, hx: 0.9 };
+}
+
+/**
+ * Compose the overview for the viewport: pick a camera distance that makes
+ * tiles a readable size, then squash or stretch the layout so the whole
+ * cluster fits the region — on a phone that means a tall, narrow cluster of
+ * ~100px tiles instead of a wide shell of 40px ones.
+ *
+ * The SHAPE (sx, sy) always comes from the cover's region, so the tiles never
+ * jump between pages; a smaller region (the portrait close) only pulls the
+ * camera back and lowers the lens shift.
+ */
+export function constellationFraming(n: number, aspect: number, fovDeg: number, region: FramingRegion): ConstellationFraming {
+  const count = Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+  const a = Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
+  const v = ((Number.isFinite(fovDeg) && fovDeg > 0 ? fovDeg : 50) * Math.PI) / 180;
+  const tv = Math.tan(v / 2);
+  const th = tv * a;
+  const R = constellationRadius(count) * 1.08; // the layout's radius jitter
+  const sinLat = CONSTELLATION_MAX_LAT;
+  const halfW = (CONSTELLATION_TILE_H * 0.75) / 2;
+  const halfH = CONSTELLATION_TILE_H / 2;
+
+  const cover = constellationRegion('cover', a);
+  const share = CONSTELLATION_TILE_SHARE * Math.min(1, Math.sqrt(8 / count));
+  const d = CONSTELLATION_TILE_H / (2 * tv * share);
+
+  // Horizontal: a tile at radius r in the orbit plane projects at most
+  // r / √(d² − r²) (tan units); keep that, plus half a tile, inside hx.
+  const X = Math.max(0.05, cover.hx * th - halfW / d);
+  const r = Math.min((X * d) / Math.sqrt(1 + X * X), d * 0.4);
+  const sx = Math.min(1.6, Math.max(0.3, r / R));
+  // Vertical: the nearest tiles stand at d − r; keep |y| + half a tile inside hy.
+  const near = d - sx * R;
+  const Y = Math.max(0.05, cover.hy * tv - halfH / near);
+  const sy = Math.min(2.4, Math.max(0.3, (Y * near) / (R * sinLat)));
+
+  const hy = Number.isFinite(region.hy) && region.hy > 0 ? region.hy : cover.hy;
+  const distance = d * Math.max(1, cover.hy / hy);
+  const cy = Number.isFinite(region.cy) ? Math.max(-0.9, Math.min(0.9, region.cy)) : 0;
+  return { sx: r3(sx), sy: r3(sy), distance: round2(distance), shiftY: r3(-cy) };
+}
+
 /* ── The field behind the card ───────────────────────────────────────── */
 
 /** One soft out-of-focus light. Positions and radius in % of the field. */

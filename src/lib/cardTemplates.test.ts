@@ -17,6 +17,10 @@ import {
   polaroidSeed,
   CONSTELLATION_MAX_LAT,
   SHORT_MESSAGE_MAX_CHARS,
+  CONSTELLATION_TILE_H,
+  constellationFraming,
+  constellationRegion,
+  isPortrait,
   FIELD_BOKEH_COUNT,
   FIELD_LINK_MAX,
   FIELD_STAR_COUNT,
@@ -420,6 +424,97 @@ describe('constellation camera', () => {
     const landscape = overviewDistance(5, 1440 / 800, 50);
     expect(portrait).toBeGreaterThan(landscape);
     expect(Number.isFinite(overviewDistance(5, 0, NaN))).toBe(true);
+  });
+});
+
+describe('constellationFraming — the overview composed for the screen', () => {
+  const FOV = 50;
+  const tv = Math.tan((FOV * Math.PI) / 360);
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => `c-${i}`);
+
+  /** Project every scaled tile seen from straight ahead at each azimuth;
+   *  return the NDC extents the tiles (with their size) reach. */
+  function extents(n: number, aspect: number, kind: 'cover' | 'close') {
+    const region = constellationRegion(kind, aspect);
+    const f = constellationFraming(n, aspect, FOV, region);
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let maxX = 0;
+    for (let k = 0; k < 24; k++) {
+      const az = (k / 24) * Math.PI * 2;
+      for (const node of constellationLayout(ids(n))) {
+        const [x0, y0, z0] = node.position;
+        const x = (x0 * Math.cos(az) - z0 * Math.sin(az)) * f.sx;
+        const z = (x0 * Math.sin(az) + z0 * Math.cos(az)) * f.sx;
+        const y = y0 * f.sy;
+        const depth = f.distance - z;
+        const hh = (CONSTELLATION_TILE_H / 2) * node.scale;
+        const top = (y + hh) / (depth * tv) - f.shiftY;
+        const bottom = (y - hh) / (depth * tv) - f.shiftY;
+        const side = (Math.abs(x) + hh * 0.75) / (depth * tv * aspect);
+        minY = Math.min(minY, bottom);
+        maxY = Math.max(maxY, top);
+        maxX = Math.max(maxX, side);
+      }
+    }
+    return { f, region, minY, maxY, maxX };
+  }
+
+  it('isPortrait splits phones from wide screens', () => {
+    expect(isPortrait(390 / 800)).toBe(true);
+    expect(isPortrait(1440 / 900)).toBe(false);
+    expect(isPortrait(NaN)).toBe(false);
+  });
+
+  it('makes tiles ~90-130px on a phone, for a typical card', () => {
+    const { f } = extents(8, 414 / 800, 'cover');
+    const px = (CONSTELLATION_TILE_H / (2 * f.distance * tv)) * 800;
+    expect(px).toBeGreaterThanOrEqual(90);
+    expect(px).toBeLessThanOrEqual(130);
+  });
+
+  it('keeps the cover cluster inside its band (clear of the title) at every turn', () => {
+    for (const [aspect, n] of [
+      [414 / 800, 8],
+      [414 / 800, 3],
+      [414 / 800, 30],
+      [1464 / 860, 8],
+      [1464 / 860, 30],
+    ] as const) {
+      const { region, minY, maxY, maxX } = extents(n, aspect, 'cover');
+      expect(maxY).toBeLessThanOrEqual(region.cy + region.hy + 0.02);
+      expect(minY).toBeGreaterThanOrEqual(region.cy - region.hy - 0.02);
+      expect(maxX).toBeLessThanOrEqual(1.02);
+    }
+  });
+
+  it('on a phone, sits the cover cluster below the middle and the close cluster lower still', () => {
+    const cover = constellationRegion('cover', 0.5);
+    const close = constellationRegion('close', 0.5);
+    expect(cover.cy).toBeLessThan(0);
+    expect(close.cy).toBeLessThan(cover.cy);
+    const { maxY } = extents(8, 414 / 800, 'close');
+    expect(maxY).toBeLessThanOrEqual(close.cy + close.hy + 0.02);
+  });
+
+  it('keeps the same shape on every page, so tiles never jump', () => {
+    const a = 414 / 800;
+    const cover = constellationFraming(8, a, FOV, constellationRegion('cover', a));
+    const close = constellationFraming(8, a, FOV, constellationRegion('close', a));
+    expect(close.sx).toBe(cover.sx);
+    expect(close.sy).toBe(cover.sy);
+    expect(close.distance).toBeGreaterThan(cover.distance);
+  });
+
+  it('narrows the cluster on a phone and widens it on a wide screen', () => {
+    const phone = constellationFraming(8, 0.5, FOV, constellationRegion('cover', 0.5));
+    const wide = constellationFraming(8, 1.6, FOV, constellationRegion('cover', 1.6));
+    expect(phone.sx).toBeLessThan(wide.sx);
+  });
+
+  it('survives junk input', () => {
+    const f = constellationFraming(NaN, 0, NaN, { cy: NaN, hy: -1, hx: NaN });
+    for (const v of Object.values(f)) expect(Number.isFinite(v)).toBe(true);
   });
 });
 

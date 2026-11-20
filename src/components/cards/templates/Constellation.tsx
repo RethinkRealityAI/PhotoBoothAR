@@ -115,6 +115,7 @@ export default function Constellation(props: CardTemplateProps) {
             <ConstellationScene
               contributions={contributions}
               focus={focus}
+              closing={isEnd}
               palette={palette}
               reducedMotion={reducedMotion}
               onSelect={onSelect}
@@ -136,9 +137,17 @@ export default function Constellation(props: CardTemplateProps) {
           )}
         </div>
 
-        <div className="flex w-full flex-1 items-center justify-center">
+        {/* The overview is composed with the scene (constellationRegion): the
+            title holds the upper third, the cluster fills the band beneath;
+            on a phone the closing panel takes the top and the cluster
+            settles under it. */}
+        <div
+          className={`flex w-full flex-1 justify-center ${
+            isEnd ? 'items-start landscape:items-center' : 'items-start'
+          }`}
+        >
           {isCover && (
-            <div className="relative px-2">
+            <div className="relative px-2 pt-1">
               {/* A pool of shade behind the title so it reads over the tiles. */}
               <div
                 className="pointer-events-none absolute -inset-x-10 -inset-y-12"
@@ -154,7 +163,7 @@ export default function Constellation(props: CardTemplateProps) {
             </div>
           )}
           {isEnd && (
-            <div className="liquid-glass pointer-events-auto w-full max-w-md rounded-[1.8rem] px-6 py-8">
+            <div className="liquid-glass pointer-events-auto w-full max-w-md rounded-[1.8rem] px-6 py-6 landscape:py-8">
               <ShimmerRim radius="1.8rem" lapS={9} reducedMotion={reducedMotion} />
               <ClosingContent card={card} contributions={contributions} scratch={interactive} />
             </div>

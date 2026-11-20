@@ -15,15 +15,27 @@
  * behind each tile and at the centre; tiles are one shader (rounded corners,
  * cover-fit, a lit rim) and always face the camera; DPR is capped at 2.
  *
- * CAMERA: a damped orbit about a target. The index contract sets the GOAL —
- * overview (target at the centre, standing back far enough to fit the shell)
- * or focus (target on the tile, the camera outward along the tile's own
- * direction) — and the camera eases there; dragging turns the goal, a wheel
- * or pinch moves it in or out within limits. Reduced motion snaps instead of
- * flying and stops the drift.
+ * COMPOSED FOR THE SCREEN: the overview is framed per viewport
+ * (lib/cardTemplates.ts `constellationFraming`): the camera stands where
+ * tiles read at ~100px on a phone, the layout is squashed or stretched so the
+ * whole cluster fits the band between the title and the pager, and a lens
+ * shift (the projection's y-offset — no camera tilt) drops the cluster below
+ * the title. The shape is the same on every page, so tiles never jump.
  *
- * VIDEO: a video tile shows a poster frame; while focused it becomes a live
- * VideoTexture playing muted. The element is handed to the DOM layer
+ * CAMERA: a damped orbit about a target. The index contract sets the GOAL —
+ * overview (target at the centre, at the framed distance) or focus (target
+ * on the tile, the camera outward along the tile's own direction) — and the
+ * camera eases there; dragging turns the goal, a wheel or pinch moves it in
+ * or out within limits. The overview drifts slowly round until touched.
+ * Reduced motion snaps instead of flying and stops the drift.
+ *
+ * THREADS are screen-space ribbons (a few pixels wide, whatever the depth):
+ * a white-hot core inside an accent glow, with a pulse and its tail
+ * travelling each one — a luminous star map rather than 1px hairlines.
+ *
+ * VIDEO: a video tile is a painted card (frosted paper, a glowing play disc,
+ * the sender's name — a clip's first frame is often black); while focused it
+ * becomes a live VideoTexture playing muted. The element is handed to the DOM layer
  * (`onVideo`) so its caption's button can turn the sound on — a gesture the
  * browser requires for audio.
  *
@@ -36,26 +48,29 @@ import * as THREE from 'three';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import type { CardViewContribution } from '../../../lib/cards';
 import {
+  CONSTELLATION_TILE_H,
+  constellationFraming,
   constellationLayout,
-  constellationRadius,
+  constellationRegion,
   constellationThreads,
   focusCameraPosition,
-  overviewDistance,
   polaroidSeed,
   type ConstellationNode,
 } from '../../../lib/cardTemplates';
 import { cardTexture } from '../../carousel/cardTexture';
-import { drawNote, type NotePalette } from './noteCanvas';
+import { drawNote, fontsReady, type NotePalette } from './noteCanvas';
 
 const FOV = 50;
 /** Tile size in world units (3:4 portrait, like a print). */
-const TILE_H = 1.7;
+const TILE_H = CONSTELLATION_TILE_H;
 const TILE_W = TILE_H * 0.75;
 
 export interface ConstellationSceneProps {
   contributions: CardViewContribution[];
   /** Contribution index in focus, or null for the overview. */
   focus: number | null;
+  /** The overview is the closing page (frames the cluster beneath the panel). */
+  closing?: boolean;
   palette: NotePalette;
   reducedMotion: boolean;
   /** Tap on a tile (contribution index). */
@@ -133,15 +148,34 @@ const HALO_FRAG = /* glsl */ `
   }
 `;
 
+// A ribbon of constant SCREEN width: each segment is a quad whose corners
+// are pushed sideways in clip space, perpendicular to the segment as drawn.
 const THREAD_VERT = /* glsl */ `
+  attribute vec3 aA;
+  attribute vec3 aB;
+  attribute float aSide;
   attribute float aT;
   attribute float aSeed;
+  uniform vec2 uRes;
+  uniform float uWidth;
   varying float vT;
   varying float vSeed;
+  varying float vSide;
   void main() {
     vT = aT;
     vSeed = aSeed;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vSide = aSide;
+    mat4 m = projectionMatrix * modelViewMatrix;
+    vec4 clip = m * vec4(position, 1.0);
+    vec4 ca = m * vec4(aA, 1.0);
+    vec4 cb = m * vec4(aB, 1.0);
+    vec2 sa = ca.xy / ca.w * uRes;
+    vec2 sb = cb.xy / cb.w * uRes;
+    vec2 dir = sb - sa;
+    dir = length(dir) > 1e-4 ? normalize(dir) : vec2(1.0, 0.0);
+    vec2 n = vec2(-dir.y, dir.x);
+    clip.xy += n * aSide * uWidth / uRes * clip.w;
+    gl_Position = clip;
   }
 `;
 
@@ -149,13 +183,22 @@ const THREAD_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform float uTime;
   uniform float uDim;
+  uniform float uMotion;
   varying float vT;
   varying float vSeed;
+  varying float vSide;
   void main() {
-    float head = fract(uTime * 0.16 + vSeed);
-    float pulse = smoothstep(0.14, 0.0, abs(vT - head));
-    float a = (0.16 + pulse * 0.8) * uDim;
-    gl_FragColor = vec4(uColor * a, a);
+    float s = vSide;
+    float core = exp(-s * s * 26.0);
+    float glow = exp(-s * s * 4.0);
+    // One pulse per thread, a bright head with a fading tail behind it.
+    float head = fract(uTime * 0.13 * uMotion + vSeed);
+    float d = vT - head;
+    float pulse = exp(-(d * d) / 0.0016) + (d < 0.0 ? exp(d / 0.12) * 0.45 : 0.0);
+    pulse *= smoothstep(0.0, 0.06, vT) * smoothstep(1.0, 0.94, vT);
+    float a = (core * 0.55 + glow * 0.16 + pulse * (core * 1.1 + glow * 0.5)) * uDim;
+    vec3 col = mix(uColor, vec3(1.0), clamp(core * 0.55 + pulse * 0.6, 0.0, 1.0));
+    gl_FragColor = vec4(col * a, a);
     #include <colorspace_fragment>
   }
 `;
@@ -221,36 +264,45 @@ function focusDistance(aspect: number): number {
 /* Camera                                                              */
 /* ------------------------------------------------------------------ */
 
+/** The overview looks at the cluster from a little above its equator. */
+const OVERVIEW_POL = 1.46;
+/** Overview drift, radians per second. */
+const DRIFT = 0.07;
+
 function CameraRig({
   nodes,
   focus,
-  radius,
+  overview,
   reducedMotion,
 }: {
   nodes: ConstellationNode[];
   focus: number | null;
-  radius: number;
+  /** Framed overview: camera distance and lens shift. */
+  overview: { distance: number; shiftY: number };
   reducedMotion: boolean;
 }) {
   const { camera, size, gl } = useThree();
   const aspect = size.width / Math.max(1, size.height);
   const target = useRef(new THREE.Vector3());
   const goalTarget = useRef(new THREE.Vector3());
-  const sph = useRef({ az: 0.35, pol: 1.32, dist: overviewDistance(radius, aspect, FOV) * 1.6 });
-  const goal = useRef({ az: 0.35, pol: 1.32, dist: overviewDistance(radius, aspect, FOV) });
+  const sph = useRef({ az: 0.35, pol: OVERVIEW_POL, dist: overview.distance * 1.5 });
+  const goal = useRef({ az: 0.35, pol: OVERVIEW_POL, dist: overview.distance });
+  const shift = useRef({ now: overview.shiftY, goal: overview.shiftY });
   const lastInput = useRef(-10);
   const limits = useRef({ min: 2, max: 40 });
 
   // A new focus (or overview) sets a new goal.
   useEffect(() => {
-    const overview = overviewDistance(radius, aspect, FOV);
+    const far = overview.distance;
     if (focus === null || nodes[focus] === undefined) {
       goalTarget.current.set(0, 0, 0);
-      goal.current.dist = overview;
-      goal.current.pol = 1.32;
-      limits.current = { min: radius * 0.6, max: overview * 1.35 };
+      goal.current.dist = far;
+      goal.current.pol = OVERVIEW_POL;
+      shift.current.goal = overview.shiftY;
+      limits.current = { min: far * 0.55, max: far * 1.4 };
       return;
     }
+    shift.current.goal = 0;
     const p = nodes[focus].position;
     const d = focusDistance(aspect);
     const cam = focusCameraPosition(p, d);
@@ -265,8 +317,8 @@ function CameraRig({
     goal.current.az = cur + delta;
     goal.current.pol = Math.acos(Math.max(-1, Math.min(1, dir.y)));
     goal.current.dist = d;
-    limits.current = { min: d * 0.6, max: overview * 1.35 };
-  }, [focus, nodes, radius, aspect]);
+    limits.current = { min: d * 0.6, max: far * 1.4 };
+  }, [focus, nodes, overview.distance, overview.shiftY, aspect]);
 
   // Drag to orbit, wheel / pinch to zoom (within limits).
   useEffect(() => {
@@ -325,7 +377,7 @@ function CameraRig({
     const t = state.clock.elapsedTime;
     const idle = t - lastInput.current > 2.5;
     // Slow drift round the overview, unless the reader is steering.
-    if (focus === null && idle && !reducedMotion) goal.current.az += dt * 0.05;
+    if (focus === null && idle && !reducedMotion) goal.current.az += dt * DRIFT;
     const k = reducedMotion ? 1 : 1 - Math.exp(-dt * 2.6);
     const s = sph.current;
     const g = goal.current;
@@ -340,6 +392,16 @@ function CameraRig({
       target.current.z + s.dist * sinP * Math.cos(s.az),
     );
     camera.lookAt(target.current);
+
+    // Lens shift: the overview's cluster sits below the title without the
+    // camera tilting. Rebuilt each frame (R3F rebuilds the matrix on resize),
+    // and the inverse kept in step so taps still hit the right tile.
+    const sh = shift.current;
+    sh.now += (sh.goal - sh.now) * k;
+    const cam = camera as THREE.PerspectiveCamera;
+    cam.updateProjectionMatrix();
+    cam.projectionMatrix.elements[9] += sh.now;
+    cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
   });
   return null;
 }
@@ -361,12 +423,16 @@ function useTileTexture(
   useEffect(() => {
     let alive = true;
     let own: THREE.Texture | null = null;
+    // Painted cards wait for the display face, or they set in a fallback.
     const paint = (kind: 'text' | 'video') => {
-      const canvas = drawNote({ kind, message: c.message, name: c.contributorName }, palette, 540, 720);
-      own = new THREE.CanvasTexture(canvas);
-      own.colorSpace = THREE.SRGBColorSpace;
-      own.anisotropy = 4;
-      setStill(own);
+      void fontsReady(palette).then(() => {
+        if (!alive) return;
+        const canvas = drawNote({ kind, message: c.message, name: c.contributorName }, palette, 540, 720);
+        own = new THREE.CanvasTexture(canvas);
+        own.colorSpace = THREE.SRGBColorSpace;
+        own.anisotropy = 4;
+        setStill(own);
+      });
     };
     if (c.mediaType === 'photo' && c.url) {
       void cardTexture(c.url, 'photo').then((t) => {
@@ -375,11 +441,8 @@ function useTileTexture(
         else paint('text');
       });
     } else if (c.mediaType === 'video' && c.url) {
-      void cardTexture(c.url, 'video').then((t) => {
-        if (!alive) return;
-        if (t) setStill(t);
-        else paint('video');
-      });
+      // A clip's first frame is often black; the painted card never is.
+      paint('video');
     } else {
       paint('text');
     }
@@ -429,6 +492,7 @@ function Tile({
   node,
   i,
   focus,
+  fadeAbove,
   palette,
   reducedMotion,
   onSelect,
@@ -438,6 +502,8 @@ function Tile({
   node: ConstellationNode;
   i: number;
   focus: number | null;
+  /** Overview only: tiles drifting above this NDC y (into the title) fade. */
+  fadeAbove: number;
   palette: NotePalette;
   reducedMotion: boolean;
   onSelect: (i: number) => void;
@@ -508,13 +574,12 @@ function Tile({
     g.quaternion.copy(state.camera.quaternion);
     const k = reducedMotion ? 1 : 1 - Math.exp(-dt * 5);
     const u = material.uniforms;
-    // Overview: a tile that projects behind the floating title steps back,
-    // so the title reads; focus: everything but the chosen tile dims.
+    // Overview: a tile that drifts up into the title's band steps back, so
+    // the title always reads; focus: everything but the chosen tile dims.
     let wantOpacity = texture === null ? 0 : focus === null || focused ? 1 : 0.5;
     if (focus === null && texture !== null) {
       ndc.copy(g.position).project(state.camera);
-      const r = Math.hypot(ndc.x * 1.2, ndc.y * 2.2);
-      wantOpacity *= THREE.MathUtils.smoothstep(r, 0.25, 0.75) * 0.8 + 0.2;
+      wantOpacity *= 1 - THREE.MathUtils.smoothstep(ndc.y, fadeAbove - 0.12, fadeAbove + 0.1) * 0.85;
     }
     u.uOpacity.value += (wantOpacity - u.uOpacity.value) * k;
     u.uFocus.value += ((focused || hover ? 1 : 0) - u.uFocus.value) * k;
@@ -558,7 +623,22 @@ function Tile({
 /* Threads, stars, the centre                                          */
 /* ------------------------------------------------------------------ */
 
-function Threads({ nodes, palette, dim }: { nodes: ConstellationNode[]; palette: NotePalette; dim: number }) {
+/** Ribbon width in CSS pixels (the glow; the core is a fraction of it). */
+const THREAD_WIDTH_PX = 9;
+
+function Threads({
+  nodes,
+  palette,
+  dim,
+  reducedMotion,
+}: {
+  nodes: ConstellationNode[];
+  palette: NotePalette;
+  dim: number;
+  reducedMotion: boolean;
+}) {
+  const { gl } = useThree();
+  const res = useMemo(() => new THREE.Vector2(), []);
   const { geometry, material } = useMemo(() => {
     const pairs = constellationThreads(
       nodes.map((n) => n.position),
@@ -566,8 +646,13 @@ function Threads({ nodes, palette, dim }: { nodes: ConstellationNode[]; palette:
     );
     const SEG = 24; // segments per thread, so the pulse has somewhere to travel
     const pos: number[] = [];
+    const ea: number[] = [];
+    const eb: number[] = [];
+    const side: number[] = [];
     const ts: number[] = [];
     const seeds: number[] = [];
+    const index: number[] = [];
+    let v = 0;
     pairs.forEach(([a, b], k) => {
       const A = new THREE.Vector3(...nodes[a].position);
       const B = new THREE.Vector3(...nodes[b].position);
@@ -579,21 +664,49 @@ function Threads({ nodes, palette, dim }: { nodes: ConstellationNode[]; palette:
       const pts = curve.getPoints(SEG);
       const seed = seeded(`${nodes[a].id}-${nodes[b].id}`, k);
       for (let i = 0; i < SEG; i++) {
-        pos.push(pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z);
-        ts.push(i / SEG, (i + 1) / SEG);
-        seeds.push(seed, seed);
+        const p0 = pts[i];
+        const p1 = pts[i + 1];
+        // Four corners: both ends, both sides; every corner knows the whole
+        // segment so the vertex shader can find its screen-space normal.
+        for (const [p, t] of [
+          [p0, i / SEG],
+          [p1, (i + 1) / SEG],
+        ] as const) {
+          for (const sd of [1, -1]) {
+            pos.push(p.x, p.y, p.z);
+            ea.push(p0.x, p0.y, p0.z);
+            eb.push(p1.x, p1.y, p1.z);
+            side.push(sd);
+            ts.push(t);
+            seeds.push(seed);
+          }
+        }
+        index.push(v, v + 1, v + 2, v + 2, v + 1, v + 3);
+        v += 4;
       }
     });
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geometry.setAttribute('aA', new THREE.Float32BufferAttribute(ea, 3));
+    geometry.setAttribute('aB', new THREE.Float32BufferAttribute(eb, 3));
+    geometry.setAttribute('aSide', new THREE.Float32BufferAttribute(side, 1));
     geometry.setAttribute('aT', new THREE.Float32BufferAttribute(ts, 1));
     geometry.setAttribute('aSeed', new THREE.Float32BufferAttribute(seeds, 1));
+    geometry.setIndex(index);
     const material = new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: color(palette.accent, '#D4D6FF') }, uTime: { value: 0 }, uDim: { value: 1 } },
+      uniforms: {
+        uColor: { value: color(palette.accent, '#D4D6FF') },
+        uTime: { value: 0 },
+        uDim: { value: 1 },
+        uMotion: { value: 1 },
+        uRes: { value: new THREE.Vector2(1, 1) },
+        uWidth: { value: THREAD_WIDTH_PX },
+      },
       vertexShader: THREAD_VERT,
       fragmentShader: THREAD_FRAG,
       transparent: true,
       depthWrite: false,
+      side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
     });
     return { geometry, material };
@@ -606,10 +719,17 @@ function Threads({ nodes, palette, dim }: { nodes: ConstellationNode[]; palette:
     [geometry, material],
   );
   useFrame((state, dt) => {
-    material.uniforms.uTime.value = state.clock.elapsedTime;
-    material.uniforms.uDim.value += (dim - material.uniforms.uDim.value) * (1 - Math.exp(-dt * 3));
+    const u = material.uniforms;
+    u.uTime.value = state.clock.elapsedTime;
+    // Reduced motion: the pulse still travels, at a third of the pace.
+    u.uMotion.value = reducedMotion ? 0.35 : 1;
+    u.uDim.value += (dim - u.uDim.value) * (1 - Math.exp(-dt * 3));
+    // Half the drawing buffer: NDC spans 2, so this maps NDC to pixels.
+    gl.getDrawingBufferSize(res);
+    (u.uRes.value as THREE.Vector2).set(res.x / 2, res.y / 2);
+    u.uWidth.value = THREAD_WIDTH_PX * gl.getPixelRatio();
   });
-  return <lineSegments geometry={geometry} material={material} renderOrder={-1} />;
+  return <mesh geometry={geometry} material={material} renderOrder={-1} frustumCulled={false} />;
 }
 
 function Stars({ palette, count, soft }: { palette: NotePalette; count: number; soft: boolean }) {
@@ -711,18 +831,71 @@ function CoreGlow({ palette, strength }: { palette: NotePalette; strength: numbe
 /* Scene                                                               */
 /* ------------------------------------------------------------------ */
 
+/** Everything inside the canvas: needs the canvas size to frame itself. */
+function SceneBody({
+  contributions,
+  focus,
+  closing,
+  palette,
+  reducedMotion,
+  onSelect,
+  onVideo,
+}: Omit<ConstellationSceneProps, 'onFail'>) {
+  const { size } = useThree();
+  const aspect = size.width / Math.max(1, size.height);
+  const ids = useMemo(() => contributions.map((c) => c.id), [contributions]);
+  const region = constellationRegion(closing ? 'close' : 'cover', aspect);
+  const framing = constellationFraming(ids.length, aspect, FOV, region);
+  const { sx, sy } = framing;
+  // The layout, shaped for this screen (same shape on every page).
+  const nodes = useMemo(
+    () =>
+      constellationLayout(ids).map((n) => ({
+        ...n,
+        position: [n.position[0] * sx, n.position[1] * sy, n.position[2] * sx] as [number, number, number],
+      })),
+    [ids, sx, sy],
+  );
+  const overview = useMemo(
+    () => ({ distance: framing.distance, shiftY: framing.shiftY }),
+    [framing.distance, framing.shiftY],
+  );
+
+  return (
+    <>
+      <CameraRig nodes={nodes} focus={focus} overview={overview} reducedMotion={reducedMotion} />
+      <Stars palette={palette} count={900} soft={false} />
+      <Stars palette={palette} count={16} soft />
+      <CoreGlow palette={palette} strength={focus === null ? 1 : 0.35} />
+      <Threads nodes={nodes} palette={palette} dim={focus === null ? 1 : 0.55} reducedMotion={reducedMotion} />
+      {contributions.map((c, i) => (
+        <Tile
+          key={c.id}
+          c={c}
+          node={nodes[i]}
+          i={i}
+          focus={focus}
+          fadeAbove={region.cy + region.hy}
+          palette={palette}
+          reducedMotion={reducedMotion}
+          onSelect={onSelect}
+          onVideo={onVideo}
+        />
+      ))}
+    </>
+  );
+}
+
 export default function ConstellationScene({
   contributions,
   focus,
+  closing = false,
   palette,
   reducedMotion,
   onSelect,
   onVideo,
   onFail,
 }: ConstellationSceneProps) {
-  const ids = useMemo(() => contributions.map((c) => c.id), [contributions]);
-  const nodes = useMemo(() => constellationLayout(ids), [ids]);
-  const radius = constellationRadius(ids.length);
   const alive = useRef(true);
   const restoreTimer = useRef<number | undefined>(undefined);
 
@@ -758,24 +931,15 @@ export default function ConstellationScene({
       onCreated={onCreated}
       style={{ width: '100%', height: '100%', touchAction: 'none' }}
     >
-      <CameraRig nodes={nodes} focus={focus} radius={radius} reducedMotion={reducedMotion} />
-      <Stars palette={palette} count={900} soft={false} />
-      <Stars palette={palette} count={16} soft />
-      <CoreGlow palette={palette} strength={focus === null ? 1 : 0.35} />
-      <Threads nodes={nodes} palette={palette} dim={focus === null ? 1 : 0.55} />
-      {contributions.map((c, i) => (
-        <Tile
-          key={c.id}
-          c={c}
-          node={nodes[i]}
-          i={i}
-          focus={focus}
-          palette={palette}
-          reducedMotion={reducedMotion}
-          onSelect={onSelect}
-          onVideo={onVideo}
-        />
-      ))}
+      <SceneBody
+        contributions={contributions}
+        focus={focus}
+        closing={closing}
+        palette={palette}
+        reducedMotion={reducedMotion}
+        onSelect={onSelect}
+        onVideo={onVideo}
+      />
     </Canvas>
   );
 }
