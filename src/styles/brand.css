@@ -2604,3 +2604,81 @@
    element scrolled nothing); the page hit-tests taps and marks a mouse
    hovering him. */
 [data-brand="2"][data-beamy-hover="true"] { cursor: pointer; }
+
+/* Round 8: on the 3D props, filters and effects tabs the carousel is a rail
+   ABOVE Beamy and the frame (ArPicker .bw-ar-top): bigger stops in a row,
+   the worn one in the middle with a ring, two each side. Its room (rail +
+   title) is kept on every tab, the Frames tab included, so a tab change
+   never moves him or the frame. Frames keep their peeks at his sides. */
+[data-brand="2"] .bw-ar-top {
+  --rail-size: clamp(64px, 5.2vw, 88px);
+  --rail-step: calc(var(--rail-size) + 20px);
+  --rail-arrow: 44px;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: calc(var(--rail-step) * 4 + var(--rail-size) * 0.8 + (var(--rail-arrow) + 10px) * 2);
+  max-width: calc(100vw - 24px);
+  translate: -50% 0;
+  pointer-events: none;
+}
+[data-brand="2"] .bw-ar[data-stacked="true"] .bw-ar-top {
+  --rail-size: clamp(48px, 13.6vw, 60px);
+  --rail-step: calc(var(--rail-size) + 8px);
+  --rail-arrow: 40px;
+  bottom: calc(100% + 4px);
+}
+[data-brand="2"] .bw-ar-rail { position: relative; width: 100%; height: calc(var(--rail-size) * 1.2 + 10px); touch-action: pan-y; }
+[data-brand="2"] .bw-ar-rail[data-on="true"] { pointer-events: auto; }
+[data-brand="2"] .bw-ar-top > .bw-ar-title { position: static; translate: none; margin-top: 2px; }
+/* The rail's stops: centred, each placed by its distance from the worn one. */
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item {
+  left: calc(50% - var(--rail-size) / 2);
+  top: calc(50% - var(--rail-size) / 2);
+  width: var(--rail-size);
+  height: var(--rail-size);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  opacity: 1;
+  animation: bw-ar-peek-in 420ms var(--bw-ease) backwards;
+}
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="0"] {
+  transform: scale(1.16);
+  box-shadow: 0 0 0 2px #FFFFFF, 0 0 22px -2px rgba(255, 197, 107, 0.75);
+}
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="1"] { transform: translateX(var(--rail-step)) scale(0.92); }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="-1"] { transform: translateX(calc(var(--rail-step) * -1)) scale(0.92); }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="2"] { transform: translateX(calc(var(--rail-step) * 2)) scale(0.72); opacity: 0.55; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="-2"] { transform: translateX(calc(var(--rail-step) * -2)) scale(0.72); opacity: 0.55; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="3"] { transform: translateX(calc(var(--rail-step) * 3)) scale(0.5); opacity: 0; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item[data-at="-3"] { transform: translateX(calc(var(--rail-step) * -3)) scale(0.5); opacity: 0; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item:is([data-at="1"], [data-at="-1"], [data-at="2"], [data-at="-2"]) { pointer-events: auto; cursor: pointer; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] > .bw-ar-item:is([data-at="2"], [data-at="-2"]):hover { opacity: 0.85; }
+/* None on the rail: an orb like the rest (its label is the title below). */
+[data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none { width: 100%; height: 100%; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none-chip { width: 100%; height: 100%; }
+[data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none-label { display: none; }
+/* The rail's arrows, at its ends. */
+[data-brand="2"] .bw-ar-rail > .bw-ar-arrow {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: var(--rail-arrow);
+  height: var(--rail-arrow);
+  margin-top: calc(var(--rail-arrow) / -2);
+  border-radius: 999px;
+  pointer-events: auto;
+  color: var(--bw-ink);
+  background-color: var(--bw-card-veil);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.36), inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 12px 24px -14px var(--bw-shadow);
+}
+[data-brand="2"] .bw-ar-rail > .bw-ar-arrow:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+[data-brand="2"] .bw-ar-rail > .bw-ar-arrow[data-side="prev"] { left: 0; }
+[data-brand="2"] .bw-ar-rail > .bw-ar-arrow[data-side="next"] { right: 0; }

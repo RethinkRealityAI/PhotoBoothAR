@@ -730,9 +730,12 @@ export default function BeamyPage() {
       let arTop = headerH + 8;
       const arPeeks: NonNullable<StageDecor['peeks']> = [];
       if (onAr && arCar !== null) {
-        const titleH = arCar.querySelector('.bw-ar-title')?.getBoundingClientRect().height ?? 0;
+        // The room above the frame: the rail (props, filters, effects) and
+        // the title. The same height on every tab, so a tab change never
+        // moves the frame or him.
+        const topH = arCar.querySelector('.bw-ar-top')?.getBoundingClientRect().height ?? 0;
         const tabsEl = vw < WIDE_HERO_MIN ? main.querySelector('.bw-ar .bw-ar-tabs') : null;
-        arTop = Math.max(arTop, tabsEl !== null ? tabsEl.getBoundingClientRect().bottom + 6 : 0) + titleH + 6;
+        arTop = Math.max(arTop, tabsEl !== null ? tabsEl.getBoundingClientRect().bottom + 6 : 0) + topH + 6;
         if (arCar.closest('.bw-ar[data-on="true"]') !== null) {
           // A peek gliding in or out carries its prop with it, and lets go
           // of it as it fades (its transition's live opacity).
@@ -761,7 +764,9 @@ export default function BeamyPage() {
           const cx = storyAt.rect.left + storyAt.rect.width / 2;
           const capR = main.querySelector('#how .bw-glass-card')?.getBoundingClientRect().right ?? 0;
           const fw = (Math.min(vh - 8 - arTop, ((vw * 0.6) * 16) / 9) * 9) / 16;
-          const c = Math.min(Math.max(cx, capR + 40 + fw / 2), vw - 24 - fw / 2);
+          // The rail above the frame is wider than it: clear the caption by whichever is wider.
+          const half = Math.max(fw / 2, (arCar.querySelector('.bw-ar-top')?.getBoundingClientRect().width ?? 0) / 2);
+          const c = Math.min(Math.max(cx, capR + 24 + half), vw - 24 - half);
           arAt = arStage({ box: { top: arTop, bottom: vh - 8, left: c - fw / 2, right: c + fw / 2 } });
         }
         const s0 = arAt.stand;
@@ -942,9 +947,32 @@ export default function BeamyPage() {
           arScaled.current = true;
           if (STEP_LOG) (window as unknown as { __beamyAr?: unknown }).__beamyAr = { frame: f, stand: arAt.stand, propScale: k, beamy: bw.where() };
         }
-      } else if (bw !== null && arScaled.current) {
-        arScaled.current = false;
-        bw.wornScale(1);
+        // Settled on the step, the stage steps in front of the page so what
+        // he wears draws over the frame; the frame images on show (the worn
+        // one first) and the frame arrows still cover his body (the stage
+        // masks it, decor.arOver).
+        if (settled && arCar.closest('.bw-ar[data-on="true"]') !== null) {
+          const frames: { at: number; url: string; left: number; top: number; width: number; height: number; a: number }[] = [];
+          arCar.querySelectorAll<HTMLImageElement>('.bw-ar-track[data-cat="frame"] .bw-ar-item[data-kind="frame"] > img').forEach((img) => {
+            const item = img.parentElement as HTMLElement;
+            const r = img.getBoundingClientRect();
+            const a = Number(getComputedStyle(item).opacity);
+            if (r.width > 4 && a > 0.02 && r.right > 0 && r.left < vw) frames.push({ at: Math.abs(Number(item.dataset.at ?? 9)), url: img.currentSrc || img.src, left: r.left, top: r.top, width: r.width, height: r.height, a });
+          });
+          frames.sort((p, q) => p.at - q.at);
+          const holes: { x: number; y: number; r: number }[] = [];
+          arCar.querySelectorAll<HTMLElement>(':scope > .bw-ar-arrow').forEach((el) => {
+            const r = el.getBoundingClientRect();
+            if (r.width > 4) holes.push({ x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 });
+          });
+          decorRef.current.arOver = { frames: frames.slice(0, 3), holes: holes.slice(0, 2) };
+        } else decorRef.current.arOver = undefined;
+      } else {
+        decorRef.current.arOver = undefined;
+        if (bw !== null && arScaled.current) {
+          arScaled.current = false;
+          bw.wornScale(1);
+        }
       }
       decorRef.current.peeks = arPeeks;
       layoutRef.current.tickMs = performance.now() - t0;

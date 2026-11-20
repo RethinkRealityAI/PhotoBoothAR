@@ -7,18 +7,23 @@
  * with no panel.
  *
  *   • A floating glass tab switcher: Frames, 3D props, Filters, Effects.
- *   • No tiles. In each category the asset itself is the carousel. The
- *     current stop is on Beamy. The stops before and after it peek in at its
- *     sides. Arrows, a tap on a peek, a sideways swipe or the arrow keys step
- *     through the stops. Each carousel starts on a "None" stop, which is how
- *     a look comes off again (lib/beamyAssets arStops / wearStop). One look
- *     per category, and the categories combine.
- *   • A title above it in the shared shimmer (components/beamy/ShineText):
- *     a frame names its celebration, the rest their own name.
+ *   • No tiles. In each category the asset itself is the carousel. Each
+ *     carousel starts on a "None" stop, which is how a look comes off again
+ *     (lib/beamyAssets arStops / wearStop). One look per category, and the
+ *     categories combine. Arrows, a tap on a stop, a sideways swipe or the
+ *     arrow keys step through the stops.
+ *       - Frames: the current frame is on Beamy; the frames before and after
+ *         it peek in at his sides.
+ *       - 3D props, filters, effects: a rail ABOVE him (and above the frame),
+ *         bigger stops in a row, the worn one in the middle; the prop it
+ *         names lands on his head, neck or ears. The rail's room is kept on
+ *         every tab, so switching tabs never moves him or the frame.
+ *   • A title right above the frame in the shared shimmer (components/beamy/
+ *     ShineText): a frame names its celebration, the rest their own name.
  *   • The peeks show the real thing:
  *       - frames: the frame image;
- *       - props: the GLB, which the stage draws floating in the peek's place
- *         (the page passes each `[data-prop-url]` peek's box to it);
+ *       - props: the GLB, which the stage draws floating in the stop's place
+ *         (the page passes each `[data-prop-url]` stop's box to it);
  *       - filters: a flat swatch orb;
  *       - effects: an icon orb.
  *   • ONE fixed stage (lib/beamyAssets arStage): the page lays the carousel
@@ -87,6 +92,9 @@ function offset(i: number, cur: number, n: number): number {
 }
 /** The CSS position a track item takes: -1/1 the peeks, 0 on him, ±2 parked out of sight. */
 const place = (d: number) => String(Math.max(-2, Math.min(2, d)));
+/** The rail shows two stops each side of the worn one; ±3 is parked out of sight. */
+const RAIL_REACH = 2;
+const railPlace = (d: number) => String(Math.max(-RAIL_REACH - 1, Math.min(RAIL_REACH + 1, d)));
 
 /**
  * One carousel track: EVERY stop of a category stays mounted, each keyed by
@@ -94,7 +102,7 @@ const place = (d: number) => String(Math.max(-2, Math.min(2, d)));
  * CSS transition: the incoming stop glides in from its peek while the
  * outgoing one glides out to the other side (brand.css .bw-ar-item).
  */
-function Track({ cat, stops, cur, show, noun, onWear }: {
+function Track({ cat, stops, cur, show, noun, onWear, rail = false }: {
   cat: LookCategory;
   stops: (HomeLook | null)[];
   cur: number;
@@ -102,26 +110,30 @@ function Track({ cat, stops, cur, show, noun, onWear }: {
   show: boolean;
   noun: string;
   onWear: (c: LookCategory, stop: HomeLook | null) => void;
+  /** The rail above him: a row of stops, the worn one in the middle and shown too. */
+  rail?: boolean;
 }) {
   const n = stops.length;
   return (
-    <div className="bw-ar-track" data-cat={cat} data-show={show ? 'true' : 'false'}>
+    <div className="bw-ar-track" data-cat={cat} data-show={show ? 'true' : 'false'} data-rail={rail ? 'true' : undefined}>
       {stops.map((s, i) => {
         const d = n > 1 ? offset(i, cur, n) : 0;
         // Two stops: the other one peeks on the right only.
         const at = n === 2 && d === -1 ? 1 : d;
         const a = s !== null ? lookAction(s) : null;
         const kind = a?.kind === 'frame' ? 'frame' : s === null ? 'none' : 'orb';
-        const peek = show && Math.abs(at) === 1;
+        // On the rail every stop in reach is shown (the worn one in the middle); the others peek.
+        const seen = rail ? Math.abs(at) <= RAIL_REACH : Math.abs(at) === 1;
+        const peek = show && at !== 0 && seen;
         return (
           <button
             key={s?.id ?? 'none'}
             type="button"
             className="bw-ar-item bw-ar-peek"
-            data-at={place(at)}
+            data-at={rail ? railPlace(at) : place(at)}
             data-side={at < 0 ? 'prev' : at > 0 ? 'next' : 'on'}
             data-kind={kind}
-            data-prop-url={a?.kind === 'prop' && peek ? a.url : undefined}
+            data-prop-url={a?.kind === 'prop' && show && seen ? a.url : undefined}
             tabIndex={-1}
             aria-hidden={peek ? undefined : true}
             aria-label={s === null ? `Take the ${noun} off` : `Try ${s.name}`}
@@ -191,8 +203,21 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
     swipe.current = null;
     if (sw === null || sw.id !== e.pointerId) return;
     const dx = e.clientX - sw.x;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(e.clientY - sw.y) * 1.4) step(dx < 0 ? 1 : -1);
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(e.clientY - sw.y) * 1.4) {
+      step(dx < 0 ? 1 : -1);
+      // A swipe that ends on a stop is not also a tap on it (the click follows this pointerup).
+      swiped.current = true;
+      window.setTimeout(() => { swiped.current = false; }, 0);
+    }
   };
+  const swiped = useRef(false);
+  const wear = (c: LookCategory, s: HomeLook | null) => { if (!swiped.current) onWear(c, s); };
+  const arrows = (
+    <>
+      <button type="button" className="bw-ar-arrow" data-side="prev" aria-label={`${AR_COPY.prev} ${noun}`} onClick={() => step(-1)}><ChevronLeft className="h-5 w-5" strokeWidth={1.8} aria-hidden /></button>
+      <button type="button" className="bw-ar-arrow" data-side="next" aria-label={`${AR_COPY.next} ${noun}`} onClick={() => step(1)}><ChevronRight className="h-5 w-5" strokeWidth={1.8} aria-hidden /></button>
+    </>
+  );
   const onKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
@@ -219,17 +244,26 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
         onPointerUp={onUp}
         onPointerCancel={() => { swipe.current = null; }}
       >
-        <Track cat="frame" stops={frameStops} cur={frameCur} show={tab === 'frame'} noun={AR_NOUN.frame} onWear={onWear} />
+        <Track cat="frame" stops={frameStops} cur={frameCur} show={tab === 'frame'} noun={AR_NOUN.frame} onWear={wear} />
         {/* The effect, drawn round him and over the frame (never takes a tap). */}
         {fx !== null && <ArFxCanvas key={fx} kind={fx} reduced={reduced} className="bw-ar-fx" />}
-        {tab !== 'frame' && <Track key={tab} cat={tab} stops={stops} cur={cur} show noun={noun} onWear={onWear} />}
-        <p className="bw-ar-title" aria-hidden><ShineText key={title} text={title} className="bw-ar-title-text" /></p>
-        {n > 1 && (
-          <>
-            <button type="button" className="bw-ar-arrow" data-side="prev" aria-label={`${AR_COPY.prev} ${noun}`} onClick={() => step(-1)}><ChevronLeft className="h-5 w-5" strokeWidth={1.8} aria-hidden /></button>
-            <button type="button" className="bw-ar-arrow" data-side="next" aria-label={`${AR_COPY.next} ${noun}`} onClick={() => step(1)}><ChevronRight className="h-5 w-5" strokeWidth={1.8} aria-hidden /></button>
-          </>
-        )}
+        {/* Above the frame: the rail (props, filters, effects), then the title.
+            The rail's room is there on the Frames tab too (empty), so a tab
+            change never moves the frame or him. */}
+        <div className="bw-ar-top">
+          <div
+            className="bw-ar-rail"
+            data-on={tab !== 'frame' ? 'true' : 'false'}
+            onPointerDown={onDown}
+            onPointerUp={onUp}
+            onPointerCancel={() => { swipe.current = null; }}
+          >
+            {tab !== 'frame' && <Track key={tab} cat={tab} stops={stops} cur={cur} show noun={noun} onWear={wear} rail />}
+            {tab !== 'frame' && n > 1 && arrows}
+          </div>
+          <p className="bw-ar-title" aria-hidden><ShineText key={title} text={title} className="bw-ar-title-text" /></p>
+        </div>
+        {tab === 'frame' && n > 1 && arrows}
       </div>
       <p className="sr-only">{AR_COPY.line}</p>
       <p className="sr-only" aria-live="polite">{worn.length > 0 ? `Beamy is wearing: ${worn.map((l) => l.name).join(', ')}` : 'Beamy is wearing nothing yet'}</p>

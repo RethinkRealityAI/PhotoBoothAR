@@ -64,7 +64,8 @@ import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } 
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { snapshotPortrait, snapshotRect } from '../../components/beamy/selfieFx';
 import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
-import { fitProp, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
+import { fitPair, fitProp, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
+import { splitScenePair } from '../../lib/studio/earPair';
 
 export type BeamyClip = 'Idle' | 'Wave' | 'Hop' | 'BeamyBlast' | 'Sob' | 'SideEye' | 'Dance' | 'ShadesOn' | 'Waddle' | typeof SELFIE_CLIP;
 
@@ -115,6 +116,15 @@ export interface StageDecor {
    *  stage draws each one's real GLB there; the page's peek is a see-through
    *  button over it. Absent or empty = none. */
   peeks?: { url: string; x: number; y: number; size: number }[];
+  /** The AR step, settled (absent = not on it): the stage steps in front of the
+   *  page so what he wears draws OVER the frame. The page's frame images (live
+   *  rect and opacity, viewport px) and its round arrows still cover HIM, as
+   *  they did when the stage was behind: his body is masked where they are
+   *  (see AR_MASK), never his props. */
+  arOver?: {
+    frames: { url: string; left: number; top: number; width: number; height: number; a: number }[];
+    holes: { x: number; y: number; r: number }[];
+  };
 }
 
 /** One frame of the Selfie clip on the stage, for the page's DOM overlays. */
@@ -227,6 +237,21 @@ function dprCap(): number {
 }
 
 const MODEL_URL = '/mascot/beamy.glb';
+
+/** The far earring's group, as lib/studio/earPair names it. */
+const EAR_FAR = 'ear-pair-far';
+const pairCache = new WeakMap<THREE.Object3D, { model: THREE.Object3D; delta: [number, number, number] } | null>();
+/** A loaded earring pair split into its two earrings, once per model (null: not a pair). */
+function splitPair(master: THREE.Object3D): { model: THREE.Object3D; delta: [number, number, number] } | null {
+  const hit = pairCache.get(master);
+  if (hit !== undefined) return hit;
+  const model = master.clone(true);
+  const p = splitScenePair(model);
+  const out = p === null ? null : { model, delta: p.authoredDelta };
+  pairCache.set(master, out);
+  return out;
+}
+
 /** Model height in metres (body bbox, feet at y≈0). */
 const MODEL_H = 0.6;
 const BEAM_FIRE_S = 1.2;
@@ -306,8 +331,44 @@ interface CrystalSpec {
   layer?: 'back' | 'front';
 }
 const PROP_DIR = '/models/props/';
-/** How many carousel stops the stage can draw at once (the one before and the one after). */
-const PEEK_SLOTS = 2;
+/** How many carousel stops the stage can draw at once (the props rail: the worn one and two each side). */
+const PEEK_SLOTS = 5;
+
+/**
+ * The AR step's mask on his body (decor.arOver): with the stage in front of
+ * the page, a fragment of his body is dropped wherever one of the page's
+ * frame images is opaque (its alpha over 0.5, times its live opacity) or one
+ * of its round arrows sits, so the frame's border and its decorations (the
+ * "2027" balloons) still cover him and he stays inside its window, while his
+ * props, which never get this mask, draw over it. Three frame slots (the
+ * worn one and the two beside it, or the two of a glide), two circles.
+ * Positions are CSS px from the viewport's top left.
+ */
+const AR_MASK_DECL = `uniform sampler2D uArM0;
+uniform sampler2D uArM1;
+uniform sampler2D uArM2;
+uniform vec4 uArR0;
+uniform vec4 uArR1;
+uniform vec4 uArR2;
+uniform vec3 uArA;
+uniform vec3 uArH0;
+uniform vec3 uArH1;
+uniform vec2 uArView;
+float arCover(sampler2D t, vec4 r, float a, vec2 p) {
+  if (a <= 0.0) return 0.0;
+  vec2 uv = (p - r.xy) / r.zw;
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
+  return texture2D(t, vec2(uv.x, 1.0 - uv.y)).a * a;
+}
+`;
+const AR_MASK_TEST = `{
+  vec2 arP = vec2(gl_FragCoord.x / uArView.x, uArView.y - gl_FragCoord.y / uArView.x);
+  float arC = max(arCover(uArM0, uArR0, uArA.x, arP), max(arCover(uArM1, uArR1, uArA.y, arP), arCover(uArM2, uArR2, uArA.z, arP)));
+  if (arC > 0.5 || (uArH0.z > 0.0 && distance(arP, uArH0.xy) < uArH0.z) || (uArH1.z > 0.0 && distance(arP, uArH1.xy) < uArH1.z)) discard;
+}`;
+/** A transparent 1x1 for an empty mask slot. */
+const AR_BLANK = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+AR_BLANK.needsUpdate = true;
 
 /** A clone of a cached library model, fitted into a unit box about its centre (masters are never disposed). */
 function unitClone(master: THREE.Object3D): THREE.Object3D {
@@ -535,6 +596,21 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
   const reflect = useRef<{ root: THREE.Object3D; pairs: [THREE.Object3D, THREE.Object3D][]; floorY: { value: number }; fade: { value: number } } | null>(null);
   const [reflectObj, setReflectObj] = useState<THREE.Object3D | null>(null);
   const wrapEl = useRef<HTMLElement | null>(null);
+  /** The AR mask's uniforms (AR_MASK), shared by every material of his body and his reflection. */
+  const arU = useMemo(() => ({
+    uArM0: { value: AR_BLANK as THREE.Texture }, uArM1: { value: AR_BLANK as THREE.Texture }, uArM2: { value: AR_BLANK as THREE.Texture },
+    uArR0: { value: new THREE.Vector4(0, 0, 1, 1) }, uArR1: { value: new THREE.Vector4(0, 0, 1, 1) }, uArR2: { value: new THREE.Vector4(0, 0, 1, 1) },
+    uArA: { value: new THREE.Vector3() },
+    uArH0: { value: new THREE.Vector3() }, uArH1: { value: new THREE.Vector3() },
+    uArView: { value: new THREE.Vector2(1, 1) },
+  }), []);
+  const arMask = (sh: { uniforms: Record<string, THREE.IUniform>; fragmentShader: string }) => {
+    Object.assign(sh.uniforms, arU);
+    sh.fragmentShader = AR_MASK_DECL + sh.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${AR_MASK_TEST}`);
+  };
+  /** The page's frame images as textures (for the mask's alpha), loaded once each. */
+  const arTex = useRef(new Map<string, THREE.Texture | null>());
+  useEffect(() => () => { for (const t of arTex.current.values()) t?.dispose(); arTex.current.clear(); }, []);
   /** What he is wearing: a fitted prop on his body bone (popping in over `t`), a frame behind him. */
   /** The worn prop: its pop-in `t`, its crown `top` and seat `anchor` in his heights, and its scale `k`. */
   const worn = useRef<{ holder: THREE.Group; t: number; top: number; anchor: number; k: number } | null>(null);
@@ -582,6 +658,8 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
             o.renderOrder = 2;
             // The filter look tints his light body only (never the dark eyes).
             for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+              m.onBeforeCompile = arMask;
+              m.customProgramCacheKey = () => 'beamy-ar-mask';
               if (!(m instanceof THREE.MeshStandardMaterial)) continue;
               const c = m.color;
               if (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.3) tintS.current.mats.push({ m, e: m.emissive.clone(), c: c.clone(), i: m.emissiveIntensity });
@@ -683,6 +761,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       c.depthWrite = false;
       c.side = THREE.DoubleSide; // a negative scale flips the winding
       c.onBeforeCompile = (sh) => {
+        arMask(sh);
         sh.uniforms.uReflFloor = floorY;
         sh.uniforms.uReflFade = fade;
         sh.vertexShader = `varying float vReflY;\n${sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  vReflY = (modelMatrix * vec4(transformed, 1.0)).y;')}`;
@@ -1028,10 +1107,20 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         // The body bone carries every clip (hop, dance, the party spin).
         const bone = bodyBone.current;
         if (bone === null) return;
-        const obj = master.clone(true);
+        // A pair of earrings is split once per model (its halves share the
+        // cached vertex buffers) and cloned from then on, so a tour that
+        // comes round to it again allocates nothing new.
+        const pair = fit.pair !== undefined ? splitPair(master) : null;
+        const obj = (pair?.model ?? master).clone(true);
         obj.updateMatrixWorld(true);
-        const box = new THREE.Box3().setFromObject(obj);
-        const f = fitProp(box.min.toArray() as [number, number, number], box.max.toArray() as [number, number, number], fit);
+        // Measured on the whole model: the halves keep the pair's full vertex buffers.
+        master.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(master);
+        const lo = box.min.toArray() as [number, number, number], hi = box.max.toArray() as [number, number, number];
+        const laid = pair !== null ? fitPair(lo, hi, pair.delta, fit) : null;
+        const far = laid !== null ? obj.getObjectByName(EAR_FAR) : undefined;
+        if (laid !== null && far !== undefined) far.position.set(...laid.farShift);
+        const f = laid !== null && far !== undefined ? laid : fitProp(lo, hi, fit);
         obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 3; } });
         obj.scale.multiplyScalar(f.scale);
         // Tilt about the anchor itself: the holder sits ON the anchor.
@@ -1552,13 +1641,29 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
     }
 
     /* The AR props carousel: each stop's real GLB floats in its peek, small
-       and turning slowly (it bobs with the peek, which the page reads). Still
+       and swaying slowly (it bobs with the peek, which the page reads). Still
        when reduced. */
     const pk = dec.peeks ?? [];
+    // Each slot keeps its model while its stop stays on the rail (a step
+    // moves the stops, it must not reload them): a peek takes the slot that
+    // already holds its URL, else a slot no current peek wants.
+    const want = new Set(pk.map((q) => q.url));
+    const slotPeek: (number | undefined)[] = Array.from({ length: PEEK_SLOTS }, () => undefined);
+    const later: number[] = [];
+    pk.forEach((q, j) => {
+      const s = peekUrls.current.findIndex((u, k) => u === q.url && slotPeek[k] === undefined);
+      if (s >= 0) slotPeek[s] = j; else later.push(j);
+    });
+    for (const j of later) {
+      const s = slotPeek.findIndex((v, k) => v === undefined && !want.has(peekUrls.current[k] ?? ''));
+      const f = s >= 0 ? s : slotPeek.findIndex((v) => v === undefined);
+      if (f >= 0) slotPeek[f] = j;
+    }
     for (let i = 0; i < PEEK_SLOTS; i++) {
       const holder = peekRefs.current[i];
       if (!holder) continue;
-      const p = pk[i];
+      const pj = slotPeek[i];
+      const p = pj !== undefined ? pk[pj] : undefined;
       if (p === undefined || p.url === '') { holder.visible = false; continue; }
       if (peekUrls.current[i] !== p.url) {
         const url = p.url;
@@ -1573,7 +1678,10 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       holder.position.set(wp.x, wp.y, 260);
       holder.scale.setScalar(Math.max(1, p.size * 0.86));
       if (!reduced) {
-        holder.rotation.y += dt * 0.55;
+        // A sway about the front, never a full turn: glasses, masks, face
+        // paint and earrings are flat and front-facing, so a spin left their
+        // stop empty for the half-turn they spent edge-on or back-facing.
+        holder.rotation.y = 0.5 * Math.sin(state.clock.elapsedTime * 0.7 + i * 1.3);
         holder.rotation.x = 0.2;
       } else {
         holder.rotation.set(0.2, 0.5, 0);
@@ -1835,9 +1943,31 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
       const over = pn !== null && g !== null && g.visible
         && pos.current.x + half > pn.left && pos.current.x - half < pn.left + pn.width
         && pos.current.y > pn.top && pos.current.y - heightPx < pn.top + pn.height;
-      const z = over ? 'front' : 'back';
+      // The AR step: in front, so a hat or an earring draws over the frame.
+      const z = over || dec.arOver !== undefined ? 'front' : 'back';
       if (wrap.dataset.layer !== z) wrap.dataset.layer = z;
     }
+    // ...while the frame (and its arrows) still cover his body.
+    const ao = dec.arOver;
+    const mSlots = [arU.uArM0, arU.uArM1, arU.uArM2], rSlots = [arU.uArR0, arU.uArR1, arU.uArR2];
+    for (let i = 0; i < 3; i++) {
+      const f = ao?.frames[i];
+      let tex: THREE.Texture | null = null;
+      if (f !== undefined) {
+        if (!arTex.current.has(f.url)) {
+          arTex.current.set(f.url, null);
+          new THREE.TextureLoader().load(f.url, (t) => { arTex.current.set(f.url, t); }, undefined, () => undefined);
+        }
+        tex = arTex.current.get(f.url) ?? null;
+      }
+      mSlots[i].value = tex ?? AR_BLANK;
+      if (f !== undefined) rSlots[i].value.set(f.left, f.top, Math.max(1, f.width), Math.max(1, f.height));
+      arU.uArA.value.setComponent(i, tex !== null && f !== undefined ? f.a : 0);
+    }
+    const h0 = ao?.holes[0], h1 = ao?.holes[1];
+    arU.uArH0.value.set(h0?.x ?? 0, h0?.y ?? 0, h0?.r ?? 0);
+    arU.uArH1.value.set(h1?.x ?? 0, h1?.y ?? 0, h1?.r ?? 0);
+    arU.uArView.value.set(gl.getPixelRatio(), sizeRef.current.height);
 
     /* DOM followers: speech bubble over (or beside) the head, poke button over the body. */
     const top = pos.current.y - heightPx * 1.02;
