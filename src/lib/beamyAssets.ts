@@ -132,7 +132,8 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     // `pair`), forward enough that the far one still shows when he turns (the
     // How it works step yaws him about 26 degrees).
     { id: 'ar-crown', name: 'Royal crown', category: 'prop', url: `${P}silver-crown.glb`, fit: { width: 0.4, at: [0, 0.29, 0], align: 'base' } },
-    { id: 'ar-tophat', name: 'Top hat', category: 'prop', url: `${P}top-hat.glb`, fit: { width: 0.34, at: [0, 0.4, 0], align: 'base', tilt: -0.06 } },
+    // Smaller than the hero's: at full size it hid most of a cover frame's masthead on phones.
+    { id: 'ar-tophat', name: 'Top hat', category: 'prop', url: `${P}top-hat.glb`, fit: { width: 0.27, at: [0, 0.4, 0], align: 'base', tilt: -0.06 } },
     { id: 'ar-necklace', name: 'Emerald necklace', category: 'prop', url: `${P}beamy-necklace.glb`, fit: { width: 0.545, at: [0, 0.132, 0.015], align: 'centre' } },
     { id: 'ar-earrings', name: 'Garnet earrings', category: 'prop', url: `${P}garnet-earrings.glb`, fit: { width: 0.042, pair: 0.4, at: [0, 0.15, 0.135], align: 'centre' } },
     { id: 'ar-aviators', name: 'Aviators', category: 'prop', url: `${P}aviator-glasses.glb`, fit: { width: 0.42, at: [0, 0.235, -0.01], align: 'centre' } },

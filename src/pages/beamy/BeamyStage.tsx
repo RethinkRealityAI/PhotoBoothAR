@@ -395,6 +395,32 @@ function unitClone(master: THREE.Object3D): THREE.Object3D {
   obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 1; } });
   return obj;
 }
+/**
+ * A props-rail stop's model: unitClone, except a split earring pair, which
+ * hangs its two earrings side by side (a third of an earring apart) instead
+ * of the ~15 cm its model bakes in, so each earring fills the stop rather
+ * than shrinking to a sliver at either edge of it.
+ */
+function peekClone(master: THREE.Object3D): THREE.Object3D {
+  const pair = splitPair(master);
+  if (pair === null) return unitClone(master);
+  master.updateMatrixWorld(true);
+  // The whole model's box: the halves keep the pair's full vertex buffers.
+  const box = new THREE.Box3().setFromObject(master);
+  const lo = box.min.toArray() as [number, number, number], hi = box.max.toArray() as [number, number, number];
+  const w = hi[0] - lo[0] - Math.abs(pair.delta[0]);
+  const laid = w > 0 ? fitPair(lo, hi, pair.delta, { width: w, pair: w * 1.35, at: [0, 0, 0], align: 'centre' }) : null;
+  const obj = pair.model.clone(true);
+  const far = obj.getObjectByName(EAR_FAR);
+  if (laid === null || far === undefined) return unitClone(master);
+  far.position.set(...laid.farShift);
+  // Laid out at scale 1: 2.35 earrings wide, the pair's own height and depth.
+  const k = 1 / Math.max(1e-6, w * 2.35, hi[1] - lo[1], hi[2] - lo[2]);
+  obj.scale.multiplyScalar(k * laid.scale);
+  obj.position.set(laid.offset[0] * k, laid.offset[1] * k, laid.offset[2] * k);
+  obj.traverse((o) => { if (o instanceof THREE.Mesh) { o.frustumCulled = false; o.renderOrder = 1; } });
+  return obj;
+}
 const CRYSTALS: CrystalSpec[] = [
   { prop: 'royal-crown', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true },
   { prop: 'halo-ring', at: { panel: [1.015, 1.02] }, size: 0.16, depth: 0.35, phone: true },
@@ -1748,7 +1774,7 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
         peekUrls.current[i] = url;
         holder.clear();
         void loadModel(url).then((master) => {
-          if (peekUrls.current[i] === url && holder.children.length === 0) { litProps(master); holder.add(unitClone(master)); }
+          if (peekUrls.current[i] === url && holder.children.length === 0) { litProps(master); holder.add(peekClone(master)); }
         }, () => undefined);
       }
       holder.visible = holder.children.length > 0;
