@@ -23,6 +23,12 @@ export interface PropFit {
   align: 'base' | 'centre';
   /** Forward tilt about x, radians (a hat sits back a little). */
   tilt?: number;
+  /**
+   * A PAIR of earrings (one library model, its twin baked ~15cm away): the
+   * hook-to-hook spacing on him, metres. The stage splits the model in two
+   * (lib/studio/earPair splitScenePair) and `width` is then ONE earring's.
+   */
+  pair?: number;
 }
 
 export interface BeamyLook {
@@ -84,4 +90,27 @@ export function fitProp(min: [number, number, number], max: [number, number, num
   const cz = (min[2] + max[2]) / 2;
   const py = fit.align === 'base' ? min[1] : (min[1] + max[1]) / 2;
   return { scale, offset: [fit.at[0] - cx * scale, fit.at[1] - py * scale, fit.at[2] - cz * scale] };
+}
+
+/**
+ * Where a split earring pair lands (see PropFit.pair): `min`/`max` are the
+ * WHOLE pair's box, `delta` the far hook minus the near hook as authored
+ * (splitScenePair's authoredDelta). The two earrings are taken as the same
+ * width, so one is the pair's width less the hook spacing. Returns the scale
+ * and offset (as fitProp) and how far to move the far earring (model units)
+ * so the hooks end up `fit.pair` apart; null when the pair cannot be laid out.
+ */
+export function fitPair(min: [number, number, number], max: [number, number, number], delta: [number, number, number], fit: PropFit): { scale: number; offset: [number, number, number]; farShift: [number, number, number] } | null {
+  const dx = delta[0];
+  const w = max[0] - min[0] - Math.abs(dx);
+  if (fit.pair === undefined || !(fit.pair > 0) || !(w > 0) || !(Math.abs(dx) > 0) || !(fit.width > 0)) return null;
+  const scale = fit.width / w;
+  const shift = Math.sign(dx) * (fit.pair / scale) - dx;
+  // The near earring stays at its end of the box; the far one moves by `shift`.
+  const nearLo = dx < 0 ? max[0] - w : min[0];
+  const farLo = (dx < 0 ? min[0] : max[0] - w) + shift;
+  const lo = Math.min(nearLo, farLo);
+  const hi = Math.max(nearLo, farLo) + w;
+  const f = fitProp([lo, min[1], min[2]], [hi, max[1], max[2]], { ...fit, width: (hi - lo) * scale });
+  return { scale: f.scale, offset: f.offset, farShift: [shift, -delta[1], -delta[2]] };
 }

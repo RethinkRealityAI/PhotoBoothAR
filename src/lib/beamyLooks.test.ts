@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BEAMY_LOOKS, fitProp, nextLook, preloadUrl } from './beamyLooks';
+import { BEAMY_LOOKS, fitPair, fitProp, nextLook, preloadUrl } from './beamyLooks';
 import { EMOJI_RE } from './brandLanding';
 
 describe('beamyLooks', () => {
@@ -67,5 +67,27 @@ describe('beamyLooks', () => {
     expect(off.offset[2] + 4 * off.scale).toBeCloseTo(0.3, 9);
     const mid = fitProp([0, 0, 0], [2, 2, 2], { width: 1, at: [0, 0, 0], align: 'centre' });
     expect(mid.offset[1] + 1 * mid.scale).toBeCloseTo(0, 9);
+  });
+
+  it('lays a split earring pair out at his spacing, each earring at its own width', () => {
+    // A library pair: near earring x 0..1.8 at the origin, its twin 15.8 away (x -15.8..-14).
+    const min: [number, number, number] = [-15.8, -8, 0], max: [number, number, number] = [1.8, 0, 0.6];
+    const fit = { width: 0.03, pair: 0.5, at: [0, 0.17, 0.08] as [number, number, number], align: 'centre' as const };
+    const r = fitPair(min, max, [-15.8, 0, 0], fit);
+    expect(r).not.toBeNull();
+    if (r === null) return;
+    // One earring is 1.8 wide -> 0.03 m; the hooks end up 0.5 m apart.
+    expect(r.scale).toBeCloseTo(0.03 / 1.8, 9);
+    const hookGap = (-15.8 + r.farShift[0]) * r.scale;
+    expect(hookGap).toBeCloseTo(-0.5, 9);
+    // The pair is centred on the anchor: near right edge and far left edge are symmetric.
+    const near = 1.8 * r.scale + r.offset[0];
+    const far = (-15.8 + r.farShift[0]) * r.scale + r.offset[0];
+    expect(near + far).toBeCloseTo(0, 9);
+    // A twin on the other side works the same way; a non-pair or a bad fit is refused.
+    expect(fitPair([0, -8, 0], [17.6, 0, 0.6], [15.8, 0, 0], fit)?.scale).toBeCloseTo(0.03 / 1.8, 9);
+    expect(fitPair(min, max, [-15.8, 0, 0], { ...fit, pair: undefined })).toBeNull();
+    expect(fitPair(min, max, [0, 0, 0], fit)).toBeNull();
+    expect(fitPair(min, max, [-20, 0, 0], fit)).toBeNull();
   });
 });

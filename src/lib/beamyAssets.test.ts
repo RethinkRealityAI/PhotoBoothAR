@@ -69,6 +69,32 @@ describe('beamyAssets', () => {
     for (const l of [...HOME_ASSET_DEFAULTS.heroLooks, ...HOME_ASSET_DEFAULTS.arLooks]) expect(l.url, l.id).not.toMatch(/royal-crown|queens-tiara|halo-ring/);
   });
 
+  it('gives every AR prop real materials, one per kind (crown, hat, necklace, earrings, glasses, mask, face paint)', () => {
+    // The owner: "every piece needs real materials or textures". A GLB with
+    // no material, or a primitive that uses none, draws in three's flat grey.
+    const props = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'prop');
+    expect(props.map((l) => l.id)).toEqual(['ar-crown', 'ar-tophat', 'ar-necklace', 'ar-earrings', 'ar-aviators', 'ar-masquerade', 'ar-facepaint']);
+    for (const l of props) {
+      const glb = readFileSync(pub(l.url));
+      expect(glb.readUInt32LE(0), l.url).toBe(0x46546c67); // 'glTF'
+      const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8')) as {
+        materials?: { pbrMetallicRoughness?: { baseColorTexture?: unknown; baseColorFactor?: number[] } }[];
+        meshes?: { primitives: { material?: number }[] }[];
+      };
+      const mats = json.materials ?? [];
+      expect(mats.length, l.url).toBeGreaterThan(0);
+      for (const m of json.meshes ?? []) for (const pr of m.primitives) expect(pr.material, l.url).toBeTypeOf('number');
+      // Each material is textured or carries a colour of its own (not the default white).
+      for (const m of mats) {
+        const pbr = m.pbrMetallicRoughness ?? {};
+        const c = pbr.baseColorFactor ?? [1, 1, 1, 1];
+        expect(pbr.baseColorTexture !== undefined || c.slice(0, 3).some((v) => v < 0.99), l.url).toBe(true);
+      }
+      // Earrings are a split pair: they say how far apart his hooks are.
+      if (l.id === 'ar-earrings') expect(l.fit?.pair, l.id).toBeGreaterThan(0);
+    }
+  });
+
   it('falls back to the category’s fit when a look names none', () => {
     const bare: HomeLook = { id: 'x', name: 'X', category: 'prop', url: '/models/props/elf-hat.glb' };
     expect(lookFit(bare)).toEqual(DEFAULT_FIT_BY_CATEGORY.prop);
@@ -406,8 +432,12 @@ describe('standInFrame (a frame look in a box narrower than him)', () => {
     const mid = arPropScale({ stand: a.stand, frame: a.frame, lift: hp * 0.2, liftBase: 0 });
     expect(mid).toBeGreaterThanOrEqual(PROP_MIN_SCALE);
     expect(mid).toBeLessThanOrEqual(1);
-    // Where it fits, its top lands just under the window's top edge.
-    const room = a.stand.y - hp * 1.02 - (a.frame.top + AR_REF_OPENING.top * a.frame.h) - hp * 0.03;
+    // Where it fits, its top lands just under the frame's top edge (props draw over the frame).
+    const room = a.stand.y - hp * 1.02 - a.frame.top - hp * 0.03;
     if (mid > PROP_MIN_SCALE && mid < 1) expect(mid * hp * 0.2).toBeCloseTo(room, 5);
+    // A prop that needs 1.25x that room shrinks to exactly 0.8 (its top on the frame's top edge),
+    // more room than the window alone gave it.
+    expect(room).toBeGreaterThan(a.stand.y - hp * 1.02 - (a.frame.top + AR_REF_OPENING.top * a.frame.h) - hp * 0.03);
+    expect(arPropScale({ stand: a.stand, frame: a.frame, lift: room / 0.8, liftBase: 0 })).toBeCloseTo(0.8, 9);
   });
 });
