@@ -97,9 +97,9 @@ export default function ImageFitTool({ url, fit, onChange }: {
           </span>
         </div>
         <div className="min-w-0 flex-1 flex flex-col gap-2">
-          <p className="text-[12px] text-white/70">Big screen</p>
+          <p className="text-[12px] text-white/70">Live wall</p>
           <FramedImage url={url} fit={f} className="w-full aspect-video rounded-[12px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.3)]" />
-          <p className="text-[12px] text-white/60 leading-snug">The big screen shows more of the sides. Keep faces and words near the middle.</p>
+          <p className="text-[12px] text-white/60 leading-snug">The live wall shows more of the sides. Keep faces and words near the middle.</p>
         </div>
       </div>
       <div className="flex items-center gap-3">
@@ -126,7 +126,7 @@ export default function ImageFitTool({ url, fit, onChange }: {
       {size && (
         <p className={`text-[12.5px] ${small ? 'text-[#FFE1A8]' : 'text-white/60'}`}>
           {size.w} × {size.h} px.{' '}
-          {small ? 'This photo is on the small side and may look soft on a big screen.' : 'Looks sharp.'}
+          {small ? 'This photo is on the small side and may look soft on the live wall.' : 'Looks sharp.'}
         </p>
       )}
     </div>

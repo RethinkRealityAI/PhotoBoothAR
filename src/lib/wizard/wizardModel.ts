@@ -38,7 +38,7 @@ export const WIZARD_STEPS: readonly WizardStepDef[] = [
   { id: 'looks', label: 'Looks', title: 'Looks', blurb: 'What guests can try on. Tap to add or remove.', optional: false },
   { id: 'powerups', label: 'Power-ups', title: 'Power-ups', blurb: 'Gestures that set off effects, and superhero gear.', optional: true },
   { id: 'challenges', label: 'Challenges', title: 'Challenges', blurb: 'Photo missions that keep the booth busy all night.', optional: true },
-  { id: 'booth', label: 'Big screen', title: 'Big screen', blurb: 'How guests’ photos show on the live wall.', optional: false },
+  { id: 'booth', label: 'Live wall', title: 'Live wall', blurb: 'Guests’ photos, live on a TV or projector at your event.', optional: false },
   { id: 'launch', label: 'Launch', title: 'Ready when you are', blurb: 'Check it over, go live and share your QR.', optional: false },
 ] as const;
 

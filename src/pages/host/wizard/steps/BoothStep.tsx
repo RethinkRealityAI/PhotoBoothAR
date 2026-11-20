@@ -119,7 +119,7 @@ function WallMock({ draft, url, sceneBg }: { draft: WallDraft; url: string; scen
 }
 
 const TOGGLES: { key: keyof Omit<WallDraft, 'layout'>; label: string; hint: string; Icon: typeof QrCode }[] = [
-  { key: 'showQR', label: 'QR code on the big screen', hint: 'Guests scan it to open the booth.', Icon: QrCode },
+  { key: 'showQR', label: 'QR code on the live wall', hint: 'Guests scan it to open the booth.', Icon: QrCode },
   { key: 'featuredSpotlight', label: 'Spotlight a photo now and then', hint: 'One shot fills the screen for a few seconds.', Icon: Sparkles },
   { key: 'showLeaderboard', label: 'Show the leaderboard', hint: 'Points for photos and challenges.', Icon: Trophy },
   { key: 'showChallenges', label: 'Show challenges to guests', hint: 'The missions you picked, on the wall.', Icon: Zap },
@@ -208,7 +208,7 @@ export default function BoothStep() {
             {!draft ? (
               <div className="h-28 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" /></div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5" role="radiogroup" aria-label="Big screen layout">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5" role="radiogroup" aria-label="Live wall layout">
                 {WALL_LAYOUTS.map((l) => (
                   <button key={l} type="button" role="radio" aria-checked={draft.layout === l} className="wz-tile" onClick={() => update({ layout: l })} title={WALL_LAYOUT_META[l].blurb}>
                     <span className="wz-tile-art aspect-video flex"><LayoutGlyph layout={l} /></span>

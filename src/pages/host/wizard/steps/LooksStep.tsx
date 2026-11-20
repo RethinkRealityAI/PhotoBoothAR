@@ -549,11 +549,12 @@ export default function LooksStep() {
                 <button type="button" onClick={() => void load()} className="underline underline-offset-2">Try again</button>
               </p>
             )}
-            <div className="wz-tabs" role="tablist" aria-label="Look type">
+            <div className="wz-tabs wz-tabs-fit" role="tablist" aria-label="Look type">
               {LOOK_CATEGORIES.map((c) => (
-                <button key={c.id} type="button" role="tab" aria-selected={tab === c.id} className="wz-tab" onClick={() => switchTab(c.id)}>
-                  {c.label}
-                  <span className="wz-count">{countPicked(picks, catalog[c.id])}</span>
+                <button key={c.id} type="button" role="tab" aria-selected={tab === c.id} className="wz-tab" onClick={() => switchTab(c.id)} aria-label={`${c.label}, ${countPicked(picks, catalog[c.id])} on`}>
+                  <span className="sm:hidden">{c.short}</span>
+                  <span className="hidden sm:inline">{c.label}</span>
+                  <span className="wz-count" aria-hidden>{countPicked(picks, catalog[c.id])}</span>
                 </button>
               ))}
             </div>

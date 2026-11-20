@@ -21,8 +21,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Camera, CameraOff, Loader2, RotateCw } from 'lucide-react';
 import StudioPreview from '../../../components/studio/StudioPreview';
 import Studio3DView from '../../../components/studio/Studio3DView';
-import { FaceThumb } from '../../../components/studio/FacePaintBuilder';
-import { normalizeFacePaint } from '../../../lib/facePaint/spec';
 import StageCanvas, { type StageOverlaySpec } from '../../../components/booth/StageCanvas';
 import { useCameraStream } from '../../../components/booth/useCameraStream';
 import { setThumbSource } from '../../../components/booth/filterThumbEngine';
@@ -66,14 +64,6 @@ function HeadStage({ draft }: { draft: StudioDraft }) {
   const overlays: StageOverlaySpec[] = useMemo(() => draft.objects
     .filter((o): o is Overlay2D => o.type === 'overlay' && !!o.url && o.hidden !== true)
     .map((o) => ({ url: o.url as string, transform: o.transform, opacity: 1, animation: o.animation })), [draft.objects]);
-  // The 3D head has no face mesh to paint, so face paint shows as an inset of
-  // the same painter the booth uses, with a nudge to try it on for real.
-  const paint = useMemo(() => {
-    const o = objects.find((x) => x.facePaint !== undefined);
-    const spec = o ? normalizeFacePaint(o.facePaint) : null;
-    return o && spec ? { spec, name: o.name } : null;
-  }, [objects]);
-
   // Stream the head canvas into a video once R3F has made it.
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -133,15 +123,6 @@ function HeadStage({ draft }: { draft: StudioDraft }) {
           showcase={{ canvasId: HEAD_CANVAS_ID, background: '#4A47B0' }}
         />
       </div>
-      {paint && (
-        <div className="absolute left-3 bottom-3 z-10 flex items-center gap-2.5 rounded-2xl bg-[rgba(20,18,60,0.62)] backdrop-blur-md p-1.5 pr-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)] pointer-events-none">
-          <FaceThumb spec={paint.spec} logo={null} size={128} className="h-14 w-14 rounded-xl bg-white/10" />
-          <span className="min-w-0">
-            <span className="block text-[12.5px] font-semibold text-white truncate max-w-[150px]">Face paint</span>
-            <span className="block text-[11.5px] text-white/75 leading-snug">Shows on a real face.<br />Try it with your camera.</span>
-          </span>
-        </div>
-      )}
     </>
   );
 }

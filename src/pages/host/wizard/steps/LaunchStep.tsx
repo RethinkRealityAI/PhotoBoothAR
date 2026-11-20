@@ -38,7 +38,7 @@ function Row({ icon: Icon, title, detail, step, ok, onEdit }: {
   onEdit: (s: WizardStepId) => void;
 }) {
   return (
-    <li className="flex items-center gap-3 rounded-2xl px-3 py-3 hover:bg-white/6">
+    <li className="flex items-center gap-3 rounded-2xl px-3 py-2.5 hover:bg-white/6">
       <span className={`grid place-items-center h-10 w-10 rounded-full shrink-0 ${ok ? 'bg-[rgba(170,240,210,0.22)] text-[#D6FFEE]' : 'bg-white/12'}`}>
         {ok ? <Check className="h-[18px] w-[18px]" aria-hidden /> : <Icon className="h-[18px] w-[18px]" aria-hidden />}
       </span>
@@ -74,7 +74,7 @@ export default function LaunchStep() {
     const filters = eventFilters(looks.eventRows, composites);
     const openingId = typeof ev.config.defaultExperienceId === 'string' ? ev.config.defaultExperienceId : null;
     setSummary({
-      looks: countPicked(picks, [...cat.frames, ...cat.props, ...cat.effects]),
+      looks: countPicked(picks, [...cat.frames, ...cat.props, ...cat.paint, ...cat.effects]),
       filters: filters.length,
       opening: filters.find((f) => f.id === openingId)?.name ?? null,
       challenges: ch.rows.filter((c) => c.active).length,
@@ -101,35 +101,37 @@ export default function LaunchStep() {
 
   return (
     <>
-      <div className="grid lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)] gap-6 xl:gap-7 items-start">
-        <div className="flex flex-col gap-5 min-w-0">
-          <section className="liquid-glass rounded-[28px] p-3 sm:p-4 wz-enter" aria-label="Your setup">
+      {/* Wide screens: checklist · share card · phone, side by side, so the
+          whole launch fits one screen. Narrower: the cards stack. */}
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-5 xl:gap-6 items-start xl:items-stretch">
+        <div className="contents lg:flex lg:flex-col lg:gap-5 lg:min-w-0 xl:contents">
+          <section className="liquid-glass rounded-[28px] p-3 sm:p-4 wz-enter flex flex-col" aria-label="Your setup">
             <div className="px-2 pt-1"><StepHeading step="launch" /></div>
             {summary === null ? (
               <div className="h-48 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Checking your setup" /></div>
             ) : (
-              <ul>
+              <ul className="flex-1 flex flex-col xl:justify-evenly">
                 <Row icon={CalendarDays} title={ev.name} detail={dateLabel ?? 'Date to be decided'} step="basics" ok onEdit={w.goTo} />
                 <Row icon={ImageIcon} title="Welcome page" detail="Your background, border and welcome line" step="invite" ok onEdit={w.goTo} />
                 <Row icon={Sparkles} title="Looks" detail={`${summary.looks} to pick from · ${summary.filters} ${summary.filters === 1 ? 'filter' : 'filters'}${summary.opening ? ` · opens with ${summary.opening}` : ''}`} step="looks" ok={summary.looks + summary.filters > 0} onEdit={w.goTo} />
                 <Row icon={Zap} title="Power-ups" detail={powerUps > 0 ? `${powerUps} gesture${powerUps === 1 ? '' : 's'} on` : 'None yet (optional)'} step="powerups" ok={powerUps > 0} onEdit={w.goTo} />
                 <Row icon={Trophy} title="Challenges" detail={summary.challenges > 0 ? `${summary.challenges} mission${summary.challenges === 1 ? '' : 's'}` : 'None yet (optional)'} step="challenges" ok={summary.challenges > 0} onEdit={w.goTo} />
-                <Row icon={Monitor} title="Big screen" detail={`${summary.layout} wall`} step="booth" ok onEdit={w.goTo} />
+                <Row icon={Monitor} title="Live wall" detail={`${summary.layout} wall`} step="booth" ok onEdit={w.goTo} />
               </ul>
             )}
           </section>
 
-          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter" style={{ animationDelay: '60ms' }}>
+          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter min-w-0 @container" style={{ animationDelay: '60ms' }}>
             {live ? (
               <>
                 <div className="flex items-center gap-3">
                   <span className="grid place-items-center h-11 w-11 rounded-full bg-white text-[#1A1740]"><PartyPopper className="h-5 w-5" aria-hidden /></span>
                   <div>
                     <p className="wz-display text-[22px]">You’re live</p>
-                    <p className="text-[13.5px] text-white/75">Share the QR or put the big screen up. Guests need no app.</p>
+                    <p className="text-[13.5px] text-white/75">Share the QR or put the live wall up. Guests need no app.</p>
                   </div>
                 </div>
-                <div className="mt-5"><ShareActions url={welcomeUrl} eventName={ev.name} slug={ev.slug} qrSize={148} layout="stacked" /></div>
+                <div className="mt-5"><ShareActions url={welcomeUrl} eventName={ev.name} slug={ev.slug} qrSize={136} layout="stacked" /></div>
               </>
             ) : (
               <>
@@ -141,15 +143,15 @@ export default function LaunchStep() {
                 {goError && <p role="alert" className="mt-2 text-[13.5px] text-[#FFD2DA]">{goError}</p>}
               </>
             )}
-            <p className="wz-label mt-6 !mb-2">Open or print</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <p className="wz-label mt-5 !mb-2">Open or print</p>
+            <div className="grid grid-cols-2 @min-[420px]:grid-cols-4 gap-2">
               {[
                 { href: `/e/${ev.slug}/welcome`, label: 'Welcome page', Icon: ExternalLink },
                 { href: `/e/${ev.slug}/booth`, label: 'Booth', Icon: Camera },
-                { href: `/e/${ev.slug}/wall`, label: 'Big screen', Icon: LayoutGrid },
+                { href: `/e/${ev.slug}/wall`, label: 'Live wall', Icon: LayoutGrid },
                 { href: `/host/events/${ev.id}/share`, label: 'Print signs', Icon: Printer },
               ].map(({ href, label, Icon }) => (
-                <a key={label} href={href} target={href.startsWith('/e/') ? '_blank' : undefined} rel="noreferrer" className="pressable liquid-glass-raised flex flex-col items-center justify-center gap-1.5 rounded-2xl min-h-[72px] text-[13px] font-medium text-center">
+                <a key={label} href={href} target={href.startsWith('/e/') ? '_blank' : undefined} rel="noreferrer" className="pressable liquid-glass-raised flex flex-col items-center justify-center gap-1 rounded-2xl min-h-[64px] px-1 text-[12.5px] font-medium text-center whitespace-nowrap">
                   <Icon className="h-[18px] w-[18px]" aria-hidden /> {label}
                 </a>
               ))}
@@ -157,7 +159,7 @@ export default function LaunchStep() {
           </section>
         </div>
 
-        <div className="lg:sticky lg:top-[76px] flex flex-col items-center gap-3 wz-enter" style={{ animationDelay: '80ms' }}>
+        <div className="lg:sticky lg:top-[76px] xl:self-start flex flex-col items-center gap-3 wz-enter" style={{ animationDelay: '80ms' }}>
           <div className="wz-phone w-[270px]">
             <div className="wz-phone-screen bg-[#1F1A63]">
               {/* Laid out at a real phone width (390px) and scaled down, so the page

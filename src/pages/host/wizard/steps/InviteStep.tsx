@@ -254,7 +254,7 @@ export default function InviteStep() {
               id="wz-intro"
               className="wz-input !min-h-[88px] py-3 !text-[16px] resize-none"
               maxLength={200}
-              placeholder="Snap a photo, try on a look and watch it land on the big screen."
+              placeholder="Snap a photo, try on a look and watch it land on the live wall."
               value={d.intro}
               onChange={(e) => setD((p) => ({ ...p, intro: e.target.value }))}
             />

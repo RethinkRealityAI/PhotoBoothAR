@@ -24,6 +24,7 @@ import { FaceRig, Model } from '../ar/FaceRig';
 import AssetGizmo from '../ar/AssetGizmo';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import FaceOccluder from '../ar/FaceOccluder';
+import StaticFacePaint from '../ar/StaticFacePaint';
 import ReferenceBust, { type BustBounds } from '../ar/ReferenceBust';
 import ReferenceHand, { type HandRefFit, type HandRefPose } from '../ar/ReferenceHand';
 import { HandOccluder, HandRig } from '../ar/HandRig';
@@ -436,6 +437,16 @@ export default function Studio3DView({
 
         {headObjects.map((o) => {
           const isSel = o.id === selectedId;
+          // Face paint has no placement to edit: it is painted onto the
+          // reference head's face, at the bust's own head scale.
+          if (o.facePaint !== undefined) {
+            const paint = objectToPiece(o).facePaint;
+            return paint && shown.head ? (
+              <group key={o.id} onClick={selectHandler(o)}>
+                <StaticFacePaint spec={paint} scale={headScale} />
+              </group>
+            ) : null;
+          }
           // The SAME anchor base live uses (FaceRig.scaledAnchorBase), so a
           // piece placed here sits where it will sit on the guest.
           const base = scaledAnchorBase(anchorOffset(o.anchor, o.anchorVersion), headScale);

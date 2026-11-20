@@ -446,3 +446,11 @@
 @media (prefers-reduced-motion: reduce) {
   .wz-arrow, .wz-pill { transition: none; }
 }
+
+/* Phones: the four look tabs share the row evenly — nothing scrolls or clips. */
+@media (max-width: 639.98px) {
+  .wz-tabs-fit { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; overflow: visible; }
+  .wz-tabs-fit .wz-tab { padding: 0 4px; gap: 4px; justify-content: center; font-size: 13px; min-width: 0; }
+  .wz-tabs-fit .wz-count { min-width: 0; height: auto; padding: 0; background: none; font-size: 11.5px; opacity: 0.6; }
+  .wz-tabs-fit .wz-tab[aria-selected='true'] .wz-count { background: none; }
+}

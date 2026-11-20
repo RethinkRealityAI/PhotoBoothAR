@@ -113,7 +113,7 @@ export default function WelcomePreview({ scene, copy, url }: { scene: EventScene
       <div className="sm:hidden wz-tabs" role="tablist" aria-label="Preview on">
         {(['phone', 'screen'] as const).map((d) => (
           <button key={d} type="button" role="tab" aria-selected={device === d} className="wz-tab" onClick={() => setDevice(d)}>
-            {d === 'phone' ? 'Phone' : 'Big screen'}
+            {d === 'phone' ? 'Phone' : 'Live wall'}
           </button>
         ))}
       </div>

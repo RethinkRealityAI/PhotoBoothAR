@@ -77,7 +77,10 @@ export default function ShareActions({ url, eventName, slug, qrSize = 132, layou
   if (layout === 'stacked') {
     const wide = `${BTN} w-full whitespace-nowrap`;
     return (
-      <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+      // Sized by its CONTAINER, not the viewport: side by side once the card
+      // has room, stacked in a narrow column (the wizard's launch card).
+      <div className="@container w-full">
+      <div className="flex flex-col items-center gap-4 @min-[380px]:flex-row @min-[380px]:items-start">
         <div className="flex shrink-0 flex-col gap-2" style={{ width: qrSize + 20 }}>
           <div className="rounded-xl bg-[#faf6ef] p-2.5">
             <QRCodeSVG value={url} size={qrSize} bgColor="#faf6ef" fgColor="#1a1108" level="M" title={`QR code for ${eventName}`} />
@@ -87,7 +90,7 @@ export default function ShareActions({ url, eventName, slug, qrSize = 132, layou
           </button>
         </div>
         <QRCodeCanvas ref={canvasRef} value={url} size={1024} marginSize={4} bgColor="#ffffff" fgColor="#000000" level="M" className="hidden" aria-hidden />
-        <div className="flex w-full min-w-0 flex-col gap-2 sm:max-w-[300px]">
+        <div className="flex w-full min-w-0 flex-col gap-2 @min-[380px]:max-w-[300px]">
           <p className="text-[11.5px] font-semibold uppercase tracking-[0.06em] text-brand-muted">Guest link</p>
           <p className="break-all font-mono text-[12.5px] text-brand-fg/90 rounded-xl bg-white/[0.06] px-3 py-2.5">{url.replace(/^https?:\/\//, '')}</p>
           <button type="button" onClick={() => void copy()} className={wide}>
@@ -98,6 +101,7 @@ export default function ShareActions({ url, eventName, slug, qrSize = 132, layou
           </button>
           <p role="status" aria-live="polite" className="min-h-[1.25rem] text-[12px] text-brand-muted">{note}</p>
         </div>
+      </div>
       </div>
     );
   }

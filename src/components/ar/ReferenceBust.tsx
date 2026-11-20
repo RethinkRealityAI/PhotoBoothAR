@@ -22,6 +22,9 @@ import { canonicalWidthStretch, computeBustFit, computeAnchorAlignedFit, collect
 import { parseObj } from '../../lib/studio/occluder';
 import { ANCHOR_PRESETS } from '../../lib/faceRig';
 
+/** Scene-graph name of the fitted bust mesh root. */
+export const REFERENCE_BUST_NAME = 'reference-bust';
+
 /** Served from public/; 404s (→ procedural fallback) until CI vendors it. */
 const BUST_URL = `${import.meta.env.BASE_URL}models/reference-head.glb`;
 
@@ -113,7 +116,8 @@ function GlbBust({ scene, onFit }: { scene: THREE.Group; onFit?: (b: BustBounds)
       scale={[fitted.scale * fitted.stretchX, fitted.scale, fitted.scale]}
       position={[fitted.position[0] * fitted.stretchX, fitted.position[1], fitted.position[2]]}
     >
-      <primitive object={fitted.object} />
+      {/* Named so painted-on layers (StaticFacePaint) can find the surface. */}
+      <primitive object={fitted.object} name={REFERENCE_BUST_NAME} />
     </group>
   );
 }

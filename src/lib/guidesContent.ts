@@ -986,7 +986,7 @@ const FIRST_EVENT: GuideDoc = {
     {
       kind: 'prose',
       body: [
-        'Press New event and a short guided setup walks you through it, one screen at a time: the name and date, your welcome page, the looks guests can try on, power-ups, photo challenges and the big screen. A live preview sits beside every step — your camera if you switch it on, or a 3D head wearing your picks if not — so you see what guests will see before you commit to anything.',
+        'Press New event and a short guided setup walks you through it, one screen at a time: the name and date, your welcome page, the looks guests can try on, power-ups, photo challenges and your live wall. A live preview sits beside every step — your camera if you switch it on, or a 3D head wearing your picks if not — so you see what guests will see before you commit to anything.',
         'Everything saves as you go. Close the tab halfway through and your dashboard shows Continue setup on the event, with how far you got. Rather describe it in a sentence? Use the assistant link on the first screen and the Concierge designs it for you instead.',
         'Then you go live. Guests scan a QR code and their camera opens in the browser. Nothing to install, on any phone.',
       ],
@@ -997,8 +997,8 @@ const FIRST_EVENT: GuideDoc = {
       steps: [
         {
           title: 'Name it and pick a date',
-          body: `Type the event’s name, say what you are celebrating (wedding, birthday, party, gala or a work event) and pick the date — or tick Not sure yet. That one choice sets sensible starting colours, frames and challenge ideas, so nothing starts blank. Then design the welcome page guests land on when they scan: a template, a gradient or a single colour, or a photo of your own with a fit tool that shows it on a phone and on the big screen at once. Add a border and a line of welcome in your own words. After the looks and power-ups, tap any of the ${GUIDE_COUNTS.starterPackMissions} challenge ideas for your occasion to add it, or write your own. Last, choose how the big screen shows photos — Grid, Gallery, Scrolling, Carousel or Slideshow — and whether it shows the QR code, a spotlight, the leaderboard and the challenges.`,
-          tip: 'Use a photo at least 1600 pixels on its long side for the welcome page. The setup warns you if yours will look soft on a big screen.',
+          body: `Type the event’s name, say what you are celebrating (wedding, birthday, party, gala or a work event) and pick the date — or tick Not sure yet. That one choice sets sensible starting colours, frames and challenge ideas, so nothing starts blank. Then design the welcome page guests land on when they scan: a template, a gradient or a single colour, or a photo of your own with a fit tool that shows it on a phone and on the live wall at once. Add a border and a line of welcome in your own words. After the looks and power-ups, tap any of the ${GUIDE_COUNTS.starterPackMissions} challenge ideas for your occasion to add it, or write your own. Last, set up your live wall — the photo wall on a TV or projector at the event: choose how it shows photos — Grid, Gallery, Scrolling, Carousel or Slideshow — and whether it shows the QR code, a spotlight, the leaderboard and the challenges.`,
+          tip: 'Use a photo at least 1600 pixels on its long side for the welcome page. The setup warns you if yours will look soft on the live wall.',
         },
         {
           title: 'Pick the looks and filters',

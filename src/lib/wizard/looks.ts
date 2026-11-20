@@ -49,11 +49,12 @@ export const NO_LOOKS = '__none__';
 
 export type LookCategory = 'frames' | 'props' | 'paint' | 'effects';
 
-export const LOOK_CATEGORIES: readonly { id: LookCategory; label: string; noun: string }[] = [
-  { id: 'frames', label: 'Frames', noun: 'frame' },
-  { id: 'props', label: '3D props', noun: 'prop' },
-  { id: 'paint', label: 'Face paint', noun: 'face paint' },
-  { id: 'effects', label: 'Effects', noun: 'effect' },
+/** `short` is the phone label, so all four tabs fit one row without scrolling. */
+export const LOOK_CATEGORIES: readonly { id: LookCategory; label: string; short: string; noun: string }[] = [
+  { id: 'frames', label: 'Frames', short: 'Frames', noun: 'frame' },
+  { id: 'props', label: '3D props', short: 'Props', noun: 'prop' },
+  { id: 'paint', label: 'Face paint', short: 'Paint', noun: 'face paint' },
+  { id: 'effects', label: 'Effects', short: 'Effects', noun: 'effect' },
 ];
 
 export type LookSource = 'frame' | 'effect' | 'library' | 'classic' | 'paint';
