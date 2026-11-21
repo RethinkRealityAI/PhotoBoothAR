@@ -16,7 +16,7 @@ import { normalizeScene, type EventScene } from '../../../../lib/sceneThemes';
 import { OCCASIONS, formatEventDate, initialEventConfig, occasionById, slugProblem, ymdFromIso } from '../../../../lib/wizard/occasions';
 import { saveConfig as saveEventConfig, type WizardEvent } from '../../../../lib/wizard/wizardApi';
 import { WIZARD_STEPS, setupPercent } from '../../../../lib/wizard/wizardModel';
-import { StepHeading, WizardFooter, WizardFrame } from '../chrome';
+import { StepPanel, StepShell, WizardFooter, WizardFrame } from '../chrome';
 import { useWizard } from '../wizardContext';
 import WelcomePreview from '../WelcomePreview';
 
@@ -33,8 +33,7 @@ interface Fields {
   slugTouched: boolean;
 }
 
-function Form({ f, set, mode, slugNote, heading }: {
-  heading: React.ReactNode;
+function Form({ f, set, mode, slugNote }: {
   f: Fields;
   set: (p: Partial<Fields>) => void;
   mode: 'create' | 'edit';
@@ -45,8 +44,7 @@ function Form({ f, set, mode, slugNote, heading }: {
   useEffect(() => { if (mode === 'create') nameRef.current?.focus(); }, [mode]);
   const origin = typeof window !== 'undefined' ? window.location.host : 'beamwall.app';
   return (
-    <div className="liquid-glass rounded-[28px] p-5 sm:p-6 flex flex-col gap-6 wz-enter">
-      <div className="-mb-2">{heading}</div>
+    <div className="flex flex-col gap-6">
       <div>
         <label htmlFor="wz-name" className="wz-label">Event name</label>
         <input
@@ -67,7 +65,7 @@ function Form({ f, set, mode, slugNote, heading }: {
                 <span className="text-white/60">{origin}/e/</span>
                 <input
                   aria-label="Event link"
-                  className="wz-input !min-h-9 !text-[14px] !px-3 !w-[200px]"
+                  className="wz-input !min-h-11 !text-[16px] !px-3 !w-[200px]"
                   value={f.slug}
                   onChange={(e) => set({ slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''), slugTouched: true })}
                 />
@@ -75,7 +73,7 @@ function Form({ f, set, mode, slugNote, heading }: {
             ) : (
               <>
                 <span className="text-white font-medium break-all">{origin}/e/{f.slug || '…'}</span>
-                <button type="button" onClick={() => setEditingLink(true)} className="inline-flex items-center gap-1 underline underline-offset-2 text-white/85 hover:text-white min-h-8">
+                <button type="button" onClick={() => setEditingLink(true)} className="inline-flex items-center gap-1 underline underline-offset-2 text-white/85 hover:text-white min-h-11">
                   <Pencil className="h-3.5 w-3.5" aria-hidden /> Change
                 </button>
               </>
@@ -137,13 +135,9 @@ function previewOf(f: Fields, scene: EventScene | undefined) {
   };
 }
 
+/** One panel beside the welcome-page phone; on a phone, the form comes first. */
 function Layout({ form, preview }: { form: React.ReactNode; preview: React.ReactNode }) {
-  return (
-    <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-6 lg:gap-8 items-start">
-      {form}
-      <div className="lg:sticky lg:top-[76px] wz-enter" style={{ animationDelay: '80ms' }}>{preview}</div>
-    </div>
-  );
+  return <StepShell panel={form} preview={preview} mobile="stack" sheetLabel="Basics" />;
 }
 
 function CreateBasics({ onCreated }: { onCreated: (ev: WizardEvent) => void }) {
@@ -211,22 +205,19 @@ function CreateBasics({ onCreated }: { onCreated: (ev: WizardEvent) => void }) {
       rail={<CreateRail />}
       footer={<WizardFooter onBack={null} onSkip={null} onContinue={() => void create()} continueLabel="Create my event" busy={busy} blocked={blocked} />}
     >
-      {error && <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">{error}</p>}
       <Layout
         form={(
-          <Form
-            heading={(
-              <StepHeading step="basics">
-                <p className="mt-2 text-[13px] text-white/65">
-                  Rather describe it in a sentence? <Link to="/host/new/assistant" className="underline underline-offset-2 text-white">Use the assistant</Link>
-                </p>
-              </StepHeading>
+          <StepPanel
+            step="basics"
+            headExtra={(
+              <p className="mt-2 text-[13px] text-white/65">
+                Rather describe it in a sentence? <Link to="/host/new/assistant" className="underline underline-offset-2 text-white">Use the assistant</Link>
+              </p>
             )}
-            f={f}
-            set={set}
-            mode="create"
-            slugNote={slugNote}
-          />
+            notice={error ? <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">{error}</p> : undefined}
+          >
+            <Form f={f} set={set} mode="create" slugNote={slugNote} />
+          </StepPanel>
         )}
         preview={<WelcomePreview scene={p.scene} copy={p.copy} url={`${origin}/e/${f.slug || 'your-event'}/welcome`} />}
       />
@@ -323,7 +314,7 @@ function EditBasics() {
   return (
     <>
       <Layout
-        form={<Form heading={<StepHeading step="basics" />} f={f} set={set} mode="edit" slugNote={null} />}
+        form={<StepPanel step="basics"><Form f={f} set={set} mode="edit" slugNote={null} /></StepPanel>}
         preview={<WelcomePreview scene={p.scene} copy={p.copy} url={`${origin}/e/${ev.slug}/welcome`} />}
       />
     </>
