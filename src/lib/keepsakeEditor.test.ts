@@ -17,6 +17,21 @@ import {
   resetKeepsakeLook,
   sampleCopyContext,
   toggleDownload,
+  KEEPSAKE_SEEN_ALL,
+  KEEPSAKE_STEPS,
+  KEEPSAKE_STEP_IDS,
+  keepsakeAllStepsSeen,
+  keepsakeEditorMode,
+  keepsakeReviewRows,
+  keepsakeSeenFromStorage,
+  keepsakeSeenStorageKey,
+  keepsakeStepForKey,
+  keepsakeStepLabel,
+  keepsakeStepNav,
+  keepsakeStepReachable,
+  listWords,
+  markKeepsakeStepSeen,
+  type KeepsakeStepId,
   type KeepsakeTabId,
 } from './keepsakeEditor';
 import { DEFAULT_KEEPSAKE_SETTINGS, KEEPSAKE_COPY_MAX, KEEPSAKE_REVEAL_IDS, fillKeepsakeCopy, type KeepsakeSettings } from './keepsakeSettings';
@@ -236,5 +251,133 @@ describe('KEEPSAKE_REVEAL_CHOICES', () => {
     expect(keepsakeRevealChoice('beam').label).toBe('Beamwall beam');
     expect(keepsakeRevealChoice('none').label).toBe('Straight to the album');
     expect(keepsakeRevealChoice(DEFAULT_KEEPSAKE_SETTINGS.reveal).id).toBe('beam');
+  });
+});
+
+describe('guided steps', () => {
+  const tabsOnly: KeepsakeStepId[] = ['look', 'greeting', 'takehome', 'music', 'sending'];
+
+  it('runs the five tabs in order, then Review', () => {
+    expect(KEEPSAKE_STEP_IDS).toEqual(['look', 'greeting', 'takehome', 'music', 'sending', 'review']);
+    expect(KEEPSAKE_STEPS.map((s) => s.label)).toEqual(['Look', 'Greeting', 'Take-home', 'Music', 'Sending', 'Review']);
+    expect(KEEPSAKE_STEPS.slice(0, 5)).toEqual([...KEEPSAKE_TABS]);
+    for (const s of KEEPSAKE_STEPS) expect(s.hint.length).toBeGreaterThan(0);
+    expect(keepsakeStepLabel('review')).toBe('Review');
+    expect(keepsakeStepLabel('takehome')).toBe('Take-home');
+  });
+
+  it('gives Back/Next without wrapping: Sending leads to Review, Review is the end', () => {
+    expect(keepsakeStepNav('look')).toEqual({ prev: null, next: 'greeting' });
+    expect(keepsakeStepNav('music')).toEqual({ prev: 'takehome', next: 'sending' });
+    expect(keepsakeStepNav('sending')).toEqual({ prev: 'music', next: 'review' });
+    expect(keepsakeStepNav('review')).toEqual({ prev: 'sending', next: null });
+  });
+
+  it('in guided mode lets the host click only steps already seen', () => {
+    const seen: KeepsakeStepId[] = ['look', 'greeting'];
+    expect(keepsakeStepReachable('look', seen, 'guided')).toBe(true);
+    expect(keepsakeStepReachable('greeting', seen, 'guided')).toBe(true);
+    expect(keepsakeStepReachable('takehome', seen, 'guided')).toBe(false);
+    expect(keepsakeStepReachable('review', seen, 'guided')).toBe(false);
+    for (const s of KEEPSAKE_STEP_IDS) expect(keepsakeStepReachable(s, ['look'], 'free')).toBe(true);
+  });
+
+  it('records seen steps in step order, once each', () => {
+    const a = markKeepsakeStepSeen(['look'], 'music');
+    expect(a).toEqual(['look', 'music']);
+    expect(markKeepsakeStepSeen(a, 'greeting')).toEqual(['look', 'greeting', 'music']);
+    // Already seen: the very same array, so React state does not churn.
+    expect(markKeepsakeStepSeen(a, 'music')).toBe(a);
+  });
+
+  it('counts "seen all" only once Review has been reached too', () => {
+    expect(keepsakeAllStepsSeen(tabsOnly)).toBe(false);
+    expect(keepsakeAllStepsSeen([...tabsOnly, 'review'])).toBe(true);
+    expect(keepsakeAllStepsSeen([])).toBe(false);
+  });
+
+  it('keeps the wizard guided always, and Share & Print guided until every step is seen', () => {
+    expect(keepsakeEditorMode('wizard', ['look'])).toBe('guided');
+    expect(keepsakeEditorMode('wizard', KEEPSAKE_STEP_IDS)).toBe('guided');
+    expect(keepsakeEditorMode('panel', ['look'])).toBe('guided');
+    expect(keepsakeEditorMode('panel', tabsOnly)).toBe('guided');
+    expect(keepsakeEditorMode('panel', KEEPSAKE_STEP_IDS)).toBe('free');
+  });
+
+  it('remembers "seen all" per event, and starts guided on anything but the exact flag', () => {
+    expect(keepsakeSeenStorageKey('5d1c-uuid')).toBe('bw.keepsakeEditor.seen.5d1c-uuid');
+    expect(keepsakeSeenFromStorage(KEEPSAKE_SEEN_ALL)).toEqual(KEEPSAKE_STEP_IDS);
+    expect(keepsakeEditorMode('panel', keepsakeSeenFromStorage(KEEPSAKE_SEEN_ALL))).toBe('free');
+    for (const raw of [null, '', 'true', '1', 'ALL']) {
+      expect(keepsakeSeenFromStorage(raw)).toEqual(['look']);
+    }
+  });
+
+  it('moves across the free-mode tabs with the arrow keys, Review included', () => {
+    expect(keepsakeStepForKey('sending', 'ArrowRight')).toBe('review');
+    expect(keepsakeStepForKey('review', 'ArrowRight')).toBe('look');
+    expect(keepsakeStepForKey('look', 'ArrowLeft')).toBe('review');
+    expect(keepsakeStepForKey('greeting', 'End')).toBe('review');
+    expect(keepsakeStepForKey('review', 'Home')).toBe('look');
+    expect(keepsakeStepForKey('review', 'Tab')).toBeNull();
+  });
+});
+
+describe('keepsakeReviewRows', () => {
+  const ctx = sampleCopyContext('Hope Gala', 'Acme', Date.UTC(2026, 10, 21, 9, 30));
+
+  it('summarises the defaults, one row per tab in tab order', () => {
+    const rows = keepsakeReviewRows(base(), ctx, true);
+    expect(rows.map((r) => r.step)).toEqual(KEEPSAKE_TAB_IDS);
+    expect(rows.map((r) => r.label)).toEqual(KEEPSAKE_TABS.map((t) => t.label));
+    expect(rows.map((r) => r.value)).toEqual([
+      'Beamwall colours · opens with Beamwall beam',
+      'Beamy says hello · “Yesterday\'s Hope Gala was a hit!”',
+      'Film, Collage and Photos',
+      'Afterglow',
+      'Emailed to guests the morning after',
+    ]);
+  });
+
+  it('reads every choice back in plain words', () => {
+    const s = base();
+    s.theme = 'ivory';
+    s.reveal = 'none';
+    s.beamy = false;
+    s.downloads = { film: false, collage: true, photos: true };
+    s.music = 'none';
+    s.autoSend = false;
+    const v = keepsakeReviewRows(s, ctx, true).map((r) => r.value);
+    expect(v).toEqual([
+      'Ivory colours · no opening moment',
+      'Beamy’s greeting is off',
+      'Collage and Photos',
+      'No music',
+      'Off · only when you press Send keepsakes now',
+    ]);
+  });
+
+  it('says when the headline is empty, and clips a long one', () => {
+    const s = base();
+    s.copy.headline = '';
+    expect(keepsakeReviewRows(s, ctx, true)[1].value).toBe('Beamy says hello · no headline yet');
+    s.copy.headline = 'x'.repeat(80);
+    const long = keepsakeReviewRows(s, ctx, true)[1].value;
+    // Filled exactly as guests read it (fillKeepsakeCopy capitalises the first letter).
+    expect(long).toBe(`Beamy says hello · “X${'x'.repeat(58)}…”`);
+  });
+
+  it('marks the film as after-upgrade on a plan without it, and only then', () => {
+    expect(keepsakeReviewRows(base(), ctx, false)[2].value).toBe('Film (after you upgrade), Collage and Photos');
+    expect(keepsakeReviewRows(base(), ctx, null)[2].value).toBe('Film, Collage and Photos');
+  });
+});
+
+describe('listWords', () => {
+  it('joins with commas and a final "and"', () => {
+    expect(listWords([])).toBe('');
+    expect(listWords(['Film'])).toBe('Film');
+    expect(listWords(['Film', 'Photos'])).toBe('Film and Photos');
+    expect(listWords(['A', 'B', 'C'])).toBe('A, B and C');
   });
 });
