@@ -12,7 +12,10 @@
  *     -> verifies the uploaded object (tenant-scoped path, size cap) and
  *        inserts the public.posts row via service role, then mints that post's
  *        delete token: { post, deleteToken? }. Honors events.config.moderation:
- *        'pre' inserts approved=false.
+ *        'pre' inserts approved=false. Idempotent per object: a repeat
+ *        finalize of a path that already has a post returns that post (no
+ *        deleteToken), and the plan cap is re-checked here [403
+ *        post_limit_reached] — init's check alone could be replayed past.
  *   { action: 'delete_post', eventSlug, postId, deleteToken, sessionId? }
  *     -> a guest removing their OWN moment: removes the storage object first,
  *        then the row: { deleted: true }. Deliberately NOT gated on the event
@@ -397,6 +400,48 @@ async function handleFinalize(sb: Client, body: Record<string, unknown>): Promis
 
   const { data: pub } = sb.storage.from(POSTS_BUCKET).getPublicUrl(path);
 
+  // REPLAY GUARD (audit H5). One init signs ONE object, but finalize used to
+  // insert a new row every time it was called with that object's path — so one
+  // init + N finalizes put N copies on the wall and walked straight past the
+  // plan cap. A finalize for an object that already has a post now answers with
+  // THAT post. It deliberately carries no deleteToken: the path is visible in
+  // the post's public image_url, so anyone could replay it, and the token was
+  // already handed (once) to the device that made the post. Migration 051's
+  // unique index posts_image_url_key closes the concurrent-replay race below.
+  const { data: already, error: alreadyErr } = await sb
+    .from('posts')
+    .select()
+    .eq('event_id', event.slug)
+    .eq('image_url', pub.publicUrl)
+    .maybeSingle();
+  if (alreadyErr) throw alreadyErr;
+  if (already) return json(200, { post: already });
+
+  // Plan cap, re-checked HERE (audit H5): init's check only bounds how many
+  // uploads were signed, and posts committed by other guests since then count.
+  // Same resolver, same fail-closed rule, same null-means-unlimited as init.
+  const { data: capFeatures, error: capErr } = await sb.rpc('resolve_features_raw', {
+    p_org: event.org_id as string,
+    p_event: event.id as string,
+  });
+  if (capErr) {
+    console.error('[submit-post] finalize: resolve_features_raw failed', capErr);
+    return json(503, { error: 'features_unavailable' });
+  }
+  const finalizeCap = ((capFeatures ?? {}) as Record<string, unknown>).maxPosts;
+  if (typeof finalizeCap === 'number' && Number.isFinite(finalizeCap)) {
+    const { count: postCount, error: postCountErr } = await sb
+      .from('posts')
+      .select('id', { count: 'exact', head: true })
+      .eq('event_id', event.slug);
+    if (postCountErr) throw postCountErr;
+    if ((postCount ?? 0) >= finalizeCap) {
+      // The post can never land, so do not leave its object public (best-effort).
+      await sb.storage.from(POSTS_BUCKET).remove([path]);
+      return json(403, { error: 'post_limit_reached' });
+    }
+  }
+
   // 'builtin:*' experience ids (bundled experiences) are not DB rows — null them.
   const experience_id = asUuidOrNull(experienceId);
   const challenge_id = asUuidOrNull(challengeId);
@@ -425,7 +470,22 @@ async function handleFinalize(sb: Client, body: Record<string, unknown>): Promis
     })
     .select()
     .single();
-  if (insertErr) throw insertErr;
+  if (insertErr) {
+    // 23505 on posts_image_url_key (051): a concurrent finalize of the same
+    // object won the race. Answer like the replay guard above — its post, no
+    // token.
+    if ((insertErr as { code?: string }).code === '23505') {
+      const { data: winner, error: winnerErr } = await sb
+        .from('posts')
+        .select()
+        .eq('event_id', event.slug)
+        .eq('image_url', pub.publicUrl)
+        .maybeSingle();
+      if (winnerErr) throw winnerErr;
+      if (winner) return json(200, { post: winner });
+    }
+    throw insertErr;
+  }
 
   // Mint this post's delete capability (migration 035) and hand it back HERE,
   // once. It is deliberately absent from every other payload: not on the posts

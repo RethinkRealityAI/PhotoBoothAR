@@ -43,7 +43,10 @@
  * 200 → see above          400 → { error: 'invalid_json' | 'invalid_body' | 'invalid_email' }
  * 401 → { error: 'unauthorized' }        403 → { error: 'forbidden' }
  * 404 → { error: 'event_not_found' }     405 → { error: 'method_not_allowed' }
- * 409 → { error: 'event_still_live' }    429 → { error: 'recently_sent' | 'preview_rate_limited' }
+ * 409 → { error: 'event_still_live' }    429 → { error: 'recently_sent' | 'preview_rate_limited'
+ *                                                 | 'send_cap_reached' }
+ *   send_cap_reached = migration 051's per-org daily ceiling (1000 keepsake
+ *   recipients, 20 previews per rolling 24h), checked before any email goes.
  * 500 → { error: 'internal' }            503 → { error: 'email_not_configured' }
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
@@ -85,6 +88,28 @@ const PREVIEW_WINDOW_MS = 60 * 60 * 1000;
  * membership on the event, which is a signed-up, identifiable customer.
  */
 const PREVIEW_HITS = new Map<string, number[]>();
+
+/**
+ * The DATABASE ceiling that PREVIEW_HITS is not (migration 051's
+ * email_send_log, audit H4): per org per rolling 24h, at most 1000 keepsake
+ * recipients across every send run, and 20 previews. Reserved BEFORE Resend is
+ * called; 'cap' = the trigger refused. Any other error throws — fail CLOSED,
+ * because an abuse ceiling that steps aside on an error is not one.
+ */
+async function reserveKeepsakeSend(
+  sb: ReturnType<typeof serviceClient>,
+  orgId: string,
+  kind: 'keepsake' | 'keepsake_preview',
+  ref: string,
+  recipients: number,
+): Promise<'ok' | 'cap'> {
+  const { error } = await sb
+    .from('email_send_log')
+    .insert({ kind, org_id: orgId, ref, recipients });
+  if (!error) return 'ok';
+  if ((error.message ?? '').includes('email_send_cap')) return 'cap';
+  throw error;
+}
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -417,6 +442,11 @@ Deno.serve(async (req: Request) => {
       const resendKey = Deno.env.get('RESEND_API_KEY');
       if (!resendKey) return json(503, { error: 'email_not_configured' });
 
+      // The preview is the one op that mails an address the caller names, so
+      // it carries its own database ceiling, not just the per-isolate Map.
+      const previewSlot = await reserveKeepsakeSend(sb, event.org_id as string, 'keepsake_preview', 'preview', 1);
+      if (previewSlot === 'cap') return json(429, { error: 'send_cap_reached' });
+
       const ok = await sendOne(
         resendKey,
         testEmail,
@@ -468,6 +498,18 @@ Deno.serve(async (req: Request) => {
       .order('created_at', { ascending: true })
       .limit(MAX_RECIPIENTS);
     if (contactsErr) throw contactsErr;
+
+    // Reserve the whole run against the org's daily ceiling before the first
+    // email: the count is exactly the contacts the loop below will try (the
+    // same skip rule), so a run is either allowed in full or refused in full —
+    // never half-sent and then cut off mid-guest-list.
+    const toMail = (contacts ?? []).filter(
+      (c) => resend || c.last_sent_at === null || c.last_sent_at === undefined,
+    ).length;
+    if (toMail > 0) {
+      const runSlot = await reserveKeepsakeSend(sb, event.org_id as string, 'keepsake', event.slug as string, toMail);
+      if (runSlot === 'cap') return json(429, { error: 'send_cap_reached' });
+    }
 
     const subject = `Your photos from ${eventName}`;
     let sent = 0;
