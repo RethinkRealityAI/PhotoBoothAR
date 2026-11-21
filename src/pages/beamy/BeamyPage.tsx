@@ -45,9 +45,11 @@ import { Briefcase, Cake, ClipboardList, Gift, Users, type LucideIcon } from 'lu
 import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
 import ReportIssueButton from '../../components/support/ReportIssueButton';
+import ErrorBoundary from '../../components/ui/ErrorBoundary';
+import { canUseWebgl } from '../../components/wall/wallHooks';
 import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../components/beamy/selfieFx';
-import { usePageTitle } from '../../lib/usePageTitle';
+import { usePageMeta, usePageTitle } from '../../lib/usePageTitle';
 import type { Rect } from '../../lib/beamGeometry';
 import { REDUCED_GLIDE_S, SELFIE_SPEED, flashOpacity, photoState } from '../../lib/beamySelfie';
 import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
@@ -377,6 +379,8 @@ function poseOf(el: HTMLElement, h: number): Pose {
 
 export default function BeamyPage() {
   usePageTitle('Beamwall · Your immersive photo booth');
+  // index.html's own description stays the homepage's; only the canonical is new.
+  usePageMeta('/');
 
   const vp = useViewport();
   const phone = vp.w < PHONE_MAX;
@@ -418,7 +422,24 @@ export default function BeamyPage() {
   const lookIxRef = useRef(0);
   lookIxRef.current = lookIx;
   const [ready, setReady] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // No WebGL (blocked GPU, old device, lost context budget): skip the 3D stage
+  // and take the page's own no-stage layout from the first paint, instead of
+  // letting the canvas throw "Error creating WebGL context".
+  const [failed, setFailed] = useState(() => !canUseWebgl());
+  // The probe can pass and the stage's own context still fail (a device's
+  // context budget, a GPU reset). R3F creates the renderer in an un-awaited
+  // promise, so that failure is an unhandled rejection no error boundary
+  // sees: catch it here and fall back the same way.
+  useEffect(() => {
+    if (failed) return;
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const r: unknown = e.reason;
+      const msg = r instanceof Error ? r.message : String(r);
+      if (/WebGL context/i.test(msg)) setFailed(true);
+    };
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => window.removeEventListener('unhandledrejection', onRejection);
+  }, [failed]);
   const [arrival, setArrival] = useState<'waiting' | 'dropping' | 'done'>('waiting');
   const [slowModel, setSlowModel] = useState(false);
   const [copyIn, setCopyIn] = useState(false);
@@ -1954,6 +1975,8 @@ export default function BeamyPage() {
       </div>
 
       {!failed && (
+        // A context that still fails at creation lands here instead of the app root.
+        <ErrorBoundary label="Homepage 3D stage" silent onCatch={() => setFailed(true)}>
         <BeamyStage
           apiRef={api}
           layoutRef={layoutRef}
@@ -1969,6 +1992,7 @@ export default function BeamyPage() {
         >
           <StoryFx fxRef={fxRef} lite={phone} reduced={reduced} />
         </BeamyStage>
+        </ErrorBoundary>
       )}
 
       {/* Padding, not margin: a margin would collapse through the sticky
@@ -1994,7 +2018,8 @@ export default function BeamyPage() {
             </nav>
           )}
           <nav aria-label="Account" className="flex items-center justify-end gap-2 sm:gap-4">
-            {vp.w >= WIDE_HERO_MIN && <Link to="/login" className="bw-link min-h-11">{START_COPY.signIn}</Link>}
+            {/* Every width: a returning host on a phone had no way to /login on this page. */}
+            <Link to="/login" className={`bw-link min-h-11 min-w-11 justify-center ${phone ? 'px-2 text-[14px]' : ''}`}>{START_COPY.signIn}</Link>
             <Link to={SIGNUP_PATH} className="bw-btn bw-btn-glow bw-btn-sm">{ctaFace(phone ? HERO.primaryShort : HERO.primary)}</Link>
           </nav>
           {/* Scroll progress: a hairline along the pill's lower edge. */}
