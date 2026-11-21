@@ -13,11 +13,14 @@ import {
   DEFAULT_KEEPSAKE_SETTINGS,
   KEEPSAKE_COPY_MAX,
   KEEPSAKE_DOWNLOAD_IDS,
+  KEEPSAKE_REVEAL_IDS,
   type KeepsakeCopy,
   type KeepsakeCopyContext,
   type KeepsakeDownloadId,
+  type KeepsakeRevealId,
   type KeepsakeSettings,
 } from './keepsakeSettings';
+import { CARD_REVEAL_OPTIONS } from './cardPresentation';
 
 /* ── Copy tokens ─────────────────────────────────────────────────── */
 
@@ -110,6 +113,116 @@ export function keepsakeSettingsEqual(a: KeepsakeSettings, b: KeepsakeSettings):
   for (const d of KEEPSAKE_DOWNLOAD_IDS) if (a.downloads[d] !== b.downloads[d]) return false;
   const fields: KeepsakeCopyField[] = ['headline', 'message', 'signOff', 'hostName'];
   return fields.every((f) => a.copy[f] === b.copy[f]);
+}
+
+/* ── Tabs (one group of settings on screen at a time) ────────────── */
+
+export type KeepsakeTabId = 'look' | 'greeting' | 'takehome' | 'music' | 'sending';
+
+export interface KeepsakeTab {
+  id: KeepsakeTabId;
+  label: string;
+  /** One line under the tab's options, saying what this group decides. */
+  hint: string;
+}
+
+/** The editor's tabs in order. In the wizard they are the steps, in this order. */
+export const KEEPSAKE_TABS: readonly KeepsakeTab[] = [
+  { id: 'look', label: 'Look', hint: 'The album’s colours and the moment it opens with.' },
+  { id: 'greeting', label: 'Greeting', hint: 'What Beamy says at the top of the album.' },
+  { id: 'takehome', label: 'Take-home', hint: 'What guests can save from the album.' },
+  { id: 'music', label: 'Music', hint: 'Plays under the keepsake film.' },
+  { id: 'sending', label: 'Sending', hint: 'When the album reaches your guests.' },
+];
+
+export const KEEPSAKE_TAB_IDS: readonly KeepsakeTabId[] = KEEPSAKE_TABS.map((t) => t.id);
+
+/** Whether one tab's own settings differ between what is saved and the draft.
+ *  Every settings field belongs to exactly one tab (tested), so a dirty
+ *  editor always shows a dot on at least one tab. */
+export function keepsakeTabDirty(stored: KeepsakeSettings, draft: KeepsakeSettings, tab: KeepsakeTabId): boolean {
+  switch (tab) {
+    case 'look':
+      return stored.theme !== draft.theme || stored.reveal !== draft.reveal;
+    case 'greeting': {
+      const fields: KeepsakeCopyField[] = ['headline', 'message', 'signOff', 'hostName'];
+      return stored.beamy !== draft.beamy || fields.some((f) => stored.copy[f] !== draft.copy[f]);
+    }
+    case 'takehome':
+      return KEEPSAKE_DOWNLOAD_IDS.some((d) => stored.downloads[d] !== draft.downloads[d]);
+    case 'music':
+      return stored.music !== draft.music;
+    case 'sending':
+      return stored.autoSend !== draft.autoSend;
+  }
+}
+
+/** The tabs with unsaved changes, in tab order. */
+export function dirtyKeepsakeTabs(stored: KeepsakeSettings, draft: KeepsakeSettings): KeepsakeTabId[] {
+  return KEEPSAKE_TAB_IDS.filter((t) => keepsakeTabDirty(stored, draft, t));
+}
+
+/** Arrow-key movement across the tablist (WAI-ARIA tabs pattern): Left/Right
+ *  (and Up/Down) wrap around, Home/End jump to the ends. Any other key → null. */
+export function keepsakeTabForKey(current: KeepsakeTabId, key: string): KeepsakeTabId | null {
+  const ids = KEEPSAKE_TAB_IDS;
+  const i = Math.max(0, ids.indexOf(current));
+  switch (key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      return ids[(i + 1) % ids.length];
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      return ids[(i - 1 + ids.length) % ids.length];
+    case 'Home':
+      return ids[0];
+    case 'End':
+      return ids[ids.length - 1];
+    default:
+      return null;
+  }
+}
+
+/** Where a tab sits as a wizard step: "Step 2 of 5", and its neighbours
+ *  (null at either end — no wrap, unlike the arrow keys). */
+export function keepsakeStep(tab: KeepsakeTabId): { number: number; total: number; prev: KeepsakeTabId | null; next: KeepsakeTabId | null } {
+  const ids = KEEPSAKE_TAB_IDS;
+  const i = Math.max(0, ids.indexOf(tab));
+  return {
+    number: i + 1,
+    total: ids.length,
+    prev: i > 0 ? ids[i - 1] : null,
+    next: i < ids.length - 1 ? ids[i + 1] : null,
+  };
+}
+
+/* ── Reveal choices ──────────────────────────────────────────────── */
+
+export interface KeepsakeRevealChoice {
+  id: KeepsakeRevealId;
+  label: string;
+  description: string;
+}
+
+/**
+ * The tap-to-open moments a host picks from, in KEEPSAKE_REVEAL_IDS order.
+ * The card reveals keep the words hosts already know from keepsake cards
+ * (CARD_REVEAL_OPTIONS); only 'beam' (Beamwall's own) and 'none' read
+ * differently here, because the thing that opens is an album, not a card.
+ */
+export const KEEPSAKE_REVEAL_CHOICES: readonly KeepsakeRevealChoice[] = KEEPSAKE_REVEAL_IDS.map((id) => {
+  if (id === 'beam') {
+    return { id, label: 'Beamwall beam', description: 'A beam of light sweeps across and the album opens in its glow.' };
+  }
+  if (id === 'none') {
+    return { id, label: 'Straight to the album', description: 'No opening moment. The photos are on screen the second the link opens.' };
+  }
+  const card = CARD_REVEAL_OPTIONS.find((o) => o.id === id);
+  return { id, label: card?.label ?? id, description: card?.description ?? '' };
+});
+
+export function keepsakeRevealChoice(id: KeepsakeRevealId): KeepsakeRevealChoice {
+  return KEEPSAKE_REVEAL_CHOICES.find((c) => c.id === id) ?? KEEPSAKE_REVEAL_CHOICES[0];
 }
 
 /* ── Preview context ─────────────────────────────────────────────── */

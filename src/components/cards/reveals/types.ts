@@ -56,6 +56,9 @@ export interface CardRevealProps {
   look: 'beamwall' | 'event';
   palette: RevealPalette;
   reducedMotion: boolean;
+  /** What the reveal opens, in its button and screen-reader wording. Default
+   *  'card'; the keepsake album (/r/:slug) reuses these reveals with 'album'. */
+  noun?: 'card' | 'album';
   /** The card face is on screen — hand over to the template. Call once. */
   onDone: () => void;
 }

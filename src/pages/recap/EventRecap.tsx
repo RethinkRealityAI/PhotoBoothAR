@@ -28,7 +28,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Link, useParams } from 'react-router-dom';
 import { useReducedMotion } from 'motion/react';
 import gsap from 'gsap';
-import { ArrowRight, Check, Share2 } from 'lucide-react';
+import { ArrowRight, Check, RotateCcw, Share2 } from 'lucide-react';
 import type { Post } from '../../types';
 import { loadEventConfig, type EventLoad, type RuntimeEvent } from '../../events/runtime';
 import { fetchEventFilm, fetchPostsResult } from '../../lib/db';
@@ -36,11 +36,22 @@ import { getSavedPhotos } from '../../lib/session';
 import { recapAccess, recapCountLine, recapCounts, stillPhotos } from '../../lib/eventRecap';
 import { keepsakeTheme, normalizeKeepsakeSettings } from '../../lib/keepsakeSettings';
 import { introSeenKey, recapEyebrow, recapGreeting, recapThemeVars, takeHomeChoices } from '../../lib/recapKeepsake';
+import {
+  playableRecapReveal,
+  recapDeepLink,
+  resolveRecapOpening,
+  sealedLine,
+  settleKind,
+  type RecapPlayableReveal,
+  type SettleKind,
+} from '../../lib/recapReveal';
 import { copyText } from '../../lib/clipboard';
 import FetchFailed from '../../components/ui/FetchFailed';
 import RecapHero from './RecapHero';
 import RecapAlbum from './RecapAlbum';
 import RecapIntro from './RecapIntro';
+import RecapReveal, { hasWebGL, type RevealEnd } from './RecapReveal';
+import type { HeroLanding } from './BeamReveal';
 import RecapBeamyCard from './RecapBeamyCard';
 import RecapTakeHome from './RecapTakeHome';
 import RecapReplay from './RecapReplay';
@@ -243,11 +254,26 @@ export default function EventRecap() {
   const theme = keepsakeTheme(settings.theme);
   const themeVars = useMemo(() => recapThemeVars(theme), [theme]);
 
-  // The opening moment: once per visit, never under reduced motion. Decided in
-  // a LAYOUT effect so the album never flashes before the overlay covers it.
-  // 'lifting' = the overlay is fading off: the hero and the section reveals
-  // start then, so the page arrives as the intro leaves instead of after it.
-  const [intro, setIntro] = useState<'pending' | 'play' | 'lifting' | 'done'>('pending');
+  // Reduced motion never removes the opening — the guest asks for it by
+  // tapping — it makes it gentler (cards/reveals/types.ts). useReducedMotion
+  // can answer null on the first render, so the media query backs it up.
+  const reduceNow = reducedMotion
+    || (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  // The opening: a TAP-TO-OPEN reveal (lib/recapReveal.ts decides which: once
+  // per visit, skipped by a #film/#photos deep link, the WebGL fallback on a
+  // device without WebGL), then the keepsake theme's settle. Decided in a
+  // LAYOUT effect so the album never flashes before the reveal covers it.
+  // 'handoff' = the reveal is fading off: the hero and the section reveals
+  // start then, so the page arrives as the reveal leaves.
+  const [intro, setIntro] = useState<'pending' | 'reveal' | 'handoff' | 'done'>('pending');
+  const [reveal, setReveal] = useState<RecapPlayableReveal | null>(null);
+  /** Re-keys the reveal so "Replay the opening" mounts a fresh one. */
+  const [revealRun, setRevealRun] = useState(0);
+  /** The beam landed its prints on the hero: the hero is already in place. */
+  const [heroLanded, setHeroLanded] = useState(false);
+  const [settle, setSettle] = useState<SettleKind | null>(null);
+  const pendingSettle = useRef<SettleKind | null>(null);
   useLayoutEffect(() => {
     if (readyEventId === null) return;
     let seen = false;
@@ -258,14 +284,62 @@ export default function EventRecap() {
     } catch {
       // Private mode / blocked storage: play it, every time — harmless.
     }
-    const reduced = typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    setIntro(seen || reduced || reducedMotion ? 'done' : 'play');
+    const opening = resolveRecapOpening({ reveal: settings.reveal, webgl: hasWebGL(), hash: window.location.hash, seen });
+    const kind = opening.settle ? settleKind(theme.intro, opening.reveal, reduceNow) : null;
+    if (opening.reveal !== null) {
+      pendingSettle.current = kind;
+      setReveal(opening.reveal);
+      setIntro('reveal');
+    } else {
+      pendingSettle.current = null;
+      setSettle(kind);
+      setIntro('done');
+    }
     // Decided once per album; a later preference flip must not replay it.
   }, [readyEventId]);
-  const liftIntro = useCallback(() => setIntro((s) => (s === 'play' ? 'lifting' : s)), []);
-  const endIntro = useCallback(() => setIntro('done'), []);
-  const introLifted = intro === 'lifting' || intro === 'done';
+  const handoff = useCallback((how: RevealEnd) => {
+    setIntro('handoff');
+    setHeroLanded(how === 'landed' && reveal === 'beam');
+    const kind = pendingSettle.current;
+    pendingSettle.current = null;
+    if (kind !== null) setSettle(kind);
+  }, [reveal]);
+  const revealGone = useCallback(() => {
+    setIntro('done');
+    setReveal(null);
+  }, []);
+  const endSettle = useCallback(() => setSettle(null), []);
+  const introLifted = intro === 'handoff' || intro === 'done';
+
+  /** Where the album's hero sits right now (the beam reveal lands on it). */
+  const measureHero = useCallback((): HeroLanding | null => {
+    const content = contentRef.current;
+    if (content === null) return null;
+    const box = (el: Element | null) => {
+      if (el === null) return null;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
+    };
+    const prints = Array.from(content.querySelectorAll('[data-hero-print]'), box);
+    return {
+      // One unmeasurable print and the beam uses its own fallback row instead.
+      prints: prints.every((b) => b !== null) ? (prints as NonNullable<(typeof prints)[number]>[]) : [],
+      eyebrow: box(content.querySelector('[data-hero-eyebrow]')),
+      title: box(content.querySelector('[data-hero-title]')),
+    };
+  }, []);
+
+  const replayable = ready === null ? null : playableRecapReveal(settings.reveal, hasWebGL());
+  const replayOpening = useCallback(() => {
+    if (replayable === null) return;
+    // The beam lands on the hero, so the page goes back to the top first.
+    scrollRef.current?.scrollTo({ top: 0 });
+    pendingSettle.current = null;
+    setSettle(null);
+    setReveal(replayable);
+    setRevealRun((r) => r + 1);
+    setIntro('reveal');
+  }, [replayable]);
 
   const [shared, setShared] = useState(false);
   const share = useCallback(async () => {
@@ -297,13 +371,18 @@ export default function EventRecap() {
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
-  // The keepsake email links to /r/<slug>#film. The block only exists once
-  // the async read lands — after the browser has already looked for the
-  // anchor — so the jump is made here.
+  // The keepsake email links to /r/<slug>#film; /r/<slug>#photos lands on the
+  // album grid. Both blocks only exist once the async read lands — after the
+  // browser has already looked for the anchor — so the jump is made here, once
+  // (a later "Replay the opening" must not jump again).
   const hasFilm = ready?.film != null;
+  const deepLinked = useRef(false);
   useEffect(() => {
-    if (!hasFilm || intro !== 'done' || window.location.hash !== '#film') return;
-    document.getElementById('film')?.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
+    if (intro !== 'done' || deepLinked.current) return;
+    const link = recapDeepLink(window.location.hash);
+    if (link === null || (link === 'film' && !hasFilm)) return;
+    deepLinked.current = true;
+    document.getElementById(link)?.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
   }, [hasFilm, intro, reducedMotion]);
 
   if (state.phase === 'loading') {
@@ -364,7 +443,8 @@ export default function EventRecap() {
       ref={scrollRef}
       data-keepsake-theme={theme.id}
       className="absolute inset-0 overflow-y-auto overflow-x-hidden hide-scrollbar text-[color:var(--k-ink)]"
-      style={{ ...(themeVars as React.CSSProperties), background: 'var(--k-bg)' }}
+      // The page holds still under the reveal (it measures the hero it lands on).
+      style={{ ...(themeVars as React.CSSProperties), background: 'var(--k-bg)', overflowY: intro === 'reveal' ? 'hidden' : undefined }}
     >
       {/* The theme's light: an accent bloom from the top, the glow colour low
           on the page, and one faint diagonal beam — Beamwall's signature. */}
@@ -382,19 +462,30 @@ export default function EventRecap() {
         />
       </div>
 
-      {(intro === 'play' || intro === 'lifting') && (
-        <RecapIntro
-          kind={theme.intro}
-          eyebrow={eyebrow}
+      {reveal !== null && (intro === 'reveal' || intro === 'handoff') && (
+        <RecapReveal
+          key={revealRun}
+          reveal={reveal}
           title={copy.fullName}
-          photos={posts}
-          onLift={liftIntro}
-          onDone={endIntro}
+          eyebrow={eyebrow}
+          eventDate={event.startsAt ?? null}
+          line={sealedLine(counts.moments)}
+          posts={posts}
+          theme={theme}
+          reducedMotion={reduceNow}
+          measure={measureHero}
+          onHandoff={handoff}
+          onGone={revealGone}
         />
       )}
+      {settle !== null && introLifted && <RecapIntro kind={settle} onDone={endSettle} />}
 
       <div
         ref={contentRef}
+        // Mounted under the reveal (no WebGL here, so a 3D reveal is still the
+        // only GPU context), but inert until it hands off.
+        inert={intro === 'reveal'}
+        aria-hidden={intro === 'reveal' ? true : undefined}
         className="relative z-10 mx-auto flex w-full max-w-5xl flex-col gap-14 px-4 pt-10 pb-16 sm:gap-20 sm:px-8"
       >
         <RecapHero
@@ -403,7 +494,7 @@ export default function EventRecap() {
           countLine={countLine}
           photos={posts}
           reducedMotion={reducedMotion}
-          play={introLifted}
+          play={introLifted && !heroLanded}
           actions={
             <button type="button" onClick={() => void share()} className={K_SECONDARY}>
               {shared ? <Check className="h-4 w-4" aria-hidden /> : <Share2 className="h-4 w-4" aria-hidden />}
@@ -461,6 +552,12 @@ export default function EventRecap() {
               Make your own event <ArrowRight className="w-3.5 h-3.5" aria-hidden />
             </Link>
           </div>
+          {replayable !== null && (
+            <button type="button" onClick={replayOpening} className={K_SECONDARY}>
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              Replay the opening
+            </button>
+          )}
         </footer>
       </div>
     </div>

@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
+  KEEPSAKE_REVEAL_CHOICES,
+  KEEPSAKE_TABS,
+  KEEPSAKE_TAB_IDS,
   KEEPSAKE_TOKEN_CHIPS,
   copyCounter,
+  dirtyKeepsakeTabs,
+  keepsakeRevealChoice,
+  keepsakeStep,
+  keepsakeTabDirty,
+  keepsakeTabForKey,
   insertToken,
   isLastDownloadOn,
   keepsakeSettingsEqual,
@@ -9,8 +17,10 @@ import {
   resetKeepsakeLook,
   sampleCopyContext,
   toggleDownload,
+  type KeepsakeTabId,
 } from './keepsakeEditor';
-import { DEFAULT_KEEPSAKE_SETTINGS, KEEPSAKE_COPY_MAX, fillKeepsakeCopy, type KeepsakeSettings } from './keepsakeSettings';
+import { DEFAULT_KEEPSAKE_SETTINGS, KEEPSAKE_COPY_MAX, KEEPSAKE_REVEAL_IDS, fillKeepsakeCopy, type KeepsakeSettings } from './keepsakeSettings';
+import { CARD_REVEAL_OPTIONS } from './cardPresentation';
 
 const base = (): KeepsakeSettings => ({
   ...DEFAULT_KEEPSAKE_SETTINGS,
@@ -146,5 +156,85 @@ describe('sampleCopyContext', () => {
     const ctx = sampleCopyContext('Hope Gala', 'Acme', now);
     expect(fillKeepsakeCopy(DEFAULT_KEEPSAKE_SETTINGS.copy.headline, ctx, '')).toBe("Yesterday's Hope Gala was a hit!");
     expect(fillKeepsakeCopy('{photos} from {guests}, {host}', ctx, '')).toBe('128 photos from 46 guests, Acme');
+  });
+});
+
+describe('keepsake tabs', () => {
+  it('lists the five groups in step order', () => {
+    expect(KEEPSAKE_TABS.map((t) => t.label)).toEqual(['Look', 'Greeting', 'Take-home', 'Music', 'Sending']);
+  });
+
+  it('puts every settings change on exactly one tab', () => {
+    // A field that no tab owns would leave an unsaved change with no dot;
+    // a field two tabs own would dot the wrong tab.
+    const changes: [KeepsakeTabId, (s: KeepsakeSettings) => void][] = [
+      ['look', (s) => { s.theme = 'confetti'; }],
+      ['look', (s) => { s.reveal = 'envelope'; }],
+      ['greeting', (s) => { s.beamy = false; }],
+      ['greeting', (s) => { s.copy.headline = 'Hi'; }],
+      ['greeting', (s) => { s.copy.message = 'Hi'; }],
+      ['greeting', (s) => { s.copy.signOff = 'Cheers,'; }],
+      ['greeting', (s) => { s.copy.hostName = 'A'; }],
+      ['takehome', (s) => { s.downloads.film = false; }],
+      ['takehome', (s) => { s.downloads.collage = false; }],
+      ['takehome', (s) => { s.downloads.photos = false; }],
+      ['music', (s) => { s.music = 'none'; }],
+      ['sending', (s) => { s.autoSend = false; }],
+    ];
+    for (const [tab, change] of changes) {
+      const s = base();
+      change(s);
+      expect(keepsakeSettingsEqual(base(), s)).toBe(false);
+      expect(dirtyKeepsakeTabs(base(), s)).toEqual([tab]);
+    }
+    expect(dirtyKeepsakeTabs(base(), base())).toEqual([]);
+  });
+
+  it('reports several dirty tabs in tab order', () => {
+    const s = base();
+    s.autoSend = false;
+    s.theme = 'ivory';
+    s.music = 'none';
+    expect(dirtyKeepsakeTabs(base(), s)).toEqual(['look', 'music', 'sending']);
+    expect(keepsakeTabDirty(base(), s, 'greeting')).toBe(false);
+  });
+
+  it('moves with the arrow keys, wrapping, and jumps with Home/End', () => {
+    expect(keepsakeTabForKey('look', 'ArrowRight')).toBe('greeting');
+    expect(keepsakeTabForKey('sending', 'ArrowRight')).toBe('look');
+    expect(keepsakeTabForKey('look', 'ArrowLeft')).toBe('sending');
+    expect(keepsakeTabForKey('music', 'ArrowDown')).toBe('sending');
+    expect(keepsakeTabForKey('music', 'ArrowUp')).toBe('takehome');
+    expect(keepsakeTabForKey('music', 'Home')).toBe('look');
+    expect(keepsakeTabForKey('look', 'End')).toBe('sending');
+    expect(keepsakeTabForKey('look', 'Enter')).toBeNull();
+    expect(keepsakeTabForKey('look', ' ')).toBeNull();
+  });
+
+  it('numbers the wizard steps without wrapping', () => {
+    expect(keepsakeStep('look')).toEqual({ number: 1, total: 5, prev: null, next: 'greeting' });
+    expect(keepsakeStep('greeting')).toEqual({ number: 2, total: 5, prev: 'look', next: 'takehome' });
+    expect(keepsakeStep('sending')).toEqual({ number: 5, total: 5, prev: 'music', next: null });
+    expect(KEEPSAKE_TAB_IDS.map((t) => keepsakeStep(t).number)).toEqual([1, 2, 3, 4, 5]);
+  });
+});
+
+describe('KEEPSAKE_REVEAL_CHOICES', () => {
+  it('offers every stored reveal id, in order, each with words a host can decide from', () => {
+    expect(KEEPSAKE_REVEAL_CHOICES.map((c) => c.id)).toEqual([...KEEPSAKE_REVEAL_IDS]);
+    for (const c of KEEPSAKE_REVEAL_CHOICES) {
+      expect(c.label.length).toBeGreaterThan(0);
+      expect(c.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('reuses the card reveal words, and names Beamwall’s own and the no-reveal option', () => {
+    for (const o of CARD_REVEAL_OPTIONS) {
+      if (o.id === 'none') continue;
+      expect(keepsakeRevealChoice(o.id)).toEqual({ id: o.id, label: o.label, description: o.description });
+    }
+    expect(keepsakeRevealChoice('beam').label).toBe('Beamwall beam');
+    expect(keepsakeRevealChoice('none').label).toBe('Straight to the album');
+    expect(keepsakeRevealChoice(DEFAULT_KEEPSAKE_SETTINGS.reveal).id).toBe('beam');
   });
 });

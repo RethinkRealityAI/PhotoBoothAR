@@ -21,13 +21,11 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import gsap from 'gsap';
 import type { Post } from '../../types';
 import PostImage from '../../components/ui/PostImage';
-
-/** How many prints the fan holds. Five reads as a handful; more turns the hero
- *  into a second album and pushes the name off a phone screen. */
-const HERO_PRINTS = 5;
-
-/** Resting angles, authored not generated — the fan has to look arranged. */
-const TILT = [-9, 5.5, -2.5, 7, -6];
+// How many prints the fan holds (five reads as a handful; more turns the hero
+// into a second album and pushes the name off a phone screen), their authored
+// resting tilts and stacking. Shared with the beam reveal, whose prints land on
+// exactly these.
+import { HERO_PRINTS, heroPrintTilt, heroPrintZ } from '../../lib/recapReveal';
 
 export default function RecapHero({
   eyebrow,
@@ -44,8 +42,9 @@ export default function RecapHero({
   /** The album, newest first; the first few become the fan. */
   photos: readonly Post[];
   reducedMotion: boolean;
-  /** False while the themed intro covers the page — the hero waits for it to
-   *  lift, then arrives, so the two read as one opening. */
+  /** False while the tap-to-open reveal covers the page — the hero waits for
+   *  it to hand off, then arrives, so the two read as one opening. Stays false
+   *  when the beam reveal LANDED its prints on this hero: it is already in place. */
   play: boolean;
   /** Small actions under the count (share). */
   actions?: ReactNode;
@@ -81,11 +80,12 @@ export default function RecapHero({
 
   return (
     <header ref={rootRef} className="flex flex-col items-center gap-4 pt-4 text-center sm:pt-8">
-      <p data-hero-line className="font-label uppercase tracking-luxe text-[10px] text-[color:var(--k-accent-text)]">
+      <p data-hero-line data-hero-eyebrow className="font-label uppercase tracking-luxe text-[10px] text-[color:var(--k-accent-text)]">
         {eyebrow}
       </p>
       <h1
         data-hero-line
+        data-hero-title
         className="max-w-3xl font-serif italic text-[2.6rem] leading-[1.02] text-[color:var(--k-ink)] sm:text-6xl md:text-7xl"
         style={{ textShadow: '0 0 48px rgba(var(--k-accent-rgb),0.35)' }}
       >
@@ -107,11 +107,11 @@ export default function RecapHero({
               // The gsap tween owns this element's transform; the resting tilt
               // lives on the child so the two never fight over the same
               // property.
-              style={{ zIndex: i === 2 ? 3 : 2 - Math.abs(i - 2) }}
+              style={{ zIndex: heroPrintZ(i) }}
             >
               <div
                 className="overflow-hidden rounded-2xl border border-[color:var(--k-line)] bg-black/40 shadow-[0_22px_44px_-18px_var(--k-shadow)]"
-                style={{ transform: `rotate(${TILT[i % TILT.length]}deg)`, aspectRatio: '3 / 4' }}
+                style={{ transform: `rotate(${heroPrintTilt(i)}deg)`, aspectRatio: '3 / 4' }}
               >
                 {p.media_type === 'video' ? (
                   <video src={p.image_url} className="h-full w-full object-cover" preload="metadata" muted playsInline />

@@ -47,7 +47,7 @@ import { CARD_TEMPLATE_OPTIONS } from './cardTemplates';
 import { CARD_EMAIL_STYLE_OPTIONS, CARD_LOOK_OPTIONS, CARD_REVEAL_OPTIONS } from './cardPresentation';
 import { KEEPSAKE_THEMES } from './keepsakeSettings';
 import { KEEPSAKE_TRACKS } from './keepsakeMusic';
-import { KEEPSAKE_TOKEN_CHIPS } from './keepsakeEditor';
+import { KEEPSAKE_REVEAL_CHOICES, KEEPSAKE_TABS, KEEPSAKE_TOKEN_CHIPS } from './keepsakeEditor';
 import { GUIDES, GUIDE_COUNTS, GUIDE_COVERAGE, type GuideCoverageEntry } from './guidesContent';
 import type { FeatureHelpTopic } from './studio/featureHelp';
 
@@ -299,10 +299,11 @@ describe('guides counts — the numbers the copy says out loud', () => {
     }
   });
 
-  it('names every keepsake album theme, music track and copy token', () => {
+  it('names every keepsake album theme, opening moment, music track, copy token and editor tab', () => {
     // "Make the album yours" walks the host through the Keepsake editor
     // (src/pages/host/keepsake/KeepsakeEditor.tsx) and names each choice by
-    // its label, so a new theme, track or token shipping without copy goes red.
+    // its label, so a new theme, reveal, track, token or tab shipping without
+    // copy goes red.
     const block = Object.values(GUIDES)
       .flatMap((g) => g.blocks)
       .find((b) => b.kind === 'prose' && b.title === 'Make the album yours');
@@ -312,6 +313,8 @@ describe('guides counts — the numbers the copy says out loud', () => {
       ['theme (src/lib/keepsakeSettings.ts KEEPSAKE_THEMES)', KEEPSAKE_THEMES.map((t) => t.label)],
       ['music track (src/lib/keepsakeMusic.ts KEEPSAKE_TRACKS)', KEEPSAKE_TRACKS.map((t) => t.title)],
       ['copy token (src/lib/keepsakeEditor.ts KEEPSAKE_TOKEN_CHIPS)', KEEPSAKE_TOKEN_CHIPS.map((c) => c.label)],
+      ['opening moment (src/lib/keepsakeEditor.ts KEEPSAKE_REVEAL_CHOICES)', KEEPSAKE_REVEAL_CHOICES.map((c) => c.label)],
+      ['editor tab (src/lib/keepsakeEditor.ts KEEPSAKE_TABS)', KEEPSAKE_TABS.map((t) => t.label)],
     ];
     for (const [what, labels] of sets) {
       for (const label of labels) {

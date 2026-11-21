@@ -253,7 +253,7 @@ export default function RecapAlbum({
         </section>
       )}
 
-      <section data-reveal className="flex flex-col gap-3" aria-labelledby="recap-album-heading">
+      <section id="photos" data-reveal className="scroll-mt-6 flex flex-col gap-3" aria-labelledby="recap-album-heading">
         <header className="flex flex-col gap-1">
           <p className={K_EYEBROW}>The album</p>
           <h2 id="recap-album-heading" className={K_H2}>

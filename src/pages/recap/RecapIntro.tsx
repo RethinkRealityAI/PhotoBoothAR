@@ -2,35 +2,28 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The album's opening moment — one per keepsake theme intro (beam, curtain,
- * confetti, petals, fade), ~2.2s, then the overlay lifts off the page.
+ * The keepsake THEME's character as the album settles in — the theme's
+ * `intro` kind (beam, curtain, confetti, petals, fade), ~2 s, played once the
+ * tap-to-open reveal has handed off (or at once when the host chose no
+ * reveal).
  *
- * WHAT IT IS ALLOWED TO COST.
- *   • It is an OVERLAY (position: fixed) above an album that is already laid
- *     out underneath, so lifting it shifts nothing.
- *   • Motion is GSAP on transform / opacity / clip-path; confetti is one small
- *     2D canvas (no WebGL — the card reveals' three.js scenes are a lazy chunk
- *     for a reason, and an album needs none of it).
- *   • A tap anywhere (or the Skip button, or Escape) ends it at once.
- *   • It can NEVER keep the album hidden: a wall-clock fail-safe ends it even
- *     if a tween never completes, and any throw while building the timeline
- *     ends it immediately.
- *
- * The parent decides WHETHER it plays (once per visit via sessionStorage, and
- * never under prefers-reduced-motion — the album's markup already IS the final
- * state, so declining to mount this is the whole reduced-motion path).
+ * WHY IT IS NO LONGER AN OPENING. This used to be a 2.2 s auto-playing
+ * overlay that covered the album. The album now opens on a tap
+ * (RecapReveal.tsx), and two opening moments back to back would be one too
+ * many — so the theme keeps its character here instead: petals drift down
+ * after a midnight-bloom album opens, confetti bursts over a confetti album,
+ * a warm curtain of light parts on golden hour. It is pure decoration:
+ *   • transparent, `pointer-events: none`, above the album — the page is
+ *     usable from its first frame and nothing waits for it;
+ *   • GSAP on transform/opacity; confetti is one small 2D canvas (no WebGL);
+ *   • a wall-clock fail-safe unmounts it even if a tween never completes,
+ *     and any throw while building the timeline unmounts it at once.
+ * lib/recapReveal.ts `settleKind` decides whether it plays (never the beam
+ * twice, and only a soft glow under reduced motion).
  */
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import gsap from 'gsap';
-import type { KeepsakeThemeOption } from '../../lib/keepsakeSettings';
-import type { Post } from '../../types';
-import PostImage from '../../components/ui/PostImage';
-
-/** Wall-clock ceiling: the overlay is gone by now whatever GSAP did. */
-const INTRO_FAILSAFE_MS = 3600;
-const OUT_S = 0.55;
-
-type IntroKind = KeepsakeThemeOption['intro'];
+import { RECAP_SETTLE_FAILSAFE_MS, type SettleKind } from '../../lib/recapReveal';
 
 /** Tiny seeded PRNG so petals/confetti fall the same way on every visit. */
 function rng(seed: number) {
@@ -41,57 +34,23 @@ function rng(seed: number) {
   };
 }
 
-export default function RecapIntro({
-  kind,
-  eyebrow,
-  title,
-  photos,
-  onLift,
-  onDone,
-}: {
-  kind: IntroKind;
-  eyebrow: string;
-  title: string;
-  /** The album, newest first; the first three appear in the intro. */
-  photos: readonly Post[];
-  /** The overlay has started to fade off (the page may start arriving). */
-  onLift?: () => void;
-  onDone: () => void;
-}) {
+export default function RecapIntro({ kind, onDone }: { kind: SettleKind; onDone: () => void }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const doneRef = useRef(false);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
-  const onLiftRef = useRef(onLift);
-  onLiftRef.current = onLift;
-  const tlRef = useRef<gsap.core.Timeline | null>(null);
 
-  const prints = photos.filter((p) => p.media_type !== 'video').slice(0, 3);
-
-  const finish = (fast: boolean) => {
+  const finish = () => {
     if (doneRef.current) return;
     doneRef.current = true;
-    tlRef.current?.kill();
-    onLiftRef.current?.();
-    const root = rootRef.current;
-    if (root === null || fast) {
-      onDoneRef.current();
-      return;
-    }
-    try {
-      gsap.to(root, { opacity: 0, duration: OUT_S, ease: 'power2.out', onComplete: () => onDoneRef.current() });
-    } catch {
-      onDoneRef.current();
-    }
+    onDoneRef.current();
   };
 
-  // Fail-safe + keyboard skip.
+  // Fail-safe: gone by now whatever GSAP did.
   useEffect(() => {
-    const t = setTimeout(() => finish(true), INTRO_FAILSAFE_MS + OUT_S * 1000);
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') finish(false); };
-    window.addEventListener('keydown', onKey);
-    return () => { clearTimeout(t); window.removeEventListener('keydown', onKey); };
+    const t = setTimeout(finish, RECAP_SETTLE_FAILSAFE_MS);
+    return () => clearTimeout(t);
   }, []);
 
   useLayoutEffect(() => {
@@ -101,62 +60,40 @@ export default function RecapIntro({
     let ctx: gsap.Context | null = null;
     try {
       ctx = gsap.context(() => {
-        const tl = gsap.timeline({ onComplete: () => finish(false) });
-        tlRef.current = tl;
-        const words = '[data-intro-line]';
-        const prints = '[data-intro-print]';
+        const tl = gsap.timeline({ onComplete: finish });
         if (kind === 'beam') {
-          gsap.set(words, { opacity: 0, clipPath: 'inset(0 100% 0 0)' });
-          gsap.set(prints, { opacity: 0, clipPath: 'inset(0 100% 0 0)', scale: 1.06 });
-          // The beam is bright from its first frame and sweeps at an even
-          // pace, so whatever moment you look, it is ON screen; the prints and
-          // the name resolve left-to-right in its wake.
-          tl.fromTo('[data-beam]', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'none' }, 0)
-            .fromTo('[data-beam]', { xPercent: -130 }, { xPercent: 330, duration: 1.7, ease: 'power1.inOut', immediateRender: false }, 0)
-            .to('[data-beam]', { opacity: 0, duration: 0.35 }, 1.5)
-            .fromTo('[data-beam-flare]', { scaleX: 0, opacity: 0 }, { scaleX: 1, opacity: 1, duration: 1.1, ease: 'power1.inOut' }, 0.2)
-            .to('[data-beam-flare]', { opacity: 0, duration: 0.5 }, 1.4)
-            .to(prints, { opacity: 1, clipPath: 'inset(0 0% 0 0)', scale: 1, duration: 0.8, stagger: 0.14, ease: 'power2.out' }, 0.45)
-            .to(words, { opacity: 1, clipPath: 'inset(0 0% 0 0)', duration: 0.8, stagger: 0.12, ease: 'power2.out' }, 0.7)
-            .to({}, { duration: 0.45 });
+          // One soft sweep of the theme's light across the settled page.
+          tl.fromTo('[data-settle-beam]', { opacity: 0 }, { opacity: 0.55, duration: 0.25, ease: 'none' }, 0)
+            .fromTo('[data-settle-beam]', { xPercent: -130 }, { xPercent: 330, duration: 1.6, ease: 'power1.inOut', immediateRender: false }, 0)
+            .to('[data-settle-beam]', { opacity: 0, duration: 0.4 }, 1.25);
         } else if (kind === 'curtain') {
-          gsap.set([words, prints], { opacity: 0, y: 14 });
-          tl.to('[data-curtain="l"]', { xPercent: -102, duration: 1.5, ease: 'power2.inOut' }, 0.4)
-            .to('[data-curtain="r"]', { xPercent: 102, duration: 1.5, ease: 'power2.inOut' }, 0.4)
-            .to('[data-curtain-tie]', { opacity: 0, duration: 0.3 }, 0.35)
-            .to(prints, { opacity: 1, y: 0, duration: 0.7, stagger: 0.08, ease: 'power3.out' }, 0.8)
-            .to(words, { opacity: 1, y: 0, duration: 0.7, stagger: 0.08, ease: 'power3.out' }, 0.95)
-            .to({}, { duration: 0.35 });
+          // A warm curtain of LIGHT (not cloth — the page is already open)
+          // parting from the centre seam.
+          tl.fromTo('[data-settle-curtain="l"]', { xPercent: 0, opacity: 0.9 }, { xPercent: -100, opacity: 0, duration: 1.6, ease: 'power2.inOut' }, 0)
+            .fromTo('[data-settle-curtain="r"]', { xPercent: 0, opacity: 0.9 }, { xPercent: 100, opacity: 0, duration: 1.6, ease: 'power2.inOut' }, 0)
+            .fromTo('[data-settle-seam]', { opacity: 1, scaleY: 1 }, { opacity: 0, scaleY: 1.2, duration: 0.7, ease: 'power1.out' }, 0.05);
         } else if (kind === 'confetti') {
-          gsap.set([words, prints], { opacity: 0, scale: 0.85 });
-          tl.to(prints, { opacity: 1, scale: 1, duration: 0.55, stagger: 0.07, ease: 'back.out(1.8)' }, 0.25)
-            .to(words, { opacity: 1, scale: 1, duration: 0.55, stagger: 0.07, ease: 'back.out(1.8)' }, 0.35)
-            .to({}, { duration: 1.4 });
+          tl.to({}, { duration: 2.3 });
           stopConfetti = runConfetti(canvasRef.current, root);
         } else if (kind === 'petals') {
-          gsap.set([words, prints], { opacity: 0, y: -10 });
           const rand = rng(7);
           gsap.utils.toArray<HTMLElement>('[data-petal]').forEach((el, i) => {
             const x0 = rand() * 100;
-            tl.fromTo(el,
-              { left: `${x0}%`, yPercent: 0, y: -40, rotation: rand() * 360, opacity: 0.95 },
+            tl.fromTo(
+              el,
+              { left: `${x0}%`, y: -40, rotation: rand() * 360, opacity: 0.95 },
               { y: () => window.innerHeight + 60, x: (rand() - 0.5) * 140, rotation: `+=${180 + rand() * 260}`, duration: 1.8 + rand() * 0.8, ease: 'sine.in' },
               rand() * 0.6 + (i % 3) * 0.05,
             );
           });
-          tl.to(prints, { opacity: 1, y: 0, duration: 0.9, stagger: 0.1, ease: 'sine.out' }, 0.35)
-            .to(words, { opacity: 1, y: 0, duration: 0.9, stagger: 0.1, ease: 'sine.out' }, 0.5);
         } else {
-          gsap.set([words, prints], { opacity: 0 });
-          tl.fromTo('[data-fade-glow]', { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 1.4, ease: 'sine.out' }, 0)
-            .to(prints, { opacity: 1, duration: 0.9, stagger: 0.12, ease: 'sine.out' }, 0.2)
-            .to(words, { opacity: 1, duration: 0.9, stagger: 0.12, ease: 'sine.out' }, 0.35)
-            .to({}, { duration: 0.6 });
+          tl.fromTo('[data-fade-glow]', { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.9, ease: 'sine.out' }, 0)
+            .to('[data-fade-glow]', { opacity: 0, duration: 1.0, ease: 'sine.in' }, 0.9);
         }
       }, root);
     } catch (e) {
-      console.error('[recap] intro failed; showing the album', e);
-      finish(true);
+      console.error('[recap] theme settle failed', e);
+      finish();
     }
     return () => { stopConfetti(); ctx?.revert(); };
   }, [kind]);
@@ -166,37 +103,20 @@ export default function RecapIntro({
   return (
     <div
       ref={rootRef}
-      data-recap-intro={kind}
-      onClick={() => finish(false)}
-      className="fixed inset-0 z-[80] flex cursor-pointer items-center justify-center overflow-hidden bg-[color:var(--k-bg)]"
-      role="presentation"
+      data-recap-settle={kind}
+      aria-hidden
+      className="pointer-events-none fixed inset-0 z-[70] overflow-hidden"
     >
-      {/* Ambient wash so the stage is never flat black. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{ background: 'radial-gradient(70% 55% at 50% 45%, rgba(var(--k-accent-rgb),0.22), transparent 70%), radial-gradient(60% 40% at 50% 100%, rgba(var(--k-glow-rgb),0.12), transparent 70%)' }}
-      />
-
       {kind === 'beam' && (
-        <>
-          <div
-            data-beam
-            aria-hidden
-            className="pointer-events-none absolute -top-1/4 left-0 h-[150%] w-[34vw] min-w-[170px] -rotate-[14deg]"
-            style={{
-              background: 'linear-gradient(90deg, transparent, rgba(var(--k-accent-rgb),0.35) 22%, rgba(var(--k-accent-rgb),0.85) 40%, rgba(255,255,255,1) 50%, rgba(var(--k-glow-rgb),0.85) 60%, rgba(var(--k-glow-rgb),0.3) 78%, transparent)',
-              filter: 'blur(8px)',
-              mixBlendMode: 'screen',
-            }}
-          />
-          <div
-            data-beam-flare
-            aria-hidden
-            className="pointer-events-none absolute left-0 right-0 top-1/2 h-px origin-left"
-            style={{ background: 'linear-gradient(90deg, transparent, rgba(var(--k-glow-rgb),0.9), rgba(255,255,255,0.9), transparent)', boxShadow: '0 0 24px 4px rgba(var(--k-accent-rgb),0.6)' }}
-          />
-        </>
+        <div
+          data-settle-beam
+          className="absolute -top-1/4 left-0 h-[150%] w-[34vw] min-w-[170px] -rotate-[14deg] opacity-0"
+          style={{
+            background: 'linear-gradient(90deg, transparent, rgba(var(--k-accent-rgb),0.25) 25%, rgba(var(--k-accent-rgb),0.55) 42%, rgba(255,255,255,0.6) 50%, rgba(var(--k-glow-rgb),0.5) 58%, transparent)',
+            filter: 'blur(14px)',
+            mixBlendMode: 'screen',
+          }}
+        />
       )}
 
       {kind === 'curtain' && (
@@ -204,61 +124,35 @@ export default function RecapIntro({
           {(['l', 'r'] as const).map((side) => (
             <div
               key={side}
-              data-curtain={side}
-              aria-hidden
-              className={`pointer-events-none absolute inset-y-0 z-20 w-1/2 ${side === 'l' ? 'left-0' : 'right-0'}`}
+              data-settle-curtain={side}
+              className={`absolute inset-y-0 w-1/2 ${side === 'l' ? 'left-0' : 'right-0'}`}
               style={{
-                background: `repeating-linear-gradient(90deg, rgba(0,0,0,0.28) 0 6px, rgba(255,255,255,0.05) 14px, rgba(0,0,0,0.22) 26px), linear-gradient(${side === 'l' ? '90deg' : '270deg'}, var(--k-surface), rgba(var(--k-accent-rgb),0.55))`,
-                boxShadow: side === 'l' ? 'inset -18px 0 30px -12px rgba(0,0,0,0.55)' : 'inset 18px 0 30px -12px rgba(0,0,0,0.55)',
+                background: `linear-gradient(${side === 'l' ? '270deg' : '90deg'}, rgba(var(--k-glow-rgb),0.38), rgba(var(--k-accent-rgb),0.12) 45%, transparent)`,
+                mixBlendMode: 'screen',
               }}
             />
           ))}
-          <div data-curtain-tie aria-hidden className="pointer-events-none absolute inset-y-0 left-1/2 z-30 w-[3px] -translate-x-1/2 bg-[color:var(--k-glow)] shadow-[0_0_24px_6px_rgba(var(--k-glow-rgb),0.6)]" />
+          <div data-settle-seam className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 bg-[color:var(--k-glow)] shadow-[0_0_24px_6px_rgba(var(--k-glow-rgb),0.6)]" />
         </>
       )}
 
-      {kind === 'confetti' && <canvas ref={canvasRef} aria-hidden className="pointer-events-none absolute inset-0 z-20 h-full w-full" />}
+      {kind === 'confetti' && <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />}
 
       {petals.map((i) => (
         <span
           key={i}
           data-petal
-          aria-hidden
-          className="pointer-events-none absolute top-0 z-20 block h-4 w-3 rounded-[80%_0_80%_0]"
+          className="absolute top-0 block h-4 w-3 rounded-[80%_0_80%_0]"
           style={{ background: i % 3 === 0 ? 'var(--k-glow)' : 'var(--k-accent)', opacity: 0, boxShadow: '0 0 12px rgba(var(--k-accent-rgb),0.45)' }}
         />
       ))}
 
       {kind === 'fade' && (
-        <div data-fade-glow aria-hidden className="pointer-events-none absolute h-[60vmin] w-[60vmin] rounded-full bg-[rgba(var(--k-glow-rgb),0.35)] blur-3xl" />
+        <div
+          data-fade-glow
+          className="absolute left-1/2 top-[22%] h-[60vmin] w-[60vmin] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgba(var(--k-glow-rgb),0.28)] opacity-0 blur-3xl"
+        />
       )}
-
-      <div className="relative z-10 flex max-w-xl flex-col items-center gap-5 px-6 text-center">
-        {prints.length > 0 && (
-          <ul className="flex items-end justify-center -space-x-4" aria-hidden>
-            {prints.map((p, i) => (
-              <li
-                key={p.id}
-                data-intro-print
-                className="w-20 overflow-hidden rounded-xl border border-[color:var(--k-line)] shadow-[0_20px_40px_-20px_var(--k-shadow)] sm:w-28"
-                style={{ aspectRatio: '3 / 4', transform: `rotate(${[-7, 0, 6][i]}deg)`, zIndex: i === 1 ? 2 : 1 }}
-              >
-                <PostImage src={p.image_url} alt="" displayWidth={160} eager className="h-full w-full object-cover" />
-              </li>
-            ))}
-          </ul>
-        )}
-        <p data-intro-line className="font-label uppercase tracking-luxe text-[10px] text-[color:var(--k-accent-text)]">{eyebrow}</p>
-        <h1 data-intro-line className="font-serif italic text-4xl leading-[1.05] text-[color:var(--k-ink)] sm:text-6xl">{title}</h1>
-      </div>
-
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); finish(false); }}
-        className="absolute bottom-6 right-5 z-40 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[color:var(--k-line)] bg-[rgba(var(--k-surface-rgb),0.6)] px-5 font-label uppercase tracking-luxe text-[10px] text-[color:var(--k-ink)] backdrop-blur"
-      >
-        Skip
-      </button>
     </div>
   );
 }

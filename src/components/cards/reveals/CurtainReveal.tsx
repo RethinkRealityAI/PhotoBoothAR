@@ -26,7 +26,7 @@ import { curtainBeats } from '../../../lib/cardReveal';
 const CORE_HEX = '#FFC56B';
 const CORE_RGB = '255, 197, 107';
 
-export default function CurtainReveal({ card, contributions, palette, look, reducedMotion, onDone }: CardRevealProps) {
+export default function CurtainReveal({ card, contributions, palette, look, reducedMotion, noun, onDone }: CardRevealProps) {
   const clock = useRef<CurtainClock>({ start: null, readAt: null, pointer: { x: -0.3, y: 0 }, drag: null });
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const openRef = useRef<HTMLButtonElement | null>(null);
@@ -192,7 +192,7 @@ export default function CurtainReveal({ card, contributions, palette, look, redu
             }}
           >
             <GlassRim warmRgb={warmRgb} reducedMotion={reducedMotion} />
-            Read your card
+            {noun === 'album' ? 'Open the album' : 'Read your card'}
           </button>
         </div>
       )}

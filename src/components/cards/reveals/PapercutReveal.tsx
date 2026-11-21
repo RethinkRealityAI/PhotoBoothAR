@@ -45,7 +45,7 @@ interface PieceAnim {
 
 type OrientationCtor = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> };
 
-export default function PapercutReveal({ card, palette, reducedMotion, onDone }: CardRevealProps) {
+export default function PapercutReveal({ card, palette, reducedMotion, noun, onDone }: CardRevealProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState<Size | null>(null);
 
@@ -88,6 +88,7 @@ export default function PapercutReveal({ card, palette, reducedMotion, onDone }:
             accent={palette.accent}
             bg={palette.bg}
             reducedMotion={reducedMotion}
+            noun={noun}
             onDone={onDone}
           />
         )}
@@ -105,6 +106,7 @@ interface StageProps {
   bg: string;
   accentRgb: string;
   reducedMotion: boolean;
+  noun?: 'card' | 'album';
   onDone: () => void;
 }
 
@@ -113,7 +115,7 @@ function pieceShadow(p: PaperPiece): string {
   return `drop-shadow(0 ${(3 + d * 9).toFixed(1)}px ${(4 + d * 9).toFixed(1)}px rgba(5,4,26,${(0.24 + d * 0.16).toFixed(2)}))`;
 }
 
-function PapercutStage({ size, title, pal, fg, accent, bg, accentRgb, reducedMotion, onDone }: StageProps) {
+function PapercutStage({ size, title, pal, fg, accent, bg, accentRgb, reducedMotion, noun, onDone }: StageProps) {
   const { w, h } = size;
   const scene = useMemo(() => papercutScene(title, h / w, { bg, accent }), [title, h, w, bg, accent]);
   const k = w / scene.width; // px per design unit
@@ -519,7 +521,7 @@ function PapercutStage({ size, title, pal, fg, accent, bg, accentRgb, reducedMot
           type="button"
           onClick={open}
           autoFocus
-          aria-label="Open the card"
+          aria-label={`Open the ${noun ?? 'card'}`}
           className="min-h-[44px] min-w-[132px] rounded-full px-7 text-sm font-semibold shadow-[0_8px_0_rgba(5,4,26,0.18),0_14px_30px_rgba(5,4,26,0.3)] transition active:translate-y-[2px] active:shadow-[0_5px_0_rgba(5,4,26,0.18),0_10px_24px_rgba(5,4,26,0.3)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4"
           style={{ backgroundColor: pal.paper, color: '#1B1A45', outlineColor: 'rgba(27,26,69,0.6)' }}
         >
