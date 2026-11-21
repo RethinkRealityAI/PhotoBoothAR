@@ -17,8 +17,7 @@ import {
 import { sceneUploadError } from '../../../../lib/scenePage';
 import { uploadAsset } from '../../../../lib/wizard/wizardApi';
 import { formatEventDate, ymdFromIso } from '../../../../lib/wizard/occasions';
-import { StepHeading } from '../chrome';
-import PreviewSheet, { useIsDesktop } from '../PreviewSheet';
+import { StepPanel, StepShell, TabPanel, WizardTabs } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
 import { useWizard } from '../wizardContext';
 import { useAutosave } from '../useAutosave';
@@ -53,7 +52,6 @@ export default function InviteStep() {
   });
   const [mode, setMode] = useState<Mode>(modeOf(initialScene));
   const [tab, setTab] = useState<Tab>(modeOf(initialScene));
-  const desktop = useIsDesktop();
   // The last pick in each mode, so flipping tabs and back does not lose it.
   const memory = useRef<Partial<Record<Mode, EventScene>>>({ [modeOf(initialScene)]: initialScene });
   const [uploading, setUploading] = useState(false);
@@ -110,33 +108,30 @@ export default function InviteStep() {
   }), [ev.name, ev.starts_at, d.intro]);
   const image = d.scene?.kind === 'image' ? d.scene : null;
 
+  const pickTab = (id: Tab) => { setTab(id); if (id === 'template' || id === 'colour' || id === 'photo') { if (id !== mode) switchMode(id); } };
   const card = (
-          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
-            <StepHeading step="invite" />
-            <div className="wz-tabs wz-tabs-even" role="tablist" aria-label="Welcome page settings">
-              {([
-                { id: 'template' as const, label: 'Templates', short: 'Styles', Icon: Sparkles },
-                { id: 'colour' as const, label: 'Colour', short: 'Colour', Icon: Palette },
-                { id: 'photo' as const, label: 'Photo', short: 'Photo', Icon: ImagePlus },
-                { id: 'border' as const, label: 'Border', short: 'Border', Icon: Frame },
-                { id: 'words' as const, label: 'Message', short: 'Words', Icon: MessageSquareText },
-              ]).map(({ id, label, short, Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === id}
-                  className="wz-tab"
-                  onClick={() => { setTab(id); if (id === 'template' || id === 'colour' || id === 'photo') { if (id !== mode) switchMode(id); } }}
-                >
-                  <Icon className="hidden xl:block h-4 w-4 shrink-0" aria-hidden />
-                  <span className="sm:hidden">{short}</span><span className="hidden sm:inline">{label}</span>
-                </button>
-              ))}
-            </div>
-
+          <StepPanel
+            step="invite"
+            tabs={(
+              <WizardTabs<Tab>
+                idBase="wz-invite"
+                label="Welcome page settings"
+                className="wz-tabs-even"
+                value={tab}
+                onChange={pickTab}
+                tabs={[
+                  { id: 'template', label: 'Templates', short: 'Styles', Icon: Sparkles },
+                  { id: 'colour', label: 'Colour', short: 'Colour', Icon: Palette },
+                  { id: 'photo', label: 'Photo', short: 'Photo', Icon: ImagePlus },
+                  { id: 'border', label: 'Border', short: 'Border', Icon: Frame },
+                  { id: 'words', label: 'Message', short: 'Words', Icon: MessageSquareText },
+                ]}
+              />
+            )}
+          >
+            <TabPanel idBase="wz-invite" value={tab}>
             {tab === 'template' && (
-              <div className="wz-sq mt-5 grid grid-cols-3 sm:grid-cols-4 gap-2.5" role="radiogroup" aria-label="Templates">
+              <div className="wz-sq grid grid-cols-3 sm:grid-cols-4 gap-2.5" role="radiogroup" aria-label="Templates">
                 {SCENE_TEMPLATES.map((t) => {
                   const on = d.scene?.kind === 'template' && d.scene.id === t.id;
                   return (
@@ -152,7 +147,7 @@ export default function InviteStep() {
             )}
 
             {tab === 'colour' && (
-              <div className="mt-5 flex flex-col gap-5">
+              <div className="flex flex-col gap-5">
                 <div>
                   <p className="wz-label">Soft gradients</p>
                   <div className="wz-sq-5 grid grid-cols-5 gap-2.5" role="radiogroup" aria-label="Gradients">
@@ -198,7 +193,7 @@ export default function InviteStep() {
             )}
 
             {tab === 'photo' && (
-              <div className="mt-5 flex flex-col gap-5">
+              <div className="flex flex-col gap-5">
                 <input
                   ref={fileRef}
                   type="file"
@@ -251,7 +246,7 @@ export default function InviteStep() {
             )}
 
             {tab === 'border' && (
-              <div className="mt-5">
+              <div>
                 <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Border">
                   {SCENE_PAGE_BORDERS.map((b) => (
                     <button key={b} type="button" role="radio" aria-checked={border === b} className="wz-choice !min-h-11 !py-2" onClick={() => setBorder(b)} title={SCENE_PAGE_BORDER_META[b].blurb}>
@@ -264,7 +259,7 @@ export default function InviteStep() {
             )}
 
             {tab === 'words' && (
-              <div className="mt-5">
+              <div>
                 <label className="wz-label" htmlFor="wz-intro">A line of welcome <span className="normal-case tracking-normal font-normal text-white/50">(optional)</span></label>
                 <textarea
                   id="wz-intro"
@@ -277,15 +272,10 @@ export default function InviteStep() {
                 <p className="mt-1 text-right text-[12px] text-white/50">{d.intro.length}/200</p>
               </div>
             )}
-          </section>
+            </TabPanel>
+          </StepPanel>
   );
   const preview = <WelcomePreview scene={d.scene} copy={previewCopy} url={`${origin}/e/${ev.slug}/welcome`} />;
 
-  if (!desktop) return <PreviewSheet label={stepDef('invite').title} preview={preview}>{card}</PreviewSheet>;
-  return (
-    <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-6 xl:gap-7 items-start">
-      <div className="flex flex-col gap-5 min-w-0">{card}</div>
-      <div className="lg:sticky lg:top-[76px] wz-enter" style={{ animationDelay: '80ms' }}>{preview}</div>
-    </div>
-  );
+  return <StepShell panel={card} preview={preview} sheetLabel={stepDef('invite').title} />;
 }

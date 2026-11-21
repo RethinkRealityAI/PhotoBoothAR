@@ -20,8 +20,7 @@ import type { Experience } from '../../../../types';
 import { composeDraft, powerScenes, starterRow, wizardRefOf } from '../../../../lib/wizard/looks';
 import { POWER_UP_PRESETS, normalizePowerUps, powerUpsConfig, togglePowerUp, type PowerUpId, type PowerUpPreset } from '../../../../lib/wizard/powerUps';
 import { addFilterRow, removeFilterRow } from '../../../../lib/wizard/wizardApi';
-import { StepHeading } from '../chrome';
-import PreviewSheet, { useIsDesktop } from '../PreviewSheet';
+import { StepPanel, StepShell, TabPanel, WizardTabs } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
 import { useWizard } from '../wizardContext';
 import { useAutosave } from '../useAutosave';
@@ -44,7 +43,6 @@ export default function PowerUpsStep() {
   const { ev } = w;
   const [on, setOn] = useState<PowerUpId[]>(() => normalizePowerUps(ev.config.powerUps));
   useAutosave(on, (v) => ({ powerUps: powerUpsConfig(v) }));
-  const desktop = useIsDesktop();
   const fx = useRef<TriggerEffectsHandle>(null);
   const [rows, setRows] = useState<Experience[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -87,20 +85,27 @@ export default function PowerUpsStep() {
     setBusy(null);
   };
 
+  const gearOn = rows ? powerScenes().filter((s) => rows.some((r) => wizardRefOf(r) === `starter:${s.id}`)).length : 0;
   const controls = (
-    <>
-          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
-            <StepHeading step="powerups" />
-            <div className="wz-tabs wz-tabs-even wz-tabs-2" role="tablist" aria-label="Power-ups">
-              <button type="button" role="tab" aria-selected={tab === 'gestures'} className="wz-tab" onClick={() => setTab('gestures')}>
-                Gestures <span className="wz-count" aria-hidden>{on.length}</span>
-              </button>
-              <button type="button" role="tab" aria-selected={tab === 'gear'} className="wz-tab" onClick={() => setTab('gear')}>
-                Power gear <span className="wz-count" aria-hidden>{rows ? powerScenes().filter((s) => rows.some((r) => wizardRefOf(r) === `starter:${s.id}`)).length : 0}</span>
-              </button>
-            </div>
+          <StepPanel
+            step="powerups"
+            tabs={(
+              <WizardTabs<'gestures' | 'gear'>
+                idBase="wz-powerups"
+                label="Power-ups"
+                className="wz-tabs-even wz-tabs-2"
+                value={tab}
+                onChange={setTab}
+                tabs={[
+                  { id: 'gestures', label: 'Gestures', count: on.length },
+                  { id: 'gear', label: 'Power gear', count: gearOn },
+                ]}
+              />
+            )}
+          >
+            <TabPanel idBase="wz-powerups" value={tab}>
             {tab === 'gestures' && (<>
-            <p className="mt-3 text-[13px] text-white/65">A smile or a hand sign sets off an effect, whatever look a guest has on. Turn on as many as you like.</p>
+            <p className="text-[13px] text-white/65">A smile or a hand sign sets off an effect, whatever look a guest has on. Turn on as many as you like.</p>
             <ul className="mt-4 grid sm:grid-cols-2 gap-2.5">
               {POWER_UP_PRESETS.map((p) => {
                 const active = on.includes(p.id);
@@ -119,12 +124,12 @@ export default function PowerUpsStep() {
                             type="button"
                             aria-pressed={active}
                             onClick={() => setOn((cur) => togglePowerUp(cur, p.id))}
-                            className={`inline-flex items-center gap-1.5 rounded-full px-3 min-h-9 text-[13px] font-semibold ${active ? 'bg-white text-[#1A1740]' : 'bg-white/14 hover:bg-white/22'}`}
+                            className={`inline-flex items-center gap-1.5 rounded-full px-3 min-h-11 text-[13px] font-semibold ${active ? 'bg-white text-[#1A1740]' : 'bg-white/14 hover:bg-white/22'}`}
                           >
                             {active ? <><Check className="h-3.5 w-3.5" aria-hidden /> On</> : 'Turn on'}
                           </button>
                           {p.action.type === 'burst' && (
-                            <button type="button" onClick={() => tryIt(p)} className="rounded-full px-3 min-h-9 text-[13px] hover:bg-white/10">Preview</button>
+                            <button type="button" onClick={() => tryIt(p)} className="rounded-full px-3 min-h-11 text-[13px] hover:bg-white/10">Preview</button>
                           )}
                         </span>
                       </span>
@@ -135,7 +140,7 @@ export default function PowerUpsStep() {
             </ul>
             </>)}
             {tab === 'gear' && (<>
-            <p className="mt-3 text-[13px] text-white/65">Superhero filters with their own blasts. They join your filters.</p>
+            <p className="text-[13px] text-white/65">Superhero filters with their own blasts. They join your filters.</p>
             <div className="mt-4 wz-shelf">
               {powerScenes().map((s) => {
                 const active = rows?.some((r) => wizardRefOf(r) === `starter:${s.id}`) ?? false;
@@ -149,23 +154,17 @@ export default function PowerUpsStep() {
               })}
             </div>
             </>)}
-          </section>
-    </>
+            </TabPanel>
+          </StepPanel>
   );
   const previewNode = (
-    <>
+    <div className="flex flex-col items-center w-full">
           <LookStage draft={draft} caption={stageScene ? powerScenes().find((s) => s.id === stageScene)?.name : 'Tap Preview to see a gesture'}>
             <TriggerEffects ref={fx} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
           </LookStage>
           <p className="mt-3 text-center text-[12.5px] text-white/65">{on.length === 0 ? 'No gestures on yet' : `${on.length} gesture${on.length === 1 ? '' : 's'} on`}</p>
-    </>
+    </div>
   );
 
-  if (!desktop) return <PreviewSheet label={stepDef('powerups').title} preview={previewNode}>{controls}</PreviewSheet>;
-  return (
-      <div className="grid lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.8fr)] gap-6 xl:gap-7 items-start">
-        <div className="flex flex-col gap-5 min-w-0">{controls}</div>
-        <div className="lg:sticky lg:top-[76px] wz-enter">{previewNode}</div>
-      </div>
-  );
+  return <StepShell panel={controls} preview={previewNode} sheetLabel={stepDef('powerups').title} />;
 }

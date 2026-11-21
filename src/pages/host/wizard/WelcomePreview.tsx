@@ -77,8 +77,9 @@ export function PhoneWelcome({ scene, copy, className = '' }: { scene: EventScen
  */
 export default function WelcomePreview({ scene, copy }: { scene: EventScene | undefined; copy: WelcomeCopy; url?: string }) {
   return (
-    <div className="flex flex-col items-center gap-3">
-      <PhoneWelcome scene={scene} copy={copy} className="w-[min(100%,270px)]" />
+    <div className="flex flex-col items-center gap-3 w-full">
+      {/* Desktop: as wide as the step's preview column, which is fitted to the height. */}
+      <PhoneWelcome scene={scene} copy={copy} className="w-[min(100%,270px)] lg:w-full" />
       <p className="text-[12.5px] text-white/65">What guests see on their phone</p>
     </div>
   );

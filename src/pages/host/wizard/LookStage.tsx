@@ -138,8 +138,10 @@ export default function LookStage({ draft, caption, children }: {
   const [cameraFailed, setCameraFailed] = useState(false);
   const fail = useMemo(() => () => { setCameraFailed(true); setCamera(false); }, []);
   return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="wz-stage w-[min(100%,220px)] sm:w-[min(100%,320px)] lg:w-[min(100%,380px,calc((100dvh-300px)*0.5625))] [touch-action:pan-y]">
+    <div className="flex flex-col items-center gap-3 w-full">
+      {/* Desktop: the step's preview column is fitted to the height, so the
+          stage simply fills its width. */}
+      <div className="wz-stage w-[min(100%,220px)] sm:w-[min(100%,320px)] lg:w-full [touch-action:pan-y]">
         {camera ? <CameraStage draft={draft} onFail={fail} /> : <HeadStage draft={draft} />}
         <div className="absolute top-3 inset-x-3 flex items-start justify-between gap-2 pointer-events-none">
           {caption ? (

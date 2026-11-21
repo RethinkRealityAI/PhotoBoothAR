@@ -232,7 +232,8 @@ function SetupWizard({ eventUuid, stepParam }: { eventUuid: string; stepParam: s
           />
         }
       >
-        <div key={step}>
+        {/* Full height on desktop: the step's one panel fills the screen. */}
+        <div key={step} className="lg:h-full">
           {step === 'basics' ? <BasicsStep mode="edit" /> : STEP_COMPONENTS[step]()}
         </div>
       </WizardFrame>
