@@ -47,6 +47,7 @@ import ChallengeCheck from './booth/ChallengeCheck';
 import SendOff from './booth/SendOff';
 import SendFailed from './booth/SendFailed';
 import Onboarding, { useOnboarding } from './booth/Onboarding';
+import { shouldShowOnboarding } from '../lib/boothCameraGate';
 import ChallengeSelector from './booth/ChallengeSelector';
 
 // Foundation APIs
@@ -1784,7 +1785,9 @@ export default function Booth() {
 
       {/* ── First-launch onboarding ────────────────────────────────────── */}
       <AnimatePresence>
-        {started && onboardingVisible && (
+        {/* A camera error wins over the tutorial (it sits above the error
+            screen): a guest who denied the camera hears that first. */}
+        {shouldShowOnboarding({ started, onboardingVisible, cameraError: error }) && (
           <Onboarding
             key="onboarding"
             withChallengesStep={wallSettings.showChallenges !== false && challenges.some((c) => c.active)}
