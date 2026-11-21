@@ -309,7 +309,7 @@ export function lockedReason(key: FeatureKey): string {
     case 'videoEnabled': return 'Video capture is turned off for this event.';
     case 'aiStudio': return 'AI frames and 3D props are on paid plans.';
     case 'cardsStandard': return 'Keepsake cards are on Premium and above.';
-    case 'cardsPremiumRender': return 'The rendered keepsake film is on Deluxe.';
+    case 'cardsPremiumRender': return 'The keepsake film render (coming soon) is on Deluxe.';
     case 'watermark': return 'Paid plans remove the Beamwall signature.';
     case 'studio': return 'The Studio is an add-on for teams and large organisations.';
     default: return 'This is on a higher plan.';

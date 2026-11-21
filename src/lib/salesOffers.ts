@@ -84,12 +84,11 @@ export const OFFERS: Offer[] = [
     name: 'Deluxe',
     price: '$169',
     unit: 'per event',
-    blurb: 'A keepsake film, and every finishing touch.',
+    blurb: 'Longer clips, two years of photos, every finishing touch.',
     features: [
       'Everything in Premium',
       '90-second video clips',
-      'Keepsake highlight film',
-      'Premium card renders',
+      'Highlight film (coming soon)',
       'Photos kept for 2 years',
     ],
     placeholder: false,
@@ -127,7 +126,7 @@ export const OFFERS: Offer[] = [
     features: [
       'Custom 2D frames, 3D AR assets and filters',
       'Challenges, live photo feed and wall link',
-      'Keepsake cards and highlight film',
+      'Keepsake cards (highlight film coming soon)',
       'Event links, Signage Kit and setup guide',
       'Planners: five events for the price of four',
     ],
@@ -203,7 +202,7 @@ export const OFFERS: Offer[] = [
     features: [
       'Custom frames, 3D AR assets and challenges',
       'Live photo feed and wall link',
-      'Keepsake cards and highlight film',
+      'Keepsake cards (highlight film coming soon)',
       'Event links, Signage Kit and setup guide',
       'Planners: five events for the price of four',
     ],

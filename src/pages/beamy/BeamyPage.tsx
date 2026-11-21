@@ -45,9 +45,11 @@ import { Briefcase, Cake, ClipboardList, Gift, Users, type LucideIcon } from 'lu
 import CameraExperience, { lookFrameUrl } from '../../components/landing/CameraExperience';
 import ParticleBeam from '../../components/landing/ParticleBeam';
 import ReportIssueButton from '../../components/support/ReportIssueButton';
+import ErrorBoundary from '../../components/ui/ErrorBoundary';
+import { canUseWebgl } from '../../components/wall/wallHooks';
 import LiveWall, { WALL_POOL, type Pin } from '../../components/beamy/LiveWall';
 import { SELFIE_CARD_FACE_STYLE, SELFIE_CARD_STYLE, flashGradient } from '../../components/beamy/selfieFx';
-import { usePageTitle } from '../../lib/usePageTitle';
+import { usePageMeta, usePageTitle } from '../../lib/usePageTitle';
 import type { Rect } from '../../lib/beamGeometry';
 import { REDUCED_GLIDE_S, SELFIE_SPEED, flashOpacity, photoState } from '../../lib/beamySelfie';
 import { SHOT_TILES, WALL_CENTRE, wallRows } from '../../lib/beamyWall';
@@ -72,7 +74,7 @@ import StoryFx, { type FxState } from './StoryFx';
 import StoryScenes from './StoryScenes';
 import ArPicker, { ArTabs } from './ArPicker';
 import {
-  DEFAULT_OPENING, arOrder, arPropScale, arStage, arTour, frameOnBeamy, demoQrUrl, standInFrame, lookAction, selectedLooks, toBeamyLook, wearStop,
+  DEFAULT_OPENING, arOrder, arPropScale, arStage, arTour, frameImage, frameOnBeamy, demoQrUrl, standInFrame, lookAction, selectedLooks, toBeamyLook, wearStop,
   type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
 import { useBeamyAssets } from './useBeamyAssets';
@@ -377,6 +379,8 @@ function poseOf(el: HTMLElement, h: number): Pose {
 
 export default function BeamyPage() {
   usePageTitle('Beamwall · Your immersive photo booth');
+  // index.html's own description stays the homepage's; only the canonical is new.
+  usePageMeta('/');
 
   const vp = useViewport();
   const phone = vp.w < PHONE_MAX;
@@ -418,7 +422,24 @@ export default function BeamyPage() {
   const lookIxRef = useRef(0);
   lookIxRef.current = lookIx;
   const [ready, setReady] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // No WebGL (blocked GPU, old device, lost context budget): skip the 3D stage
+  // and take the page's own no-stage layout from the first paint, instead of
+  // letting the canvas throw "Error creating WebGL context".
+  const [failed, setFailed] = useState(() => !canUseWebgl());
+  // The probe can pass and the stage's own context still fail (a device's
+  // context budget, a GPU reset). R3F creates the renderer in an un-awaited
+  // promise, so that failure is an unhandled rejection no error boundary
+  // sees: catch it here and fall back the same way.
+  useEffect(() => {
+    if (failed) return;
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const r: unknown = e.reason;
+      const msg = r instanceof Error ? r.message : String(r);
+      if (/WebGL context/i.test(msg)) setFailed(true);
+    };
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => window.removeEventListener('unhandledrejection', onRejection);
+  }, [failed]);
   const [arrival, setArrival] = useState<'waiting' | 'dropping' | 'done'>('waiting');
   const [slowModel, setSlowModel] = useState(false);
   const [copyIn, setCopyIn] = useState(false);
@@ -999,11 +1020,27 @@ export default function BeamyPage() {
     return () => { window.cancelAnimationFrame(raf); stageFrame.current = null; };
   }, []);
 
-  /* Deep link: ?s=<stop> scrolls there on load. */
+  /* Deep link: ?s=<stop>, or a shared /#pricing (a section id or a stop),
+     scrolls there once the page has rendered. The browser's own hash jump
+     cannot: this page loads after it and scrolls its own element. A later
+     hash change (an in-page /#demo link) is honoured the same way. */
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get('s');
-    const el = q !== null ? mainRef.current?.querySelector<HTMLElement>(`[data-stop="${q}"]`) : null;
-    if (el) window.setTimeout(() => el.scrollIntoView({ block: 'start' }), 60);
+    const target = (): HTMLElement | null => {
+      const main = mainRef.current;
+      if (main === null) return null;
+      const q = new URLSearchParams(window.location.search).get('s');
+      const h = decodeURIComponent(window.location.hash.slice(1));
+      if (q !== null && q !== '') return main.querySelector<HTMLElement>(`[data-stop="${CSS.escape(q)}"]`);
+      if (h === '') return null;
+      return main.querySelector<HTMLElement>(`#${CSS.escape(h)}`) ?? main.querySelector<HTMLElement>(`[data-stop="${CSS.escape(h)}"]`);
+    };
+    const go = () => {
+      const el = target();
+      if (el) window.setTimeout(() => el.scrollIntoView({ block: 'start' }), 60);
+    };
+    go();
+    window.addEventListener('hashchange', go);
+    return () => window.removeEventListener('hashchange', go);
   }, []);
 
   const celebrate = useCallback(() => {
@@ -1155,7 +1192,7 @@ export default function BeamyPage() {
     const first = BEAMY_LOOKS[0];
     if (first?.prop !== undefined) void preloadModel(first.prop.url);
     else if (first?.kind === 'prop' && first.url !== undefined) void preloadModel(first.url);
-    if (first?.kind === 'frame' && first.url !== undefined) { const im = new Image(); im.src = first.url; }
+    if (first?.kind === 'frame' && first.url !== undefined) { const im = new Image(); im.src = frameImage(first.url).src; }
     return () => window.clearTimeout(id);
   }, []);
 
@@ -1201,7 +1238,7 @@ export default function BeamyPage() {
     });
     // Warm the next look so the swap is instant.
     const nx = preloadUrl(lookIx, BEAMY_LOOKS);
-    if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = nx; } }
+    if (nx !== null) { if (nx.endsWith('.glb')) void preloadModel(nx); else { const im = new Image(); im.src = frameImage(nx).src; } }
     return () => { live = false; window.clearTimeout(stuck); window.clearTimeout(hold); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- say/api are stable
   }, [tryOn, lookIx, reduced, introRunning, active, BEAMY_LOOKS]);
@@ -1273,7 +1310,7 @@ export default function BeamyPage() {
       for (const n of selectedLooks(arTour(arK.current + 1, AR_LOOKS).sel, AR_LOOKS)) {
         const na = lookAction(n);
         if (na.kind === 'prop') void preloadModel(na.url);
-        else if (na.kind === 'frame') { const im = new Image(); im.src = na.url; }
+        else if (na.kind === 'frame') { const im = new Image(); im.src = frameImage(na.url).src; }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- arTouched only gates the warm-up
@@ -1700,7 +1737,7 @@ export default function BeamyPage() {
   const storyScenes = (
     <>
       <StoryScenes step={step} live={active === 'story'} ids={storyIds} stacked={stacked} qrUrl={qrUrl} wallCentreRef={storyWallRef} seed={seed} beamyAt={beamyAt} onCue={onCue} />
-      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onWear={wearAr} active={inStoryAR} stacked={stacked} carRef={arCarRef} fx={arFxKind} reduced={reduced} />
+      <ArPicker looks={AR_LOOKS} sel={arSel} tab={arTab} onTab={tabAr} onWear={wearAr} active={inStoryAR} prime={active === 'story'} stacked={stacked} carRef={arCarRef} fx={arFxKind} reduced={reduced} />
     </>
   );
   const story = (
@@ -1954,6 +1991,8 @@ export default function BeamyPage() {
       </div>
 
       {!failed && (
+        // A context that still fails at creation lands here instead of the app root.
+        <ErrorBoundary label="Homepage 3D stage" silent onCatch={() => setFailed(true)}>
         <BeamyStage
           apiRef={api}
           layoutRef={layoutRef}
@@ -1969,6 +2008,7 @@ export default function BeamyPage() {
         >
           <StoryFx fxRef={fxRef} lite={phone} reduced={reduced} />
         </BeamyStage>
+        </ErrorBoundary>
       )}
 
       {/* Padding, not margin: a margin would collapse through the sticky
@@ -1994,7 +2034,8 @@ export default function BeamyPage() {
             </nav>
           )}
           <nav aria-label="Account" className="flex items-center justify-end gap-2 sm:gap-4">
-            {vp.w >= WIDE_HERO_MIN && <Link to="/login" className="bw-link min-h-11">{START_COPY.signIn}</Link>}
+            {/* Every width: a returning host on a phone had no way to /login on this page. */}
+            <Link to="/login" className={`bw-link min-h-11 min-w-11 justify-center ${phone ? 'px-2 text-[14px]' : ''}`}>{START_COPY.signIn}</Link>
             <Link to={SIGNUP_PATH} className="bw-btn bw-btn-glow bw-btn-sm">{ctaFace(phone ? HERO.primaryShort : HERO.primary)}</Link>
           </nav>
           {/* Scroll progress: a hairline along the pill's lower edge. */}

@@ -168,6 +168,19 @@ export function lookFit(l: HomeLook): PropFit {
   return l.fit ?? DEFAULT_FIT_BY_CATEGORY[l.category];
 }
 
+/**
+ * How the homepage SHOWS a frame. A bundled frame (/guides/frames/<id>.png,
+ * 1-2 MB lossless, kept as the download) is drawn from its 1080w webp twin
+ * (web/, same pixels, ~10x smaller), with the 540w thumb offered to an <img>
+ * that is drawn small. Any other URL (a CMS override) is used as it is.
+ */
+export function frameImage(url: string): { src: string; srcSet?: string } {
+  const m = /^\/guides\/frames\/([a-z0-9-]+)\.png$/.exec(url);
+  if (m === null) return { src: url };
+  const web = `${F}web/${m[1]}.webp`;
+  return { src: web, srcSet: `${F}thumb/${m[1]}.webp 540w, ${web} 1080w` };
+}
+
 /** A look's picker picture: its own thumb, else the library's (prop .webp beside the GLB, frame thumb/), else null. */
 export function lookThumb(l: { url?: string; thumb?: string; category?: LookCategory; kind?: string }): string | null {
   if (l.thumb !== undefined && l.thumb !== '') return l.thumb;

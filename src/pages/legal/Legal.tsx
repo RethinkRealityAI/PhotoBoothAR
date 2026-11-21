@@ -11,7 +11,7 @@
  */
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { usePageTitle } from '../../lib/usePageTitle';
+import { usePageMeta, usePageTitle } from '../../lib/usePageTitle';
 import { SUPPORT_EMAIL } from '../../lib/errorReport';
 
 /** Confirm these before launch. */
@@ -19,7 +19,7 @@ const OPERATOR = 'Beamwall, operated by RethinkReality';
 /** One address, one definition. This was a second literal of the same value
  *  that errorReport.ts already owned, so the two could drift. */
 const CONTACT = SUPPORT_EMAIL;
-const UPDATED = 'November 16, 2026';
+const UPDATED = 'November 21, 2026';
 
 interface Section {
   heading: string;
@@ -83,7 +83,7 @@ const PRIVACY: Section[] = [
   {
     heading: 'Retention & your choices',
     body: [
-      'Event content is retained for the host’s event and account; hosts can moderate and remove captures, and can request deletion of an event’s data by contacting us.',
+      'Photos and videos stay available for at least the period included in the event’s plan (from 7 days on Free to 2 years on Deluxe). Hosts can moderate and remove captures, or delete the whole event, at any time, and can request deletion of an event’s data by contacting us.',
       'Hosts can update their account details or ask us to delete their account. Guests who want a capture removed should ask the event host or contact us.',
       `A guest email given at a booth is kept only for that event’s keepsake email and goes when that event’s data goes. Unsubscribing — there’s a link in every one of those emails — stops us sending to it, and you can ask us to delete it at any time by emailing ${CONTACT}.`,
       `To exercise any data right — access, correction or deletion — email ${CONTACT}.`,
@@ -170,6 +170,12 @@ const TERMS: Section[] = [
 export default function Legal({ doc }: { doc: 'privacy' | 'terms' }) {
   const isPrivacy = doc === 'privacy';
   usePageTitle(isPrivacy ? 'Privacy — Beamwall' : 'Terms — Beamwall');
+  usePageMeta(
+    isPrivacy ? '/privacy' : '/terms',
+    isPrivacy
+      ? 'How Beamwall collects, uses and keeps event photos, guest details and host account data, and how to ask us to delete them.'
+      : 'The terms for hosting events and taking part as a guest on Beamwall, the event photo booth and live wall.',
+  );
   const title = isPrivacy ? 'Privacy Policy' : 'Terms of Service';
   const sections = isPrivacy ? PRIVACY : TERMS;
   return (
