@@ -11,7 +11,7 @@
  */
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { usePageTitle } from '../../lib/usePageTitle';
+import { usePageMeta, usePageTitle } from '../../lib/usePageTitle';
 import { SUPPORT_EMAIL } from '../../lib/errorReport';
 
 /** Confirm these before launch. */
@@ -170,6 +170,12 @@ const TERMS: Section[] = [
 export default function Legal({ doc }: { doc: 'privacy' | 'terms' }) {
   const isPrivacy = doc === 'privacy';
   usePageTitle(isPrivacy ? 'Privacy — Beamwall' : 'Terms — Beamwall');
+  usePageMeta(
+    isPrivacy ? '/privacy' : '/terms',
+    isPrivacy
+      ? 'How Beamwall collects, uses and keeps event photos, guest details and host account data, and how to ask us to delete them.'
+      : 'The terms for hosting events and taking part as a guest on Beamwall, the event photo booth and live wall.',
+  );
   const title = isPrivacy ? 'Privacy Policy' : 'Terms of Service';
   const sections = isPrivacy ? PRIVACY : TERMS;
   return (
