@@ -212,8 +212,9 @@ function SplashLinks({ basePath }: { basePath: string }) {
   );
 }
 
-/** The pre-camera disclosure — same promise as the original card. */
-function PrivacyLine() {
+/** The pre-camera disclosure — same promise as the original card. Also shown
+ *  by the welcome page beside its booth CTA, which skips this splash. */
+export function PrivacyLine() {
   return (
     <p className="max-w-[40ch] font-sans text-[12px] leading-relaxed sc-faint">
       The camera runs on your device. Your photo only leaves it when you send it to the wall.
