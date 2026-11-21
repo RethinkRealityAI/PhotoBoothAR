@@ -613,6 +613,15 @@ export interface WallStyle {
 
 export const WALL_STYLES: readonly WallStyle[] = [
   {
+    // EXACTLY the styling of DEFAULT_WALL_LOOK, so a brand-new wall shows a
+    // named, selected style instead of "Your own mix" (every other style uses
+    // a different card, so the default matched none of them).
+    id: 'classic',
+    name: 'Classic',
+    blurb: 'Your welcome page background with the standard photo tiles.',
+    look: { backdrop: { kind: 'event' }, tone: 'auto', card: 'classic', glow: 'none', corners: 'soft', beam: 'beam', ambient: 'glow' },
+  },
+  {
     id: 'beamwall',
     name: 'Beamwall',
     blurb: 'Liquid glass frames on our dusk field, with the signature beam.',

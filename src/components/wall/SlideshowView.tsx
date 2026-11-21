@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Post } from '../../types';
 import { Wordmark } from '../ui/EventLogo';
 import { usePageVisible } from './wallHooks';
+import { kenBurnsFor } from '../../lib/kenBurns';
 
 interface Props {
   posts: Post[];
@@ -31,15 +32,13 @@ interface Props {
    *  letterbox with a soft blurred copy of the photo instead of flat black.
    *  Off (the default) = byte-identical legacy. */
   ambient?: boolean;
+  /** Platform walls: drift without zooming past 1, so a framed post's edges
+   *  (frame art) stay on screen. Off (the default) = the shipped drift. */
+  framed?: boolean;
 }
 
-// Ken-Burns keyframe configs — cycle through them (images only)
-const KB_CONFIGS = [
-  { from: { scale: 1.08, x: -2, y: -2 }, to: { scale: 1.18, x: 2, y: 2 } },
-  { from: { scale: 1.1, x: 1, y: -1 }, to: { scale: 1.2, x: -2, y: 1 } },
-  { from: { scale: 1.12, x: -1, y: 2 }, to: { scale: 1.06, x: 2, y: -2 } },
-  { from: { scale: 1.15, x: 0, y: -1 }, to: { scale: 1.08, x: 0, y: 1 } },
-];
+// Ken-Burns drift — cycled per slide (images only). See lib/kenBurns.ts:
+// `framed` (platform) never zooms past 1, so frame art stays on screen.
 
 const DEFAULT_ADVANCE_INTERVAL = 6000;
 
@@ -71,6 +70,7 @@ export default function SlideshowView({
   onIndexChange,
   slideshowInterval,
   ambient = false,
+  framed = false,
 }: Props) {
   const advanceMs = (slideshowInterval ?? 6) * 1000 || DEFAULT_ADVANCE_INTERVAL;
   const [showControls, setShowControls] = useState(false);
@@ -79,7 +79,7 @@ export default function SlideshowView({
 
   const post = posts[currentIndex] ?? null;
   const isVideo = post?.media_type === 'video';
-  const kbCfg = KB_CONFIGS[currentIndex % KB_CONFIGS.length];
+  const kbCfg = kenBurnsFor(currentIndex, framed);
 
   // Auto-advance — the interval reads the latest index from a ref so a newly
   // arrived post (which resets the index to 0) never causes a backward jump.

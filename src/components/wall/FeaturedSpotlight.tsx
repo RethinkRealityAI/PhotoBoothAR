@@ -22,6 +22,7 @@ import { useStore } from '../../store';
 import { Post, Challenge, LeaderboardEntry } from '../../types';
 import { QRPanel } from './WallQRCodes';
 import { enabledCtaKinds, slotForTick, pickSpotlightPost, CtaKind } from '../../lib/wallSpotlight';
+import { kenBurnsFor, type KbConfig } from '../../lib/kenBurns';
 
 const SHOW_MS = 8000;
 const PENDING_DELAY_MS = 2500;
@@ -48,17 +49,14 @@ interface Props {
    *  passes the same source-gated URL the footer QR uses: platform (db) events
    *  point at the /welcome guest hub, legacy coded builds at the event root. */
   joinUrl?: string;
+  /** Platform walls: keep the whole photo (and its frame art) inside the card
+   *  while it drifts. Off (the default) = the shipped zoom-in drift. */
+  framed?: boolean;
 }
 
-type KbConfig = { from: { scale: number; x: number; y: number }; to: { scale: number; x: number; y: number } };
-
-// Ken-Burns keyframe configs — same drift family as SlideshowView (images only)
-const KB_CONFIGS: KbConfig[] = [
-  { from: { scale: 1.08, x: -2, y: -2 }, to: { scale: 1.18, x: 2, y: 2 } },
-  { from: { scale: 1.1, x: 1, y: -1 }, to: { scale: 1.2, x: -2, y: 1 } },
-  { from: { scale: 1.12, x: -1, y: 2 }, to: { scale: 1.06, x: 2, y: -2 } },
-  { from: { scale: 1.15, x: 0, y: -1 }, to: { scale: 1.08, x: 0, y: 1 } },
-];
+// Ken-Burns drift — same family as SlideshowView (images only). Legacy keeps
+// the shipped zoom-in; platform walls drift without zooming past 1, so frame
+// art at the photo's edges never leaves the card (lib/kenBurns.ts).
 
 type ActiveSpotlight =
   | { key: string; kind: 'photo'; post: Post; kb: KbConfig }
@@ -170,6 +168,7 @@ export default function FeaturedSpotlight({
   showChallenges,
   origin,
   joinUrl,
+  framed = false,
 }: Props) {
   const { leaderboard, fetchLeaderboard, challenges, fetchChallenges } = useStore();
   const [active, setActive] = useState<ActiveSpotlight | null>(null);
@@ -211,10 +210,10 @@ export default function FeaturedSpotlight({
       key: `photo-${post.id}-${tickRef.current}`,
       kind: 'photo',
       post,
-      kb: KB_CONFIGS[tickRef.current % KB_CONFIGS.length],
+      kb: kenBurnsFor(tickRef.current, framed),
     });
     armHide();
-  }, [armHide]);
+  }, [armHide, framed]);
 
   const showNext = useCallback(() => {
     const slot = slotForTick(tickRef.current, ctaKindsRef.current);

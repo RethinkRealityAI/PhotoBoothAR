@@ -29,6 +29,7 @@ import {
   keepsakeOptInMessage,
   hasKeepsakeOptIn,
 } from '../../lib/keepsakeContacts';
+import { sendOffFooterLines } from '../../lib/guestFlow';
 
 interface Props {
   dataUrl: string;
@@ -426,7 +427,27 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
             {/* Gentle ongoing ambient sparkle behind the emblem */}
             <GoldMotes play />
 
-            {/* Animated SCAGO emblem in a glowing foil halo */}
+            {/* Platform events: the photo they just sent, small, in place of
+                the emblem (a video gets a neutral film tile). Legacy keeps the
+                emblem below exactly as shipped. */}
+            {source === 'db' ? (
+              <motion.div
+                initial={reduced ? { opacity: 0 } : { scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.1, duration: reduced ? 0.2 : 0.6, ease: [0.16, 1, 0.3, 1] }}
+                className="relative aspect-[9/16] w-20 overflow-hidden rounded-xl glow-accent"
+                style={{ border: '1px solid rgba(var(--accent-rgb),0.35)' }}
+              >
+                {isVideo ? (
+                  <div className="flex h-full w-full items-center justify-center bg-noir-800/80">
+                    <Film className="h-7 w-7 text-gold-300/70" aria-hidden />
+                  </div>
+                ) : (
+                  <img src={dataUrl} alt="The photo you just sent" className="h-full w-full object-cover" />
+                )}
+              </motion.div>
+            ) : (
+            /* Animated SCAGO emblem in a glowing foil halo */
             <motion.div
               initial={{ scale: 0.6, opacity: 0, rotate: -12 }}
               animate={{ scale: 1, opacity: 1, rotate: 0 }}
@@ -437,6 +458,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               <div className="absolute inset-[3px] rounded-full bg-noir-900/90" />
               <Emblem size={66} className="relative" />
             </motion.div>
+            )}
 
             <div className="space-y-3">
               {/* Tasteful staggered reveal of "Sent!" */}
@@ -549,8 +571,22 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               transition={{ delay: 0.9, duration: 0.6 }}
               className="flex flex-col items-center gap-0.5"
             >
-              <p className="font-label text-[10px] uppercase tracking-luxe text-gold-300/60">{copy.eyebrow}</p>
-              <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">{copy.eventName}</p>
+              {source === 'db' ? (
+                // The platform eyebrow defaults to the event name: say it once.
+                sendOffFooterLines(copy.eyebrow, copy.eventName).map((line, i) => (
+                  <p
+                    key={i}
+                    className={`font-label text-[10px] uppercase tracking-luxe ${i === 0 ? 'text-gold-300/60' : 'text-champagne/45'}`}
+                  >
+                    {line}
+                  </p>
+                ))
+              ) : (
+                <>
+                  <p className="font-label text-[10px] uppercase tracking-luxe text-gold-300/60">{copy.eyebrow}</p>
+                  <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">{copy.eventName}</p>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
