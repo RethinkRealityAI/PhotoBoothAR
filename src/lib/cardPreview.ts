@@ -106,7 +106,7 @@ export function buildCardPreview(input: CardPreviewInput): CardPreviewData {
  *  normalised presentation — the shape migration 049's CHECK expects. */
 export function mergePresentation(
   stored: unknown,
-  patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look'>>,
+  patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look' | 'design'>>,
 ): CardPresentation {
   return normalizeCardPresentation({ ...normalizeCardPresentation(stored), ...patch });
 }
@@ -115,20 +115,26 @@ export function mergePresentation(
 export interface PreviewPicks {
   reveal: CardPresentation['reveal'];
   look: CardPresentation['look'];
+  design: CardPresentation['design'];
   template: string;
 }
 
 export function picksFrom(card: Pick<CardRow, 'presentation' | 'template'>): PreviewPicks {
   const p = normalizeCardPresentation(card.presentation);
-  return { reveal: p.reveal, look: p.look, template: card.template };
+  return { reveal: p.reveal, look: p.look, design: p.design, template: card.template };
 }
 
 export function picksToOverrides(picks: PreviewPicks): CardViewOverrides {
-  return { reveal: picks.reveal, look: picks.look, template: picks.template };
+  return { reveal: picks.reveal, look: picks.look, design: picks.design, template: picks.template };
 }
 
 /** True when "Use these" would change something. */
 export function picksDiffer(card: Pick<CardRow, 'presentation' | 'template'>, picks: PreviewPicks): boolean {
   const saved = picksFrom(card);
-  return saved.reveal !== picks.reveal || saved.look !== picks.look || saved.template !== picks.template;
+  return (
+    saved.reveal !== picks.reveal ||
+    saved.look !== picks.look ||
+    saved.design !== picks.design ||
+    saved.template !== picks.template
+  );
 }

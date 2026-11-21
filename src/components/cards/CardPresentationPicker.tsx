@@ -30,6 +30,7 @@ import {
   type CardPresentation,
   type CardRevealId,
 } from '../../lib/cardPresentation';
+import { CARD_DESIGNS, cardDesign, designAssets, type CardDesignChoice } from '../../lib/cardDesigns';
 import TemplatePicker from './TemplatePicker';
 import { CARD_TEMPLATES } from './templates/registry';
 
@@ -208,11 +209,110 @@ function SelectedNote({ children }: { children: ReactNode }) {
   return <p className="mt-2.5 font-sans text-[13px] leading-relaxed text-brand-muted/85">{children}</p>;
 }
 
-export function RevealPicker({
+/**
+ * The illustrated design gallery. Each tile is the design itself (its scene
+ * with the gateway pulled aside), because a host picks a look by seeing it.
+ * "Classic" (no design) stays first so the old behaviour is one tap away.
+ */
+export function DesignPicker({
   value, onChange, disabled = false,
-}: { value: CardRevealId; onChange: (id: CardRevealId) => void; disabled?: boolean }) {
+}: { value: CardDesignChoice; onChange: (id: CardDesignChoice) => void; disabled?: boolean }) {
+  const headingId = useId();
+  const selected = value === 'none' ? null : cardDesign(value);
+  return (
+    <div>
+      <GroupHeading id={headingId} title="Design" hint="An illustrated scene for the occasion" />
+      <div
+        role="radiogroup"
+        aria-labelledby={headingId}
+        className="-mx-1 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-1 pb-1.5 sm:mx-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-6"
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={value === 'none'}
+          disabled={disabled}
+          onClick={() => value !== 'none' && onChange('none')}
+          className={`pressable liquid-glass flex w-[7.5rem] shrink-0 snap-start flex-col gap-1.5 rounded-2xl p-2 text-left transition disabled:opacity-50 sm:w-auto ${value === 'none' ? 'is-selected' : ''}`}
+        >
+          <span className="relative block aspect-[3/5] w-full overflow-hidden rounded-xl bg-[rgba(16,14,58,0.35)] p-4">
+            <RevealArt id="none" active={value === 'none'} />
+          </span>
+          <span className="font-sans text-[13px] font-semibold leading-tight text-brand-fg">Classic</span>
+          <span className="font-sans text-[12px] leading-snug text-brand-muted/75">Your opening and colours</span>
+        </button>
+        {CARD_DESIGNS.map((d) => {
+          const on = d.id === value;
+          return (
+            <button
+              key={d.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              disabled={disabled}
+              onClick={() => !on && onChange(d.id)}
+              className={`pressable liquid-glass flex w-[7.5rem] shrink-0 snap-start flex-col gap-1.5 rounded-2xl p-2 text-left transition disabled:opacity-50 sm:w-auto ${on ? 'is-selected' : ''}`}
+            >
+              <span className="relative block aspect-[3/5] w-full overflow-hidden rounded-xl" style={{ backgroundColor: d.palette.bg }}>
+                <img
+                  src={designAssets(d.id).thumb}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  draggable={false}
+                  className="h-full w-full object-cover"
+                />
+              </span>
+              <span className="font-sans text-[13px] font-semibold leading-tight text-brand-fg">{d.label}</span>
+              <span className="line-clamp-2 font-sans text-[12px] leading-snug text-brand-muted/75">{d.goodFor}</span>
+            </button>
+          );
+        })}
+      </div>
+      <SelectedNote>
+        {selected
+          ? `${selected.description} It opens its own way and sets the card's colours.`
+          : 'No illustrated scene: the card uses the opening and colours you pick below.'}
+      </SelectedNote>
+    </div>
+  );
+}
+
+export function RevealPicker({
+  value, onChange, disabled = false, design = 'none',
+}: { value: CardRevealId; onChange: (id: CardRevealId) => void; disabled?: boolean; design?: CardDesignChoice }) {
   const headingId = useId();
   const selected = CARD_REVEAL_OPTIONS.find((o) => o.id === value) ?? CARD_REVEAL_OPTIONS[0];
+  if (design !== 'none') {
+    // The design opens itself; the only choice left is whether to open at all.
+    const off = value === 'none';
+    return (
+      <div>
+        <GroupHeading id={headingId} title="Opening" hint="The moment the link opens" />
+        <div role="radiogroup" aria-labelledby={headingId} className="grid grid-cols-2 gap-2">
+          {[
+            { id: 'envelope' as const, label: `${cardDesign(design).label} opening`, on: !off },
+            { id: 'none' as const, label: 'Straight to the card', on: off },
+          ].map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              role="radio"
+              aria-checked={o.on}
+              disabled={disabled}
+              onClick={() => !o.on && onChange(o.id)}
+              className={`pressable liquid-glass min-h-11 rounded-2xl px-3 py-2 text-left font-sans text-[13px] font-semibold text-brand-fg transition disabled:opacity-50 ${o.on ? 'is-selected' : ''}`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <SelectedNote>
+          {off ? 'The card is on screen the second the link opens, over the design’s scene.' : 'They tap, it opens onto the scene, then the card arrives.'}
+        </SelectedNote>
+      </div>
+    );
+  }
   return (
     <div>
       <GroupHeading id={headingId} title="Opening" hint="The moment the link opens" />
@@ -333,7 +433,7 @@ export interface CardPresentationSectionProps {
   presentation: CardPresentation;
   template: string;
   defaultTemplate: string;
-  onChange: (patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look'>>) => void;
+  onChange: (patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look' | 'design'>>) => void;
   onTemplateChange: (id: string) => void;
   onPreview: () => void;
   /** A presentation write is in flight (the UI already shows the new pick). */
@@ -372,7 +472,12 @@ export default function CardPresentationSection({
       </div>
 
       <div className="flex flex-col gap-6">
-        <RevealPicker value={presentation.reveal} onChange={(reveal) => onChange({ reveal })} />
+        <DesignPicker value={presentation.design} onChange={(design) => onChange({ design })} />
+        <RevealPicker
+          value={presentation.reveal}
+          design={presentation.design}
+          onChange={(reveal) => onChange({ reveal })}
+        />
         <div>
           <GroupHeading id={`${idPrefix}-style`} title="Card style" hint="How the messages are laid out" />
           <TemplatePicker
@@ -384,12 +489,21 @@ export default function CardPresentationSection({
           />
         </div>
         <EmailStylePicker value={presentation.email} onChange={(email) => onChange({ email })} />
-        <LookPicker
-          value={presentation.look}
-          onChange={(look) => onChange({ look })}
-          eventAccent={eventAccent}
-          eventBg={eventBg}
-        />
+        {presentation.design === 'none' ? (
+          <LookPicker
+            value={presentation.look}
+            onChange={(look) => onChange({ look })}
+            eventAccent={eventAccent}
+            eventBg={eventBg}
+          />
+        ) : (
+          <div>
+            <GroupHeading id={`${idPrefix}-colours`} title="Colours" />
+            <p className="font-sans text-[13px] leading-relaxed text-brand-muted/85">
+              Set by the {cardDesign(presentation.design).label} design. Pick Classic above to use your own.
+            </p>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -399,34 +513,40 @@ export default function CardPresentationSection({
 /* Compact chips — the preview's live option bar                        */
 /* ------------------------------------------------------------------ */
 
-export type PreviewAxis = 'reveal' | 'template' | 'look';
+export type PreviewAxis = 'design' | 'reveal' | 'template' | 'look';
 
 export const PREVIEW_AXES: readonly { id: PreviewAxis; label: string }[] = [
+  { id: 'design', label: 'Design' },
   { id: 'reveal', label: 'Opening' },
   { id: 'template', label: 'Card style' },
   { id: 'look', label: 'Colours' },
 ];
 
 export function PresentationChips({
-  axis, reveal, template, look, onReveal, onTemplate, onLook,
+  axis, design, reveal, template, look, onDesign, onReveal, onTemplate, onLook,
 }: {
   axis: PreviewAxis;
+  design: CardDesignChoice;
   reveal: CardRevealId;
   template: string;
   look: CardLookId;
+  onDesign: (id: CardDesignChoice) => void;
   onReveal: (id: CardRevealId) => void;
   onTemplate: (id: string) => void;
   onLook: (id: CardLookId) => void;
 }) {
   const items: { id: string; label: string; badge?: string }[] =
-    axis === 'reveal'
+    axis === 'design'
+      ? [{ id: 'none', label: 'Classic' }, ...CARD_DESIGNS.map((d) => ({ id: d.id, label: d.label }))]
+      : axis === 'reveal'
       ? CARD_REVEAL_OPTIONS.map((o) => ({ id: o.id, label: o.label, badge: o.tier === 'premium' ? '3D' : undefined }))
       : axis === 'template'
         ? CARD_TEMPLATES.map((t) => ({ id: t.id, label: t.name }))
         : CARD_LOOK_OPTIONS.map((o) => ({ id: o.id, label: o.label }));
-  const value = axis === 'reveal' ? reveal : axis === 'template' ? template : look;
+  const value = axis === 'design' ? design : axis === 'reveal' ? reveal : axis === 'template' ? template : look;
   const pick = (id: string) => {
-    if (axis === 'reveal') onReveal(id as CardRevealId);
+    if (axis === 'design') onDesign(id as CardDesignChoice);
+    else if (axis === 'reveal') onReveal(id as CardRevealId);
     else if (axis === 'template') onTemplate(id);
     else onLook(id as CardLookId);
   };

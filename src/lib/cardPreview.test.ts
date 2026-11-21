@@ -95,8 +95,14 @@ describe('buildCardPreview', () => {
 describe('mergePresentation', () => {
   it('applies one axis onto the stored value and fills the rest', () => {
     expect(mergePresentation({ reveal: 'curtain' }, { email: 'spotlight' })).toEqual({
-      v: 1, reveal: 'curtain', email: 'spotlight', look: 'auto',
+      v: 1, reveal: 'curtain', email: 'spotlight', look: 'auto', design: 'none',
     });
+  });
+  it('carries a design pick through and keeps it across other picks', () => {
+    const withDesign = mergePresentation({}, { design: 'gala-night' });
+    expect(withDesign.design).toBe('gala-night');
+    expect(mergePresentation(withDesign, { email: 'sealed' }).design).toBe('gala-night');
+    expect(mergePresentation(withDesign, { design: 'none' }).design).toBe('none');
   });
   it('junk stored + junk patch → defaults', () => {
     expect(mergePresentation('nope', { reveal: 'zzz' as never })).toEqual({ ...DEFAULT_CARD_PRESENTATION });
@@ -106,12 +112,13 @@ describe('mergePresentation', () => {
 describe('preview picks', () => {
   it('reads saved picks and maps them to overrides', () => {
     const picks = picksFrom(card);
-    expect(picks).toEqual({ reveal: 'ribbon', look: 'event', template: 'storybook' });
-    expect(picksToOverrides(picks)).toEqual({ reveal: 'ribbon', look: 'event', template: 'storybook' });
+    expect(picks).toEqual({ reveal: 'ribbon', look: 'event', design: 'none', template: 'storybook' });
+    expect(picksToOverrides(picks)).toEqual({ reveal: 'ribbon', look: 'event', design: 'none', template: 'storybook' });
   });
   it('knows when "Use these" would change something', () => {
     expect(picksDiffer(card, picksFrom(card))).toBe(false);
     expect(picksDiffer(card, { ...picksFrom(card), template: 'carousel' })).toBe(true);
     expect(picksDiffer(card, { ...picksFrom(card), reveal: 'none' })).toBe(true);
+    expect(picksDiffer(card, { ...picksFrom(card), design: 'moon-gate' })).toBe(true);
   });
 });

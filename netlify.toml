@@ -71,6 +71,11 @@
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
 
+[[headers]]
+  for = "/card-designs"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
 # Reps' public booking pages (/book/<ref>, migration 042): sent one-to-one,
 # never indexed.
 [[headers]]

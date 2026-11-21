@@ -1024,7 +1024,7 @@ export default function CardsTab() {
    */
   const setCardPresentation = async (
     card: CardRow,
-    patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look'>>,
+    patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look' | 'design'>>,
   ) => {
     const next: Record<string, unknown> = { ...mergePresentation(card.presentation, patch) };
     if (!confirmedPresentation.current.has(card.id)) {
@@ -1055,7 +1055,7 @@ export default function CardsTab() {
   /** The preview's "Use these": opening + colours (+ card style) in ONE write. */
   const applyPreviewPicks = async (card: CardRow, picks: PreviewPicks): Promise<boolean> => {
     const presentation: Record<string, unknown> = {
-      ...mergePresentation(card.presentation, { reveal: picks.reveal, look: picks.look }),
+      ...mergePresentation(card.presentation, { reveal: picks.reveal, look: picks.look, design: picks.design }),
     };
     const templateChanged = picks.template !== card.template;
     const updated = await updateCard(card.id, {

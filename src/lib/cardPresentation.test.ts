@@ -9,6 +9,7 @@ import {
   CARD_REVEAL_OPTIONS,
   DEFAULT_CARD_PRESENTATION,
   cardMonogram,
+  effectiveReveal,
   cardPalette,
   REVEAL_WEBGL_FALLBACK,
   normalizeCardPresentation,
@@ -44,7 +45,13 @@ describe('normalizeCardPresentation', () => {
   it('keeps valid choices and drops unknown keys', () => {
     expect(
       normalizeCardPresentation({ reveal: 'airplane', email: 'spotlight', look: 'event', extra: '<script>' }),
-    ).toEqual({ v: 1, reveal: 'airplane', email: 'spotlight', look: 'event' });
+    ).toEqual({ v: 1, reveal: 'airplane', email: 'spotlight', look: 'event', design: 'none' });
+  });
+
+  it('keeps a known design and drops an unknown one (old rows have none)', () => {
+    expect(normalizeCardPresentation({ design: 'owambe' }).design).toBe('owambe');
+    expect(normalizeCardPresentation({ design: 'disco-inferno' }).design).toBe('none');
+    expect(normalizeCardPresentation({ reveal: 'ribbon' }).design).toBe('none');
   });
 
   it('each axis falls back independently', () => {
@@ -64,6 +71,23 @@ describe('playableReveal', () => {
   });
   it('with WebGL every reveal plays as chosen', () => {
     for (const id of CARD_REVEAL_IDS) expect(playableReveal(id, true)).toBe(id);
+  });
+});
+
+describe('effectiveReveal', () => {
+  it('a design plays its own scene opener, unless the host chose no opening', () => {
+    expect(effectiveReveal('envelope', 'none')).toBe('envelope');
+    expect(effectiveReveal('envelope', 'garden-gate')).toBe('scene');
+    expect(effectiveReveal('airplane', 'owambe')).toBe('scene');
+    expect(effectiveReveal('none', 'owambe')).toBe('none');
+  });
+});
+
+describe('parseCardViewOverrides — design', () => {
+  it('previews a design, or explicitly none, and ignores junk', () => {
+    expect(parseCardViewOverrides('?design=moon-gate')).toEqual({ design: 'moon-gate' });
+    expect(parseCardViewOverrides('?design=none')).toEqual({ design: 'none' });
+    expect(parseCardViewOverrides('?design=%3Cscript%3E')).toEqual({});
   });
 });
 

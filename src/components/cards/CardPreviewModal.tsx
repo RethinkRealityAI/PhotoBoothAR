@@ -55,7 +55,7 @@ export default function CardPreviewModal({ card, eventName, onClose, onUse }: Ca
   const [load, setLoad] = useState<Load>({ phase: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [picks, setPicks] = useState<PreviewPicks>(() => picksFrom(card));
-  const [axis, setAxis] = useState<PreviewAxis>('reveal');
+  const [axis, setAxis] = useState<PreviewAxis>('design');
   const [saving, setSaving] = useState(false);
   // The latest card row, read when the contributions load. Keyed on the id
   // only: re-reading media on every presentation save would restart the
@@ -180,7 +180,7 @@ export default function CardPreviewModal({ card, eventName, onClose, onUse }: Ca
         {/* Live option bar */}
         <div className="relative z-30 shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-5">
           <div className="glass-strong mx-auto flex max-w-2xl flex-col gap-2 rounded-3xl p-2">
-            <div role="tablist" aria-label="Preview options" className="grid grid-cols-3 gap-1">
+            <div role="tablist" aria-label="Preview options" className="grid grid-cols-4 gap-1">
               {PREVIEW_AXES.map((a) => (
                 <button
                   key={a.id}
@@ -198,9 +198,11 @@ export default function CardPreviewModal({ card, eventName, onClose, onUse }: Ca
             </div>
             <PresentationChips
               axis={axis}
+              design={picks.design}
               reveal={picks.reveal}
               template={picks.template}
               look={picks.look}
+              onDesign={(design) => setPicks((p) => ({ ...p, design }))}
               onReveal={(reveal) => setPicks((p) => ({ ...p, reveal }))}
               onTemplate={(template) => setPicks((p) => ({ ...p, template }))}
               onLook={(look) => setPicks((p) => ({ ...p, look }))}

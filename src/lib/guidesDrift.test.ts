@@ -45,6 +45,7 @@ import { CONTENT_PACKS, PACK_IDS } from './contentPacks';
 import { FACE_PAINT_DESIGNS } from './facePaint/designs';
 import { CARD_TEMPLATE_OPTIONS } from './cardTemplates';
 import { CARD_EMAIL_STYLE_OPTIONS, CARD_LOOK_OPTIONS, CARD_REVEAL_OPTIONS } from './cardPresentation';
+import { CARD_DESIGNS } from './cardDesigns';
 import { GUIDES, GUIDE_COUNTS, GUIDE_COVERAGE, type GuideCoverageEntry } from './guidesContent';
 import type { FeatureHelpTopic } from './studio/featureHelp';
 
@@ -285,6 +286,7 @@ describe('guides counts — the numbers the copy says out loud', () => {
       ['opening (src/lib/cardPresentation.ts CARD_REVEAL_OPTIONS)', CARD_REVEAL_OPTIONS],
       ['email style (src/lib/cardPresentation.ts CARD_EMAIL_STYLE_OPTIONS)', CARD_EMAIL_STYLE_OPTIONS],
       ['colour choice (src/lib/cardPresentation.ts CARD_LOOK_OPTIONS)', CARD_LOOK_OPTIONS],
+      ['design (src/lib/cardDesigns.ts CARD_DESIGNS)', CARD_DESIGNS],
     ];
     for (const [what, options] of sets) {
       for (const o of options) {
