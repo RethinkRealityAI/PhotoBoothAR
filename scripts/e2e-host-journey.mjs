@@ -203,7 +203,9 @@ try {
   });
 
   await step('live wall shows the photo', async () => {
-    await wall.page.getByText(/\b1 moment\b/).first().waitFor({ timeout: 30000 });
+    // The counter renders the number and the word in separate elements, so
+    // match the page text rather than one node.
+    await wall.page.waitForFunction(() => /\b1\s+moment\b/.test(document.body.innerText), null, { timeout: 30000 });
     await wall.page.waitForTimeout(3000);
     await shot(wall.page, '21-wall-with-photo-1440');
   });
