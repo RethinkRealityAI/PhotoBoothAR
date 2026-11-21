@@ -1,0 +1,42 @@
+/**
+ * Sign-in / sign-up greeter (src/pages/auth/AuthShell.tsx).
+ *
+ * Motion follows lib/beamyMotion: the shell stamps data-content-motion /
+ * data-decor-motion on its root. The bubble's entrance is CONTENT (a pop at
+ * full, a plain fade when soft); the poster bob is DECOR (off when reduced).
+ */
+
+/* A warm amber-rose pool under Beamy: the page's one warm light. */
+[data-auth-shell] .auth-glow {
+  background:
+    radial-gradient(46% 38% at 50% 78%, rgba(255, 197, 107, 0.30), transparent 70%),
+    radial-gradient(60% 52% at 50% 64%, rgba(204, 120, 150, 0.28), transparent 72%),
+    radial-gradient(70% 60% at 50% 56%, rgba(165, 171, 255, 0.22), transparent 74%);
+  filter: blur(8px);
+}
+
+[data-auth-shell] .auth-bubble {
+  animation: auth-bubble-pop 520ms var(--bw-ease, cubic-bezier(0.22, 1, 0.36, 1)) both;
+  transform-origin: 50% 100%;
+}
+[data-auth-shell] .auth-bubble[data-tail="left"] { transform-origin: 0% 50%; }
+[data-auth-shell][data-content-motion="soft"] .auth-bubble {
+  animation: auth-bubble-fade 600ms ease-out both;
+}
+
+[data-auth-shell][data-decor-motion="full"] .auth-beamy-poster {
+  animation: auth-bob 3.6s ease-in-out infinite;
+}
+
+@keyframes auth-bubble-pop {
+  0% { opacity: 0; transform: translateY(6px) scale(0.92); }
+  60% { opacity: 1; transform: translateY(-1px) scale(1.02); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes auth-bubble-fade { from { opacity: 0; } to { opacity: 1; } }
+/* The poster's centring is Tailwind v4's separate `translate` property, so
+   animating `transform` here composes with it instead of replacing it. */
+@keyframes auth-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
