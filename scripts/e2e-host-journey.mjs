@@ -3,7 +3,7 @@
  *
  *   sign in → create an event in the setup wizard (every step, defaults)
  *   → go live → a guest on a phone takes and sends a photo
- *   → the photo shows on the live wall.
+ *   → the photo shows on the live wall and the host's dashboard celebrates it.
  *
  * It records step timings, page errors, console errors and HTTP >= 400 per
  * surface, and saves a screenshot of every screen at the viewports it runs.
@@ -149,6 +149,12 @@ try {
     return `slug ${slug}`;
   });
 
+  await step('host dashboard open, waiting for the first photo', async () => {
+    await hp.goto(`${BASE}/host`, { waitUntil: 'load' });
+    await hp.getByText(/your events/i).first().waitFor({ timeout: 20000 });
+    await hp.waitForTimeout(4000); // covers load; the dashboard then watches this event
+  });
+
   const wall = await surface('wall', DESKTOP);
   await step('live wall opens (empty)', async () => {
     await wall.page.goto(`${BASE}/e/${slug}/wall`, { waitUntil: 'load' });
@@ -165,9 +171,9 @@ try {
     let taps = 0;
     await gp.getByText(/step into the booth|open the photo booth/i).first().tap();
     taps++;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 10; i++) {
       if (await visible(gp, '[aria-label="Take photo"]', 3000)) break;
-      if (await visible(gp, 'text=Step inside', 500)) { await gp.tap('text=Step inside'); taps++; continue; }
+      if (await visible(gp, 'text=Step inside', 500)) { await gp.tap('text=Step inside', { timeout: 4000 }).catch(() => {}); taps++; continue; }
       if (await visible(gp, 'button:has-text("Skip")', 500)) { await gp.tap('button:has-text("Skip")'); taps++; continue; }
       if (await visible(gp, 'button:has-text("Start camera")', 500)) { await gp.tap('button:has-text("Start camera")'); taps++; }
     }
@@ -178,7 +184,11 @@ try {
   });
 
   await step('guest: capture → send', async () => {
-    await gp.tap('[aria-label="Take photo"]');
+    // Clear any first-visit hint or intro overlay sitting over the shutter.
+    for (let k = 0; k < 6 && (await visible(gp, '[data-scene-ui] .sc-cta', 800)); k++) {
+      await gp.tap('[data-scene-ui] .sc-cta', { timeout: 3000 }).catch(() => {});
+    }
+    await gp.tap('[aria-label="Take photo"]', { timeout: 15000 });
     await gp.locator('[aria-label="Send your photo to the live wall"]').waitFor({ timeout: 20000 });
     await shot(gp, '32-review-390');
     if (await visible(gp, 'text=Add a name or note', 1000)) {
@@ -196,6 +206,12 @@ try {
     await wall.page.getByText(/\b1 moment\b/).first().waitFor({ timeout: 30000 });
     await wall.page.waitForTimeout(3000);
     await shot(wall.page, '21-wall-with-photo-1440');
+  });
+
+  await step('host dashboard celebrates the first photo', async () => {
+    await hp.getByText('Your first guest photo just landed').waitFor({ timeout: 30000 });
+    await hp.waitForTimeout(1800);
+    await shot(hp, '22-first-photo-1440');
   });
 
   const phoneHost = await surface('host-phone', PHONE);

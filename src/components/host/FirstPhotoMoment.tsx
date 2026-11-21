@@ -12,7 +12,7 @@
  */
 import { useEffect } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { ArrowUpRight, PartyPopper, Play } from 'lucide-react';
+import { ArrowUpRight, PartyPopper, Play, X } from 'lucide-react';
 import PostImage from '../ui/PostImage';
 
 export interface FirstPhotoMomentProps {
@@ -57,7 +57,11 @@ export default function FirstPhotoMoment({ eventName, slug, imageUrl, mediaType,
       transition={reduceMotion ? { duration: 0.2 } : { type: 'spring', stiffness: 260, damping: 22 }}
       className="fixed z-[75] inset-x-4 bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+4.75rem)] sm:inset-x-auto sm:right-6 sm:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+4.75rem)] sm:w-[400px]"
     >
-      <div className="liquid-glass rounded-[28px] p-4 flex gap-4 items-center shadow-[0_18px_60px_rgba(10,8,40,0.45)]">
+      {/* A deeper veil than a plain card: this floats over busy cover photos. */}
+      <div style={{ background: "rgba(28, 26, 82, 0.74)" }} className="relative liquid-glass rounded-[28px] p-4 pr-12 flex gap-4 items-center shadow-[0_18px_60px_rgba(10,8,40,0.45)]">
+        <button type="button" onClick={onClose} aria-label="Dismiss" className="absolute right-1.5 top-1.5 grid place-items-center h-11 w-11 rounded-full text-white/80 hover:bg-white/10">
+          <X className="h-4 w-4" aria-hidden />
+        </button>
         <div className="relative shrink-0">
           <div className="h-24 w-[72px] rounded-2xl overflow-hidden bg-white/10 ring-2 ring-white/70">
             {isVideo ? (
@@ -87,7 +91,7 @@ export default function FirstPhotoMoment({ eventName, slug, imageUrl, mediaType,
           </p>
           <p className="mt-0.5 text-[16px] font-semibold leading-snug">Your first guest photo just landed</p>
           <p className="mt-0.5 text-[13px] text-white/80 truncate">{who ? `From ${who} · ` : ''}{eventName}</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="mt-3">
             <a
               href={`/e/${slug}/wall`}
               target="_blank"
@@ -96,9 +100,6 @@ export default function FirstPhotoMoment({ eventName, slug, imageUrl, mediaType,
             >
               See it on the wall <ArrowUpRight className="h-4 w-4" aria-hidden />
             </a>
-            <button type="button" onClick={onClose} className="rounded-full px-4 min-h-11 text-[14px] hover:bg-white/10">
-              Nice!
-            </button>
           </div>
         </div>
       </div>
