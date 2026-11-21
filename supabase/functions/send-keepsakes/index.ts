@@ -61,6 +61,9 @@
  *
  *   POST { op: 'due' }
  *     → { items: [{ eventUuid, slug, film: { payload, upload } | null }] }
+ *     `payload.keepsake` = the host's { theme, music } and `payload.card` carries
+ *     the theme palette, date line and sign-off (autopilot.ts
+ *     buildEventFilmPayload). An older worker ignores them.
  *     Claims up to MAX_DUE_PER_RUN events whose next-morning time has come
  *     (autopilot.ts has the rule) by inserting their keepsake_runs row — the
  *     primary key is the lock. `film` is null when the event is on a free
@@ -721,6 +724,12 @@ async function prepareFilm(sb: Service, ev: DueEvent) {
     accent: accentOf(ev.config),
     photos: pickFilmPhotos(stills),
     totalPhotos: stills.length,
+    // The host's theme, music and sign-off (config.keepsakes), normalised in
+    // autopilot.ts against the same closed sets as src/lib/keepsakeSettings.ts.
+    keepsake: {
+      settings: (ev.config as { keepsakes?: unknown } | null)?.keepsakes ?? null,
+      startsAt: ev.starts_at,
+    },
   });
 
   const paths = filmPaths(ev.slug);

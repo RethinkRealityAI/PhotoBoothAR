@@ -141,6 +141,14 @@ describe('fillKeepsakeCopy', () => {
     expect(fillKeepsakeCopy('{host}', ctx({ orgName: '' }), '')).toBe('Your host');
   });
 
+  it('drops a leading "The" after a filled {when}, keeps it otherwise', () => {
+    const c = ctx({ eventName: 'The Okafor Winter Gala' });
+    expect(fillKeepsakeCopy('{when}{event} was a hit!', c, '')).toBe("Yesterday's Okafor Winter Gala was a hit!");
+    const late = { ...c, now: Date.parse(EVENT) + 30 * DAY };
+    expect(fillKeepsakeCopy('{when}{event} was a hit!', late, '')).toBe('The Okafor Winter Gala was a hit!');
+    expect(fillKeepsakeCopy('Thanks for {event}', c, '')).toBe('Thanks for The Okafor Winter Gala');
+  });
+
   it('leaves unknown tokens as typed', () => {
     expect(fillKeepsakeCopy('Hi {name} at {event}', ctx(), '')).toBe('Hi {name} at Jenna & Jake');
   });

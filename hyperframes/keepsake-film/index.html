@@ -1,15 +1,36 @@
 <!doctype html>
 <!--
-  Keepsake Film — HyperFrames cinematic render of a Beamwall greeting card.
-  ========================================================================
+  Keepsake Film — HyperFrames cinematic render of a Beamwall keepsake.
+  ======================================================================
+  Two callers, one composition:
+    • the next-day EVENT film (scripts/keepsake-worker.mjs, payload built by
+      send-keepsakes/autopilot.ts buildEventFilmPayload), and
+    • the greeting-CARD film (supabase/functions/card-render, cloud render).
   A SEPARATE composition from the React web viewer (src/components/cards/
   templates/*). The web card stays React; THIS is the premium MP4 "film".
 
-  Data-driven: everything is built at load from the `payload` runtime variable
-  (JSON of { card, contributions }, shaped exactly like the card-view edge fn
-  output). Scenes: a title card, one scene per contribution (photo → slow
-  Ken-Burns; video → embedded/sequenced; text → typographic message card), and
-  a closing card. Event theme colours drive the palette.
+  Data-driven: everything is built at load from the payload (JSON of
+  { card, contributions, music? }). The film:
+    1. Title card — a beam of light drops from the top, strikes, and spreads
+       into a wide anamorphic flare; the title rises out of it with the date
+       line (event films: card.dateLine) or the recipient (cards).
+    2. One scene per contribution — photo → Ken-Burns push with a different
+       direction and easing per shot; video → framework-owned clip; text →
+       typographic message card. Scenes CROSS-dissolve, each cut carrying a
+       light-leak sweep, an anamorphic streak and a soft flash.
+    3. End card — event films: card.signOff + card.hostName in foil, the date
+       and "Made with Beamwall"; cards: the classic closing.
+  Over all of it: soft film grain, a vignette, letterbox bars, a watermark.
+
+  BEAT-AWARE: when payload.music.bpm is present (the worker adds it from
+  public/keepsake-music/tracks.json; every track's beat 1 is its first
+  sample), every scene length is a whole number of beats (an even number at
+  fast tempos), so every cut — and the title's beam strike — lands on a beat
+  of the music the worker mixes under the film. No music → nominal lengths.
+
+  THEME: card.theme { bg, fg, accent, glow, surface, muted } (aliases below)
+  drives every colour; the declared variables are the fallback. Light themes
+  (ivory) switch the vignette, bars and fade to their own tones.
 
   HyperFrames contract honoured:
     - standalone root (no <template> wrapper), fixed 1920x1080 frame.
@@ -21,9 +42,12 @@
       reference the renderer captured early stays valid.
     - all clips are DIRECT children of #root; <video> clips are direct root
       children with framework-owned playback (no .play()/seek in our code).
-    - deterministic: no clocks, no Math.random for visual state, GSAP only, no
-      network at render time (GSAP is vendored at ./gsap.min.js; images/videos
-      arrive as data-URIs or signed URLs baked into `payload`).
+      Overlapping clips never share a track (scenes 1/2, captions 3/4,
+      videos 5/6).
+    - deterministic: no clocks, no Math.random (grain + motes use a seeded
+      mulberry32), GSAP only, no network at render time (GSAP and the fonts
+      are vendored beside this file; photos arrive as bundle-local files,
+      data-URIs or signed URLs baked into the payload).
     - guest text is inserted with textContent only (never innerHTML) — no markup
       injection from contributor names / messages.
 
@@ -38,8 +62,9 @@
   ⚠ OWNER STEP — RE-UPLOAD REQUIRED. HeyGen renders the composition ASSET that
   was uploaded to it (HEYGEN_HYPERFRAMES_ASSET_ID), not this file in the repo.
   No change here — the late-variable wait included — reaches production until
-  this bundle (index.html + gsap.min.js) is re-uploaded to HeyGen and, if the
-  upload mints a new id, HEYGEN_HYPERFRAMES_ASSET_ID is updated to match.
+  this bundle (index.html + gsap.min.js + fonts/) is re-uploaded to HeyGen and,
+  if the upload mints a new id, HEYGEN_HYPERFRAMES_ASSET_ID is updated to
+  match. Without fonts/ the cloud film falls back to Georgia/Arial (as before).
   See docs/DEPLOYMENT-CHECKLIST.md §5.
 -->
 <html
@@ -70,6 +95,38 @@
     -->
     <script id="kf-payload-data">/* window.__KEEPSAKE_PAYLOAD__ = … (injected at render time) */</script>
     <style>
+      /* Vendored (OFL-1.1, @fontsource builds — licences in fonts/). */
+      @font-face {
+        font-family: "Cormorant Garamond";
+        font-style: italic;
+        font-weight: 500;
+        src: url("fonts/cormorant-garamond-latin-500-italic.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Cormorant Garamond";
+        font-style: italic;
+        font-weight: 600;
+        src: url("fonts/cormorant-garamond-latin-600-italic.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Cormorant Garamond";
+        font-style: normal;
+        font-weight: 600;
+        src: url("fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Jost";
+        font-style: normal;
+        font-weight: 500;
+        src: url("fonts/jost-latin-500-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Jost";
+        font-style: normal;
+        font-weight: 600;
+        src: url("fonts/jost-latin-600-normal.woff2") format("woff2");
+      }
+
       html,
       body {
         margin: 0;
@@ -84,44 +141,100 @@
         overflow: hidden;
         /* Palette — overwritten from theme/vars in the init script. */
         --accent: #d4af37;
+        --glow: #ffb54d;
         --bg: #0c0906;
         --bg2: #16100a;
+        --bg-deep: #000;
         --fg: #f5efe2;
+        --muted: #cfc6b4;
         --fg-rgb: 245, 239, 226;
         --accent-rgb: 212, 175, 55;
-        font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+        --glow-rgb: 255, 181, 77;
+        --vignette: rgba(0, 0, 0, 0.72);
+        --bars: #000;
+        font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif;
         color: var(--fg);
+      }
+      .kf-sans {
+        font-family: "Jost", "Helvetica Neue", Arial, sans-serif;
       }
 
       /* Persistent layers — no class="clip" ⇒ visible for the whole film. */
       #kf-bg {
         position: absolute;
         inset: 0;
-        background:
-          radial-gradient(
-            120% 90% at 50% 8%,
-            var(--bg2) 0%,
-            var(--bg) 62%,
-            #000 100%
-          );
+        background: radial-gradient(120% 90% at 50% 8%, var(--bg2) 0%, var(--bg) 58%, var(--bg-deep) 100%);
       }
       #kf-bg::after {
-        /* faint foil bloom top-centre */
         content: "";
         position: absolute;
         inset: 0;
-        background: radial-gradient(
-          60% 40% at 50% 0%,
-          rgba(var(--accent-rgb), 0.14) 0%,
-          transparent 70%
-        );
+        background:
+          radial-gradient(60% 40% at 50% 0%, rgba(var(--accent-rgb), 0.16) 0%, transparent 70%),
+          radial-gradient(50% 35% at 50% 100%, rgba(var(--glow-rgb), 0.08) 0%, transparent 70%);
+      }
+      /* Light leak: two soft colour blooms that sweep across a cut. */
+      #kf-leak {
+        position: absolute;
+        top: -200px;
+        left: 0;
+        width: 1500px;
+        height: 1480px;
+        z-index: 40;
+        pointer-events: none;
+        mix-blend-mode: screen;
+        opacity: 0;
+        will-change: transform, opacity;
+        background:
+          radial-gradient(38% 30% at 42% 46%, rgba(var(--glow-rgb), 0.85) 0%, rgba(var(--glow-rgb), 0.25) 45%, transparent 72%),
+          radial-gradient(30% 44% at 64% 58%, rgba(var(--accent-rgb), 0.7) 0%, rgba(var(--accent-rgb), 0.18) 50%, transparent 75%);
+      }
+      /* Anamorphic streak: a long horizontal flare across a cut. */
+      #kf-streak {
+        position: absolute;
+        left: -480px;
+        width: 2880px;
+        top: 470px;
+        height: 140px;
+        z-index: 45;
+        pointer-events: none;
+        mix-blend-mode: screen;
+        opacity: 0;
+        will-change: transform, opacity;
+        background:
+          linear-gradient(90deg, transparent 0%, rgba(var(--accent-rgb), 0.5) 30%, rgba(255, 255, 255, 0.95) 50%, rgba(var(--accent-rgb), 0.5) 70%, transparent 100%) center / 100% 4px no-repeat,
+          radial-gradient(50% 50% at 50% 50%, rgba(var(--glow-rgb), 0.45) 0%, rgba(var(--accent-rgb), 0.16) 40%, transparent 72%);
+      }
+      #kf-flash {
+        position: absolute;
+        inset: 0;
+        z-index: 50;
+        pointer-events: none;
+        opacity: 0;
+        background: radial-gradient(70% 70% at 50% 50%, #fff 0%, rgba(var(--glow-rgb), 0.9) 60%, rgba(var(--accent-rgb), 0.8) 100%);
+      }
+      #kf-grain {
+        position: absolute;
+        inset: -200px;
+        z-index: 55;
+        pointer-events: none;
+        opacity: 0.11;
+        will-change: transform;
       }
       #kf-vignette {
         position: absolute;
         inset: 0;
         pointer-events: none;
         z-index: 60;
-        box-shadow: inset 0 0 340px 90px rgba(0, 0, 0, 0.72);
+        box-shadow: inset 0 0 360px 110px var(--vignette);
+      }
+      #kf-fade {
+        position: absolute;
+        inset: 0;
+        z-index: 65;
+        pointer-events: none;
+        opacity: 0;
+        background: var(--bg-deep);
       }
       /* Cinematic letterbox bars. */
       #kf-bars-top,
@@ -129,8 +242,8 @@
         position: absolute;
         left: 0;
         right: 0;
-        height: 68px;
-        background: #000;
+        height: 72px;
+        background: var(--bars);
         z-index: 70;
         pointer-events: none;
       }
@@ -149,60 +262,104 @@
         place-items: center;
         text-align: center;
         z-index: 10;
-        will-change: opacity, transform;
+        will-change: opacity;
       }
 
       /* ── Title & closing ─────────────────────────────────────────── */
       .kf-eyebrow {
-        font-family: "Helvetica Neue", Arial, sans-serif;
         text-transform: uppercase;
-        letter-spacing: 0.42em;
-        font-size: 20px;
+        letter-spacing: 0.46em;
+        font-size: 22px;
         font-weight: 600;
         color: var(--accent);
-        margin: 0 0 30px;
-      }
-      .kf-rule {
-        width: 92px;
-        height: 1px;
-        margin: 34px auto 0;
-        background: linear-gradient(
-          90deg,
-          transparent,
-          var(--accent),
-          transparent
-        );
+        margin: 0 0 34px;
       }
       .kf-title {
-        font-size: 128px;
+        font-size: 132px;
         font-weight: 600;
-        line-height: 1.04;
+        line-height: 1.02;
         margin: 0;
-        max-width: 1500px;
-        font-style: italic;
+        max-width: 1560px;
         letter-spacing: -0.01em;
-        text-shadow: 0 2px 40px rgba(0, 0, 0, 0.55);
+        text-shadow: 0 2px 40px rgba(0, 0, 0, 0.45);
       }
-      .kf-recipient {
-        font-family: "Helvetica Neue", Arial, sans-serif;
+      .kf-title.is-long {
+        font-size: 104px;
+      }
+      .kf-title.is-xlong {
+        font-size: 84px;
+      }
+      .kf-foil {
+        background: linear-gradient(115deg, var(--accent) 0%, var(--glow) 30%, var(--fg) 50%, var(--accent) 70%, var(--glow) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: none;
+      }
+      /* The flare the title beam spreads into; full frame width, centred
+         on the column whatever the text width. */
+      .kf-flare {
+        position: relative;
+        width: 1920px;
+        height: 120px;
+        margin: -22px 0 -24px calc(50% - 960px);
+        transform-origin: 50% 50%;
+        will-change: transform, opacity;
+        background:
+          linear-gradient(90deg, transparent 4%, rgba(var(--accent-rgb), 0.55) 30%, rgba(255, 255, 255, 0.95) 50%, rgba(var(--accent-rgb), 0.55) 70%, transparent 96%) center / 100% 3px no-repeat,
+          radial-gradient(42% 50% at 50% 50%, rgba(var(--glow-rgb), 0.38) 0%, rgba(var(--accent-rgb), 0.12) 42%, transparent 70%);
+      }
+      .kf-beam {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        width: 220px;
+        margin-left: -110px;
+        height: 54%;
+        transform-origin: 50% 0;
+        will-change: transform, opacity;
+        mix-blend-mode: screen;
+        background:
+          linear-gradient(180deg, transparent 0%, rgba(var(--accent-rgb), 0.7) 40%, #fff 100%) center / 4px 100% no-repeat,
+          linear-gradient(90deg, transparent 0%, rgba(var(--glow-rgb), 0.16) 35%, rgba(var(--accent-rgb), 0.3) 50%, rgba(var(--glow-rgb), 0.16) 65%, transparent 100%);
+      }
+      .kf-sub {
         text-transform: uppercase;
-        letter-spacing: 0.34em;
+        letter-spacing: 0.32em;
         font-size: 26px;
         font-weight: 500;
         color: rgba(var(--fg-rgb), 0.82);
-        margin: 40px 0 0;
+        margin: 0;
       }
       .kf-count {
-        font-family: "Helvetica Neue", Arial, sans-serif;
         font-size: 19px;
-        letter-spacing: 0.16em;
-        color: rgba(var(--fg-rgb), 0.5);
-        margin: 22px 0 0;
+        letter-spacing: 0.22em;
+        color: rgba(var(--fg-rgb), 0.55);
+        margin: 18px 0 0;
         text-transform: uppercase;
+        font-weight: 500;
+      }
+      .kf-signoff {
+        font-size: 66px;
+        font-style: italic;
+        font-weight: 500;
+        color: rgba(var(--fg-rgb), 0.86);
+        margin: 0 0 6px;
       }
       .kf-inner {
+        position: relative;
         padding: 0 120px;
-        max-width: 1620px;
+        max-width: 1640px;
+        z-index: 2;
+      }
+      .kf-mote {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(var(--glow-rgb), 0.9);
+        box-shadow: 0 0 14px 4px rgba(var(--glow-rgb), 0.45);
+        will-change: transform, opacity;
       }
 
       /* ── Text message scene ──────────────────────────────────────── */
@@ -214,8 +371,8 @@
         margin: 0 0 8px;
       }
       .kf-message {
-        font-size: 62px;
-        line-height: 1.38;
+        font-size: 66px;
+        line-height: 1.32;
         font-style: italic;
         font-weight: 500;
         margin: 0 auto;
@@ -227,7 +384,6 @@
         overflow: hidden;
       }
       .kf-from {
-        font-family: "Helvetica Neue", Arial, sans-serif;
         text-transform: uppercase;
         letter-spacing: 0.32em;
         font-size: 22px;
@@ -263,24 +419,19 @@
         width: 120%;
         height: 120%;
         object-fit: cover;
-        filter: blur(48px) brightness(0.42) saturate(1.15);
+        filter: blur(48px) brightness(0.4) saturate(1.2);
       }
       .kf-photo.kf-photo--contain {
-        inset: 4% 0;
+        inset: 7% 0 5%;
         width: 100%;
-        height: 92%;
+        height: 88%;
         object-fit: contain;
-        filter: drop-shadow(0 24px 60px rgba(0, 0, 0, 0.55));
+        filter: drop-shadow(0 28px 60px rgba(0, 0, 0, 0.6));
       }
       .kf-media-scrim {
         position: absolute;
         inset: 0;
-        background: linear-gradient(
-          to top,
-          rgba(0, 0, 0, 0.86) 0%,
-          rgba(0, 0, 0, 0.5) 22%,
-          rgba(0, 0, 0, 0) 46%
-        );
+        background: linear-gradient(to top, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.42) 22%, rgba(0, 0, 0, 0) 44%);
       }
       .kf-caption {
         position: absolute;
@@ -289,10 +440,11 @@
         bottom: 132px;
         text-align: left;
         z-index: 20;
+        color: #fff;
       }
       .kf-caption .kf-cap-msg {
-        font-size: 46px;
-        line-height: 1.34;
+        font-size: 50px;
+        line-height: 1.3;
         font-style: italic;
         font-weight: 500;
         margin: 0;
@@ -304,13 +456,33 @@
         overflow: hidden;
       }
       .kf-caption .kf-cap-from {
-        font-family: "Helvetica Neue", Arial, sans-serif;
         text-transform: uppercase;
         letter-spacing: 0.3em;
-        font-size: 20px;
+        font-size: 21px;
         font-weight: 600;
         color: var(--accent);
-        margin: 22px 0 0;
+        margin: 20px 0 0;
+        text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+      }
+      .kf-caption .kf-cap-from::before {
+        content: "";
+        display: inline-block;
+        width: 46px;
+        height: 2px;
+        margin: 0 18px 6px 0;
+        vertical-align: middle;
+        background: var(--accent);
+      }
+      .kf-index {
+        position: absolute;
+        top: 104px;
+        right: 120px;
+        z-index: 20;
+        font-size: 18px;
+        letter-spacing: 0.34em;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.62);
+        text-shadow: 0 1px 10px rgba(0, 0, 0, 0.6);
       }
 
       /* Video clip fills the frame; framework owns playback. Background is
@@ -332,27 +504,34 @@
       #kf-mark {
         position: absolute;
         right: 46px;
-        bottom: 22px;
+        bottom: 24px;
         z-index: 80;
-        font-family: "Helvetica Neue", Arial, sans-serif;
         font-size: 15px;
         letter-spacing: 0.28em;
         text-transform: uppercase;
-        color: rgba(var(--fg-rgb), 0.4);
+        color: rgba(var(--fg-rgb), 0.42);
       }
       #kf-mark b {
-        color: rgba(var(--accent-rgb), 0.85);
+        color: rgba(var(--accent-rgb), 0.88);
         font-weight: 600;
+      }
+      #root.is-light #kf-mark {
+        color: rgba(var(--fg-rgb), 0.55);
       }
     </style>
   </head>
   <body>
     <div id="root" data-composition-id="keepsake" data-start="0" data-width="1920" data-height="1080">
       <div id="kf-bg"></div>
+      <div id="kf-leak"></div>
+      <div id="kf-streak"></div>
+      <div id="kf-flash"></div>
+      <div id="kf-grain"></div>
       <div id="kf-vignette"></div>
+      <div id="kf-fade"></div>
       <div id="kf-bars-top"></div>
       <div id="kf-bars-bottom"></div>
-      <div id="kf-mark">Made with <b>Beamwall</b></div>
+      <div id="kf-mark" class="kf-sans">Made with <b>Beamwall</b></div>
       <!-- scenes are injected here by the init script -->
     </div>
 
@@ -409,6 +588,18 @@
           return null;
         }
 
+        /* Seeded PRNG — grain, motes and shot order never use Math.random. */
+        function mulberry32(seed) {
+          var a = seed >>> 0;
+          return function () {
+            a = (a + 0x6d2b79f5) >>> 0;
+            var t = a;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+          };
+        }
+
         /* ── ONE paused timeline, registered SYNCHRONOUSLY ─────────────────
            The contract is that a paused timeline exists at
            window.__timelines.keepsake at the end of the initial synchronous
@@ -421,9 +612,38 @@
         window.__timelines["keepsake"] = tl;
 
         var root = document.getElementById("root");
+        var leak = document.getElementById("kf-leak");
+        var streak = document.getElementById("kf-streak");
+        var flash = document.getElementById("kf-flash");
+        var grain = document.getElementById("kf-grain");
+        var fade = document.getElementById("kf-fade");
+
+        /* Film grain: one 200px noise tile, drawn once from a fixed seed. */
+        (function paintGrain() {
+          try {
+            var c = document.createElement("canvas");
+            c.width = 200;
+            c.height = 200;
+            var g = c.getContext("2d");
+            var img = g.createImageData(200, 200);
+            var r = mulberry32(0x9e3779b9);
+            for (var i = 0; i < img.data.length; i += 4) {
+              var v = r() < 0.5 ? 0 : 255;
+              img.data[i] = v;
+              img.data[i + 1] = v;
+              img.data[i + 2] = v;
+              img.data[i + 3] = Math.floor(r() * 150);
+            }
+            g.putImageData(img, 0, 0);
+            grain.style.backgroundImage = "url(" + c.toDataURL("image/png") + ")";
+          } catch (e) {
+            /* no canvas: the film simply has no grain */
+          }
+        })();
 
         /* Drop the previous build's clips (the persistent chrome children —
-           #kf-bg, vignette, bars, watermark — carry no marker and stay). */
+           #kf-bg, leak, streak, flash, grain, vignette, fade, bars, watermark —
+           carry no marker and stay). */
         function resetFilm() {
           tl.clear();
           var built = root.querySelectorAll("[data-kf-built]");
@@ -452,38 +672,64 @@
             }
             return fallback;
           }
-          function hexToRgb(hex, fallback) {
-            if (typeof hex !== "string") return fallback;
-            var m = hex.trim().replace(/^#/, "");
+          function rgbOf(hex) {
+            var m = String(hex).trim().replace(/^#/, "");
             if (m.length === 3) m = m[0] + m[0] + m[1] + m[1] + m[2] + m[2];
-            if (!/^[0-9a-fA-F]{6}$/.test(m)) return fallback;
-            return (
-              parseInt(m.slice(0, 2), 16) +
-              ", " +
-              parseInt(m.slice(2, 4), 16) +
-              ", " +
-              parseInt(m.slice(4, 6), 16)
-            );
+            if (!/^[0-9a-fA-F]{6}$/.test(m)) return null;
+            return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)];
+          }
+          function rgbStr(hex, fallback) {
+            var c = rgbOf(hex);
+            return c ? c.join(", ") : fallback;
+          }
+          function shade(hex, k) {
+            var c = rgbOf(hex) || [0, 0, 0];
+            return "rgb(" + c.map(function (x) { return Math.round(x * k); }).join(", ") + ")";
           }
 
           var theme = card.theme && typeof card.theme === "object" ? card.theme : {};
           var accent = pick(theme, ["accent", "primary", "gold", "foil"], vars.accent || "#d4af37");
           var bg = pick(theme, ["bg", "background", "noir", "ink"], vars.bg || "#0c0906");
           var fg = pick(theme, ["fg", "foreground", "text", "cream", "paper"], vars.fg || "#f5efe2");
+          var glow = pick(theme, ["glow", "secondary"], accent);
+          var surface = pick(theme, ["surface"], bg);
+          var bgRgb = rgbOf(bg) || [12, 9, 6];
+          var light = (0.2126 * bgRgb[0] + 0.7152 * bgRgb[1] + 0.0722 * bgRgb[2]) / 255 > 0.55;
 
+          root.classList.toggle("is-light", light);
           root.style.setProperty("--accent", accent);
+          root.style.setProperty("--glow", glow);
           root.style.setProperty("--bg", bg);
           root.style.setProperty("--fg", fg);
-          root.style.setProperty("--accent-rgb", hexToRgb(accent, "212, 175, 55"));
-          root.style.setProperty("--fg-rgb", hexToRgb(fg, "245, 239, 226"));
-          // Slightly lifted second background stop for the radial gradient.
-          root.style.setProperty("--bg2", bg);
+          root.style.setProperty("--bg2", light ? bg : surface);
+          root.style.setProperty("--bg-deep", light ? shade(bg, 0.86) : "#000");
+          root.style.setProperty("--accent-rgb", rgbStr(accent, "212, 175, 55"));
+          root.style.setProperty("--glow-rgb", rgbStr(glow, "255, 181, 77"));
+          root.style.setProperty("--fg-rgb", rgbStr(fg, "245, 239, 226"));
+          root.style.setProperty("--vignette", light ? "rgba(70, 52, 28, 0.22)" : "rgba(0, 0, 0, 0.72)");
+          root.style.setProperty("--bars", light ? shade(bg, 0.93) : "#000");
+
+          /* ── Beat grid (from the worker's music block) ─────────────────── */
+          var music = data.music && typeof data.music === "object" ? data.music : null;
+          var bpm = music ? Number(music.bpm) : 0;
+          var beat = bpm >= 40 && bpm <= 200 ? 60 / bpm : 0;
+          /* A nominal length → a whole number of beats (even at fast tempos,
+             so cuts land on the strong beats). No music → the nominal value. */
+          function snap(nominal) {
+            if (!beat) return nominal;
+            var n = nominal / beat;
+            n = beat < 0.6 ? Math.max(2, Math.round(n / 2) * 2) : Math.max(1, Math.round(n));
+            return n * beat;
+          }
 
           /* ── Scene plan ────────────────────────────────────────────────── */
-          var FADE = 0.85; // cross-dissolve to/from background, seconds
-          var DUR = { title: 4.2, text: 4.4, photo: 5.4, video: 6.5, closing: 4.6 };
+          var XF = beat ? Math.min(0.7, beat) : 0.7; // cross-dissolve, centred on the cut
+          var NOMINAL = { title: 4.6, text: 4.8, photo: 5.0, closing: 5.8 };
           var VIDEO_MIN = 3.0;
           var VIDEO_MAX = 15.0;
+
+          function str(v) { return typeof v === "string" && v.trim() ? v.trim() : null; }
+          var isEventFilm = !!(str(card.signOff) || str(card.hostName) || str(card.dateLine));
 
           var scenes = [];
           scenes.push({ kind: "title" });
@@ -494,6 +740,17 @@
             else scenes.push({ kind: "text", c: c }); // text, or media with no url
           });
           scenes.push({ kind: "closing" });
+          var photoTotal = scenes.filter(function (s) { return s.kind === "photo"; }).length;
+
+          scenes.forEach(function (s) {
+            s.dur =
+              s.kind === "video"
+                ? Math.min(VIDEO_MAX, Math.max(VIDEO_MIN, Number((s.c || {}).durationSeconds) || 6.5))
+                : snap(NOMINAL[s.kind]);
+          });
+          var cuts = [0];
+          scenes.forEach(function (s, i) { cuts.push(cuts[i] + s.dur); });
+          var T = cuts[cuts.length - 1];
 
           /* ── DOM helpers ───────────────────────────────────────────────── */
           function el(tag, cls, id) {
@@ -507,11 +764,26 @@
             n.textContent = text == null ? "" : String(text);
             return n;
           }
+          function sizeClass(text) {
+            var n = String(text || "").length;
+            return n > 34 ? " is-xlong" : n > 20 ? " is-long" : "";
+          }
+          function motes(scene, idx, count) {
+            var r = mulberry32(0x51ed + idx * 977);
+            var list = [];
+            for (var i = 0; i < count; i++) {
+              var m = el("div", "kf-mote");
+              m.style.left = Math.round(160 + r() * 1600) + "px";
+              m.style.top = Math.round(160 + r() * 760) + "px";
+              var sc = 0.5 + r() * 1.1;
+              m.style.width = m.style.height = Math.round(6 * sc) + "px";
+              scene.appendChild(m);
+              list.push({ node: m, drift: 40 + r() * 90, sway: (r() - 0.5) * 60, peak: 0.35 + r() * 0.5 });
+            }
+            return list;
+          }
 
           var count = contributions.length;
-          // Optional overrides (the event film sends them; cards never do, so a
-          // card film reads exactly as before).
-          function str(v) { return typeof v === "string" && v.trim() ? v.trim() : null; }
           var countLabel = str(card.countLabel) ||
             (count === 0
               ? "A keepsake film"
@@ -520,16 +792,22 @@
           function buildTitle(scene, idx) {
             var s = el("section", "kf-scene");
             s.id = "kf-scene-" + idx;
+            var beamV = el("div", "kf-beam");
+            s.appendChild(beamV);
             var inner = el("div", "kf-inner");
-            if (card.eventName) inner.appendChild(txt("p", "kf-eyebrow", card.eventName));
-            else inner.appendChild(txt("p", "kf-eyebrow", "A Keepsake Film"));
-            inner.appendChild(txt("h1", "kf-title", card.title || "A Card For You"));
-            if (card.recipientName)
-              inner.appendChild(txt("p", "kf-recipient", "for " + card.recipientName));
-            inner.appendChild(txt("p", "kf-count", countLabel));
-            inner.appendChild(el("div", "kf-rule"));
+            var eyebrow = txt("p", "kf-eyebrow kf-sans", str(card.eventName) || "A Keepsake Film");
+            var titleText = card.title || "A Card For You";
+            var title = txt("h1", "kf-title" + sizeClass(titleText), titleText);
+            var flare = el("div", "kf-flare");
+            inner.appendChild(eyebrow);
+            inner.appendChild(title);
+            inner.appendChild(flare);
+            var subs = [];
+            var subText = str(card.dateLine) || (card.recipientName ? "for " + card.recipientName : null);
+            if (subText) subs.push(inner.appendChild(txt("p", "kf-sub kf-sans", subText)));
+            subs.push(inner.appendChild(txt("p", "kf-count kf-sans", countLabel)));
             s.appendChild(inner);
-            scene.anim = { title: inner.querySelector(".kf-title"), rest: inner };
+            scene.anim = { beam: beamV, eyebrow: eyebrow, title: title, flare: flare, subs: subs, motes: motes(s, idx, 22) };
             return s;
           }
 
@@ -537,14 +815,28 @@
             var s = el("section", "kf-scene");
             s.id = "kf-scene-" + idx;
             var inner = el("div", "kf-inner");
-            inner.appendChild(txt("p", "kf-eyebrow", str(card.closingEyebrow) || "With love"));
-            inner.appendChild(
-              txt("h1", "kf-title", str(card.closingTitle) || (card.recipientName ? "For " + card.recipientName : "Thank you"))
-            );
-            inner.appendChild(el("div", "kf-rule"));
-            inner.appendChild(txt("p", "kf-count", "Made with Beamwall"));
+            var parts = [];
+            var host = null;
+            var flare = el("div", "kf-flare");
+            if (isEventFilm) {
+              var signer = str(card.hostName) || str(card.closingTitle) || str(card.title) || "Thank you";
+              parts.push(inner.appendChild(txt("p", "kf-eyebrow kf-sans", str(card.closingEyebrow) || "Thank you for coming")));
+              parts.push(inner.appendChild(txt("p", "kf-signoff", str(card.signOff) || "With love,")));
+              host = inner.appendChild(txt("h1", "kf-title kf-foil" + sizeClass(signer), signer));
+              inner.appendChild(flare);
+              var eventName = str(card.closingTitle) || str(card.title);
+              var tail = eventName && eventName !== signer ? eventName : str(card.dateLine);
+              if (tail) parts.push(inner.appendChild(txt("p", "kf-sub kf-sans", tail)));
+              parts.push(inner.appendChild(txt("p", "kf-count kf-sans", "Made with Beamwall")));
+            } else {
+              parts.push(inner.appendChild(txt("p", "kf-eyebrow kf-sans", str(card.closingEyebrow) || "With love")));
+              var closing = str(card.closingTitle) || (card.recipientName ? "For " + card.recipientName : "Thank you");
+              host = inner.appendChild(txt("h1", "kf-title kf-foil" + sizeClass(closing), closing));
+              inner.appendChild(flare);
+              parts.push(inner.appendChild(txt("p", "kf-count kf-sans", "Made with Beamwall")));
+            }
             s.appendChild(inner);
-            scene.anim = { title: inner.querySelector(".kf-title"), rest: inner };
+            scene.anim = { title: host, flare: flare, parts: parts, motes: motes(s, idx, 26) };
             return s;
           }
 
@@ -555,12 +847,13 @@
             var inner = el("div", "kf-inner");
             inner.appendChild(txt("p", "kf-quotemark", "“"));
             inner.appendChild(txt("p", "kf-message", c.message || ""));
-            if (c.contributorName) inner.appendChild(txt("p", "kf-from", c.contributorName));
+            if (c.contributorName) inner.appendChild(txt("p", "kf-from kf-sans", c.contributorName));
             s.appendChild(inner);
             scene.anim = { msg: inner.querySelector(".kf-message"), from: inner.querySelector(".kf-from") };
             return s;
           }
 
+          var photoNo = 0;
           function buildPhoto(scene, idx) {
             var c = scene.c || {};
             var s = el("section", "kf-scene");
@@ -568,11 +861,11 @@
             var frame = el("div", "kf-media-frame");
             var contain = c.fit === "contain";
             if (contain) {
-              var bg = el("img", "kf-photo-bg");
-              bg.setAttribute("crossorigin", "anonymous");
-              bg.setAttribute("alt", "");
-              bg.src = c.url;
-              frame.appendChild(bg);
+              var bgImg = el("img", "kf-photo-bg");
+              bgImg.setAttribute("crossorigin", "anonymous");
+              bgImg.setAttribute("alt", "");
+              bgImg.src = c.url;
+              frame.appendChild(bgImg);
             }
             var img = el("img", contain ? "kf-photo kf-photo--contain" : "kf-photo", "kf-photo-" + idx);
             img.setAttribute("crossorigin", "anonymous");
@@ -581,18 +874,23 @@
             frame.appendChild(img);
             frame.appendChild(el("div", "kf-media-scrim"));
             s.appendChild(frame);
+            photoNo += 1;
+            if (photoTotal > 1) {
+              var pad = function (n) { return n < 10 ? "0" + n : String(n); };
+              s.appendChild(txt("p", "kf-index kf-sans", pad(photoNo) + " / " + pad(photoTotal)));
+            }
             var cap = el("div", "kf-caption");
             if (c.message) cap.appendChild(txt("p", "kf-cap-msg", c.message));
-            if (c.contributorName) cap.appendChild(txt("p", "kf-cap-from", c.contributorName));
+            if (c.contributorName) cap.appendChild(txt("p", "kf-cap-from kf-sans", c.contributorName));
             s.appendChild(cap);
-            scene.anim = { img: img, cap: cap };
+            scene.anim = { img: img, cap: cap, contain: contain, n: photoNo };
             return s;
           }
 
           // Video contributions render as a framework-owned <video> (direct root
           // child, no class="clip") plus a separate caption clip. Returns the two
           // clip nodes so the caller can append both and time them together.
-          function buildVideo(scene, idx, start, dur) {
+          function buildVideo(scene, idx, start, dur, track) {
             var c = scene.c || {};
             var v = el("video", "kf-video", "kf-video-" + idx);
             v.src = c.url;
@@ -601,7 +899,7 @@
             v.setAttribute("playsinline", "");
             v.setAttribute("data-start", start.toFixed(3));
             v.setAttribute("data-duration", dur.toFixed(3));
-            v.setAttribute("data-track-index", "1");
+            v.setAttribute("data-track-index", String(track + 4));
             var cap = el("section", "kf-scene");
             cap.id = "kf-scene-" + idx;
             cap.style.pointerEvents = "none";
@@ -609,99 +907,165 @@
             cap.appendChild(scrim);
             var box = el("div", "kf-caption");
             if (c.message) box.appendChild(txt("p", "kf-cap-msg", c.message));
-            if (c.contributorName) box.appendChild(txt("p", "kf-cap-from", c.contributorName));
+            if (c.contributorName) box.appendChild(txt("p", "kf-cap-from kf-sans", c.contributorName));
             cap.appendChild(box);
             scene.anim = { video: v, cap: box };
             return { video: v, caption: cap };
           }
 
+          /* Ken-Burns moves: push in, pull out, pan right, pan left, rise,
+             diagonal — each paired with its own easing, never repeated twice
+             in a row. Contain shots move in px (the photo is a centred
+             column); cover shots in % of the bleed. */
+          var MOVES = [
+            { from: { scale: 1.0, x: 0, y: 8 }, to: { scale: 1.1, x: 0, y: -12 }, ease: "sine.inOut" },
+            { from: { scale: 1.13, x: 0, y: -10 }, to: { scale: 1.01, x: 0, y: 6 }, ease: "power2.out" },
+            { from: { scale: 1.06, x: -46, y: 0 }, to: { scale: 1.07, x: 46, y: -6 }, ease: "none" },
+            { from: { scale: 1.07, x: 46, y: -6 }, to: { scale: 1.05, x: -46, y: 4 }, ease: "power1.inOut" },
+            { from: { scale: 1.03, x: 0, y: 34 }, to: { scale: 1.11, x: 0, y: -24 }, ease: "sine.out" },
+            { from: { scale: 1.12, x: 32, y: -22 }, to: { scale: 1.02, x: -22, y: 16 }, ease: "power2.inOut" },
+          ];
+          var ORDER = [0, 2, 1, 4, 3, 5];
+
+          /* A cut's light: the leak sweeps across, a streak flares on the
+             bigger moments, and a soft flash lifts the crossover. Each layer
+             is reused at every cut, so every tween is immediateRender:false
+             and windows never overlap (cuts are >= 3s apart). */
+          var cutCount = 0;
+          function lightCut(c, strong) {
+            var dir = cutCount % 2 === 0 ? 1 : -1;
+            var span = 0.8;
+            tl.fromTo(leak, { x: dir > 0 ? -1500 : 1920, y: (cutCount % 3) * 60 - 80 },
+              { x: dir > 0 ? 1920 : -1500, duration: span * 2, ease: "sine.inOut", immediateRender: false }, c - span);
+            tl.fromTo(leak, { opacity: 0 }, { opacity: strong ? 0.95 : 0.75, duration: span, ease: "sine.in", immediateRender: false }, c - span);
+            tl.to(leak, { opacity: 0, duration: span, ease: "sine.out" }, c);
+            if (strong || cutCount % 2 === 1) {
+              tl.fromTo(streak, { opacity: 0, scaleX: 0.25, y: (cutCount % 2 ? 90 : -60) },
+                { opacity: 1, scaleX: 1.15, duration: 0.32, ease: "power2.out", immediateRender: false }, c - 0.22);
+              tl.to(streak, { opacity: 0, scaleX: 1.5, duration: 0.55, ease: "power2.in" }, c + 0.1);
+            }
+            tl.fromTo(flash, { opacity: 0 }, { opacity: strong ? 0.42 : 0.14, duration: 0.12, ease: "power1.out", immediateRender: false }, c - 0.08);
+            tl.to(flash, { opacity: 0, duration: strong ? 0.6 : 0.4, ease: "power2.out" }, c + 0.04);
+            cutCount += 1;
+          }
+
+          function moteDrift(list, start, end) {
+            list.forEach(function (m, k) {
+              tl.set(m.node, { opacity: 0 }, start);
+              tl.fromTo(m.node, { y: 0, x: 0 },
+                { y: -m.drift, x: m.sway, duration: end - start, ease: "none" }, start);
+              tl.to(m.node, { opacity: m.peak, duration: 1.2, ease: "sine.out" }, start + 0.4 + (k % 5) * 0.12);
+              tl.to(m.node, { opacity: 0, duration: 0.8, ease: "sine.in" }, end - 0.9);
+            });
+          }
+
           /* ── Build DOM + timeline synchronously ─────────────────────────── */
-          var t = 0;
+          tl.set([leak, streak, flash, fade], { opacity: 0 }, 0);
 
           scenes.forEach(function (scene, i) {
-            var dur =
-              scene.kind === "video"
-                ? Math.min(VIDEO_MAX, Math.max(VIDEO_MIN, Number((scene.c || {}).durationSeconds) || DUR.video))
-                : DUR[scene.kind];
-            var start = t;
-            // Alternate the primary track so consecutive scenes never share a
-            // track window (crossfade-safe), and pick a stable node to fade.
+            var last = i === scenes.length - 1;
+            var start = i === 0 ? 0 : Math.max(0, cuts[i] - XF / 2);
+            var end = last ? T : cuts[i + 1] + XF / 2;
+            var dur = end - start;
+            // Alternate the primary track so overlapping scenes never share
+            // a track window (crossfade-safe).
             var track = 1 + (i % 2);
 
-            var fadeTarget;
+            var node;
             if (scene.kind === "video") {
-              var pair = buildVideo(scene, i, start, dur);
-              // caption clip
+              var pair = buildVideo(scene, i, start, dur, track);
               pair.caption.setAttribute("data-start", start.toFixed(3));
               pair.caption.setAttribute("data-duration", dur.toFixed(3));
               pair.caption.setAttribute("data-track-index", String(track + 2));
               pair.caption.classList.add("clip");
               addClip(pair.video);
               addClip(pair.caption);
-              // Fade the video and caption in/out (opacity is allowed on video).
-              tl.fromTo(pair.video, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
-              tl.to(pair.video, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
-              if (scene.anim.cap) {
-                tl.from(scene.anim.cap, { y: 30, opacity: 0, duration: 1.0, ease: "power3.out" }, start + 0.5);
-              }
-              fadeTarget = pair.caption;
-              tl.fromTo(pair.caption, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
-              tl.to(pair.caption, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
+              tl.fromTo(pair.video, { opacity: 0 }, { opacity: 1, duration: XF, ease: "power1.inOut" }, start);
+              tl.to(pair.video, { opacity: 0, duration: XF, ease: "power1.inOut" }, end - XF);
+              tl.set(pair.video, { opacity: 0 }, end);
+              if (scene.anim.cap) tl.from(scene.anim.cap, { y: 30, opacity: 0, duration: 1.0, ease: "power3.out" }, cuts[i] + 0.45);
+              node = pair.caption;
             } else {
-              var node;
               if (scene.kind === "title") node = buildTitle(scene, i);
               else if (scene.kind === "closing") node = buildClosing(scene, i);
               else if (scene.kind === "photo") node = buildPhoto(scene, i);
               else node = buildText(scene, i);
-
               node.classList.add("clip");
               node.setAttribute("data-start", start.toFixed(3));
               node.setAttribute("data-duration", dur.toFixed(3));
               node.setAttribute("data-track-index", String(track));
               addClip(node);
-              fadeTarget = node;
-
-              // Scene cross-dissolve (through the persistent background).
-              tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: FADE, ease: "power2.out" }, start);
-              tl.to(node, { opacity: 0, duration: FADE, ease: "power2.in" }, start + dur - FADE);
-
-              // Per-kind internal motion.
-              if (scene.kind === "photo" && scene.anim.img) {
-                // Slow Ken-Burns pan+zoom across the whole scene window.
-                var dir = i % 2 === 0 ? 1 : -1;
-                tl.fromTo(
-                  scene.anim.img,
-                  { scale: 1.14, xPercent: -3 * dir, yPercent: -2 },
-                  { scale: 1.0, xPercent: 3 * dir, yPercent: 2, duration: dur, ease: "sine.inOut" },
-                  start
-                );
-                if (scene.anim.cap) {
-                  tl.from(scene.anim.cap, { y: 34, opacity: 0, duration: 1.05, ease: "power3.out" }, start + 0.55);
-                }
-              } else if (scene.kind === "text") {
-                if (scene.anim.msg)
-                  tl.from(scene.anim.msg, { y: 30, opacity: 0, duration: 1.1, ease: "power3.out" }, start + 0.35);
-                if (scene.anim.from)
-                  tl.from(scene.anim.from, { y: 18, opacity: 0, duration: 0.9, ease: "power3.out" }, start + 0.75);
-              } else if (scene.kind === "title" || scene.kind === "closing") {
-                if (scene.anim.title)
-                  tl.from(scene.anim.title, { y: 42, opacity: 0, duration: 1.15, ease: "power3.out" }, start + 0.3);
-                if (scene.anim.rest)
-                  tl.from(
-                    scene.anim.rest.querySelectorAll(".kf-eyebrow, .kf-recipient, .kf-count, .kf-rule"),
-                    { y: 20, opacity: 0, duration: 0.9, ease: "power2.out", stagger: 0.12 },
-                    start + 0.55
-                  );
-              }
             }
 
-            t += dur;
+            // Cross-dissolve: in over XF centred on this scene's cut, out over
+            // XF centred on the next; hard-kill at the clip boundary.
+            if (i > 0) tl.fromTo(node, { opacity: 0 }, { opacity: 1, duration: XF, ease: "power1.inOut" }, start);
+            if (!last) {
+              tl.to(node, { opacity: 0, duration: XF, ease: "power1.inOut" }, end - XF);
+              tl.set(node, { opacity: 0 }, end);
+            }
+            if (i > 0) lightCut(cuts[i], i === 1 || last);
+
+            var a = scene.anim || {};
+            var c0 = cuts[i];
+            if (scene.kind === "title") {
+              // The beam: drops from the top, strikes on a beat, spreads into
+              // the flare, and the title rises out of the light.
+              var hit = beat ? beat * Math.max(1, Math.round(1.0 / beat)) : 1.0;
+              tl.fromTo(a.beam, { scaleY: 0, opacity: 0.2 }, { scaleY: 1, opacity: 1, duration: hit - 0.15, ease: "power3.in" }, 0.15);
+              tl.to(a.beam, { opacity: 0, duration: 0.9, ease: "power2.out" }, hit + 0.05);
+              tl.fromTo(a.flare, { scaleX: 0.02, opacity: 0 }, { scaleX: 1, opacity: 1, duration: 0.7, ease: "expo.out" }, hit);
+              tl.to(a.flare, { scaleX: 0.42, opacity: 0.85, duration: 1.6, ease: "power2.inOut" }, hit + 0.9);
+              tl.fromTo(flash, { opacity: 0 }, { opacity: 0.5, duration: 0.08, ease: "none", immediateRender: false }, hit - 0.04);
+              tl.to(flash, { opacity: 0, duration: 0.8, ease: "power2.out" }, hit + 0.04);
+              tl.fromTo(a.title, { opacity: 0, y: 26, scale: 1.06 }, { opacity: 1, y: 0, scale: 1, duration: 1.3, ease: "power3.out" }, hit + 0.06);
+              tl.fromTo(a.eyebrow, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.9, ease: "power2.out" }, hit + 0.3);
+              tl.fromTo(a.subs, { opacity: 0, y: -10 }, { opacity: 1, y: 0, duration: 0.9, ease: "power2.out", stagger: 0.14 }, hit + 0.5);
+              tl.to(a.title, { scale: 1.025, duration: Math.max(0.5, end - hit - 1.4), ease: "none" }, hit + 1.36);
+              moteDrift(a.motes, start, end);
+            } else if (scene.kind === "photo" && a.img) {
+              var mv = MOVES[ORDER[(a.n - 1) % ORDER.length]];
+              // Contain: px on the centred column. Cover: the same move as a
+              // percentage of the 112% bleed (46px ≈ 3%).
+              var kx = a.contain ? "x" : "xPercent";
+              var ky = a.contain ? "y" : "yPercent";
+              var k = a.contain ? 1 : 1 / 15;
+              var fromV = { scale: mv.from.scale };
+              var toV = { scale: mv.to.scale, duration: dur, ease: mv.ease };
+              fromV[kx] = mv.from.x * k;
+              fromV[ky] = mv.from.y * k;
+              toV[kx] = mv.to.x * k;
+              toV[ky] = mv.to.y * k;
+              tl.fromTo(a.img, fromV, toV, start);
+              if (a.cap) tl.from(a.cap, { y: 30, opacity: 0, duration: 1.0, ease: "power3.out" }, c0 + 0.45);
+            } else if (scene.kind === "text") {
+              if (a.msg) tl.from(a.msg, { y: 30, opacity: 0, duration: 1.1, ease: "power3.out" }, c0 + 0.3);
+              if (a.from) tl.from(a.from, { y: 18, opacity: 0, duration: 0.9, ease: "power3.out" }, c0 + 0.7);
+            } else if (scene.kind === "closing") {
+              tl.fromTo(a.flare, { scaleX: 0.02, opacity: 0 }, { scaleX: 0.55, opacity: 1, duration: 1.2, ease: "expo.out" }, c0 + 0.2);
+              var lead = a.parts.slice(0, isEventFilm ? 2 : 1);
+              var rest = a.parts.slice(lead.length);
+              tl.fromTo(lead, { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 1.0, ease: "power2.out", stagger: 0.22 }, c0 + 0.25);
+              tl.fromTo(a.title, { opacity: 0, y: 30, scale: 1.05 }, { opacity: 1, y: 0, scale: 1, duration: 1.4, ease: "power3.out" }, c0 + 0.55);
+              if (rest.length) tl.fromTo(rest, { opacity: 0, y: -8 }, { opacity: 1, y: 0, duration: 0.9, ease: "power2.out", stagger: 0.16 }, c0 + 1.0);
+              moteDrift(a.motes, start, end);
+            }
           });
 
-          // Pin the timeline's total length to the last scene's end so the render
-          // duration (root omits data-duration ⇒ derived from the timeline) is
-          // exactly the film length.
-          tl.set("#kf-bg", { opacity: 1 }, t);
+          // Grain: jump the tile to a new seeded offset 12 times a second.
+          var gr = mulberry32(0x2545f491);
+          for (var gt = 0; gt < T; gt += 1 / 12) {
+            tl.set(grain, { x: -Math.round(gr() * 200), y: -Math.round(gr() * 200) }, gt);
+          }
+
+          // Fade to the deep tone over the last moment (the worker's music
+          // fades out over the last 2s underneath).
+          tl.fromTo(fade, { opacity: 0 }, { opacity: 1, duration: 1.1, ease: "power1.in", immediateRender: false }, Math.max(0, T - 1.1));
+
+          // Pin the timeline's total length to the last scene's end so the
+          // render duration (root omits data-duration ⇒ derived from the
+          // timeline) is exactly the film length.
+          tl.set("#kf-bg", { opacity: 1 }, T);
         }
 
         /* ── Boot: build now, then adopt a LATE payload if one arrives ──────

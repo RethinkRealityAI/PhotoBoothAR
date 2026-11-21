@@ -15,8 +15,26 @@ import {
   keepsakeDueAt,
   pickFilmPhotos,
   workerAuthorized,
+  FILM_COPY_MAX,
+  FILM_DEFAULT_MUSIC,
+  FILM_DEFAULT_SIGN_OFF,
+  FILM_DEFAULT_THEME,
+  FILM_MUSIC_IDS,
+  FILM_THEME_IDS,
+  FILM_THEME_PALETTES,
+  filmChoice,
+  filmDateLine,
+  filmThemeColors,
   type FilmPost,
 } from '../../supabase/functions/send-keepsakes/autopilot.ts';
+import {
+  DEFAULT_KEEPSAKE_SETTINGS,
+  KEEPSAKE_COPY_MAX,
+  KEEPSAKE_MUSIC_IDS,
+  KEEPSAKE_THEMES,
+  KEEPSAKE_THEME_IDS,
+  normalizeKeepsakeSettings,
+} from './keepsakeSettings';
 
 const H = 60 * 60 * 1000;
 // Event date 2026-12-05, written as local midnight in Toronto (UTC-5).
@@ -186,5 +204,89 @@ describe('workerAuthorized', () => {
     expect(workerAuthorized(null, secret)).toBe(false);
     expect(workerAuthorized('', undefined)).toBe(false);
     expect(workerAuthorized('short', 'short')).toBe(false);
+  });
+});
+
+/* ── Drift: autopilot.ts mirrors src/lib/keepsakeSettings.ts ──────────────
+ * The edge fn cannot import src/, so it carries its own copy of the closed
+ * sets and palettes. These pin the copy to the source of truth. */
+describe('film choice mirrors keepsakeSettings', () => {
+  it('has the same theme and music ids', () => {
+    expect([...FILM_THEME_IDS].sort()).toEqual([...KEEPSAKE_THEME_IDS].sort());
+    expect([...FILM_MUSIC_IDS].sort()).toEqual([...KEEPSAKE_MUSIC_IDS].sort());
+  });
+
+  it('has the same palettes', () => {
+    for (const t of KEEPSAKE_THEMES) expect(FILM_THEME_PALETTES[t.id]).toEqual(t.palette);
+  });
+
+  it('has the same defaults and copy caps', () => {
+    expect(FILM_DEFAULT_THEME).toBe(DEFAULT_KEEPSAKE_SETTINGS.theme);
+    expect(FILM_DEFAULT_MUSIC).toBe(DEFAULT_KEEPSAKE_SETTINGS.music);
+    expect(FILM_DEFAULT_SIGN_OFF).toBe(DEFAULT_KEEPSAKE_SETTINGS.copy.signOff);
+    expect(FILM_COPY_MAX.signOff).toBe(KEEPSAKE_COPY_MAX.signOff);
+    expect(FILM_COPY_MAX.hostName).toBe(KEEPSAKE_COPY_MAX.hostName);
+  });
+
+  it('normalises exactly like normalizeKeepsakeSettings', () => {
+    const inputs: unknown[] = [
+      undefined,
+      null,
+      'junk',
+      {},
+      { theme: 'ivory', music: 'none' },
+      { theme: 'confetti', music: 'nightlife' },
+      { theme: 'neon', music: 'polka' },
+      { theme: 7, music: ['glow'] },
+    ];
+    for (const raw of inputs) {
+      const s = normalizeKeepsakeSettings(raw);
+      expect(filmChoice(raw)).toEqual({ theme: s.theme, music: s.music });
+    }
+  });
+});
+
+describe('buildEventFilmPayload with keepsake settings', () => {
+  const base = { eventName: 'Ade & Tunji', accent: '#E8C766', photos: [post(1)], totalPhotos: 12 };
+
+  it('themes the film from the host theme and carries theme + music for the worker', () => {
+    const p = buildEventFilmPayload({
+      ...base,
+      keepsake: { settings: { theme: 'golden-hour', music: 'elegance', copy: { signOff: 'Love always,', hostName: 'Ade' } }, startsAt: DATE },
+    });
+    expect(p.keepsake).toEqual({ theme: 'golden-hour', music: 'elegance' });
+    expect(p.card.theme).toEqual(filmThemeColors('golden-hour'));
+    expect(p.card.theme.bg).toBe('#1a0f07');
+    expect(p.card.theme.fg).toBe('#fff4e3');
+    expect(p.card.signOff).toBe('Love always,');
+    expect(p.card.hostName).toBe('Ade');
+    expect(p.card.dateLine).toBe('Saturday, 5 December 2026');
+  });
+
+  it('falls back to beamwall + glow, the default sign-off and the event name as signer', () => {
+    const p = buildEventFilmPayload({ ...base, keepsake: { settings: null, startsAt: null } });
+    expect(p.keepsake).toEqual({ theme: 'beamwall', music: 'glow' });
+    expect(p.card.theme).toEqual(filmThemeColors('beamwall'));
+    expect(p.card.signOff).toBe('With love,');
+    expect(p.card.hostName).toBe('Ade & Tunji');
+    expect(p.card.dateLine).toBeNull();
+  });
+
+  it('leaves the pre-theme payload untouched when no settings are passed', () => {
+    const p = buildEventFilmPayload(base);
+    expect(p.keepsake).toBeUndefined();
+    expect('dateLine' in p.card).toBe(false);
+    expect(p.card.theme).toEqual({ accent: '#E8C766' });
+  });
+});
+
+describe('filmDateLine', () => {
+  it('recovers the local event day for zones either side of UTC', () => {
+    // Local midnight 5 Dec in Lagos (UTC+1) is 4 Dec 23:00Z.
+    expect(filmDateLine('2026-12-04T23:00:00.000Z')).toBe('Saturday, 5 December 2026');
+    // Local midnight 5 Dec in Los Angeles (UTC-8) is 5 Dec 08:00Z.
+    expect(filmDateLine('2026-12-05T08:00:00.000Z')).toBe('Saturday, 5 December 2026');
+    expect(filmDateLine('nope')).toBeNull();
+    expect(filmDateLine(null)).toBeNull();
   });
 });

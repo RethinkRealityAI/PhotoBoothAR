@@ -6,7 +6,9 @@ import {
   asSendError,
   normalizeSendResult,
   sendErrorResult,
+  mergeKeepsakeSettings,
 } from './keepsakeContacts';
+import { normalizeKeepsakeSettings } from './keepsakeSettings';
 
 describe('normalizeKeepsakeEmail', () => {
   it('trims a good address', () => {
@@ -165,5 +167,40 @@ describe('sendErrorResult', () => {
       expect(r.sent).toBe(0);
       expect(r.error).toBe(e);
     });
+  });
+});
+
+describe('mergeKeepsakeSettings', () => {
+  const next = normalizeKeepsakeSettings({ theme: 'ivory', music: 'none', autoSend: false });
+
+  it('writes every known key from the editor', () => {
+    const out = mergeKeepsakeSettings({ theme: 'confetti', autoSend: true }, next);
+    expect(out.theme).toBe('ivory');
+    expect(out.music).toBe('none');
+    expect(out.autoSend).toBe(false);
+    expect(out.downloads).toEqual(next.downloads);
+    expect(out.copy).toEqual(next.copy);
+  });
+
+  it('keeps unknown keys at the top level and inside downloads/copy', () => {
+    const out = mergeKeepsakeSettings(
+      { filmJobId: 'job-1', downloads: { gif: true }, copy: { footer: 'x' } },
+      next,
+    );
+    expect(out.filmJobId).toBe('job-1');
+    expect((out.downloads as Record<string, unknown>).gif).toBe(true);
+    expect((out.copy as Record<string, unknown>).footer).toBe('x');
+  });
+
+  it('treats a missing or junk stored value as empty', () => {
+    for (const junk of [undefined, null, 'x', 4, ['a']]) {
+      const out = mergeKeepsakeSettings(junk, next);
+      expect(out.theme).toBe('ivory');
+      expect(Object.keys(out).sort()).toEqual(['autoSend', 'beamy', 'copy', 'downloads', 'music', 'theme']);
+    }
+  });
+
+  it('round-trips through the normaliser unchanged', () => {
+    expect(normalizeKeepsakeSettings(mergeKeepsakeSettings({ extra: 1 }, next))).toEqual(next);
   });
 });

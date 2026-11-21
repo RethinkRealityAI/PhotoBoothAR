@@ -138,6 +138,91 @@ export function pickFilmPhotos(posts: FilmPost[], max = FILM_MAX_PHOTOS): FilmPo
   return out;
 }
 
+/* ── The host's film choices (events.config.keepsakes) ─────────────────────
+ * MIRRORS of src/lib/keepsakeSettings.ts — this file is deployed alone with
+ * index.ts and cannot import src/. src/lib/keepsakeAutopilot.test.ts pins the
+ * ids, palettes, defaults and copy caps to that file, so a theme or track added
+ * there without being added here goes red. The film worker imports THIS
+ * normaliser too (scripts/keepsake-worker.mjs), so the edge fn and the worker
+ * can never disagree on what an id means.
+ */
+export const FILM_THEME_IDS = ['beamwall', 'golden-hour', 'midnight-bloom', 'confetti', 'ivory'] as const;
+export type FilmThemeId = (typeof FILM_THEME_IDS)[number];
+export const FILM_MUSIC_IDS = ['glow', 'celebrate', 'elegance', 'tender', 'nightlife', 'none'] as const;
+export type FilmMusicId = (typeof FILM_MUSIC_IDS)[number];
+
+export interface FilmPalette {
+  background: string;
+  surface: string;
+  ink: string;
+  muted: string;
+  accent: string;
+  glow: string;
+}
+
+export const FILM_THEME_PALETTES: Record<FilmThemeId, FilmPalette> = {
+  beamwall: { background: '#07060f', surface: '#141127', ink: '#f5f3ff', muted: '#a9a3c9', accent: '#8b7dff', glow: '#ffb54d' },
+  'golden-hour': { background: '#1a0f07', surface: '#2a1a0d', ink: '#fff4e3', muted: '#d6b994', accent: '#f2b356', glow: '#ff8a3d' },
+  'midnight-bloom': { background: '#060b1a', surface: '#0f1a33', ink: '#eef3ff', muted: '#9fb0d6', accent: '#ff7eb6', glow: '#7ec8ff' },
+  confetti: { background: '#120a24', surface: '#1f1238', ink: '#ffffff', muted: '#c9bde8', accent: '#ffd23f', glow: '#ff5fa2' },
+  ivory: { background: '#f7f3ec', surface: '#ffffff', ink: '#1d1a15', muted: '#6f675b', accent: '#b08a4a', glow: '#e8d3a8' },
+};
+
+export const FILM_DEFAULT_THEME: FilmThemeId = 'beamwall';
+export const FILM_DEFAULT_MUSIC: FilmMusicId = 'glow';
+export const FILM_DEFAULT_SIGN_OFF = 'With love,';
+export const FILM_COPY_MAX = { signOff: 40, hostName: 60 } as const;
+
+export interface FilmChoice {
+  theme: FilmThemeId;
+  music: FilmMusicId;
+}
+
+function oneOf<T extends string>(set: readonly T[], v: unknown): v is T {
+  return typeof v === 'string' && (set as readonly string[]).includes(v);
+}
+
+/** `{ theme, music }` from `config.keepsakes` (or from a payload's `keepsake`
+ *  block). TOTAL: absent, unknown or junk → beamwall + glow. */
+export function filmChoice(keepsakes: unknown): FilmChoice {
+  const k = keepsakes !== null && typeof keepsakes === 'object' ? (keepsakes as Record<string, unknown>) : {};
+  return {
+    theme: oneOf(FILM_THEME_IDS, k.theme) ? k.theme : FILM_DEFAULT_THEME,
+    music: oneOf(FILM_MUSIC_IDS, k.music) ? k.music : FILM_DEFAULT_MUSIC,
+  };
+}
+
+/** The composition's colour keys for a theme (it reads bg/fg/accent first). */
+export function filmThemeColors(theme: FilmThemeId): Record<string, string> {
+  const p = FILM_THEME_PALETTES[theme] ?? FILM_THEME_PALETTES[FILM_DEFAULT_THEME];
+  return { bg: p.background, surface: p.surface, fg: p.ink, muted: p.muted, accent: p.accent, glow: p.glow };
+}
+
+/** Same cleaning as keepsakeSettings' cleanText: control chars out, one line, capped. */
+function filmText(v: unknown, max: number, fallback: string): string {
+  if (typeof v !== 'string') return fallback;
+  const t = v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (t === '') return fallback;
+  return t.length > max ? t.slice(0, max) : t;
+}
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * "Saturday, 5 December 2026" from `starts_at`, or null. `starts_at` is the
+ * event day's LOCAL midnight; +12h then the UTC calendar day recovers that day
+ * for every offset from UTC-12 to UTC+12 without knowing the host's zone.
+ * Formatted by hand, not Intl, so the film text never depends on the runner.
+ */
+export function filmDateLine(startsAt: string | null): string | null {
+  if (startsAt === null) return null;
+  const t = Date.parse(startsAt);
+  if (!Number.isFinite(t)) return null;
+  const d = new Date(t + 12 * 60 * 60 * 1000);
+  return `${WEEKDAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 /** Same shape card-render hands the keepsake-film composition. */
 export interface EventFilmPayload {
   card: {
@@ -149,7 +234,14 @@ export interface EventFilmPayload {
     countLabel: string;
     closingEyebrow: string;
     closingTitle: string;
+    /** Present when the host's keepsake settings were passed (see below). */
+    dateLine?: string | null;
+    signOff?: string;
+    hostName?: string;
   };
+  /** The host's theme + music. An older worker ignores it; a newer worker
+   *  reading a payload without it falls back to beamwall + glow. */
+  keepsake?: FilmChoice;
   contributions: Array<{
     contributorName: string | null;
     message: string | null;
@@ -175,10 +267,29 @@ export function buildEventFilmPayload(opts: {
   accent: string | null;
   photos: FilmPost[];
   totalPhotos: number;
+  /** `events.config.keepsakes` + `starts_at`. Absent = the pre-theme payload
+   *  (event accent only), byte-for-byte what older callers produced. */
+  keepsake?: { settings: unknown; startsAt: string | null };
 }): EventFilmPayload {
-  const theme: Record<string, string> = {};
+  let theme: Record<string, string> = {};
   if (opts.accent !== null && HEX_RE.test(opts.accent)) theme.accent = opts.accent;
   const n = opts.totalPhotos;
+  let extra: Pick<EventFilmPayload['card'], 'dateLine' | 'signOff' | 'hostName'> = {};
+  let keepsake: FilmChoice | undefined;
+  if (opts.keepsake) {
+    keepsake = filmChoice(opts.keepsake.settings);
+    // The host's theme wins over the event accent: they picked it for the film.
+    theme = filmThemeColors(keepsake.theme);
+    const s = opts.keepsake.settings;
+    const copy = s !== null && typeof s === 'object' ? (s as { copy?: unknown }).copy : null;
+    const c = copy !== null && typeof copy === 'object' ? (copy as Record<string, unknown>) : {};
+    extra = {
+      dateLine: filmDateLine(opts.keepsake.startsAt),
+      signOff: filmText(c.signOff, FILM_COPY_MAX.signOff, FILM_DEFAULT_SIGN_OFF),
+      // Empty host name → the event signs it (the brief's rule for the film).
+      hostName: filmText(c.hostName, FILM_COPY_MAX.hostName, '') || opts.eventName,
+    };
+  }
   return {
     card: {
       title: opts.eventName,
@@ -189,7 +300,9 @@ export function buildEventFilmPayload(opts: {
       countLabel: `${n} ${n === 1 ? 'photo' : 'photos'} from the booth`,
       closingEyebrow: 'Thank you for coming',
       closingTitle: opts.eventName,
+      ...extra,
     },
+    ...(keepsake ? { keepsake } : {}),
     contributions: opts.photos.map((p) => ({
       contributorName: clip(p.guest_name, 40),
       message: clip(p.message, 140),

@@ -718,3 +718,44 @@ re-encoded → file size sane (<2MB for landing embeds) → embedded/committed �
   6. Match the face to the copy: `cards-r1c1.jpg` (woman with cake) reads ~60,
      so the card says "Happy 60th" — a "40th" over that photo looked wrong in
      the first contact sheet.
+
+- 2026-11-21: **Keepsake film went cinematic + got a self-generated music
+  library** (`hyperframes/keepsake-film/`, `scripts/generate-keepsake-music.mjs`,
+  `public/keepsake-music/`). Findings:
+  1. **Self-generated music is the licence-clean answer and it is cheap**: a
+     ~500-line plain-Node synth (PolyBLEP detuned saws through cascaded
+     one-pole lowpasses, Karplus-Strong plucks, additive inharmonic "felt
+     piano", sine bass, noise percussion, ping-pong delay, Freeverb-style
+     comb+allpass reverb, seeded mulberry32) renders five ~48 s tracks in ~40 s
+     total, deterministic. Master = JS soft-clip → float WAV → two-pass
+     `loudnorm` (linear mode was reachable for all five) → libmp3lame 128k:
+     -16.45 LUFS, -2 to -5.5 dBTP, 748–790 KB each.
+  2. **Listen-proxy that caught a real mix fault**: band means via
+     `-af lowpass=150,volumedetect` / `highpass=200,lowpass=2500` /
+     `highpass=3000`. First pass had bass LOUDER than mids (-22 vs -24 dB) and
+     highs at -45..-56 dB (dull on phone speakers). Bass/kick -5 dB plus a
+     master high tilt (`x + k·(x − lp3k(x))`) fixed it. `showspectrumpic`
+     (log freq) makes the same fault obvious at a glance.
+  3. **Beat-cut timing needs the beat grid at t=0** — the generator starts
+     bar 1 beat 1 on the first sample and records `beatOriginSec: 0` in
+     `tracks.json`; the composition snaps every scene length to whole beats
+     (even beats when beat < 0.6 s) so cuts land on beats with zero audio
+     analysis.
+  4. **Node 22.18+ imports a pure Deno sibling `.ts` directly** (type
+     stripping, no warning on 22.23) — the worker imports
+     `send-keepsakes/autopilot.ts` so the edge fn and the worker share ONE
+     normaliser; only the src/ ↔ Deno mirror needs a drift test.
+  5. Render cost: grain (seeded canvas tile, `tl.set` jumps 12×/s, normal
+     blend at 0.11), screen-blended leak/streak gradients (no CSS blur), motes
+     and crossfades took the 6-photo event film from 411 s → ~485 s render
+     locally (≈1.18×). Rendered duration matched the GSAP pin EXACTLY (40.00 s)
+     — the +1.6 s overrun did not occur. Grain + motion raised video bitrate
+     ~250 → 290 kb/s; AAC 128k adds ~650 KB.
+  6. Old `@ffmpeg-installer` (2018) handles the music mix fine:
+     `-stream_loop -1 -i track` + `atrim,afade in/out,loudnorm,aresample=44100`
+     + native `aac` — only `apad=whole_dur` (HyperFrames' own mixer) is too new
+     for it. `loudnorm` outputs 192 kHz: always `aresample` after it.
+  7. `hyperframes lint` reads runtime-computed tween positions as 0 →
+     `overlapping_gsap_tweens` warnings on reused overlay layers (leak/streak/
+     flash) are false positives when every reuse is `immediateRender:false` in
+     non-overlapping windows.

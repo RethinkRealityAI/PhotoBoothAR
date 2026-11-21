@@ -226,7 +226,12 @@ export function fillKeepsakeCopy(template: string, ctx: KeepsakeCopyContext, hos
     when: whenPhrase(ctx.eventDate, ctx.now),
     host,
   };
-  const out = template.replace(/\{(event|photos|guests|when|host)\}/g, (_, k: string) => values[k]);
+  // "{when}{event}" with an event named "The Okafor Gala" must read
+  // "Yesterday's Okafor Gala", not "Yesterday's The Okafor Gala".
+  const eventAfterWhen = values.event.replace(/^the\s+/i, '');
+  const out = template
+    .replace(/\{when\}\{event\}/g, () => (values.when === '' ? values.event : values.when + eventAfterWhen))
+    .replace(/\{(event|photos|guests|when|host)\}/g, (_, k: string) => values[k]);
   // "{when}" is possessive-with-space, so a headline that starts with it should
   // still start with a capital whether {when} filled or not.
   return out.length > 0 ? out[0].toUpperCase() + out.slice(1) : out;

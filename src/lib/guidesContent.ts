@@ -1150,8 +1150,19 @@ const RUN_THE_NIGHT: GuideDoc = {
         'The album is a public page holding every photo from the night, plus a collage each guest can build and save on their own phone — mosaic, filmstrip or scattered prints, their pick. Their own shots go in first and never get cut.',
         'It has its own QR card in Share & Print, next to the booth and wall ones. That code is the one worth putting in a thank-you message, because unlike the others it keeps working after you end the event — the thank-you screen a late scanner gets now links straight to it.',
         'Getting it into inboxes takes no presses at all. Guests are offered a "Send me the album" box in the booth after they send their first photo — nobody has to fill it in, and nobody is asked twice. The morning after your event (around 10 AM the day after your event date, or 12 hours after you hit End), everyone who left an address gets one email, with an unsubscribe link at the bottom. Nobody else is contacted.',
-        'On a paid plan that email opens with a short film of the night, made automatically from the booth photos, and the same film plays at the top of the album page. Want it out sooner, or not at all? Share & Print has a Send automatically switch, and once you have hit End a Send keepsakes now button does it on the spot. Guests who already got it are never sent it twice.',
+        'On a paid plan that email opens with a short film of the night, made automatically from the booth photos, and the same film plays at the top of the album page. Want it out sooner, or not at all? Design your keepsake in Share & Print has an Email it the next day switch, and once you have hit End a Send keepsakes now button does it on the spot. Guests who already got it are never sent it twice.',
         'Send yourself a preview first if you want to see exactly what lands. That button works at any stage, including before the doors open, and it touches nothing but your own inbox.',
+      ],
+    },
+    {
+      kind: 'prose',
+      title: 'Make the album yours',
+      body: [
+        'Open Share & Print and scroll to Design your keepsake. Everything there changes what guests see on the album page and in the film, and nothing changes for them until you press Save — so try things freely, and Reset to defaults puts the look and the words back if you change your mind.',
+        'Pick a theme first. Each one sets the colours and the moment the album opens with: Beamwall (the default, a beam of light sweeping the photos in), Golden hour (warm amber, the photos revealed like a curtain), Midnight bloom (inky blue with drifting petals), Confetti (bright, with a burst of confetti) and Ivory (light and classic, with a gentle fade).',
+        'Beamy, our little crystal mascot, can greet your guests at the top of the album. Write the headline, a short message, a sign-off and the name it is signed by — we fill that in with your organisation’s name to start you off. Tap Event name, Photo count, Guest count, Day or Host to drop in a detail that fills itself in, and the live preview beside the fields shows exactly how it reads. Rather the photos spoke for themselves? Switch Beamy off.',
+        'Downloads decides what guests can take home: the Film, a Collage they build themselves (filmstrip, mosaic or scattered prints) and the Photos. At least one always stays on, because an album with nothing to save is not much of a keepsake. The film comes with paid plans; on Free the switch is kept for when you upgrade.',
+        'Last, the music under the film. Play any track before you choose it: Afterglow (warm and cinematic), Raise a Glass (bright and upbeat), Black Tie (piano and strings), Keep This (soft and sentimental) and Late Set (deep and shimmering for after-parties), or No music. Every track is made by Beamwall and free to use, with no licence fee and no credit to give.',
       ],
     },
     {

@@ -28,16 +28,26 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Link, useParams } from 'react-router-dom';
 import { useReducedMotion } from 'motion/react';
 import gsap from 'gsap';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Check, Share2 } from 'lucide-react';
 import type { Post } from '../../types';
 import { loadEventConfig, type EventLoad, type RuntimeEvent } from '../../events/runtime';
 import { fetchEventFilm, fetchPostsResult } from '../../lib/db';
 import { getSavedPhotos } from '../../lib/session';
-import { recapAccess, recapCountLine, recapCounts } from '../../lib/eventRecap';
+import { recapAccess, recapCountLine, recapCounts, stillPhotos } from '../../lib/eventRecap';
+import { keepsakeTheme, normalizeKeepsakeSettings } from '../../lib/keepsakeSettings';
+import { introSeenKey, recapEyebrow, recapGreeting, recapThemeVars, takeHomeChoices } from '../../lib/recapKeepsake';
+import { copyText } from '../../lib/clipboard';
 import FetchFailed from '../../components/ui/FetchFailed';
 import RecapHero from './RecapHero';
 import RecapAlbum from './RecapAlbum';
-import RecapCollageCard from './RecapCollageCard';
+import RecapIntro from './RecapIntro';
+import RecapBeamyCard from './RecapBeamyCard';
+import RecapTakeHome from './RecapTakeHome';
+import RecapReplay from './RecapReplay';
+import { K_BODY, K_SECONDARY } from './recapStyles';
+
+/** The replay needs a few moments to be worth watching. */
+const REPLAY_MIN_POSTS = 3;
 
 /** Same bound, same reason, as EVENT_LOAD_DEADLINE_MS in EventContext. */
 const RECAP_LOAD_DEADLINE_MS = 10_000;
@@ -227,27 +237,74 @@ export default function EventRecap() {
   const ownPhotos = useMemo(() => posts.filter((p) => savedIds.has(p.id)), [posts, savedIds]);
   const counts = useMemo(() => recapCounts(posts), [posts]);
 
+  // The host's keepsake look. TOTAL: a missing, junk or newer-build config
+  // renders exactly the Beamwall defaults, because the link is already mailed.
+  const settings = useMemo(() => normalizeKeepsakeSettings(ready?.event.keepsakes), [ready]);
+  const theme = keepsakeTheme(settings.theme);
+  const themeVars = useMemo(() => recapThemeVars(theme), [theme]);
+
+  // The opening moment: once per visit, never under reduced motion. Decided in
+  // a LAYOUT effect so the album never flashes before the overlay covers it.
+  // 'lifting' = the overlay is fading off: the hero and the section reveals
+  // start then, so the page arrives as the intro leaves instead of after it.
+  const [intro, setIntro] = useState<'pending' | 'play' | 'lifting' | 'done'>('pending');
+  useLayoutEffect(() => {
+    if (readyEventId === null) return;
+    let seen = false;
+    try {
+      const key = introSeenKey(readyEventId);
+      seen = window.sessionStorage.getItem(key) === '1';
+      window.sessionStorage.setItem(key, '1');
+    } catch {
+      // Private mode / blocked storage: play it, every time — harmless.
+    }
+    const reduced = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setIntro(seen || reduced || reducedMotion ? 'done' : 'play');
+    // Decided once per album; a later preference flip must not replay it.
+  }, [readyEventId]);
+  const liftIntro = useCallback(() => setIntro((s) => (s === 'play' ? 'lifting' : s)), []);
+  const endIntro = useCallback(() => setIntro('done'), []);
+  const introLifted = intro === 'lifting' || intro === 'done';
+
+  const [shared, setShared] = useState(false);
+  const share = useCallback(async () => {
+    const url = window.location.href.split('#')[0];
+    const title = ready?.event.config.copy.fullName ?? 'Event album';
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title, text: `The album from ${title}`, url });
+      } catch {
+        // Cancelled — say nothing.
+      }
+      return;
+    }
+    if (await copyText(url)) {
+      setShared(true);
+      setTimeout(() => setShared(false), 2200);
+    }
+  }, [ready]);
+
   // Section reveals, observed against this page's own scroll container — the
   // app shell is overflow-hidden, so the window never scrolls.
   useLayoutEffect(() => {
-    if (ready === null) return;
+    if (ready === null || !introLifted) return;
     const scroller = scrollRef.current;
     const content = contentRef.current;
     if (scroller === null || content === null) return;
     return installReveals(content, scroller, reducedMotion);
-  }, [ready, reducedMotion]);
+  }, [ready, reducedMotion, introLifted]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   // The keepsake email links to /r/<slug>#film. The block only exists once
   // the async read lands — after the browser has already looked for the
   // anchor — so the jump is made here.
-  const filmRef = useRef<HTMLElement>(null);
   const hasFilm = ready?.film != null;
   useEffect(() => {
-    if (!hasFilm || window.location.hash !== '#film') return;
-    filmRef.current?.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
-  }, [hasFilm, reducedMotion]);
+    if (!hasFilm || intro !== 'done' || window.location.hash !== '#film') return;
+    document.getElementById('film')?.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
+  }, [hasFilm, intro, reducedMotion]);
 
   if (state.phase === 'loading') {
     return <CenterScreen eyebrow="Event album" title="Opening the album…" />;
@@ -285,65 +342,89 @@ export default function EventRecap() {
   }
 
   const { event } = state;
-  const { copy, accentHexes } = event.config;
+  const { copy } = event.config;
+  const countLine = recapCountLine(counts);
+  const eyebrow = recapEyebrow(copy.eyebrow, copy.fullName, event.startsAt);
+  const greeting = recapGreeting(settings, {
+    eventName: copy.fullName,
+    photos: counts.moments,
+    guests: counts.guests,
+    eventDate: event.startsAt ?? null,
+    now: Date.now(),
+    // Org names are not readable anonymously; the host's own signature wins.
+    orgName: '',
+  });
+  const stills = stillPhotos(posts).length;
+  const choices = state.postsFailed
+    ? (state.film !== null && settings.downloads.film ? (['film'] as const) : [])
+    : takeHomeChoices(settings.downloads, { film: state.film !== null, stills, moments: posts.length });
 
   return (
     <div
       ref={scrollRef}
-      className="absolute inset-0 overflow-y-auto overflow-x-hidden app-bg hide-scrollbar"
+      data-keepsake-theme={theme.id}
+      className="absolute inset-0 overflow-y-auto overflow-x-hidden hide-scrollbar text-[color:var(--k-ink)]"
+      style={{ ...(themeVars as React.CSSProperties), background: 'var(--k-bg)' }}
     >
-      {/* A soft wash in the event's own colour. The page chrome stays on the
-          platform tokens — contrast there is tested and an event's palette is
-          not — but the album is allowed to feel like the party it came from. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-0"
-        style={{
-          background: `radial-gradient(95% 55% at 50% 0%, ${hexWash(accentHexes[0])} 0%, transparent 62%)`,
-        }}
-      />
+      {/* The theme's light: an accent bloom from the top, the glow colour low
+          on the page, and one faint diagonal beam — Beamwall's signature. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 z-0">
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(90% 55% at 50% -5%, rgba(var(--k-accent-rgb),0.28) 0%, transparent 62%), radial-gradient(70% 45% at 85% 105%, rgba(var(--k-glow-rgb),0.16) 0%, transparent 70%)',
+          }}
+        />
+        <div
+          className="absolute -top-1/3 left-[58%] h-[160%] w-40 -rotate-[18deg] opacity-40 blur-3xl"
+          style={{ background: 'linear-gradient(90deg, transparent, rgba(var(--k-accent-rgb),0.35), rgba(var(--k-glow-rgb),0.25), transparent)' }}
+        />
+      </div>
+
+      {(intro === 'play' || intro === 'lifting') && (
+        <RecapIntro
+          kind={theme.intro}
+          eyebrow={eyebrow}
+          title={copy.fullName}
+          photos={posts}
+          onLift={liftIntro}
+          onDone={endIntro}
+        />
+      )}
 
       <div
         ref={contentRef}
-        className="relative z-10 mx-auto flex w-full max-w-5xl flex-col gap-12 px-5 pt-10 pb-16 sm:px-8"
+        className="relative z-10 mx-auto flex w-full max-w-5xl flex-col gap-14 px-4 pt-10 pb-16 sm:gap-20 sm:px-8"
       >
         <RecapHero
-          eyebrow={copy.eyebrow}
+          eyebrow={eyebrow}
           title={copy.fullName}
-          countLine={recapCountLine(counts)}
+          countLine={countLine}
           photos={posts}
           reducedMotion={reducedMotion}
+          play={introLifted}
+          actions={
+            <button type="button" onClick={() => void share()} className={K_SECONDARY}>
+              {shared ? <Check className="h-4 w-4" aria-hidden /> : <Share2 className="h-4 w-4" aria-hidden />}
+              {shared ? 'Link copied' : 'Share the album'}
+            </button>
+          }
         />
 
-        {state.film !== null && (
-          <section
-            ref={filmRef}
-            id="film"
-            data-reveal
-            aria-labelledby="recap-film-title"
-            className="scroll-mt-6 flex flex-col gap-3"
-          >
-            <h2 id="recap-film-title" className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
-              Your film of the night
-            </h2>
-            <video
-              src={state.film.filmUrl}
-              poster={state.film.posterUrl}
-              controls
-              playsInline
-              preload="metadata"
-              className="w-full rounded-2xl border border-white/10 bg-black aspect-video"
-            />
-            <a
-              // Cross-origin, so the `download` attribute alone is ignored;
-              // Storage's ?download= sets the attachment header instead.
-              href={`${state.film.filmUrl}?download=${encodeURIComponent(`${copy.filePrefix}-film.mp4`)}`}
-              download
-              className="self-start inline-flex min-h-11 items-center gap-2 rounded-full glass px-5 font-label uppercase tracking-luxe text-[10px] text-brand-muted/80 transition-colors hover:text-accent"
-            >
-              Save the film
-            </a>
-          </section>
+        {settings.beamy && <RecapBeamyCard greeting={greeting} />}
+
+        {choices.length > 0 && (
+          <RecapTakeHome
+            choices={choices}
+            film={state.film}
+            photos={posts}
+            ownIds={savedIds}
+            title={copy.fullName}
+            subtitle={countLine}
+            palette={[theme.palette.accent, theme.palette.glow]}
+            filePrefix={copy.filePrefix}
+          />
         )}
 
         {state.postsFailed ? (
@@ -351,52 +432,37 @@ export default function EventRecap() {
             <FetchFailed what="the album" onRetry={retry} />
           </div>
         ) : posts.length === 0 ? (
-          <p data-reveal className="text-center font-sans text-sm leading-relaxed text-brand-muted/60">
+          <p data-reveal className={`text-center ${K_BODY}`}>
             No photos made it to the wall at this one. If you were there and took some on the booth,
             they are still saved on the device you took them with.
           </p>
         ) : (
           <>
-            <div data-reveal>
-              <RecapCollageCard
-                photos={posts}
-                ownIds={savedIds}
-                title={copy.fullName}
-                subtitle={recapCountLine(counts)}
-                accentHexes={accentHexes}
-                filePrefix={copy.filePrefix}
-              />
-            </div>
+            {posts.length >= REPLAY_MIN_POSTS && <RecapReplay posts={posts} reducedMotion={reducedMotion} />}
             <RecapAlbum photos={posts} ownPhotos={ownPhotos} filePrefix={copy.filePrefix} />
           </>
         )}
 
-        <footer data-reveal className="mt-4 flex flex-col items-center gap-4 border-t border-white/8 pt-8 text-center">
-          <p className="font-sans text-xs leading-relaxed text-brand-muted/50">
-            This album was made with Beamwall — an AR photo booth and live wall for events.
+        <footer data-reveal className="mt-2 flex flex-col items-center gap-5 border-t border-[color:var(--k-line)] pt-10 text-center">
+          <p className="flex items-center gap-2 font-label uppercase tracking-luxe text-[10px] text-[color:var(--k-muted)]">
+            <span aria-hidden className="h-px w-6 bg-[color:var(--k-accent)]" />
+            Made with Beamwall
+            <span aria-hidden className="h-px w-6 bg-[color:var(--k-accent)]" />
           </p>
-          <Link
-            to="/"
-            className="inline-flex min-h-11 items-center gap-2 rounded-full glass px-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/80 transition-colors hover:text-accent"
-          >
-            Make your own event <ArrowRight className="w-3.5 h-3.5" aria-hidden />
-          </Link>
+          <p className={`max-w-sm ${K_BODY}`}>
+            The AR photo booth and live wall that turned last night into this album.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button type="button" onClick={() => void share()} className={K_SECONDARY}>
+              {shared ? <Check className="h-4 w-4" aria-hidden /> : <Share2 className="h-4 w-4" aria-hidden />}
+              {shared ? 'Link copied' : 'Share'}
+            </button>
+            <Link to="/" className={K_SECONDARY}>
+              Make your own event <ArrowRight className="w-3.5 h-3.5" aria-hidden />
+            </Link>
+          </div>
         </footer>
       </div>
     </div>
   );
-}
-
-/**
- * An event accent as a faint wash, without dragging a colour library in.
- * Unparseable values (or none) fall back to the platform accent, so a broken
- * `accentHexes` costs a tint, never the page.
- */
-function hexWash(hex: string | undefined): string {
-  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((hex ?? '').trim());
-  if (m === null) return 'rgba(var(--accent-rgb), 0.10)';
-  let s = m[1];
-  if (s.length === 3) s = s.split('').map((c) => c + c).join('');
-  const n = parseInt(s, 16);
-  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, 0.13)`;
 }
