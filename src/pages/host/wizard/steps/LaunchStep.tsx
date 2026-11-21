@@ -103,7 +103,7 @@ export default function LaunchStep() {
     <>
       {/* Wide screens: checklist · share card · phone, side by side, so the
           whole launch fits one screen. Narrower: the cards stack. */}
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-5 xl:gap-6 items-start xl:items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-5 xl:gap-6 items-start xl:items-stretch">
         <div className="contents lg:flex lg:flex-col lg:gap-5 lg:min-w-0 xl:contents">
           <section className="liquid-glass rounded-[28px] p-3 sm:p-4 wz-enter flex flex-col" aria-label="Your setup">
             <div className="px-2 pt-1"><StepHeading step="launch" /></div>
@@ -163,11 +163,13 @@ export default function LaunchStep() {
           <div className="wz-phone w-[270px]">
             <div className="wz-phone-screen bg-[#1F1A63]">
               {/* Laid out at a real phone width (390px) and scaled down, so the page
-                  wraps exactly as it will on a guest's phone. */}
+                  wraps exactly as it will on a guest's phone. ?preview=1 (in a
+                  frame only) hides the floating "Preview" pill, which sat over
+                  the event title; this card already says whether it is live. */}
               <iframe
                 key={frameKey}
                 title="Your welcome page"
-                src={`/e/${ev.slug}/welcome`}
+                src={`/e/${ev.slug}/welcome?preview=1`}
                 className="absolute left-0 top-0 border-0 origin-top-left"
                 style={{ width: 390, height: 870, transform: `scale(${256 / 390})` }}
               />

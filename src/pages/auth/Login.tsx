@@ -6,9 +6,10 @@
  * accent-gradient "Beamwall" wordmark) — this is the platform, not an event.
  */
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { signInWithEmail, signInWithGoogle, resendConfirmation } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
+import { safeReturnPath } from '../../lib/authRedirect';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -18,6 +19,9 @@ const inputClass =
 export default function Login() {
   usePageTitle('Sign in — Beamwall');
   const navigate = useNavigate();
+  // A signed-out deep link (a setup step, billing) bounced here with its path
+  // in router state; go back there, not to the dashboard.
+  const returnTo = safeReturnPath((useLocation().state as { from?: unknown } | null)?.from);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +52,7 @@ export default function Login() {
         }
         return;
       }
-      navigate('/host');
+      navigate(returnTo, { replace: true });
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {

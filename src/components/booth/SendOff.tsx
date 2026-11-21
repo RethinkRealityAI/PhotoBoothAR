@@ -457,7 +457,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                 {pendingApproval
                   ? `Your ${isVideo ? 'video' : 'photo'} was sent to the hosts for review — it joins the live wall once approved.`
                   : `Your ${isVideo ? 'video' : 'photo'} is on its way to the live wall.`}
-                {copy.thankYou}
+                {copy.thankYou ? ` ${copy.thankYou}` : null}
               </motion.p>
             </div>
 
