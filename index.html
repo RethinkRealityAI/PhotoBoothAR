@@ -42,7 +42,15 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="https://beamwall.app/og.jpg" />
 
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235B8CFF'/%3E%3Cstop offset='1' stop-color='%237C6CF7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='15' fill='%2305060B' stroke='url(%23g)' stroke-width='1.5'/%3E%3Ctext x='16' y='22' font-family='Georgia,serif' font-size='18' font-style='italic' text-anchor='middle' fill='url(%23g)'%3EB%3C/text%3E%3C/svg%3E" />
+    <!-- Real files (public/), so /favicon.ico (fetched by crawlers and old
+         browsers without asking) and the manifest are no longer answered by
+         the SPA fallback with index.html. Art = the previous inline icon:
+         favicon.svg is that SVG verbatim, the PNGs/ICO are renders of it.
+         Keep exactly ONE rel="icon": EventContext.setFavicon swaps the first
+         one for an event's own icon, and a second would win over it. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
 
     <title>Beamwall · Your immersive photo booth</title>
 

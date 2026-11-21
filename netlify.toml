@@ -37,6 +37,58 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# Everything else under public/ keeps its filename across deploys (NOT
+# content-hashed), so nothing below may be `immutable`: a changed file must
+# reach browsers without a rename.
+#
+# Vendored runtimes, copied from node_modules at build (copy:vendor). Their JS
+# entry points ship in the hashed /assets bundle while the wasm/workers live
+# here, so a dependency bump must not leave a browser holding an old wasm
+# against new JS for long: one hour fresh, then revalidated (a 304, no body).
+[[headers]]
+  for = "/mediapipe/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/xr8/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/three/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+# Self-contained art (each file stands alone, so a stale copy is only old art,
+# never a crash): a day fresh, then up to a week served while revalidating.
+[[headers]]
+  for = "/models/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, stale-while-revalidate=604800"
+
+[[headers]]
+  for = "/mascot/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, stale-while-revalidate=604800"
+
+# Only the asset folders: /guides itself and /guides/<slug> are SPA routes
+# served as index.html, which must never be cached like this.
+[[headers]]
+  for = "/guides/frames/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, stale-while-revalidate=604800"
+
+[[headers]]
+  for = "/guides/shots/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, stale-while-revalidate=604800"
+
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, stale-while-revalidate=2592000"
+
 # Partnerships pages: the internal hub (hidden link) and prospect-facing pitch
 # decks must never be indexed. The pages also set <meta name="robots"> while
 # mounted; this header covers crawlers that don't run JS. Keep the hub path in
