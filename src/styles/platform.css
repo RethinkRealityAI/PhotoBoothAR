@@ -51,19 +51,30 @@
 :root:not([data-event], [data-look="previous"]),
 :root[data-event-look="beamwall"],
 [data-platform] {
-  --pf-bg: #33318A;
-  --pf-hue-blue: rgba(74, 112, 186, 0.92);
-  --pf-hue-blue-2: rgba(84, 120, 196, 0.55);
-  --pf-hue-deep: rgba(36, 32, 112, 0.78);
-  --pf-hue-mauve: rgba(128, 94, 160, 0.88);
-  --pf-hue-rose: rgba(150, 104, 160, 0.42);
+  /* 2026-11-21 (owner: "Is the purple too much? Should the gradient be
+     darker?"): the base sinks from a mid violet (#33318A, L 37%) to a deep
+     indigo (L 25%) so the field has VALUE contrast, not just hue: the steel
+     blue reads as light coming in from the top left, the glass cards (now a
+     touch lighter than the field) lift off it, and white ink clears AA
+     everywhere with room to spare. The lower right warms from mauve towards
+     rose with a faint ember under it, the "warm, calm, exciting" half of the
+     brief. Still a dusk, never the near-black the owner rejected. */
+  --pf-bg: #262566;
+  --pf-hue-blue: rgba(78, 118, 194, 0.88);
+  --pf-hue-blue-2: rgba(96, 132, 206, 0.5);
+  --pf-hue-deep: rgba(22, 20, 76, 0.82);
+  --pf-hue-mauve: rgba(140, 92, 160, 0.82);
+  --pf-hue-rose: rgba(204, 120, 150, 0.4);
+  --pf-hue-ember: rgba(255, 170, 132, 0.26);
   /* Opaque surface: native <select> popovers, solid fills. A notch deeper
      than the field so white ink keeps AA. */
-  --pf-surface: #2E2C7E;
+  --pf-surface: #23225E;
   --pf-muted: rgba(255, 255, 255, 0.86);
-  /* Glass on this field: indigo veil + milky frost (the /beamy card recipe). */
-  --pf-veil: rgba(52, 52, 150, 0.30);
-  --pf-frost: rgba(255, 255, 255, 0.08);
+  /* Glass on this field: indigo veil + milky frost (the /beamy card recipe).
+     The frost is a notch brighter than the field's old value so cards keep
+     the same brightness while the field behind them darkens. */
+  --pf-veil: rgba(64, 64, 164, 0.30);
+  --pf-frost: rgba(255, 255, 255, 0.09);
   --pf-veil-strong: rgba(36, 34, 112, 0.58);
   --pf-well: rgba(20, 18, 64, 0.26);
   --pf-shadow: rgba(16, 14, 58, 0.55);
@@ -85,13 +96,14 @@
 [data-platform][data-surface="night"] {
   /* Work screens sit a shade deeper (owner, 2026-11-19: "a bit darker to
      break up the monotony") with the same blue → mauve travel. */
-  --pf-bg: #2A2878;
-  --pf-hue-blue: rgba(62, 98, 172, 0.86);
-  --pf-hue-blue-2: rgba(70, 104, 180, 0.45);
-  --pf-hue-deep: rgba(22, 20, 80, 0.84);
-  --pf-hue-mauve: rgba(112, 80, 148, 0.82);
-  --pf-hue-rose: rgba(134, 92, 150, 0.36);
-  --pf-surface: #262472;
+  --pf-bg: #20205A;
+  --pf-hue-blue: rgba(66, 102, 178, 0.82);
+  --pf-hue-blue-2: rgba(78, 112, 188, 0.42);
+  --pf-hue-deep: rgba(16, 15, 62, 0.86);
+  --pf-hue-mauve: rgba(120, 80, 148, 0.76);
+  --pf-hue-rose: rgba(168, 100, 140, 0.3);
+  --pf-hue-ember: rgba(255, 170, 132, 0.16);
+  --pf-surface: #1E1D55;
   --pf-veil: rgba(44, 42, 132, 0.40);
   --pf-frost: rgba(255, 255, 255, 0.06);
   --pf-veil-strong: rgba(32, 30, 102, 0.66);
@@ -203,9 +215,10 @@
       radial-gradient(58% 70% at 4% 26%, var(--pf-hue-blue), transparent 70%),
       radial-gradient(36% 40% at 34% 18%, var(--pf-hue-blue-2), transparent 70%),
       radial-gradient(52% 62% at 100% 100%, var(--pf-hue-mauve), transparent 72%),
-      radial-gradient(40% 50% at 96% 40%, var(--pf-hue-rose), transparent 72%);
-    background-size: 200px 200px, auto, auto, auto, auto, auto;
-    background-attachment: scroll, fixed, fixed, fixed, fixed, fixed;
+      radial-gradient(40% 50% at 96% 40%, var(--pf-hue-rose), transparent 72%),
+      radial-gradient(44% 40% at 86% 104%, var(--pf-hue-ember, transparent), transparent 74%);
+    background-size: 200px 200px, auto, auto, auto, auto, auto, auto;
+    background-attachment: scroll, fixed, fixed, fixed, fixed, fixed, fixed;
   }
 
   /* Glass: the flat liquid-glass card (no extrusion, no bevel gradient). */
