@@ -223,7 +223,10 @@ function SetupWizard({ eventUuid, stepParam }: { eventUuid: string; stepParam: s
             onBack={prev ? () => void go(prev, 'visit') : null}
             onSkip={def.optional ? () => void go(nextStepId(step)!, 'complete') : null}
             onContinue={() => void onContinue()}
-            continueLabel={isLast ? 'Finish' : 'Continue'}
+            // Before launch the step's own "Go live" is the main action, so
+            // the footer steps back; once live it becomes the way out.
+            continueLabel={isLast ? (ev?.status === 'live' ? 'Go to my dashboard' : 'Finish later') : 'Continue'}
+            continueTone={isLast && ev?.status !== 'live' ? 'secondary' : 'primary'}
             busy={busy}
             blocked={blocked}
           />

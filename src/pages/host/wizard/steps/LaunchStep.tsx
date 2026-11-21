@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { CalendarDays, Camera, Check, ExternalLink, Image as ImageIcon, LayoutGrid, Loader2, Monitor, PartyPopper, Pencil, Printer, RefreshCw, Sparkles, Trophy, Zap, type LucideIcon } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 import ShareActions from '../../../../components/host/ShareActions';
 import { goLive } from '../../../../lib/host';
 import { fetchChallengesResult, getWallSettingsResult } from '../../../../lib/db';
@@ -53,6 +54,45 @@ function Row({ icon: Icon, title, detail, step, ok, onEdit }: {
   );
 }
 
+const BURST_COLOURS = ['#FFD36E', '#FF7AB6', '#7FE7FF', '#B79CFF', '#FFFFFF', '#8CFFB5'];
+const BURST_PIECES = Array.from({ length: 22 }, (_, i) => {
+  // Deterministic spread (no Math.random): an even fan with alternating reach.
+  const angle = (i / 22) * Math.PI * 2;
+  const reach = 90 + (i % 3) * 38;
+  return {
+    x: Math.cos(angle) * reach,
+    y: Math.sin(angle) * reach - 30,
+    rotate: (i % 2 === 0 ? 1 : -1) * (160 + i * 12),
+    colour: BURST_COLOURS[i % BURST_COLOURS.length],
+    round: i % 3 === 0,
+    delay: (i % 4) * 0.03,
+  };
+});
+
+/** A short confetti pop over the share card when the host goes live. Purely
+ *  decorative: no pointer events, gone after ~1.5s, never rendered when the
+ *  device asks for reduced motion (the "You're live" state carries it). */
+function LiveBurst({ onDone }: { onDone: () => void }) {
+  useEffect(() => {
+    const t = window.setTimeout(onDone, 1600);
+    return () => window.clearTimeout(t);
+  }, [onDone]);
+  return (
+    <span aria-hidden className="pointer-events-none absolute inset-0 z-10 overflow-visible">
+      {BURST_PIECES.map((p, i) => (
+        <motion.span
+          key={i}
+          className={`absolute left-[42px] top-[42px] block ${p.round ? 'h-2.5 w-2.5 rounded-full' : 'h-3 w-1.5 rounded-[2px]'}`}
+          style={{ background: p.colour }}
+          initial={{ x: 0, y: 0, opacity: 1, scale: 0.4, rotate: 0 }}
+          animate={{ x: p.x, y: [0, p.y, p.y + 70], opacity: [1, 1, 0], scale: 1, rotate: p.rotate }}
+          transition={{ duration: 1.4, delay: p.delay, ease: 'easeOut' }}
+        />
+      ))}
+    </span>
+  );
+}
+
 export default function LaunchStep() {
   const w = useWizard();
   const { ev } = w;
@@ -60,6 +100,11 @@ export default function LaunchStep() {
   const [going, setGoing] = useState(false);
   const [goError, setGoError] = useState<string | null>(null);
   const [frameKey, setFrameKey] = useState(0);
+  /** True only for the go-live that happened on this screen, not a revisit. */
+  const [justLive, setJustLive] = useState(false);
+  const [burst, setBurst] = useState(false);
+  const reduceMotion = useReducedMotion();
+  const endBurst = useCallback(() => setBurst(false), []);
   const live = ev.status === 'live';
 
   const load = useCallback(async () => {
@@ -96,6 +141,8 @@ export default function LaunchStep() {
     if (ok) {
       w.setEv({ ...ev, status: 'live' });
       setFrameKey((k) => k + 1);
+      setJustLive(true);
+      if (reduceMotion !== true) setBurst(true);
     } else setGoError('We couldn’t take your event live. Check your connection and try again.');
   };
 
@@ -121,7 +168,10 @@ export default function LaunchStep() {
             )}
           </section>
 
-          <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter min-w-0 @container" style={{ animationDelay: '60ms' }}>
+          <section className="relative liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter min-w-0 @container" style={{ animationDelay: '60ms' }}>
+            {/* Present from first render so screen readers announce the change. */}
+            <p role="status" className="sr-only">{justLive ? 'You’re live!' : ''}</p>
+            {burst && <LiveBurst onDone={endBurst} />}
             {live ? (
               <>
                 <div className="flex items-center gap-3">
@@ -132,6 +182,7 @@ export default function LaunchStep() {
                   </div>
                 </div>
                 <div className="mt-5"><ShareActions url={welcomeUrl} eventName={ev.name} slug={ev.slug} qrSize={136} layout="stacked" /></div>
+                <p className="mt-3 text-[13.5px] text-white/75">Test it now: scan the QR with your phone.</p>
               </>
             ) : (
               <>
