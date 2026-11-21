@@ -31,6 +31,8 @@ export const KEEPSAKE_EDITOR_CSS = `
 .ks-area-preview{grid-area:preview;min-height:0}
 .ks-area-tabs{grid-area:tabs;min-width:0}
 .ks-area-panel{grid-area:panel;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:2px 4px 8px 2px;scrollbar-width:thin}
+/* The panel scrolls, so it clips: a glass card's outer halo (--pf-card-glow, platform.css) was cut off at its edges and read as a hard-edged box behind the inputs (owner, 2026-11-21). The lit rim stays. */
+.ks-area-panel :is(.glass,.glass-strong,.liquid-glass){--pf-card-glow:0 0 #0000 !important}
 .ks-area-steps{grid-area:steps}
 .ks-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));width:100%;overflow:visible;border-radius:20px}
 .ks-tabs .wz-tab{position:relative;min-height:52px;min-width:0;padding:4px 2px;gap:2px;flex-direction:column;justify-content:center;font-size:11px;line-height:1.15;border-radius:16px}
