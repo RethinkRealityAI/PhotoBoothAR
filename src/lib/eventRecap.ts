@@ -155,6 +155,8 @@ const SEND_ERROR_COPY: Record<string, string> = {
     'You sent this a few minutes ago. Wait a moment, or use Send again if you really do want a second copy to go out.',
   preview_rate_limited:
     'That’s a lot of previews in a short time. Wait a minute and try again.',
+  send_cap_reached:
+    'Your account has reached today’s email limit, so nothing was sent. Try again tomorrow.',
   invalid_email: 'That doesn’t look like an email address.',
   unauthorized: 'You’ve been signed out. Sign in again and retry — nothing was sent.',
   forbidden: 'This account can’t send for this event. Nothing was sent.',

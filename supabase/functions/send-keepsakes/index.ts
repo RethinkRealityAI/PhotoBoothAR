@@ -43,7 +43,10 @@
  * 200 → see above          400 → { error: 'invalid_json' | 'invalid_body' | 'invalid_email' }
  * 401 → { error: 'unauthorized' }        403 → { error: 'forbidden' }
  * 404 → { error: 'event_not_found' }     405 → { error: 'method_not_allowed' }
- * 409 → { error: 'event_still_live' }    429 → { error: 'recently_sent' | 'preview_rate_limited' }
+ * 409 → { error: 'event_still_live' }    429 → { error: 'recently_sent' | 'preview_rate_limited'
+ *                                                 | 'send_cap_reached' }
+ *   send_cap_reached = migration 051's per-org daily ceiling (1000 keepsake
+ *   recipients, 20 previews per rolling 24h), checked before any email goes.
  * 500 → { error: 'internal' }            503 → { error: 'email_not_configured' }
  *
  * ── THE NEXT-DAY AUTOPILOT (migration 050) ──────────────────────────────────
@@ -71,6 +74,8 @@
  *     one, and always with the album. A film that failed never holds the
  *     email back: the guest gets the photos either way.
  *   401 → { error: 'unauthorized' }  409 → { error: 'not_claimed' }
+ *   429 → { error: 'send_cap_reached' } — the run stays claimed, so a later
+ *         run retries it once the org's rolling 24h window has room.
  */
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from '@supabase/supabase-js';
@@ -126,6 +131,28 @@ const PREVIEW_WINDOW_MS = 60 * 60 * 1000;
  * membership on the event, which is a signed-up, identifiable customer.
  */
 const PREVIEW_HITS = new Map<string, number[]>();
+
+/**
+ * The DATABASE ceiling that PREVIEW_HITS is not (migration 051's
+ * email_send_log, audit H4): per org per rolling 24h, at most 1000 keepsake
+ * recipients across every send run, and 20 previews. Reserved BEFORE Resend is
+ * called; 'cap' = the trigger refused. Any other error throws — fail CLOSED,
+ * because an abuse ceiling that steps aside on an error is not one.
+ */
+async function reserveKeepsakeSend(
+  sb: ReturnType<typeof serviceClient>,
+  orgId: string,
+  kind: 'keepsake' | 'keepsake_preview',
+  ref: string,
+  recipients: number,
+): Promise<'ok' | 'cap'> {
+  const { error } = await sb
+    .from('email_send_log')
+    .insert({ kind, org_id: orgId, ref, recipients });
+  if (!error) return 'ok';
+  if ((error.message ?? '').includes('email_send_cap')) return 'cap';
+  throw error;
+}
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -489,6 +516,11 @@ Deno.serve(async (req: Request) => {
       const resendKey = Deno.env.get('RESEND_API_KEY');
       if (!resendKey) return json(503, { error: 'email_not_configured' });
 
+      // The preview is the one op that mails an address the caller names, so
+      // it carries its own database ceiling, not just the per-isolate Map.
+      const previewSlot = await reserveKeepsakeSend(sb, event.org_id as string, 'keepsake_preview', 'preview', 1);
+      if (previewSlot === 'cap') return json(429, { error: 'send_cap_reached' });
+
       const ok = await sendOne(
         resendKey,
         testEmail,
@@ -533,11 +565,13 @@ Deno.serve(async (req: Request) => {
     }
 
     const result = await sendToContacts(sb, resendKey, {
+      orgId: event.org_id as string,
       slug: event.slug as string,
       subject: `Your photos from ${eventName}`,
       resend,
       build: (unsubUrl) => keepsakeEmailHtml({ eventName, recapUrl, heroUrl, unsubUrl, intro }),
     });
+    if (result === 'cap') return json(429, { error: 'send_cap_reached' });
     return json(200, { ...result, emailConfigured: true });
   } catch (err) {
     console.error('[send-keepsakes] internal error', err);
@@ -554,8 +588,8 @@ type Service = ReturnType<typeof serviceClient>;
 async function sendToContacts(
   sb: Service,
   resendKey: string,
-  opts: { slug: string; subject: string; resend: boolean; build: (unsubUrl: string) => string },
-): Promise<{ sent: number; skipped: number; failed: number }> {
+  opts: { orgId: string; slug: string; subject: string; resend: boolean; build: (unsubUrl: string) => string },
+): Promise<{ sent: number; skipped: number; failed: number } | 'cap'> {
   const { data: contacts, error: contactsErr } = await sb
     .from('guest_contacts')
     .select('id, email, unsubscribe_token, last_sent_at')
@@ -564,6 +598,18 @@ async function sendToContacts(
     .order('created_at', { ascending: true })
     .limit(MAX_RECIPIENTS);
   if (contactsErr) throw contactsErr;
+
+  // Reserve the whole run against the org's daily ceiling before the first
+  // email: the count is exactly the contacts the loop below will try (the
+  // same skip rule), so a run is either allowed in full or refused in full —
+  // never half-sent and then cut off mid-guest-list.
+  const toMail = (contacts ?? []).filter(
+    (c) => opts.resend || c.last_sent_at === null || c.last_sent_at === undefined,
+  ).length;
+  if (toMail > 0) {
+    const slot = await reserveKeepsakeSend(sb, opts.orgId, 'keepsake', opts.slug, toMail);
+    if (slot === 'cap') return 'cap';
+  }
 
   let sent = 0;
   let skipped = 0;
@@ -788,7 +834,7 @@ async function handleFinish(sb: Service, body: Record<string, unknown>): Promise
 
   const { data: event, error: evErr } = await sb
     .from('events')
-    .select('id, slug, name, config')
+    .select('id, org_id, slug, name, config')
     .eq('id', eventUuid)
     .maybeSingle();
   if (evErr) throw evErr;
@@ -842,12 +888,16 @@ async function handleFinish(sb: Service, body: Record<string, unknown>): Promise
   // goes stale and the per-contact stamps make that re-send skip everyone
   // already reached.
   const counts = await sendToContacts(sb, resendKey, {
+    orgId: event.org_id as string,
     slug,
     subject: posterUrl ? `Your film from ${eventName} is ready` : `Your photos from ${eventName}`,
     resend: false,
     build: (unsubUrl) =>
       keepsakeEmailHtml({ eventName, recapUrl, heroUrl: null, unsubUrl, intro, filmPosterUrl: posterUrl }),
   });
+  // Over the org's daily ceiling: nothing was sent and the claim stays open,
+  // so the stale-claim reclaim tries again once the rolling window has room.
+  if (counts === 'cap') return json(429, { error: 'send_cap_reached' });
 
   const { error: doneErr } = await sb
     .from('keepsake_runs')
