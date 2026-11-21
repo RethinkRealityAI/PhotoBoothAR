@@ -125,6 +125,7 @@ export type KeepsakeSendError =
   | 'event_still_live'
   | 'recently_sent'
   | 'preview_rate_limited'
+  | 'send_cap_reached'
   | 'invalid_email'
   | 'invalid_body'
   | 'email_not_configured'
@@ -163,6 +164,7 @@ const SEND_ERRORS: readonly string[] = [
   'event_still_live',
   'recently_sent',
   'preview_rate_limited',
+  'send_cap_reached',
   'invalid_email',
   'invalid_body',
   'email_not_configured',

@@ -964,6 +964,14 @@ export default function CardsTab() {
       setNotice('Add a valid recipient email to this card first.');
       return;
     }
+    if (error === 'upgrade_required') {
+      setUpgradeOpen(true);
+      return;
+    }
+    if (error === 'send_cap_reached') {
+      setNotice('This card has been emailed as many times as we allow in a day. Nothing was sent — try again tomorrow.');
+      return;
+    }
     if (error) {
       setNotice("The email couldn't be sent — please try again.");
       return;
