@@ -64,7 +64,7 @@ import { DT_MAX, K_POS, K_SOFT, dampAngle, glideStep, governDpr, type GlidePt } 
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { snapshotPortrait, snapshotRect } from '../../components/beamy/selfieFx';
-import { HOME_ASSET_DEFAULTS } from '../../lib/beamyAssets';
+import { HOME_ASSET_DEFAULTS, frameImage } from '../../lib/beamyAssets';
 import { fitPair, wornPlacement, type BeamyLook, type PropFit } from '../../lib/beamyLooks';
 import { splitScenePair } from '../../lib/studio/earPair';
 
@@ -271,12 +271,13 @@ const BEAM_END_S = 2.65;
 
 const noopEvents = () => ({ enabled: false, priority: 0 });
 
-/** Frame PNGs for his try-on, loaded once per url (a failed load is retried next time). */
+/** Frame art for his try-on, loaded once per url (a failed load is retried
+ *  next time). A bundled frame loads its full-size webp twin, not the PNG. */
 const frameTextures = new Map<string, Promise<THREE.Texture>>();
 function loadFrameTexture(url: string): Promise<THREE.Texture> {
   let hit = frameTextures.get(url);
   if (hit === undefined) {
-    hit = new THREE.TextureLoader().loadAsync(url).then((t) => { t.colorSpace = THREE.SRGBColorSpace; return t; });
+    hit = new THREE.TextureLoader().loadAsync(frameImage(url).src).then((t) => { t.colorSpace = THREE.SRGBColorSpace; return t; });
     void hit.catch(() => { if (frameTextures.get(url) === hit) frameTextures.delete(url); });
     frameTextures.set(url, hit);
   }
@@ -1375,11 +1376,27 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
      glb cache with the hero try-on; masters are cloned, never disposed).
      A spot whose file changes (the owner's overrides arrived) swaps its prop. */
   const sceneKey = (sceneProps ?? HOME_ASSET_DEFAULTS.sceneProps).join('\n');
+  const decorWoken = useRef(false);
   useEffect(() => {
     let live = true;
     const urls = sceneKey.split('\n');
-    const id = window.setTimeout(() => {
+    const t0 = performance.now();
+    let id = 0;
+    /* Decor, not first paint: ~3 MB of GLBs wait for the first sign of a
+       person (a scroll, touch, pointer or key), and never before the old
+       1.2s mark. A phone only fetches the crystals it actually draws. */
+    const INTERACT = ['pointerdown', 'pointermove', 'touchstart', 'wheel', 'keydown', 'scroll'] as const;
+    const stopListening = () => { for (const ev of INTERACT) window.removeEventListener(ev, onInteract, true); };
+    function onInteract() {
+      decorWoken.current = true;
+      stopListening();
+      id = window.setTimeout(load, Math.max(0, 1200 - (performance.now() - t0)));
+    }
+    for (const ev of INTERACT) window.addEventListener(ev, onInteract, { capture: true, passive: true });
+    function load() {
+      const phoneNow = decorRef.current.phone;
       CRYSTALS.forEach((c, i) => {
+        if (phoneNow && !c.phone) return;
         const url = urls[i] !== undefined && urls[i] !== '' ? urls[i] : `${PROP_DIR}${c.prop}.glb`;
         if (crystalRefs.current[i]?.userData.propUrl === url) return;
         void loadModel(url).then((master) => {
@@ -1390,8 +1407,11 @@ function Scene({ apiRef, layoutRef, bubbleRef, hitRef, decorRef, startHidden = f
           holder.userData.propUrl = url;
         }, () => undefined);
       });
-    }, 1200);
-    return () => { live = false; window.clearTimeout(id); };
+    }
+    // Overrides arriving after the visitor already moved: no second wait.
+    if (decorWoken.current) onInteract();
+    return () => { live = false; stopListening(); window.clearTimeout(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- decorRef/decorWoken are refs
   }, [sceneKey]);
 
   /* The page reads its slots first, every frame, so the target he follows is

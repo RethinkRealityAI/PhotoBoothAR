@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import {
   AR_CATEGORIES, AR_NOUN, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, NONE_TITLE, arOrder, arStopIndex, arStops, arTitle, arTour, carousel, categoryStart, demoQrUrl, wearStop,
   AR_REF_FRAME_ID, AR_REF_OPENING, arPropScale, arStage,
-  DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, smallWindow, standInFrame, stepIntoFrame, BODY_W, toBeamyLook, toggleLook, type HomeLook,
+  DEFAULT_OPENING, PROP_MIN_SCALE, frameImage, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, smallWindow, standInFrame, stepIntoFrame, BODY_W, toBeamyLook, toggleLook, type HomeLook,
 } from './beamyAssets';
 import { BEAMY_LOOKS } from './beamyLooks';
 import { EMOJI_RE } from './brandLanding';
@@ -20,6 +20,22 @@ describe('beamyAssets', () => {
     expect(d.demoEventSlug).toBe('demo');
     expect(d.sceneProps.length).toBeGreaterThan(0);
     for (const u of d.sceneProps) expect(existsSync(pub(u)), u).toBe(true);
+  });
+
+  it('shows every bundled frame from a webp twin that exists, and leaves other URLs alone', () => {
+    const frames = [...HOME_ASSET_DEFAULTS.heroLooks, ...HOME_ASSET_DEFAULTS.arLooks].filter((l) => l.category === 'frame');
+    expect(frames.length).toBeGreaterThan(0);
+    for (const l of frames) {
+      const f = frameImage(String(l.url));
+      expect(f.src, l.id).toMatch(/\/web\/[a-z0-9-]+\.webp$/);
+      expect(existsSync(pub(f.src)), f.src).toBe(true);
+      for (const part of String(f.srcSet).split(',')) {
+        const u = part.trim().split(' ')[0];
+        expect(existsSync(pub(u)), u).toBe(true);
+      }
+    }
+    const cms = 'https://x.supabase.co/storage/v1/object/public/assets/_platform/a.png';
+    expect(frameImage(cms)).toEqual({ src: cms });
   });
 
   it('gives the AR step every category, none of the hero’s looks, and real files', () => {
