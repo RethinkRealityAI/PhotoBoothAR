@@ -147,6 +147,12 @@ const BeamyPage = import.meta.env.VITE_EVENT
 const Landing = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/Landing'));
+/** Unknown platform paths: a branded not-found page (plausible guesses such
+ *  as /pricing redirect to the real page). Same fold — legacy builds keep their
+ *  redirect to "/". */
+const NotFound = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/NotFound'));
 /** Brand v2 living style guide (/brand, noindex). Same fold. */
 const BrandPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
@@ -390,7 +396,7 @@ export default function App() {
               <Route path="/gallery" element={<RedirectToDefaultEvent />} />
               <Route path="/join" element={<RedirectToDefaultEvent />} />
 
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFound />} />
             </>
           )}
         </Routes>
