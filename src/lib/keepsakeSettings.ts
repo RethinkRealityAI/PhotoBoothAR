@@ -30,6 +30,12 @@ export const KEEPSAKE_THEME_IDS = ['beamwall', 'golden-hour', 'midnight-bloom', 
 export type KeepsakeMusicId = 'none' | 'glow' | 'celebrate' | 'elegance' | 'tender' | 'nightlife';
 export const KEEPSAKE_MUSIC_IDS = ['glow', 'celebrate', 'elegance', 'tender', 'nightlife', 'none'] as const;
 
+/** The tap-to-open moment before the album (like the birthday cards).
+ *  'beam' = Beamwall's own; the rest reuse the card reveals
+ *  (src/components/cards/reveals, ids from lib/cardPresentation). */
+export type KeepsakeRevealId = 'beam' | 'envelope' | 'ribbon' | 'curtain' | 'airplane' | 'stardust' | 'papercut' | 'none';
+export const KEEPSAKE_REVEAL_IDS = ['beam', 'envelope', 'ribbon', 'curtain', 'airplane', 'stardust', 'papercut', 'none'] as const;
+
 /** What a guest may take home from the album page. */
 export type KeepsakeDownloadId = 'film' | 'collage' | 'photos';
 export const KEEPSAKE_DOWNLOAD_IDS = ['film', 'collage', 'photos'] as const;
@@ -108,6 +114,8 @@ export interface KeepsakeSettings {
   /** Next-day email on/off (read by send-keepsakes/autopilot.ts). */
   autoSend: boolean;
   theme: KeepsakeThemeId;
+  /** The opening moment. Independent of theme: theme = colours, reveal = how it opens. */
+  reveal: KeepsakeRevealId;
   music: KeepsakeMusicId;
   /** Beamy greets guests at the top of the album. */
   beamy: boolean;
@@ -126,6 +134,7 @@ export const DEFAULT_KEEPSAKE_COPY: KeepsakeCopy = {
 export const DEFAULT_KEEPSAKE_SETTINGS: KeepsakeSettings = {
   autoSend: true,
   theme: 'beamwall',
+  reveal: 'beam',
   music: 'glow',
   beamy: true,
   downloads: { film: true, collage: true, photos: true },
@@ -161,6 +170,7 @@ export function normalizeKeepsakeSettings(raw: unknown): KeepsakeSettings {
   return {
     autoSend: r.autoSend !== false,
     theme: isOneOf(KEEPSAKE_THEME_IDS, r.theme) ? r.theme : d.theme,
+    reveal: isOneOf(KEEPSAKE_REVEAL_IDS, r.reveal) ? r.reveal : d.reveal,
     music: isOneOf(KEEPSAKE_MUSIC_IDS, r.music) ? r.music : d.music,
     beamy: r.beamy !== false,
     downloads,

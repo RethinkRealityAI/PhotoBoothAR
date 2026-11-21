@@ -106,7 +106,7 @@ export function resetKeepsakeLook(current: KeepsakeSettings, orgName: string | n
 
 /** Structural equality over the closed settings shape (key order irrelevant). */
 export function keepsakeSettingsEqual(a: KeepsakeSettings, b: KeepsakeSettings): boolean {
-  if (a.autoSend !== b.autoSend || a.theme !== b.theme || a.music !== b.music || a.beamy !== b.beamy) return false;
+  if (a.autoSend !== b.autoSend || a.theme !== b.theme || a.reveal !== b.reveal || a.music !== b.music || a.beamy !== b.beamy) return false;
   for (const d of KEEPSAKE_DOWNLOAD_IDS) if (a.downloads[d] !== b.downloads[d]) return false;
   const fields: KeepsakeCopyField[] = ['headline', 'message', 'signOff', 'hostName'];
   return fields.every((f) => a.copy[f] === b.copy[f]);

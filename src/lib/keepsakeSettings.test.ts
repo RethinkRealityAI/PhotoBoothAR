@@ -7,6 +7,7 @@ import {
   DEFAULT_KEEPSAKE_SETTINGS,
   KEEPSAKE_COPY_MAX,
   KEEPSAKE_MUSIC_IDS,
+  KEEPSAKE_REVEAL_IDS,
   KEEPSAKE_THEMES,
   KEEPSAKE_THEME_IDS,
   fillKeepsakeCopy,
@@ -51,6 +52,12 @@ describe('normalizeKeepsakeSettings', () => {
     for (const theme of KEEPSAKE_THEME_IDS) expect(normalizeKeepsakeSettings({ theme }).theme).toBe(theme);
     for (const music of KEEPSAKE_MUSIC_IDS) expect(normalizeKeepsakeSettings({ music }).music).toBe(music);
     expect(normalizeKeepsakeSettings({ music: 'none' }).music).toBe('none');
+  });
+
+  it('reads the reveal, defaulting to beam for configs saved before it existed', () => {
+    expect(normalizeKeepsakeSettings({ theme: 'ivory' }).reveal).toBe('beam');
+    for (const reveal of KEEPSAKE_REVEAL_IDS) expect(normalizeKeepsakeSettings({ reveal }).reveal).toBe(reveal);
+    expect(normalizeKeepsakeSettings({ reveal: 'hologram' }).reveal).toBe('beam');
   });
 
   it('never leaves an album with nothing to download', () => {
