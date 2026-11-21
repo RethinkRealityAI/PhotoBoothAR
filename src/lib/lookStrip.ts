@@ -215,3 +215,53 @@ export function markLookHintSeen(storage: Pick<Storage, 'setItem'> | null): void
 export function shouldShowLookHint(seen: boolean, lookCount: number): boolean {
   return !seen && lookCount >= LOOK_HINT_MIN_LOOKS;
 }
+
+/* ── Per-category "None" + strip organisation ─────────────────────────── */
+
+/** What each category's "None" tile says in the "More looks" sheet. */
+export const LOOK_NONE_LABEL: Record<DeckCategory, string> = {
+  frame: 'No frame',
+  prop: 'No 3D',
+  effect: 'No effect',
+};
+
+/**
+ * A category's "None" tile: take THAT category off and leave the others on —
+ * the strip's global "None" clears everything, the sheet's are per section.
+ */
+export function clearCategoryAction(category: DeckCategory): LookAction {
+  return category === 'effect'
+    ? { category: 'effect', shaderId: 'none', exp: null }
+    : { category, exp: null };
+}
+
+/** True when nothing of `category` is applied (its "None" tile lights). */
+export function categoryIsClear(category: DeckCategory, sel: DeckSelection): boolean {
+  if (category === 'frame') return sel.frameId === null;
+  if (category === 'prop') return sel.attachmentId === null;
+  return sel.effectId === 'none';
+}
+
+/**
+ * Ids of the strip tiles that START a new category after the first one — the
+ * strip draws a quiet divider before each, so frames / 3D / effects read as
+ * groups while staying one swipe.
+ */
+export function categoryBreaks(strip: readonly LookItem[]): Set<string> {
+  const out = new Set<string>();
+  for (let i = 1; i < strip.length; i++) {
+    if (strip[i].category !== strip[i - 1].category) out.add(strip[i].exp.id);
+  }
+  return out;
+}
+
+/** Minimum upward travel (px) for a swipe on the strip to open the sheet. */
+export const SWIPE_UP_MIN_PX = 36;
+
+/**
+ * Swipe up on the look strip opens "More looks" (the camera-app gesture). It
+ * must be clearly vertical, so a sideways browse that drifts up never fires it.
+ */
+export function isSwipeUp(dx: number, dy: number): boolean {
+  return dy <= -SWIPE_UP_MIN_PX && Math.abs(dx) < Math.abs(dy) * 0.6;
+}

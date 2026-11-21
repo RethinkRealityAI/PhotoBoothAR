@@ -3,6 +3,12 @@ import { buildDeck, type DeckSelection } from './boothDeck';
 import {
   activeLookIds,
   buildLookStrip,
+  categoryBreaks,
+  categoryIsClear,
+  clearCategoryAction,
+  isSwipeUp,
+  LOOK_NONE_LABEL,
+  SWIPE_UP_MIN_PX,
   centeredScrollLeft,
   changedLook,
   lookChips,
@@ -243,5 +249,56 @@ describe('first-run hint storage', () => {
     expect(shouldShowLookHint(false, LOOK_HINT_MIN_LOOKS - 1)).toBe(false);
     expect(shouldShowLookHint(true, 40)).toBe(false);
     expect(shouldShowLookHint(false, 0)).toBe(false);
+  });
+});
+
+describe('per-category None', () => {
+  it('names each category in words a guest reads', () => {
+    expect(LOOK_NONE_LABEL).toEqual({ frame: 'No frame', prop: 'No 3D', effect: 'No effect' });
+  });
+
+  it('clears only its own category', () => {
+    const calls: string[] = [];
+    const h = {
+      onSelectEffect: (s: string, e: Experience | null) => calls.push(`effect:${s}:${e === null ? 'null' : e.id}`),
+      onSelectFrame: (e: Experience | null) => calls.push(`frame:${e === null ? 'null' : e.id}`),
+      onSelectAttachment: (e: Experience | null) => calls.push(`prop:${e === null ? 'null' : e.id}`),
+    };
+    runLookAction(clearCategoryAction('frame'), h);
+    runLookAction(clearCategoryAction('prop'), h);
+    runLookAction(clearCategoryAction('effect'), h);
+    expect(calls).toEqual(['frame:null', 'prop:null', 'effect:none:null']);
+  });
+
+  it('lights when that category has nothing on, whatever the others hold', () => {
+    const sel: DeckSelection = { effectId: 'prismatic-holo', frameId: null, attachmentId: 'p1' };
+    expect(categoryIsClear('frame', sel)).toBe(true);
+    expect(categoryIsClear('prop', sel)).toBe(false);
+    expect(categoryIsClear('effect', sel)).toBe(false);
+    expect(categoryIsClear('effect', NONE)).toBe(true);
+  });
+});
+
+describe('categoryBreaks', () => {
+  it('marks the first tile of each later category', () => {
+    expect([...categoryBreaks(STRIP)]).toEqual(['p1', 's1']);
+  });
+
+  it('is empty for one category or none', () => {
+    expect(categoryBreaks(STRIP.filter((i) => i.category === 'effect')).size).toBe(0);
+    expect(categoryBreaks([]).size).toBe(0);
+  });
+});
+
+describe('isSwipeUp', () => {
+  it('fires on a clear upward swipe', () => {
+    expect(isSwipeUp(0, -SWIPE_UP_MIN_PX)).toBe(true);
+    expect(isSwipeUp(10, -60)).toBe(true);
+  });
+
+  it('ignores short, downward and mostly-sideways moves', () => {
+    expect(isSwipeUp(0, -(SWIPE_UP_MIN_PX - 1))).toBe(false);
+    expect(isSwipeUp(0, 60)).toBe(false);
+    expect(isSwipeUp(80, -60)).toBe(false);
   });
 });
