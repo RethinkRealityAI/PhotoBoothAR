@@ -183,7 +183,7 @@ export default function AuthShell({ page, children }: { page: AuthBeamyPage; chi
             </h2>
             <p className="mt-4 max-w-lg text-[17px] leading-relaxed text-brand-fg/85">{copy.body}</p>
 
-            <div className="relative mt-6 flex h-[min(50vh,440px)] min-h-[300px] flex-col items-center">
+            <div className="relative mt-6 flex h-[min(54vh,480px)] min-h-[300px] flex-col items-center">
               {/* Warm light behind him, so the page is not one flat purple. */}
               <div aria-hidden className="auth-glow pointer-events-none absolute inset-x-[6%] bottom-0 top-[18%]" />
               <div className="relative z-10 flex h-[76px] w-full max-w-[420px] items-end justify-center">

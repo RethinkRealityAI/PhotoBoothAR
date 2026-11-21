@@ -9,8 +9,8 @@
 /* A warm amber-rose pool under Beamy: the page's one warm light. */
 [data-auth-shell] .auth-glow {
   background:
-    radial-gradient(46% 38% at 50% 78%, rgba(255, 197, 107, 0.30), transparent 70%),
-    radial-gradient(60% 52% at 50% 64%, rgba(204, 120, 150, 0.28), transparent 72%),
+    radial-gradient(46% 34% at 50% 66%, rgba(255, 197, 107, 0.30), transparent 70%),
+    radial-gradient(60% 50% at 50% 56%, rgba(204, 120, 150, 0.28), transparent 72%),
     radial-gradient(70% 60% at 50% 56%, rgba(165, 171, 255, 0.22), transparent 74%);
   filter: blur(8px);
 }
