@@ -212,13 +212,18 @@ function SplashLinks({ basePath }: { basePath: string }) {
   );
 }
 
-/** The pre-camera disclosure — same promise as the original card. */
+/** The pre-camera disclosure — same promise as the original card, plus where a
+ *  sent photo goes. Platform events only (this splash is the `source === 'db'`
+ *  one): a sent photo plays on the projector wall AND in the public post-event
+ *  album at /r/<slug>, which anyone holding the link can open — guests should
+ *  hear that before their first shot, not discover it afterwards. */
 function PrivacyLine() {
   return (
     <p className="max-w-[40ch] font-sans text-[12px] leading-relaxed sc-faint">
       The camera runs on your device. Your photo only leaves it when you send it to the wall.
       {!IS_LEGACY_BUILD && (
         <>
+          {' '}Photos you send show on the event’s big screen and in its online album, which anyone with the link can view.
           {' '}By continuing you agree to our{' '}
           <Link to="/privacy" className="underline underline-offset-2 sc-muted">
             privacy policy
