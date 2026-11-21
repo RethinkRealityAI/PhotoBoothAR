@@ -36,6 +36,7 @@ import {
 } from '../../lib/faceEngine';
 import TrackingReadout from '../ar/TrackingReadout';
 import { demoKit, type DemoKit } from '../../lib/demoKits';
+import { StreamRecorder, buildRecordStream, recordingSupported } from '../../lib/recorder';
 
 /* ── The seven-hue brand spectrum, shared by the whole showcase. ──────── */
 export const SPECTRUM = ['#5B8CFF', '#22D3EE', '#34D399', '#FB923C', '#E879F9', '#7C6CF7', '#38BDF8'];
@@ -217,6 +218,14 @@ export interface CameraExperienceProps {
    *  renders its own look pills and this applies the same swap `themePicker`
    *  does. Omitted (the landing, /beam) = behaviour unchanged. */
   look?: string | null;
+  /** Enables a Photo · Video switch over the shutter; the clip is capped at
+   *  this many seconds. Needs `onVideo`. Omitted = photo-only (unchanged). */
+  videoMaxSec?: number;
+  /** Receives the recorded clip — the composited booth (frame, effect, 3D
+   *  prop) with the mic, exactly what is on screen. The host owns its review. */
+  onVideo?: (blob: Blob, durationMs: number) => void;
+  /** Which capture mode opens first when video is enabled. Default 'photo'. */
+  initialMode?: 'photo' | 'video';
 }
 
 /** The landing demo's look pills; `kit` null = the default beam set. */
@@ -235,11 +244,13 @@ function kitSetup(kit: DemoKit | undefined): {
 } {
   if (kit === undefined) return { categories: CATEGORIES, frameUrls: FRAME_URLS, defaultFrame: 'beam' };
   return {
-    categories: [
+    // A kit may carry no frames at all (a greeting card's anniversary kit —
+    // see cardBoothKit): drop an empty tab rather than show a lone "None".
+    categories: ([
       { key: 'frame', label: 'Frame', options: kit.frames.map((f) => ({ id: f.id, name: f.name, hue: f.hue, thumb: f.thumb })) },
       { key: 'effect', label: 'Effect', options: kit.effects },
       { key: 'prop', label: '3D', options: kit.props },
-    ],
+    ] as { key: Category; label: string; options: Choice[] }[]).filter((c) => c.options.length > 0),
     frameUrls: Object.fromEntries(kit.frames.map((f) => [f.id, f.src])),
     defaultFrame: kit.frames[0]?.id ?? '',
   };
@@ -247,12 +258,16 @@ function kitSetup(kit: DemoKit | undefined): {
 
 export default function CameraExperience({
   enabled, videoId, beamLabel, onBeam, onClose, screenRef, kit, themePicker = false, look,
+  videoMaxSec, onVideo, initialMode = 'photo',
 }: CameraExperienceProps) {
+  const videoAvailable = videoMaxSec !== undefined && onVideo !== undefined && recordingSupported();
+  const [mode, setMode] = useState<'photo' | 'video'>(videoAvailable ? initialMode : 'photo');
+  const videoMode = videoAvailable && mode === 'video';
   const [themeKit, setThemeKit] = useState<string | null>(null);
   const activeKit = kit ?? (themeKit !== null ? demoKit(themeKit) : undefined);
   const { categories, frameUrls, defaultFrame } = useMemo(() => kitSetup(activeKit), [activeKit]);
   const showThemes = themePicker && kit === undefined;
-  const [category, setCategory] = useState<Category>('frame');
+  const [category, setCategory] = useState<Category>(() => categories[0]?.key ?? 'frame');
   const [frameId, setFrameId] = useState<string | null>(defaultFrame === '' ? null : defaultFrame);
   const [effectId, setEffectId] = useState<string | null>(null);
   const [propId, setPropId] = useState<string | null>(null);
@@ -264,8 +279,73 @@ export default function CameraExperience({
   const [canShare, setCanShare] = useState(false);
 
   const stageRef = useRef<StageCanvasHandle>(null);
-  const { videoRef, ready, error, retry, facingMode, flipCamera, canFlip } = useCameraStream(enabled, false);
+  // The mic is requested only in video mode (CaptureSurface idiom); camera.ts
+  // acquires it separately, so a denied mic never costs the camera.
+  const { videoRef, stream, ready, error, retry, facingMode, flipCamera, canFlip } =
+    useCameraStream(enabled, videoMode);
   const mirror = facingMode === 'user';
+
+  // ── Video recording (only when the host enabled it) ───────────────────
+  const recorderRef = useRef<StreamRecorder | null>(null);
+  const recordStartRef = useRef(0);
+  const [recording, setRecording] = useState(false);
+  const [recordingMs, setRecordingMs] = useState(0);
+  const [recordError, setRecordError] = useState(false);
+  const maxMs = (videoMaxSec ?? 0) * 1000;
+
+  const stopRecording = useCallback(async (recOverride?: StreamRecorder) => {
+    const rec = recOverride ?? recorderRef.current;
+    if (!rec || recorderRef.current !== rec) return;
+    recorderRef.current = null;
+    const blob = await rec.stop();
+    rec.dispose();
+    const durationMs = Math.max(0, Math.round(performance.now() - recordStartRef.current));
+    setRecording(false);
+    setRecordingMs(0);
+    // A clip with no data (stream died at once) is not worth handing over.
+    if (blob.size > 0) onVideo?.(blob, Math.min(durationMs, maxMs));
+    else setRecordError(true);
+  }, [onVideo, maxMs]);
+
+  const startRecording = useCallback(() => {
+    const canvas = stageRef.current?.canvas;
+    if (!canvas || recorderRef.current || !videoAvailable) return;
+    setRecordError(false);
+    const fail = (rec: StreamRecorder) => {
+      rec.dispose();
+      if (recorderRef.current === rec) recorderRef.current = null;
+      setRecording(false);
+      setRecordingMs(0);
+      setRecordError(true);
+    };
+    const rec = new StreamRecorder({
+      maxMs,
+      onTick: setRecordingMs,
+      onMaxReached: () => { void stopRecording(rec); },
+      onError: () => fail(rec),
+    });
+    try {
+      // The clip IS the composited preview canvas (Booth's idiom) + the mic.
+      rec.start(buildRecordStream(canvas, stream ?? undefined, 30));
+      recorderRef.current = rec;
+      recordStartRef.current = performance.now();
+      setRecording(true);
+      setRecordingMs(0);
+    } catch (e) {
+      console.error('[CameraExperience] recording failed to start', e);
+      fail(rec);
+    }
+  }, [videoAvailable, maxMs, stream, stopRecording]);
+
+  // Never leave a recorder running when the camera closes or the mode flips.
+  useEffect(() => {
+    if (enabled && videoMode) return;
+    recorderRef.current?.dispose();
+    recorderRef.current = null;
+    setRecording(false);
+    setRecordingMs(0);
+  }, [enabled, videoMode]);
+  useEffect(() => () => { recorderRef.current?.dispose(); }, []);
 
   // Face tracking boots in the background once the camera opens; if it can't
   // (offline, model CDN unreachable) the booth still runs — props simply never
@@ -442,7 +522,7 @@ export default function CameraExperience({
           {/* Top bar — flip + close (small glass circles), live only. */}
           {shot === null && (
             <div className="absolute inset-x-0 top-0 z-30 flex items-center justify-between px-3 pt-3">
-              {canFlip ? (
+              {canFlip && !recording ? (
                 <button
                   type="button"
                   onClick={flipCamera}
@@ -596,15 +676,76 @@ export default function CameraExperience({
                 ))}
               </div>
 
-              <button
-                type="button"
-                onClick={capture}
-                disabled={!ready}
-                aria-label="Take photo"
-                className="mt-1 h-14 w-14 rounded-full border-4 border-white/90 bg-white/25 backdrop-blur-sm transition-transform active:scale-90 disabled:opacity-40"
-                style={{ boxShadow: '0 0 30px -6px rgba(238,243,255,0.9)' }}
-              />
+              {videoAvailable && !recording && (
+                <div role="group" aria-label="Capture mode" className="mt-0.5 flex items-center gap-1 rounded-full border border-white/15 bg-void-900/55 p-0.5">
+                  {(['photo', 'video'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMode(m)}
+                      aria-pressed={mode === m}
+                      className="min-h-8 rounded-full px-4 font-label text-[10px] uppercase tracking-luxe transition-colors"
+                      style={{
+                        color: mode === m ? '#05060B' : 'rgba(238,243,255,0.75)',
+                        background: mode === m ? 'rgba(238,243,255,0.92)' : 'transparent',
+                      }}
+                    >
+                      {m === 'photo' ? 'Photo' : `Video · ${videoMaxSec}s`}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {videoMode ? (
+                <button
+                  type="button"
+                  onClick={() => { if (recording) void stopRecording(); else startRecording(); }}
+                  disabled={!ready}
+                  aria-label={recording ? 'Stop recording' : 'Start recording'}
+                  className="relative mt-1 flex h-16 w-16 items-center justify-center rounded-full transition-transform active:scale-90 disabled:opacity-40"
+                >
+                  <svg className="absolute inset-0 -rotate-90" width="64" height="64" viewBox="0 0 64 64" aria-hidden>
+                    <circle cx="32" cy="32" r="28" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="4" />
+                    {recording && (
+                      <circle
+                        cx="32" cy="32" r="28" fill="none" stroke="#ef4444" strokeWidth="4" strokeLinecap="round"
+                        strokeDasharray={2 * Math.PI * 28}
+                        strokeDashoffset={2 * Math.PI * 28 * (1 - Math.min(recordingMs / Math.max(maxMs, 1), 1))}
+                        style={{ transition: 'stroke-dashoffset 0.1s linear' }}
+                      />
+                    )}
+                  </svg>
+                  <span
+                    className="bg-red-500 transition-all duration-200"
+                    style={recording ? { width: 22, height: 22, borderRadius: 6 } : { width: 44, height: 44, borderRadius: 999 }}
+                  />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={capture}
+                  disabled={!ready}
+                  aria-label="Take photo"
+                  className="mt-1 h-14 w-14 rounded-full border-4 border-white/90 bg-white/25 backdrop-blur-sm transition-transform active:scale-90 disabled:opacity-40"
+                  style={{ boxShadow: '0 0 30px -6px rgba(238,243,255,0.9)' }}
+                />
+              )}
             </div>
+          )}
+
+          {/* Recording timer / failure — video mode only. */}
+          {recording && (
+            <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/60 px-3 py-1" role="status">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+              <span className="font-label text-[11px] uppercase tracking-wide text-red-300">
+                {Math.floor(recordingMs / 1000)}s / {videoMaxSec}s
+              </span>
+            </div>
+          )}
+          {recordError && !recording && shot === null && (
+            <p role="alert" className="absolute inset-x-0 top-14 z-30 px-6 text-center font-sans text-xs text-red-300">
+              Recording didn’t work on this device. Try a photo, or try again.
+            </p>
           )}
         </>
       )}

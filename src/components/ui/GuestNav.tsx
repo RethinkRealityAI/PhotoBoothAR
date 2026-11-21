@@ -91,7 +91,7 @@ export default function GuestNav({ current, extras, bottomOnMobile = true, class
             title={d.label}
             onClick={() => haptic('tap')}
             className={`pressable flex items-center gap-1.5 rounded-full px-3 min-h-11 shrink-0 font-label uppercase tracking-luxe text-[10px] transition-all ${
-              on ? 'bg-foil text-[color:var(--on-accent)] glow-accent' : 'text-champagne/70 hover:text-gold-300'
+              on ? 'is-selected bg-foil text-[color:var(--on-accent)] glow-accent' : 'text-champagne/70 hover:text-gold-300'
             }`}
           >
             <d.Icon size={15} />
@@ -132,7 +132,7 @@ export default function GuestNav({ current, extras, bottomOnMobile = true, class
                     aria-current={on ? 'page' : undefined}
                     onClick={() => haptic('tap')}
                     className={`pressable flex-1 min-w-0 flex flex-col items-center justify-center gap-1 rounded-[0.9rem] py-2 px-0.5 min-h-11 transition-all ${
-                      on ? 'bg-foil text-[color:var(--on-accent)] glow-accent' : 'text-champagne/65 hover:text-gold-300'
+                      on ? 'is-selected bg-foil text-[color:var(--on-accent)] glow-accent' : 'text-champagne/65 hover:text-gold-300'
                     }`}
                   >
                     <d.Icon size={19} />

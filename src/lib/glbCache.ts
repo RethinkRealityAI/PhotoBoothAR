@@ -60,7 +60,12 @@ export function gltfLoader(): GLTFLoader {
     console.warn('[glbCache] DRACO decoder unavailable — compressed models will fail', e);
   }
   try {
-    loader.setMeshoptDecoder(MeshoptDecoder);
+    // three-stdlib exports a FACTORY (`MeshoptDecoder()` builds the decoder
+    // once and memoises it). Passing the function itself left GLTFLoader
+    // reading `.supported` off a function — undefined — so every
+    // EXT_meshopt_compression model failed with "setMeshoptDecoder must be
+    // called before loading compressed files".
+    loader.setMeshoptDecoder(MeshoptDecoder());
   } catch (e) {
     console.warn('[glbCache] Meshopt decoder unavailable', e);
   }

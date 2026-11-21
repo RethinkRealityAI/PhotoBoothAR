@@ -8,15 +8,23 @@
  * platform styling (works outside EventProvider).
  *
  * Flow: load meta by token → name (required) + message (optional ≤600) →
- * EITHER record with CaptureSurface (photo/video toggle, video ≤20s for
- * cards), OR upload a file, OR send a text-only note → init/upload/finalize
+ * EITHER record in the AR BOOTH (the same camera as the landing demo: frames,
+ * effects and face-tracked 3D props; photo or a ≤20s video, full screen), or
+ * the plain CaptureSurface camera as a fallback for devices the booth can't
+ * run on, OR upload a file, OR send a text-only note → init/upload/finalize
  * → warm success screen.
  */
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Camera, Check, Heart, Loader2, PenLine, RotateCcw, Upload, Video } from 'lucide-react';
+import { Camera, Check, Heart, Loader2, PenLine, RotateCcw, Sparkles, Upload, Video } from 'lucide-react';
 import GoldFrameCard from '../../components/ui/GoldFrameCard';
 import CaptureSurface, { type CaptureMeta } from '../../components/capture/CaptureSurface';
+import { dataUrlToBlob } from '../../components/booth/capture';
+import { cardBoothKit } from '../../lib/demoKits';
+
+// The booth carries three.js + the face tracker: load it only when a guest
+// actually opens it, so the contribute form itself stays light.
+const CameraExperience = lazy(() => import('../../components/landing/CameraExperience'));
 import { getSessionId } from '../../lib/session';
 import {
   fetchContributeMeta,
@@ -108,6 +116,10 @@ export default function CardContribute() {
   const [tab, setTab] = useState<MediaTab>('record');
   const [recordMode, setRecordMode] = useState<RecordMode>('video');
   const [captured, setCaptured] = useState<CapturedMedia | null>(null);
+  const [boothOpen, setBoothOpen] = useState(false);
+  // The plain camera, for a device the AR booth can't run on (very old phones,
+  // WebGL off). Same capture contract, no AR.
+  const [simpleCamera, setSimpleCamera] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,6 +172,35 @@ export default function CardContribute() {
     });
   }, [setMedia]);
 
+  const handleBoothPhoto = useCallback((dataUrl: string) => {
+    const blob = dataUrlToBlob(dataUrl);
+    setMedia({ blob, mediaType: 'photo', previewUrl: URL.createObjectURL(blob) });
+    setBoothOpen(false);
+  }, [setMedia]);
+
+  const handleBoothVideo = useCallback((blob: Blob, durationMs: number) => {
+    setMedia({
+      blob,
+      mediaType: 'video',
+      durationSeconds: Math.round(durationMs / 100) / 10,
+      previewUrl: URL.createObjectURL(blob),
+    });
+    setBoothOpen(false);
+  }, [setMedia]);
+
+  // Full-screen booth: lock the page behind it and let Escape close it.
+  useEffect(() => {
+    if (!boothOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setBoothOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [boothOpen]);
+
   const handleFile = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -185,6 +226,7 @@ export default function CardContribute() {
 
   const meta = state.phase === 'ready' || state.phase === 'closed' ? state.meta : null;
   const recipient = meta?.recipientName || 'the recipient';
+  const boothKit = useMemo(() => cardBoothKit(meta?.title), [meta?.title]);
   const isText = tab === 'text';
   const canSubmit =
     Boolean(name.trim()) && !submitting && (isText ? Boolean(message.trim()) : Boolean(captured));
@@ -259,7 +301,7 @@ export default function CardContribute() {
   }
 
   const tabs: { id: MediaTab; label: string; icon: typeof Camera }[] = [
-    { id: 'record', label: 'Record', icon: Camera },
+    { id: 'record', label: 'Booth', icon: Sparkles },
     { id: 'upload', label: 'Upload', icon: Upload },
     { id: 'text', label: 'Note only', icon: PenLine },
   ];
@@ -310,7 +352,7 @@ export default function CardContribute() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`flex-1 flex items-center justify-center gap-1.5 rounded-full px-2 py-2 font-label uppercase tracking-luxe text-[9px] transition ${
-                tab === t.id ? 'bg-foil text-white font-bold' : 'text-brand-muted/60 hover:text-brand-fg'
+                tab === t.id ? 'is-selected bg-foil text-white font-bold' : 'text-brand-muted/60 hover:text-brand-fg'
               }`}
             >
               <t.icon className="w-3.5 h-3.5" /> {t.label}
@@ -318,8 +360,53 @@ export default function CardContribute() {
           ))}
         </div>
 
-        {/* Record */}
-        {tab === 'record' && !captured && (
+        {/* AR booth launcher */}
+        {tab === 'record' && !captured && !simpleCamera && (
+          <div className="flex flex-col items-center gap-3">
+            <button
+              onClick={() => setBoothOpen(true)}
+              className="group flex w-full items-center gap-4 rounded-2xl border border-accent/30 p-4 text-left transition active:scale-[0.99]"
+              style={{ background: 'radial-gradient(120% 140% at 0% 0%, rgba(var(--accent-rgb),0.16), rgba(255,255,255,0.02) 60%)' }}
+              aria-label="Open the photo booth"
+            >
+              <span className="relative h-36 w-[81px] shrink-0 overflow-hidden rounded-xl bg-black ring-1 ring-white/15 shadow-lg">
+                {boothKit.frames[0] ? (
+                  <img
+                    src={boothKit.frames[0].thumb}
+                    alt=""
+                    className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                    draggable={false}
+                  />
+                ) : (
+                  <span
+                    className="flex h-full w-full items-center justify-center"
+                    style={{ background: 'radial-gradient(circle at 50% 35%, rgba(var(--accent-rgb),0.45), transparent 75%)' }}
+                  >
+                    <Sparkles className="h-7 w-7 text-white/90" />
+                  </span>
+                )}
+              </span>
+              <span className="flex min-w-0 flex-col gap-1.5">
+                <span className="font-serif italic text-xl leading-tight text-brand-fg">Step into the booth</span>
+                <span className="font-sans text-xs leading-relaxed text-brand-muted/75">
+                  Frames, sparkle effects and 3D props that follow your face. Take a photo or record up to {CARD_VIDEO_MAX_SEC} seconds.
+                </span>
+                <span className="mt-1 inline-flex min-h-11 w-fit items-center gap-2 rounded-full bg-foil px-5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent">
+                  <Camera className="h-4 w-4" /> Open the booth
+                </span>
+              </span>
+            </button>
+            <button
+              onClick={() => setSimpleCamera(true)}
+              className="min-h-11 px-3 font-sans text-[11px] text-brand-muted/60 underline underline-offset-4 hover:text-brand-fg"
+            >
+              Booth not working? Use the simple camera
+            </button>
+          </div>
+        )}
+
+        {/* Plain camera (fallback) */}
+        {tab === 'record' && !captured && simpleCamera && (
           <div className="flex flex-col gap-3">
             <div className="flex justify-center">
               <div className="flex items-center gap-1 rounded-full bg-white/[0.04] border border-white/10 p-1">
@@ -347,6 +434,12 @@ export default function CardContribute() {
               onCapture={handleCapture}
               className="aspect-[3/4] w-full"
             />
+            <button
+              onClick={() => setSimpleCamera(false)}
+              className="min-h-11 self-center px-3 font-sans text-[11px] text-brand-muted/60 underline underline-offset-4 hover:text-brand-fg"
+            >
+              Back to the AR booth
+            </button>
           </div>
         )}
 
@@ -382,7 +475,11 @@ export default function CardContribute() {
               <video src={captured.previewUrl} controls playsInline className="w-full max-h-96" />
             )}
             <button
-              onClick={() => setMedia(null)}
+              onClick={() => {
+                setMedia(null);
+                // Retaking from the booth goes straight back into it.
+                if (tab === 'record' && !simpleCamera) setBoothOpen(true);
+              }}
               className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/60 border border-white/15 px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg"
             >
               <RotateCcw className="w-3 h-3" /> Redo
@@ -407,6 +504,40 @@ export default function CardContribute() {
           Your contribution is only visible once the host publishes the card.
         </p>
       </div>
+
+      {/* The AR booth, full screen over the form. */}
+      {boothOpen && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-void-900"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Photo booth"
+        >
+          <div className="relative mx-auto min-h-0 w-full max-w-[430px] flex-1 overflow-hidden sm:my-3 sm:rounded-3xl">
+            <Suspense
+              fallback={
+                <div className="flex h-full w-full items-center justify-center">
+                  <span className="font-label text-[10px] uppercase tracking-luxe text-brand-muted/70 animate-pulse">
+                    Opening the booth…
+                  </span>
+                </div>
+              }
+            >
+              <CameraExperience
+                enabled
+                videoId="card-booth-video"
+                beamLabel="Use this photo"
+                onBeam={handleBoothPhoto}
+                onClose={() => setBoothOpen(false)}
+                kit={boothKit}
+                videoMaxSec={CARD_VIDEO_MAX_SEC}
+                onVideo={handleBoothVideo}
+                initialMode={recordMode}
+              />
+            </Suspense>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }

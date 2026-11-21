@@ -103,7 +103,7 @@ type LoadState =
       event: RuntimeEvent;
       posts: Post[];
       postsFailed: boolean;
-      /** The next-day keepsake film (migration 045); null = none, for any reason. */
+      /** The next-day keepsake film (migration 050); null = none, for any reason. */
       film: { filmUrl: string; posterUrl: string } | null;
     };
 

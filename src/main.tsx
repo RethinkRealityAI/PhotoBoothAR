@@ -27,6 +27,25 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
+// ── Stale deploy: a tab opened before a deploy asks for chunks that are gone
+// (Netlify answers with index.html). Vite raises vite:preloadError; on host,
+// admin and marketing pages reload once to pick up the new build. Guest event
+// pages are left to their own fallbacks (see shouldReloadForStaleChunk).
+// Platform builds only — the frozen legacy-event builds are untouched.
+import { shouldReloadForStaleChunk } from './lib/staleChunk';
+
+if (!((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim()) {
+  const KEY = 'pbar.staleReloadAt';
+  window.addEventListener('vite:preloadError', (event) => {
+    let last: number | null = null;
+    try { const v = sessionStorage.getItem(KEY); last = v === null ? null : Number(v); } catch { /* private mode */ }
+    if (!shouldReloadForStaleChunk(window.location.pathname, last, Date.now())) return; // the import throws as before
+    try { sessionStorage.setItem(KEY, String(Date.now())); } catch { /* private mode: cooldown is per load */ }
+    event.preventDefault();
+    window.location.reload();
+  });
+}
+
 // ── Global error telemetry (keep this block isolated at the end of the file).
 // reportError never throws, rate-limits itself, and its insert promise handles
 // both outcomes, so these handlers can't feed errors back into themselves.

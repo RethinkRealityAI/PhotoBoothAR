@@ -33,3 +33,35 @@ describe('demo kits', () => {
     expect(tryPath('wedding')).toBe('/try/wedding');
   });
 });
+
+describe('cardBoothLook', () => {
+  it('reads the card title', async () => {
+    const { cardBoothLook } = await import('./demoKits');
+    expect(cardBoothLook('Merry Christmas, Grandma!')).toBe('christmas');
+    expect(cardBoothLook('Happy anniversary you two')).toBe('wedding');
+    expect(cardBoothLook('Happy 60th, Mum!')).toBe('party');
+    expect(cardBoothLook(null)).toBe('party');
+  });
+  it('always names a real kit', async () => {
+    const { cardBoothLook } = await import('./demoKits');
+    for (const t of ['xmas', 'wedding', 'anything']) expect(DEMO_KIT_IDS).toContain(cardBoothLook(t));
+  });
+});
+
+describe('cardBoothKit', () => {
+  it('never offers a sample-personalised frame', async () => {
+    const { cardBoothKit } = await import('./demoKits');
+    const banned = ['birthday-monogram-corner', 'wedding-monogram-drop', 'wedding-arch-mask', 'wedding-magazine-cover', 'nye-countdown'];
+    for (const t of ['Happy 60th', 'Merry Christmas', 'Happy anniversary']) {
+      const kit = cardBoothKit(t);
+      for (const f of kit.frames) expect(banned).not.toContain(f.id);
+      expect(kit.effects.length).toBeGreaterThan(0);
+      expect(kit.props.length).toBeGreaterThan(0);
+    }
+  });
+  it('keeps the themed frames that are safe', async () => {
+    const { cardBoothKit } = await import('./demoKits');
+    expect(cardBoothKit('Happy 60th').frames.map((f) => f.id)).toEqual(['birthday-character-hands']);
+    expect(cardBoothKit('Merry Christmas').frames).toHaveLength(2);
+  });
+});

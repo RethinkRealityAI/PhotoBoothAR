@@ -149,3 +149,61 @@ describe('duplicate naming', () => {
     }
   });
 });
+
+import { filterEvents, sortEvents, spotlightOf, nextAction, greetingFor, firstNameOf, statusBucket, type DashboardEvent } from './eventList';
+
+const NOW = at(2026, 11, 19);
+const ev = (p: Partial<DashboardEvent> & { id: string }): DashboardEvent => ({
+  name: p.id, slug: p.id, status: 'live', created_at: '2026-01-01T00:00:00Z', starts_at: null, event_type: 'party', ...p,
+});
+const iso = (y: number, m: number, d: number) => at(y, m, d).toISOString();
+
+describe('dashboard helpers', () => {
+  const list = [
+    ev({ id: 'live-today', status: 'live', starts_at: iso(2026, 11, 19), name: 'Zara Gala', event_type: 'gala' }),
+    ev({ id: 'live-soon', status: 'live', starts_at: iso(2026, 12, 1), name: 'Ada Wedding', event_type: 'wedding' }),
+    ev({ id: 'draft', status: 'draft', created_at: '2026-11-10T00:00:00Z', name: 'Beta Party' }),
+    ev({ id: 'ended', status: 'ended', starts_at: iso(2026, 10, 1), name: 'Café Night' }),
+    ev({ id: 'live-past', status: 'live', starts_at: iso(2026, 11, 1), name: 'Old Live' }),
+  ];
+
+  it('buckets by status and date', () => {
+    expect(list.map((e) => statusBucket(e, NOW))).toEqual(['live', 'live', 'drafts', 'past', 'live']);
+  });
+
+  it('filters by status, type and accent-insensitive query', () => {
+    expect(filterEvents(list, { status: 'live', type: null, query: '' }, NOW).map((e) => e.id)).toEqual(['live-today', 'live-soon', 'live-past']);
+    expect(filterEvents(list, { status: 'all', type: 'wedding', query: '' }, NOW).map((e) => e.id)).toEqual(['live-soon']);
+    expect(filterEvents(list, { status: 'all', type: null, query: 'cafe' }, NOW).map((e) => e.id)).toEqual(['ended']);
+    expect(filterEvents(list, { status: 'all', type: null, query: '  ' }, NOW)).toHaveLength(5);
+  });
+
+  it('sorts without mutating', () => {
+    const copy = [...list];
+    expect(sortEvents(list, 'name', NOW).map((e) => e.name)).toEqual(['Ada Wedding', 'Beta Party', 'Café Night', 'Old Live', 'Zara Gala']);
+    expect(sortEvents(list, 'event-date', NOW).map((e) => e.id)).toEqual(['live-past', 'live-today', 'live-soon', 'draft', 'ended']);
+    expect(sortEvents(list, 'created', NOW)[0].id).toBe('draft');
+    expect(list).toEqual(copy);
+  });
+
+  it('spotlights live first, then the newest draft, never the past', () => {
+    expect(spotlightOf(list, NOW)?.id).toBe('live-today');
+    expect(spotlightOf(list.filter((e) => e.status !== 'live'), NOW)?.id).toBe('draft');
+    expect(spotlightOf([list[3]], NOW)).toBeNull();
+  });
+
+  it('picks one next action per state', () => {
+    expect(list.map((e) => nextAction(e, NOW))).toEqual(['open-wall', 'share', 'go-live', 'recap', 'open-wall']);
+    expect(nextAction(ev({ id: 'a', status: 'archived' }), NOW)).toBe('restore');
+    expect(nextAction(ev({ id: 'u', status: 'live', starts_at: null }), NOW)).toBe('open-wall');
+  });
+
+  it('greets by hour and names by first name only', () => {
+    expect([4, 5, 11, 12, 16, 17, 23].map(greetingFor)).toEqual(['Good evening', 'Good morning', 'Good morning', 'Good afternoon', 'Good afternoon', 'Good evening', 'Good evening']);
+    expect(firstNameOf({ display_name: '  Dapo Ajisafe ' })).toBe('Dapo');
+    expect(firstNameOf({ full_name: 'Sam' })).toBe('Sam');
+    expect(firstNameOf({ display_name: 'me@x.com' })).toBeNull();
+    expect(firstNameOf(null)).toBeNull();
+    expect(firstNameOf({ display_name: 0 })).toBeNull();
+  });
+});

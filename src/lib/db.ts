@@ -243,7 +243,7 @@ export async function fetchPostsResult(
   return { rows: (data as Post[]) ?? [], failed: false };
 }
 
-/** The event's next-day keepsake film (migration 045), once it is ready.
+/** The event's next-day keepsake film (migration 050), once it is ready.
  *  null = no film (not made yet, not on this plan, or the read failed) — the
  *  album page simply shows no film block, which is true in every one of
  *  those cases, so a failure needs no separate state. */

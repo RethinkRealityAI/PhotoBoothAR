@@ -9,9 +9,13 @@ import { useEffect, useState } from 'react';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { invalidateProSubscriptionCache } from './host';
+import { authRedirectUrl } from './authRedirect';
 
-/** Where confirmed / OAuth-redirected users land after auth completes. */
-const HOST_REDIRECT = () => `${window.location.origin}/host`;
+/**
+ * Where confirmed / OAuth-redirected users land after auth completes.
+ * Always https://beamwall.app outside local dev (see authRedirect.ts).
+ */
+const HOST_REDIRECT = () => authRedirectUrl('/host', window.location);
 
 /**
  * Email + password signup. `displayName` is stored in user metadata; the
@@ -86,7 +90,7 @@ export function signOut() {
  */
 export function sendPasswordReset(email: string) {
   return supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`,
+    redirectTo: authRedirectUrl('/reset-password', window.location),
   });
 }
 

@@ -21,7 +21,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { Eye, EyeOff, MoreHorizontal, SwitchCamera, UploadCloud } from 'lucide-react';
+import { ChevronLeft, Eye, EyeOff, MoreHorizontal, SwitchCamera, UploadCloud } from 'lucide-react';
 import { GalleryIcon, MediaStackIcon } from '../ui/MediaIcons';
 import ShareButton from '../ui/ShareButton';
 import ReportIssueButton from '../support/ReportIssueButton';
@@ -32,6 +32,9 @@ function slugFromBasePath(basePath: string): string | null {
   const m = /^\/e\/([^/]+)/.exec(basePath);
   return m ? m[1] : null;
 }
+
+/** Menu row in the compact (platform) bar: sentence case, readable size. */
+const COMPACT_ITEM = 'pressable flex min-h-11 w-full items-center gap-3 rounded-xl px-3 font-sans text-[14px] text-brand-fg/90 hover:bg-white/[0.06]';
 
 /** A floating glass circle — the booth's only chrome shape. */
 export function GlassCircle({
@@ -67,10 +70,17 @@ export interface BoothTopBarProps {
   /** Front/back camera. Hidden when the device has only one. */
   canFlip: boolean;
   onFlip: () => void;
+  /**
+   * Platform booths only: the minimal bar — a back circle on the left, then
+   * (right) an optional extra circle (the self-timer), flip and "more", with
+   * "Hide controls" tucked into the more menu. Absent ⇒ exactly today's bar,
+   * which is what the legacy single-event sites keep.
+   */
+  compact?: { backTo: string; extra?: ReactNode };
 }
 
 export default function BoothTopBar({
-  basePath, uiHidden, onToggleUi, leading, recording, recordingMs, canFlip, onFlip,
+  basePath, uiHidden, onToggleUi, leading, recording, recordingMs, canFlip, onFlip, compact,
 }: BoothTopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -100,7 +110,20 @@ export default function BoothTopBar({
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-2 px-3 pt-safe-top [--safe-top:0.75rem]">
-      <div className="pointer-events-auto flex items-center gap-2">{leading}</div>
+      <div className="pointer-events-auto flex items-center gap-2">
+        {compact && !recording && (
+          <Link
+            to={compact.backTo}
+            aria-label="Back to the event"
+            title="Back to the event"
+            onClick={() => haptic('tap')}
+            className="pressable liquid-glass-raised flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Link>
+        )}
+        {leading}
+      </div>
 
       <div ref={wrapRef} className="pointer-events-auto relative flex items-center gap-2">
         {recording ? (
@@ -114,18 +137,21 @@ export default function BoothTopBar({
           </div>
         ) : (
           <>
+            {compact?.extra}
             {canFlip && (
               <GlassCircle label="Switch camera (front / back)" onClick={() => { haptic('toggle'); onFlip(); }}>
                 <SwitchCamera className="h-[18px] w-[18px]" />
               </GlassCircle>
             )}
 
-            <GlassCircle
-              label={uiHidden ? 'Show controls' : 'Hide controls — see the full frame'}
-              onClick={() => { haptic('toggle'); onToggleUi(); }}
-            >
-              {uiHidden ? <Eye className="h-[18px] w-[18px]" /> : <EyeOff className="h-[18px] w-[18px]" />}
-            </GlassCircle>
+            {!compact && (
+              <GlassCircle
+                label={uiHidden ? 'Show controls' : 'Hide controls — see the full frame'}
+                onClick={() => { haptic('toggle'); onToggleUi(); }}
+              >
+                {uiHidden ? <Eye className="h-[18px] w-[18px]" /> : <EyeOff className="h-[18px] w-[18px]" />}
+              </GlassCircle>
+            )}
 
             <GlassCircle
               label="More"
@@ -142,14 +168,30 @@ export default function BoothTopBar({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -6, scale: 0.96 }}
                   transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                  className="liquid-glass-raised absolute right-0 top-14 z-40 flex w-44 flex-col gap-0.5 rounded-2xl p-1.5"
+                  className={compact
+                    ? 'liquid-glass-raised absolute right-0 top-14 z-40 flex w-52 flex-col gap-0.5 rounded-2xl p-1.5'
+                    : 'liquid-glass-raised absolute right-0 top-14 z-40 flex w-44 flex-col gap-0.5 rounded-2xl p-1.5'}
+                  // `.liquid-glass-raised` sets `position: relative` in the same
+                  // utilities layer and out-orders `absolute`, so the open menu
+                  // dropped into the row and shoved the circles sideways.
+                  style={compact ? { position: 'absolute' } : undefined}
                 >
+                  {compact && (
+                    <button
+                      type="button"
+                      onClick={() => { haptic('toggle'); setMenuOpen(false); onToggleUi(); }}
+                      className={COMPACT_ITEM}
+                    >
+                      {uiHidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                      {uiHidden ? 'Show controls' : 'Hide controls'}
+                    </button>
+                  )}
                   {DESTS.map((d) => (
                     <Link
                       key={d.to}
                       to={d.to}
                       onClick={() => { haptic('tap'); setMenuOpen(false); }}
-                      className="pressable flex min-h-11 items-center gap-3 rounded-xl px-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg/85 hover:bg-white/[0.06]"
+                      className={compact ? COMPACT_ITEM : 'pressable flex min-h-11 items-center gap-3 rounded-xl px-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg/85 hover:bg-white/[0.06]'}
                     >
                       <d.Icon size={16} />
                       {d.label}
@@ -158,7 +200,7 @@ export default function BoothTopBar({
                   <ShareButton
                     label="Share"
                     iconSize={16}
-                    className="pressable flex min-h-11 w-full items-center gap-3 rounded-xl px-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg/85 hover:bg-white/[0.06]"
+                    className={compact ? COMPACT_ITEM : 'pressable flex min-h-11 w-full items-center gap-3 rounded-xl px-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg/85 hover:bg-white/[0.06]'}
                   />
                   {/* A guest whose booth just broke is the highest-value report
                       we can get, and they have no account to file it from.
@@ -171,7 +213,7 @@ export default function BoothTopBar({
                       label="Report a problem"
                       iconSize={16}
                       prefill={{ source: 'guest_booth', eventSlug: boothSlug }}
-                      className="pressable flex min-h-11 w-full items-center gap-3 rounded-xl px-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg/85 hover:bg-white/[0.06]"
+                      className={compact ? COMPACT_ITEM : 'pressable flex min-h-11 w-full items-center gap-3 rounded-xl px-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg/85 hover:bg-white/[0.06]'}
                     />
                   )}
                 </motion.div>

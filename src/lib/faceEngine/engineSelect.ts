@@ -53,6 +53,27 @@ export function hasFaceExpressionTrigger(triggers: readonly { source: string }[]
   return triggers.some((t) => (FACE_TRIGGER_SOURCES as readonly string[]).includes(t.source));
 }
 
+/**
+ * Expression sources 8th Wall's own mesh scores well enough to drive a trigger
+ * (xr8Expressions.ts: smile and jawOpen are FITTED against MediaPipe on real
+ * clips). `wink` and `browRaise` are extrapolated there (no closed-eye or
+ * raised-brow footage existed), so they still bring MediaPipe along.
+ */
+export const XR8_CALIBRATED_SOURCES: readonly string[] = ['smile', 'mouthOpen'];
+
+/**
+ * Does this trigger set need MediaPipe's blendshapes beside 8th Wall (= hybrid)?
+ * Only for a face expression 8th Wall is not calibrated for. Running both
+ * engines costs tracking rate (measured headless: 9.7 -> 6.5-7 poses/s), so a
+ * smile / open-mouth filter stays on plain 8th Wall.
+ */
+export function needsMediapipeExpressions(triggers: readonly { source: string }[] | null | undefined): boolean {
+  if (!triggers) return false;
+  return triggers.some(
+    (t) => (FACE_TRIGGER_SOURCES as readonly string[]).includes(t.source) && !XR8_CALIBRATED_SOURCES.includes(t.source),
+  );
+}
+
 export type ModeSource = 'legacy' | 'url' | 'config' | 'env' | 'default' | 'default-hybrid' | 'face-paint';
 
 export interface ModeInputs {
@@ -64,7 +85,8 @@ export interface ModeInputs {
   config?: unknown;
   /** `import.meta.env.VITE_FACE_ENGINE`, raw (validated here). */
   env?: unknown;
-  /** The active filter carries a face-expression trigger. */
+  /** The active filter carries a face-expression trigger 8th Wall cannot score
+   *  itself (needsMediapipeExpressions). */
   hasFaceTriggers?: boolean;
   /** The active scene paints on the face mesh (Living Face Paint). */
   requiresFaceMesh?: boolean;

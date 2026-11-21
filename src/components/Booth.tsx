@@ -5,7 +5,7 @@
  *   • Single composited StageCanvas (preview + capture + record)
  *   • Collapsible PickerDrawer (effects + frames + 3D — combinable)
  *   • Front/back camera flip (only shown when hasMultipleCameras)
- *   • Photo / Video mode toggle (record up to 30s via StreamRecorder)
+ *   • Photo / Video mode toggle (record up to the plan's videoMaxSec via StreamRecorder)
  *   • Timer selector: Off / 3s / 5s / 10s
  *   • First-launch Onboarding modal
  *   • Challenge selector (optional, tags post via challengeId)
@@ -34,6 +34,9 @@ import TriggerEffects, { type TriggerEffectsHandle } from './booth/TriggerEffect
 import PickerDrawer from './booth/PickerDrawer';
 import BoothControlDeck from './booth/BoothControlDeck';
 import BoothTopBar from './booth/BoothTopBar';
+import BoothLookDeck from './booth/BoothLookDeck';
+import LooksSheet from './booth/LooksSheet';
+import { TimerControl } from './booth/BoothCaptureControls';
 import {
   buildDeck, initialCategory, initialCategoryWhenReady, type DeckCategory, type DeckSelection,
 } from '../lib/boothDeck';
@@ -87,6 +90,7 @@ import {
 import { normalizeGuestLettering } from '../lib/letteringFit';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
+import { videoBitsPerSecondFor } from '../lib/plans';
 import { dataUrlToBlob } from './booth/capture';
 import { challengeNeedsCheck, validateChallengePhoto } from '../lib/challengeValidation';
 import { reportError } from '../lib/errorReport';
@@ -126,7 +130,6 @@ type MediaMode = 'photo' | 'video';
 type TimerOption = 0 | 3 | 5 | 10;
 
 const TIMER_OPTIONS: TimerOption[] = [0, 3, 5, 10];
-const VIDEO_MAX_MS = 30_000;
 const DEFAULT_TRANSFORM: Transform2D = { scale: 1, x: 0, y: 0, rotation: 0 };
 /** Upper bound on the send + challenge-check awaits so "Beaming…"/"Checking…"
  *  can never spin forever on a stalled connection. */
@@ -329,9 +332,12 @@ export default function Booth() {
   const [started, setStarted] = useState(false);
   const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
 
-  // Video capture is entitlement-gated (free tier: photo only). If the flag
-  // resolves after the guest already toggled, snap back to photo mode.
+  // Video capture is entitlement-gated. If the flag resolves after the guest
+  // already toggled, snap back to photo mode.
   const videoAllowed = entitlements.videoEnabled;
+  // Clip length is per plan (30 / 60 / 90 s; legacy sites stay at 30). The
+  // server derives its byte ceiling from the same value (submit-post).
+  const VIDEO_MAX_MS = entitlements.videoMaxSec * 1000;
   useEffect(() => {
     if (!videoAllowed && mediaMode === 'video') setMediaMode('photo');
   }, [videoAllowed, mediaMode]);
@@ -746,9 +752,21 @@ export default function Booth() {
   // primary (activeTriggerExp) silently dropped the other's. Dedupe by trigger
   // id; a composite sets attachExp === frameExp, so parse it once (single-source
   // scenes stay byte-identical — the one experience is the only one parsed).
+  // Event-wide power-ups (setup wizard) ride after the filter's own triggers,
+  // so a filter that already maps the same gesture keeps its own action
+  // (collectTriggers dedupes by id; power-up ids are prefixed). Absent on
+  // every event that never set them → the list below is unchanged.
+  const eventPowerUps = eventConfig.powerUps;
   const triggers = useMemo<TriggerConfig[]>(
-    () => (source !== 'db' ? [] : collectTriggers([attachExp, frameExp, effectExp])),
-    [source, attachExp, frameExp, effectExp],
+    () => (source !== 'db'
+      ? []
+      : collectTriggers([
+        attachExp,
+        frameExp,
+        effectExp,
+        eventPowerUps ? { id: 'event:powerUps', config: { triggers: eventPowerUps } } : null,
+      ])),
+    [source, attachExp, frameExp, effectExp, eventPowerUps],
   );
   const hasTriggers = triggers.length > 0;
 
@@ -1343,6 +1361,7 @@ export default function Booth() {
       const recStream = buildRecordStream(canvas, streamRef.current ?? undefined, 30);
       const rec = new StreamRecorder({
         maxMs: VIDEO_MAX_MS,
+        videoBitsPerSecond: videoBitsPerSecondFor(entitlements.videoMaxSec),
         onTick: publishRecordingMs,
         onMaxReached: () => stopRecording(rec),
         onError: (e) => failRecording(rec, e),
@@ -1645,6 +1664,16 @@ export default function Booth() {
   const ringCircumference = 2 * Math.PI * 28; // r=28 for a 60px button
 
   // ── Control deck ──────────────────────────────────────────────────────
+  // Platform (db) events get the look strip + "More looks" sheet + compact
+  // top bar; legacy/code events keep the category-tab deck, PickerDrawer and
+  // the original top bar exactly as shipped.
+  const lookDeckUi = source === 'db';
+  const clearAllLooks = () => {
+    setEffectId('none');
+    setSparkles(false);
+    handleSelectFrame(null);
+    setAttachExp(null);
+  };
   const deckSections = useMemo(() => buildDeck(catalog), [catalog]);
   // Memoized: a fresh object literal per render made this a new prop identity
   // on every single re-render of the booth, defeating any memo downstream.
@@ -1838,9 +1867,24 @@ export default function Booth() {
                   recordingMs={ms}
                   canFlip={canFlip}
                   onFlip={() => { if (!recording) flipCamera(); }}
+                  compact={lookDeckUi ? {
+                    backTo: `${basePath}/welcome`,
+                    // The timer moves up here on platform booths, camera-app
+                    // style, so the shutter row has room for "More looks".
+                    extra: mediaMode === 'photo' ? (
+                      <TimerControl
+                        className="relative"
+                        variant="circle"
+                        placement="down"
+                        timerSec={timerSec}
+                        onTimerSec={(t) => setTimerSec(t)}
+                        timerOptions={TIMER_OPTIONS}
+                      />
+                    ) : undefined,
+                  } : undefined}
                   leading={
                     <>
-                      <Emblem size={30} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />
+                      {!lookDeckUi && <Emblem size={30} className="shrink-0 drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.35)]" />}
                       {wallSettings.showChallenges && !recording && (
                         <ChallengeSelector selectedChallenge={selectedChallenge} onSelect={setSelectedChallenge} />
                       )}
@@ -1959,6 +2003,9 @@ export default function Booth() {
                     // PLATFORM only: legacy surfaces (the engine resolver's own
                     // isLegacyFaceSurface) keep the live copy on screen, as shipped.
                     composited={(is3D || powerFxActive) && !isLegacyFaceSurface(source !== 'db')}
+                    // Group selfies: head pieces on every face 8th Wall tracks.
+                    // PLATFORM only, like `composited` (and a no-op outside 8th Wall).
+                    multiFace={is3D && !isLegacyFaceSurface(source !== 'db')}
                   />
                 )}
               </div>
@@ -2078,7 +2125,37 @@ export default function Booth() {
           {/* Control deck — the demo's shape: centered category tabs, one orb
               row, then the shutter row with the capture-mode pill and timer
               flanking the shutter. */}
-          {phase === 'camera' && ready && !uiHidden && (
+          {phase === 'camera' && ready && !uiHidden && lookDeckUi && (
+            <div className="absolute inset-x-0 bottom-0 z-20">
+              <BoothLookDeck
+                sections={deckSections}
+                selection={deckSelection}
+                sparkles={sparkles}
+                onToggleSparkles={setSparkles}
+                onSelectEffect={applyEffect}
+                onSelectFrame={handleSelectFrame}
+                onSelectAttachment={setAttachExp}
+                onClearAll={clearAllLooks}
+                onOpenAll={() => setMoreOpen(true)}
+                sheetOpen={moreOpen}
+                mediaMode={mediaMode}
+                onMediaMode={setMediaMode}
+                videoAllowed={videoAllowed}
+                recording={recording}
+                shutter={shutterNode}
+                pendingIds={pendingExperienceIds}
+                stripMode={stripMode}
+                onStripMode={setStripMode}
+                stripShots={stripCount}
+                onOpenStripPicker={() => setStripPickerOpen(true)}
+                colorSlot={colorSlot}
+                guestHex={guestHex}
+                onGuestHex={setGuestHex}
+                hintEnabled={!onboardingVisible && !moreOpen}
+              />
+            </div>
+          )}
+          {phase === 'camera' && ready && !uiHidden && !lookDeckUi && (
             <div className="absolute inset-x-0 bottom-0 z-20">
               <BoothControlDeck
                 sections={deckSections}
@@ -2177,13 +2254,28 @@ export default function Booth() {
       )}
 
       {/* ── More filters & settings sheet ─────────────────────────────── */}
-      {moreOpen && phase === 'camera' && (
+      {lookDeckUi && phase === 'camera' && ready && (
+        <LooksSheet
+          open={moreOpen}
+          onClose={() => setMoreOpen(false)}
+          sections={deckSections}
+          selection={deckSelection}
+          sparkles={sparkles}
+          onToggleSparkles={setSparkles}
+          onSelectEffect={applyEffect}
+          onSelectFrame={handleSelectFrame}
+          onSelectAttachment={setAttachExp}
+          onClearAll={clearAllLooks}
+          pendingIds={pendingExperienceIds}
+        />
+      )}
+      {!lookDeckUi && moreOpen && phase === 'camera' && (
         <div
           className="absolute inset-0 z-30 bg-noir-900/55 backdrop-blur-sm"
           onClick={() => setMoreOpen(false)}
         />
       )}
-      {phase === 'camera' && ready && (
+      {!lookDeckUi && phase === 'camera' && ready && (
         <div className="absolute bottom-0 left-0 right-0 z-40 pb-safe-bottom pointer-events-none">
           <div className="pointer-events-auto">
             <PickerDrawer

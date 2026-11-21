@@ -35,7 +35,7 @@ export interface Box { left: number; top: number; width: number; height: number;
 
 export type Side = 'left' | 'right' | 'centre';
 
-export type StopId = 'hero' | 'story' | 'films' | 'pick' | 'try' | 'pricing' | 'start';
+export type StopId = 'hero' | 'story' | 'pick' | 'try' | 'pricing' | 'start';
 
 export interface StopDef {
   id: StopId;
@@ -50,8 +50,8 @@ export interface StopDef {
 /** Top to bottom. Beamy's slot alternates sides with the content. */
 export const STOPS: StopDef[] = [
   { id: 'hero', label: 'Hello', side: 'centre', night: 0.15 },
-  { id: 'story', label: 'How it works', side: 'left', night: 0.85 },
-  { id: 'films', label: 'In motion', side: 'right', night: 1 },
+  // He stands centred in the pinned story; its six scenes stand round him.
+  { id: 'story', label: 'How it works', side: 'centre', night: 0.85 },
   { id: 'pick', label: 'For you', side: 'left', night: 1 },
   { id: 'try', label: 'Try it', side: 'centre', night: 0.9 },
   { id: 'pricing', label: 'Pricing', side: 'right', night: 0.6 },
@@ -284,6 +284,81 @@ export function pinProgress(top: number, height: number, vpH: number): number {
 /** The active step for a progress (the last step holds at 1). */
 export function storyStep(progress: number, n: number): number {
   return clamp(Math.floor(progress * n), 0, Math.max(0, n - 1));
+}
+
+/**
+ * Phones: where each story step's snap anchor sits inside the pinned section
+ * (px from the section's top). A native momentum flick on a phone easily
+ * travels further than one step's 75vh stretch, so it could fly from step 1
+ * past step 2 into step 3; with `scroll-snap-stop: always` on these anchors
+ * the browser stops a swipe at the next step, every time (mandatory snapping,
+ * on only inside the pinned stretch: storySnapOn). Anchor k sits where
+ * the page reads the middle of step k: aligned to the viewport's top (snap
+ * start, no scroll padding), the section's top is at `-a`, so the page's
+ * `pinProgress(-a - headerH, h, vpH - headerH)` is exactly (k + 0.5) / n.
+ */
+export function storySnapOffsets(n: number, sectionH: number, vpH: number, headerH: number): number[] {
+  const run = Math.max(1, sectionH - (vpH - headerH));
+  return Array.from({ length: Math.max(0, n) }, (_, k) => ((k + 0.5) / n) * run - headerH);
+}
+
+/** The pinned stretch's two ends as snap anchors (progress 0 and 1), so a swipe can always leave the story. */
+export function storyEdgeOffsets(sectionH: number, vpH: number, headerH: number): [number, number] {
+  const run = Math.max(1, sectionH - (vpH - headerH));
+  return [-headerH, run - headerH];
+}
+
+/**
+ * Snapping is on only strictly inside the pinned stretch (its top above the
+ * header line and its bottom below the fold). At either end, and anywhere
+ * else on the page, scrolling is free: mandatory snapping with nothing ahead
+ * would otherwise hold the visitor in place.
+ */
+export function storySnapOn(top: number, bottom: number, headerH: number, vpH: number): boolean {
+  return top < headerH - 1 && bottom > vpH + 1;
+}
+
+/* ── The story pager (touch screens) ─────────────────────────────────────
+   Phones used to rely on mandatory CSS snapping inside the pinned story,
+   which (measured with real CDP touch gestures at 390px) snapped every slow
+   drag back to the same step (a 75vh step needs a >half-screen drag) and let
+   a flick that began outside the story fly past steps (snapping was still
+   off when the flick started). The page now drives a touch inside the
+   pinned stretch itself: the content tracks the finger 1:1, and on release
+   it settles on the next or previous step, never further; at either end the
+   swipe is handed back to the native scroll, so it leaves the story cleanly. */
+
+/** A finger travel (px) or release speed (px/ms) that turns the step. */
+export const SWIPE_MIN_PX = 28;
+export const SWIPE_MIN_V = 0.3;
+
+/** Does a swipe this way, from this step, leave the story (back before step 1, on past the last)? `dy` = finger travel, up < 0. */
+export function storySwipeLeaves(startStep: number, n: number, dy: number): boolean {
+  return (startStep <= 0 && dy > 0) || (startStep >= n - 1 && dy < 0);
+}
+
+/**
+ * Where one touch swipe inside the pinned story settles: one step on (finger
+ * up, dy < 0) or back (dy > 0), never more; a short, slow touch stays on its
+ * step; past either end, 'leave'. `vy` = release speed, px/ms, signed like dy.
+ */
+export function storySwipe(startStep: number, n: number, dy: number, vy: number): number | 'leave' {
+  const dir = Math.abs(dy) >= SWIPE_MIN_PX ? Math.sign(dy) : Math.abs(vy) >= SWIPE_MIN_V ? Math.sign(vy) : 0;
+  if (dir === 0) return clamp(startStep, 0, Math.max(0, n - 1));
+  const k = startStep - dir;
+  return k < 0 || k > n - 1 ? 'leave' : k;
+}
+
+/**
+ * A scroll the pager did not drive (native momentum from outside the story)
+ * just crossed into the pinned stretch: catch it on the first step (coming
+ * down) or the last (coming up), so a flick never flies past a step. `a0`/`a1`
+ * = the stretch's ends in the scroller's own scrollTop.
+ */
+export function storyEntry(prevTop: number, top: number, a0: number, a1: number): 'first' | 'last' | null {
+  if (prevTop <= a0 + 1 && top > a0 + 1) return 'first';
+  if (prevTop >= a1 - 1 && top < a1 - 1) return 'last';
+  return null;
 }
 
 /** Header progress: how far down the page, 0..1. */

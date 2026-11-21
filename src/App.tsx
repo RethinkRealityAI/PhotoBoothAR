@@ -13,7 +13,7 @@
  * Legacy mode (VITE_EVENT set): behaves exactly like the original single-event
  * build — registry event at the top-level routes, studio at /admin/*.
  */
-import { lazy, Suspense, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
+import { lazy, Suspense, useLayoutEffect, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 // Eager: the auth/legal surfaces a first-time visitor hits. Kept in the
 // initial bundle so first paint doesn't wait on a chunk fetch. The homepage
@@ -23,6 +23,17 @@ import EventProvider, { useEvent } from './events/EventContext';
 import { EVENT_ID } from './events/active';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { useNoIndex } from './pages/sales/components/pageMeta';
+
+/** The previous homepage (/classic) keeps its pre-rollout look: brand v2's
+ *  platform mapping (src/styles/platform.css) skips <html data-look="previous">.
+ *  Layout effect, so no first-paint flash. */
+function KeepPreviousLook({ children }: { children: ReactNode }) {
+  useLayoutEffect(() => {
+    document.documentElement.dataset.look = 'previous';
+    return () => { delete document.documentElement.dataset.look; };
+  }, []);
+  return <>{children}</>;
+}
 import Login from './pages/auth/Login';
 import Signup from './pages/auth/Signup';
 import ForgotPassword from './pages/auth/ForgotPassword';
@@ -56,6 +67,7 @@ const Challenges = lazy(() => import('./components/admin/Challenges'));
 const HostLayout = lazy(() => import('./pages/host/HostLayout'));
 const EventsList = lazy(() => import('./pages/host/EventsList'));
 const NewEvent = lazy(() => import('./pages/host/NewEvent'));
+const EventWizard = lazy(() => import('./pages/host/wizard/EventWizard'));
 const Concierge = lazy(() => import('./pages/host/Concierge'));
 const Billing = lazy(() => import('./pages/host/Billing'));
 const HostSupport = lazy(() => import('./pages/host/Support'));
@@ -74,8 +86,10 @@ const AdminEvents = lazy(() => import('./pages/admin/Events'));
 const AdminSupport = lazy(() => import('./pages/admin/Support'));
 const AdminFeatures = lazy(() => import('./pages/admin/Features'));
 const AdminLanding = lazy(() => import('./pages/admin/Landing'));
+const AdminHomeAssets = lazy(() => import('./pages/admin/HomeAssets'));
 const AdminCatalog = lazy(() => import('./pages/admin/Catalog'));
 const AdminSharedLibrary = lazy(() => import('./pages/admin/SharedLibrary'));
+const AdminLibraryImport = lazy(() => import('./pages/admin/LibraryImport'));
 const AdminPayments = lazy(() => import('./pages/admin/Payments'));
 const AdminCredits = lazy(() => import('./pages/admin/Credits'));
 const AdminUsers = lazy(() => import('./pages/admin/Users'));
@@ -104,12 +118,16 @@ const Guides = import.meta.env.VITE_EVENT
  * Internal partnerships hub (hidden link) + prospect-facing pitch decks.
  * Runtime-mode only and folded out of legacy builds exactly like Guides above.
  * The hub page itself is open by design (owner's call: "a hidden link"); the
- * CRM inside it signs in and is protected by RLS (migration 041), because it
+ * CRM (its own page under the hub path) signs in and is protected by RLS (migration 041), because it
  * holds third parties' contact details.
  */
 const SalesHub = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/sales/SalesHub'));
+/** The sales CRM as its own full page (sign-in + RLS, migrations 041/042). */
+const SalesCrmPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/sales/CrmPage'));
 const PitchPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/sales/PitchPage'));
@@ -285,7 +303,7 @@ export default function App() {
               </Route>
 
               <Route path="/" element={<BeamyPage />} />
-              <Route path="/classic" element={<ClassicLanding />} />
+              <Route path="/classic" element={<KeepPreviousLook><ClassicLanding /></KeepPreviousLook>} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -301,6 +319,7 @@ export default function App() {
                   Rollup hoist the whole sales contract into the eager entry chunk.
                   salesHub.test.ts asserts this literal matches SALES_HUB_PATH. */}
               <Route path="/hub/p7m2k9qx" element={<SalesHub />} />
+              <Route path="/hub/p7m2k9qx/crm" element={<SalesCrmPage />} />
               <Route path="/pitch/:slug" element={<PitchPage />} />
               <Route path="/book/:ref" element={<BookPage />} />
               <Route path="/try/:kit" element={<TryPage />} />
@@ -308,9 +327,14 @@ export default function App() {
               <Route path="/brand" element={<BrandPage />} />
 
               {/* Host platform (session-gated) */}
+              {/* The setup wizard: full-screen, its own session gate. A new
+                  event starts here; /host/new/assistant keeps the AI
+                  concierge (the previous /host/new) one link away. */}
+              <Route path="/host/new" element={<EventWizard />} />
+              <Route path="/host/setup/:eventId/:step?" element={<EventWizard />} />
               <Route path="/host" element={<HostLayout />}>
                 <Route index element={<EventsList />} />
-                <Route path="new" element={<NewEvent />} />
+                <Route path="new/assistant" element={<NewEvent />} />
                 <Route path="concierge" element={<Concierge />} />
                 <Route path="billing" element={<Billing />} />
                 <Route path="support" element={<HostSupport />} />
@@ -329,8 +353,10 @@ export default function App() {
                 <Route path="support" element={<AdminSupport />} />
                 <Route path="features" element={<AdminFeatures />} />
                 <Route path="landing" element={<AdminLanding />} />
+                <Route path="home-assets" element={<AdminHomeAssets />} />
                 <Route path="catalog" element={<AdminCatalog />} />
                 <Route path="library" element={<AdminSharedLibrary />} />
+                <Route path="library/import" element={<AdminLibraryImport />} />
                 <Route path="payments" element={<AdminPayments />} />
                 <Route path="credits" element={<AdminCredits />} />
                 <Route path="users" element={<AdminUsers />} />

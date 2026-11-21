@@ -3,7 +3,7 @@
  * Uses FaceRig to parent a GLB model OR a built-in procedural head piece at the
  * selected head anchor. `mirror` must match the video feed (true for selfie).
  */
-import { lazy, Suspense, useRef, useEffect, type ReactNode } from 'react';
+import { lazy, Suspense, useRef, useEffect, useSyncExternalStore, type ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import type { Group } from 'three';
 import { FaceRig, Model } from '../ar/FaceRig';
@@ -11,6 +11,7 @@ import { HandOccluder, HandPlacement, HandRig } from '../ar/HandRig';
 import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import BeamFX, { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import { RIG_CAMERA } from '../../lib/faceRig';
+import { extraFaceSlotCount, subscribeFaceEngine } from '../../lib/faceEngine';
 import { AnchorConfig, AssetCustomization, LayerAnimation } from '../../types';
 import { animate3D, animatePulse3D, PULSE_3D_MS } from '../../lib/studio/animation';
 import type { AnimatePreset } from '../../lib/studio/triggers';
@@ -168,6 +169,41 @@ interface Props {
    * Same idiom as TriggerEffects' source canvas. Absent ⇒ visible, as before.
    */
   composited?: boolean;
+  /**
+   * MULTI-FACE: also render the HEAD pieces on every extra face 8th Wall tracks
+   * (faceEngine extraFaceSlotCount — 0 on legacy, in MediaPipe mode and after a
+   * fallback, so this is a no-op there). Hand pieces, face paint, power-FX
+   * emitters and the asset callbacks stay on the primary face only. Off by
+   * default: only the platform booth opts in.
+   */
+  multiFace?: boolean;
+  /**
+   * DOM id of the wrapper a StageCanvas finds this canvas by (`threeCanvasId`).
+   * Only a SECOND composited stage on the same page needs its own (the contacts
+   * builder's live tab sits over the studio stage, which may itself be in
+   * Preview). Absent ⇒ 'booth-3d-layer', as always.
+   */
+  layerId?: string;
+}
+
+const noFaceSlots = () => 0;
+const noSubscribe = () => () => {};
+
+/** The model or procedural piece of an EXTRA face's rig: no ready/error callbacks
+ *  (the primary's copy reports the asset) and no fx emitter (its key is unique). */
+function ExtraPieceContent({ p }: { p: Pick<Overlay3DPiece, 'proceduralId' | 'assetUrl' | 'finish' | 'tint' | 'tintStrength' | 'template' | 'customization'> }) {
+  if (isHeadPiece(p.proceduralId)) return <HeadPiece id={p.proceduralId as string} />;
+  if (!p.assetUrl) return null;
+  return (
+    <Model
+      url={p.assetUrl}
+      finish={p.finish}
+      tint={p.tint}
+      tintStrength={p.tintStrength}
+      template={p.template}
+      customization={p.customization}
+    />
+  );
 }
 
 /**
@@ -217,7 +253,15 @@ function AnimatedPiece({ animation, reveal, pulse, children }: { animation?: Lay
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false, multiFace = false, layerId = 'booth-3d-layer' }: Props) {
+  // Extra faces 8th Wall can track right now (0 unless opted in AND a multi-face
+  // 8th Wall engine is the active pose engine on a platform session).
+  const extraSlots = useSyncExternalStore(
+    multiFace ? subscribeFaceEngine : noSubscribe,
+    multiFace ? extraFaceSlotCount : noFaceSlots,
+    multiFace ? extraFaceSlotCount : noFaceSlots,
+  );
+  const slots = Array.from({ length: extraSlots }, (_, k) => k + 1);
   // Hand-anchored gear renders in a HandRig; everything else keeps the FaceRig
   // path byte-identically (index split preserves keys within each family).
   const headPieces = pieces ? pieces.filter((p) => p.handAnchor === undefined) : null;
@@ -233,7 +277,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
     ? firstOptIn
     : (occlude && headPieces ? headPieces.findIndex((p) => p.facePaint === undefined) : -1);
   return (
-    <div id="booth-3d-layer" className="absolute inset-0 pointer-events-none z-20" style={composited ? { opacity: 0 } : undefined}>
+    <div id={layerId} className="absolute inset-0 pointer-events-none z-20" style={composited ? { opacity: 0 } : undefined}>
       <Canvas
         camera={{ position: RIG_CAMERA.position, fov: RIG_CAMERA.fov, near: RIG_CAMERA.near, far: RIG_CAMERA.far }}
         dpr={dpr}
@@ -346,6 +390,40 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
               ) : null}
             </AnimatedPiece>
           </FaceRig>
+        )}
+
+        {/* MULTI-FACE: the same head pieces again on each extra tracked face,
+            AFTER the primary rigs so the primary's poll (which hands the extras
+            over) runs first in the frame. Each extra rig carries the static
+            occluder (no live mesh) when the primary scene occludes. */}
+        {slots.map((slot) =>
+          headPieces ? (
+            headPieces.map((p, i) =>
+              p.facePaint !== undefined ? null : (
+                <FaceRig
+                  key={`x${slot}-${i}`}
+                  faceSlot={slot}
+                  videoId={videoId}
+                  anchor={p.anchor.anchor}
+                  config={p.anchor}
+                  mirror={mirror}
+                  occlude={i === occluderIdx}
+                  headScale={headScale}
+                  anchorVersion={p.anchorVersion}
+                >
+                  <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>
+                    <ExtraPieceContent p={p} />
+                  </AnimatedPiece>
+                </FaceRig>
+              ),
+            )
+          ) : (
+            <FaceRig key={`x${slot}`} faceSlot={slot} videoId={videoId} anchor={anchor.anchor} config={anchor} mirror={mirror} occlude={occlude} headScale={headScale}>
+              <AnimatedPiece reveal={reveal}>
+                <ExtraPieceContent p={{ proceduralId, assetUrl }} />
+              </AnimatedPiece>
+            </FaceRig>
+          ),
         )}
       </Canvas>
     </div>

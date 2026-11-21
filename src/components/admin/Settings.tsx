@@ -7,6 +7,7 @@
  * Subscribes to realtime so two admin tabs stay in sync.
  */
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   QrCode, Trophy, BarChart2, Info, ExternalLink, Copy, Check,
   Wifi, RefreshCw, Sparkles, Globe, User, Rows3, Timer, Gauge,
@@ -645,10 +646,31 @@ export default function Settings() {
               );
               // Frozen legacy sites: the original order, byte for byte.
               if (!isDbEvent) return <div>{marquee}{speed}{interval}{spotlight}{cadence}</div>;
-              // Platform: the two switches up front, the fine-tuning folded away.
+              // Platform: the layout (incl. scrolling rows) is chosen in Wall
+              // design now — a saved look makes `galleryScroll` inert, so a
+              // switch for it here would be a control that does nothing.
+              const wallDesign = (
+                <div className="flex items-center gap-4 py-4 border-b border-white/5">
+                  <div className="w-9 h-9 rounded-xl bg-gold-400/10 flex items-center justify-center shrink-0 text-gold-300">
+                    <Rows3 className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-sans text-sm text-ivory font-medium leading-tight">Layout, colours and backdrop</p>
+                    <p className="font-sans text-[12px] text-champagne/60 mt-0.5 leading-relaxed">
+                      Grid, gallery, scrolling rows, carousel or slideshow, plus light or dark: all in Wall design.
+                    </p>
+                  </div>
+                  <Link
+                    to={`${base}/moderation`}
+                    className="pressable shrink-0 min-h-11 flex items-center rounded-full px-4 liquid-glass font-sans text-[13px] font-medium text-brand-fg"
+                  >
+                    Open Wall design
+                  </Link>
+                </div>
+              );
               return (
                 <div>
-                  {marquee}
+                  {wallDesign}
                   {spotlight}
                   <details className="group mt-2">
                     <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between font-label uppercase tracking-luxe text-[10px] text-champagne/60 hover:text-gold-300">

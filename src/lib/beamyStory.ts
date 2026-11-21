@@ -9,6 +9,7 @@
 import type { BeamyLook } from './beamyLooks';
 import { AR_FRAME_GEO, HOME_ASSET_DEFAULTS, arOrder, toBeamyLook } from './beamyAssets';
 import { sequence, type Sequence } from './beamyMotion';
+import { VC_SEQ } from './beamyVirtual';
 
 /** The scenes' words. Decorative (the caption panel carries each step's text). */
 export const STORY_SCENE = {
@@ -58,13 +59,16 @@ export function storySceneLines(): string[] {
  *            "Ada completed the challenge"; the board appears; Ada climbs
  *            to #1 with the points.
  *   keepsake the album; its photos fly into the film; it makes itself; it plays.
+ *   virtual  lib/beamyVirtual VC_SEQ: the link goes out, friends' notes,
+ *            photos and videos land on one card, it closes and goes out.
  */
 export const STORY_SEQ = {
   qr: sequence([['hover', 500], ['scan', 1700], ['dissolve', 3000], ['splash', 3600], ['rest', 5600]]),
   wall: sequence([['flash', 700], ['toast', 1200], ['fly', 2200], ['receive', 3200], ['beam', 3800], ['land', 5100]], 8600),
   medal: sequence([['alert', 400], ['photo', 1500], ['sent', 2600], ['done', 3700], ['board', 4800], ['rank', 5600]]),
   keepsake: sequence([['album', 300], ['fly', 1300], ['making', 1800], ['play', 4800]]),
-} satisfies Record<'qr' | 'wall' | 'medal' | 'keepsake', Sequence>;
+  virtual: VC_SEQ,
+} satisfies Record<'qr' | 'wall' | 'medal' | 'keepsake' | 'virtual', Sequence>;
 
 /** The wearable looks of the AR step's picker (its frames and props), in picker order. None repeats the hero's. */
 export const STORY_LOOKS: BeamyLook[] = arOrder(HOME_ASSET_DEFAULTS.arLooks)
@@ -73,10 +77,10 @@ export const STORY_LOOKS: BeamyLook[] = arOrder(HOME_ASSET_DEFAULTS.arLooks)
 
 /** The AR step's own words (its picker is real, interactive UI, not decoration). */
 export const AR_COPY = {
-  line: 'Your photo booth can have a variety of filters, props and effects, tailored to capture the essence of your event.',
-  pick: 'Tap any look to try it on Beamy',
-  prev: 'Previous frame',
-  next: 'Next frame',
+  line: 'Your photo booth can have a variety of filters, 3D props and effects, tailored to capture the essence of your event.',
+  pick: 'Swipe or tap the arrows to try a look on Beamy',
+  prev: 'Previous',
+  next: 'Next',
 } as const;
 
 /** A look's small picture: the library's own .webp beside a prop, the guide pack's thumb for a frame. */

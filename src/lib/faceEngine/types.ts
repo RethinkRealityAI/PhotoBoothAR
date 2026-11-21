@@ -24,6 +24,24 @@ export interface FaceSample {
    *  expression output for this sample (caller keeps its previous stash). */
   blendshapes: Record<string, number> | null;
   keypoints: FaceKeypoints | null;
+  /** Multi-face only: this sample is a DIFFERENT person than the previous one (the
+   *  primary face was lost and another tracked face was promoted), so smoothing must
+   *  snap, not glide. Absent on every single-face sample. */
+  subjectChanged?: true;
+}
+
+/**
+ * Multi-face (8th Wall): a face tracked BESIDE the primary one. Handed over together
+ * with the primary sample it was computed with (same frame, same `t`), in the same
+ * contract convention as FaceSample.matrix (column-major, cm, raw, UNMIRRORED).
+ */
+export interface ExtraFace {
+  /** 8th Wall's face id (stable while that face stays tracked). */
+  id: number;
+  /** 1..MAX_EXTRA_FACES — stable while the face stays tracked (multiFace.ts). */
+  slot: number;
+  t: number;
+  matrix: Float32Array;
 }
 
 export interface FaceEngine {

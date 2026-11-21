@@ -102,7 +102,7 @@ function FittedModel({ scene }: { scene: THREE.Group }) {
  *  now names its CAUSE (lib/glbErrors) instead of the old blanket "the model
  *  itself is fine": a Draco-compressed upload is NOT fine and the host needs to
  *  re-export it, whereas a dropped connection genuinely is. */
-function ModelPreview({ url }: { url: string }) {
+export function ModelPreview({ url, height = 180 }: { url: string; height?: number }) {
   const [scene, setScene] = useState<THREE.Group | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   useEffect(() => {
@@ -130,7 +130,7 @@ function ModelPreview({ url }: { url: string }) {
         camera={{ position: [0, 0, 4.2], fov: 40, near: 0.1, far: 100 }}
         gl={{ alpha: true, antialias: true }}
         dpr={[1, 2]}
-        style={{ width: '100%', height: 180 }}
+        style={{ width: '100%', height }}
       >
         {/* In-canvas Suspense: an async 3D child must never suspend past the
             Canvas to the route boundary (the W3 black-app lesson). */}
@@ -184,7 +184,7 @@ function ActionButton({ onClick, disabled, children, tone = 'primary' }: {
 }) {
   const cls =
     tone === 'primary'
-      ? 'bg-foil text-white glow-accent'
+      ? 'is-selected bg-foil text-white glow-accent'
       : 'bg-white/[0.05] text-brand-muted/70 hover:text-brand-fg';
   return (
     <button

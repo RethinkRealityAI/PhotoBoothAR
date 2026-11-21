@@ -25,6 +25,7 @@ import { useStudioBase } from './studioBase';
 import { useStudioAccess } from './studioAccess';
 import { copyText } from '../../lib/clipboard';
 import { useEntitlements } from '../../lib/entitlements';
+import MediaKeepPanel from './MediaKeepPanel';
 
 interface Stats {
   published: number;
@@ -150,7 +151,7 @@ function ActionCard({ icon, title, description, onClick, accent, external }: Act
       onClick={onClick}
       className={`group w-full text-left rounded-2xl border p-5 transition-all duration-200 hover:scale-[1.02] ${
         accent
-          ? 'bg-foil border-gold-400/40 glow-accent text-noir-900'
+          ? 'is-selected bg-foil border-gold-400/40 glow-accent text-noir-900'
           : 'glass border-gold-400/15 hover:border-gold-400/35 hover:bg-gold-400/8'
       }`}
     >
@@ -326,7 +327,7 @@ export default function Dashboard({
   // The Studio add-on (studioAccess) — defaults to true, so legacy mounts and
   // any host who has it see the creator cards exactly as before.
   const { studio } = useStudioAccess();
-  const { basePath, eventUuid, status, config } = useEvent();
+  const { basePath, eventUuid, status, config, eventId } = useEvent();
   const { videoEnabled } = useEntitlements();
   const { stats, loading, reload } = useStats();
   const [going, setGoing] = useState(false);
@@ -456,6 +457,13 @@ export default function Dashboard({
             ))}
           </div>
         </section>
+
+        {/* How long the plan keeps the captures + Download everything (the
+            retention reminder email links here). Platform only: the frozen
+            legacy admin stays byte-identical. */}
+        {platformStudio && eventUuid && (
+          <MediaKeepPanel eventId={eventId} eventUuid={eventUuid} eventName={copy.fullName} />
+        )}
 
         {/* Action cards */}
         <section>

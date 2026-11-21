@@ -30,8 +30,10 @@ export interface Pin { src: string; key: string; mine: boolean; }
  * that will land there), so a photo card can fly in and arrive as it swaps.
  * `fill` stretches the wall to its box's height (rows share it evenly).
  * A change of `rows` needs a fresh wall: key the component by it.
+ * `centre` = the tile `centreRef` points at and the ripple starts from
+ * (default the middle tile).
  */
-export default function LiveWall({ pool, pins, dim, compact, centreRef, ripple, seed, rows = 3, fill = false, lead = 0, onUpcoming }: {
+export default function LiveWall({ pool, pins, dim, compact, centreRef, ripple, seed, rows = 3, fill = false, lead = 0, onUpcoming, centre = WALL_CENTRE }: {
   pool: string[];
   pins: Record<number, Pin>;
   dim: boolean;
@@ -43,6 +45,7 @@ export default function LiveWall({ pool, pins, dim, compact, centreRef, ripple, 
   fill?: boolean;
   lead?: number;
   onUpcoming?: (tile: HTMLDivElement, src: string) => void;
+  centre?: number;
 }) {
   const rand = useRef<() => number>(seededRandom(seed));
   const wallRef = useRef<WallState>(initialWall(pool.length, rand.current, WALL_COLS * rows));
@@ -56,7 +59,7 @@ export default function LiveWall({ pool, pins, dim, compact, centreRef, ripple, 
   const leadRef = useRef(lead);
   leadRef.current = lead;
   const [, bump] = useReducer((x: number) => x + 1, 0);
-  const rings = useMemo(() => rippleRings(WALL_CENTRE, WALL_COLS, rows), [rows]);
+  const rings = useMemo(() => rippleRings(centre, WALL_COLS, rows), [centre, rows]);
 
   useEffect(() => {
     let id = 0;
@@ -115,7 +118,7 @@ export default function LiveWall({ pool, pins, dim, compact, centreRef, ripple, 
               key={n}
               ref={(el) => {
                 tileEls.current[n] = el;
-                if (n === WALL_CENTRE && centreRef !== undefined) centreRef.current = el;
+                if (n === centre && centreRef !== undefined) centreRef.current = el;
               }}
               data-tile={n}
               className={`bw-tile ${compact && !fill ? 'aspect-square' : aspect}`}

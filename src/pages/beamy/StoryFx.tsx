@@ -13,6 +13,7 @@
  *   wall      motes drifting up past the wall
  *   medal     amber light orbiting the challenge
  *   keepsake  warm motes rising past the album
+ *   virtual   light orbiting the shared card as friends' pieces land
  *
  * Every effect fades with damping (1 − exp(−k·dt)) so it is fully gone before
  * the next step's scene beams in. Particles are a time-driven vertex shader
@@ -31,7 +32,7 @@ export interface FxState {
   spot: Box | null;
 }
 
-const IDS: StoryFxId[] = ['qr', 'prop', 'wall', 'medal', 'keepsake'];
+const IDS: StoryFxId[] = ['qr', 'prop', 'wall', 'medal', 'keepsake', 'virtual'];
 const WHITE = new THREE.Color('#FFFFFF');
 const PERI = new THREE.Color('#A5ABFF');
 const AMBER = new THREE.Color('#FFC56B');
@@ -106,7 +107,7 @@ export default function StoryFx({ fxRef, lite, reduced }: {
 }) {
   const { gl, scene, camera, size } = useThree();
   const roots = useRef<Partial<Record<StoryFxId, THREE.Group | null>>>({});
-  const cur = useRef<Record<StoryFxId, number>>({ qr: 0, prop: 0, wall: 0, medal: 0, keepsake: 0 });
+  const cur = useRef<Record<StoryFxId, number>>({ qr: 0, prop: 0, wall: 0, medal: 0, keepsake: 0, virtual: 0 });
   const clock = useRef(0);
   const rings = useRef<(THREE.Mesh | null)[]>([]);
 
@@ -120,6 +121,7 @@ export default function StoryFx({ fxRef, lite, reduced }: {
       wall: sparkles(Math.round(30 * n), 0.62, 4, 1, WHITE, PERI),
       medal: sparkles(Math.round(70 * n), 0.66, 6, 0, AMBER, WHITE),
       keepsake: sparkles(Math.round(46 * n), 0.62, 5, 1, WHITE, AMBER),
+      virtual: sparkles(Math.round(56 * n), 0.64, 5, 0, PERI, AMBER),
     };
     return { ringMats, ring, sp };
   }, [lite]);

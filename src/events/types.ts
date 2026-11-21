@@ -7,6 +7,8 @@
  */
 import type { ComponentType } from 'react';
 import type { EventBrief } from '../lib/eventBrief';
+import type { EventScene } from '../lib/sceneThemes';
+import type { TriggerConfig } from '../lib/studio/triggers';
 
 /** A single numbered step on the /join landing + onboarding. */
 export interface EventStep {
@@ -101,11 +103,24 @@ export interface EventConfig {
   /** Catalog id auto-applied when the booth opens if the admin hasn't set one
    *  (e.g. a signature frame). Admin's wallSettings.defaultExperienceId wins. */
   defaultExperienceId?: string;
+  /** Event-wide power-ups from the setup wizard (events.config.powerUps),
+   *  already resolved to booth triggers. Absent = none — merged after the
+   *  selected filter's own triggers (lib/wizard/powerUps). */
+  powerUps?: TriggerConfig[];
   /** CSS custom-property values for this event's theme (mirrors theme.css for
    *  the legacy coded events; sourced from events.config for DB events). The
    *  EventProvider applies these at runtime so themes no longer require a
    *  build-time CSS import. */
   themeVars?: Record<string, string>;
+  /** The platform look family (events.config.look). 'beamwall' = brand v2 on
+   *  the guest surfaces (src/styles/platform.css); absent = the event's own
+   *  themeVars over the classic dark default. DB events only — coded legacy
+   *  events never carry it. */
+  look?: 'beamwall';
+  /** How the guest pages are dressed (events.config.scene): a template,
+   *  gradient, colour, photo or frame. DB events only; undefined = today's
+   *  background. Always normalized (lib/sceneThemes.normalizeScene). */
+  scene?: EventScene;
   /** The shared event brief (events.config.brief) the concierge captures and
    *  the Platform Copilot / Scene Director read. DB events only — undefined
    *  when the row carries none, and always undefined for legacy coded events. */

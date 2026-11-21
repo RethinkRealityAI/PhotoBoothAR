@@ -11,16 +11,282 @@
  */
 import { Link, useLocation } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { Album, Camera, Images, Trophy, UploadCloud } from 'lucide-react';
-import { useEffect } from 'react';
+import { Album, Camera, Check, ChevronRight, Images, Link2, Trophy, UploadCloud } from 'lucide-react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
 import ReportIssueButton from './support/ReportIssueButton';
+import LiveWallField from './theme/LiveWallField';
+import { WALL_FIELD_SAMPLES } from './theme/samplePhotos';
+import BoothViewfinder from './theme/BoothViewfinder';
+import BoothShowcase from './theme/BoothShowcase';
+import PageBorder from './theme/PageBorder';
+import { useBoothShot, useBoothShowcase, useHeroFrameUrl } from './theme/useBoothShot';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import { useEntitlements } from '../lib/entitlements';
+import { resolveScene } from '../lib/sceneThemes';
+import { wallFieldPhotos } from '../lib/scenePage';
+import { subscribeToPosts } from '../lib/db';
+import type { Post } from '../types';
 
+/** Platform events get the immersive page; coded legacy events keep the
+ *  original page below exactly as it shipped. */
 export default function GuestWelcome() {
+  const { source } = useEvent();
+  return source === 'db' ? <SceneGuestWelcome /> : <LegacyGuestWelcome />;
+}
+
+/**
+ * The platform page reads as the event's booth and wall, not a landing page:
+ * the whole background is the live photo wall (LiveWallField), the hero is a
+ * preview of the booth whose shutter is the way in (BoothViewfinder), and the
+ * host may put a border round it all (PageBorder).
+ */
+function SceneGuestWelcome() {
+  const { config, basePath, eventId } = useEvent();
+  const fromLanding = new URLSearchParams(useLocation().search).get('from') === 'beamy-qr';
+  const { videoEnabled } = useEntitlements();
+  const {
+    wallSettings, fetchWallSettings,
+    posts, fetchPosts, prependPost, updatePost, removePost,
+    challenges, challengesLoaded, fetchChallenges,
+    experiencesLoaded, fetchExperiences, fetchPresetOverrides,
+  } = useStore();
+  useEffect(() => {
+    fetchWallSettings();
+    void fetchPosts();
+  }, [fetchWallSettings, fetchPosts]);
+  useEffect(() => {
+    if (!challengesLoaded) void fetchChallenges(true);
+  }, [challengesLoaded, fetchChallenges]);
+  // The booth's catalogue, for the frame drawn over the preview.
+  useEffect(() => {
+    if (!experiencesLoaded) void fetchExperiences(true);
+    void fetchPresetOverrides();
+  }, [experiencesLoaded, fetchExperiences, fetchPresetOverrides]);
+
+  // Photos snapped while this page is open beam onto the wall at once.
+  const [fresh, setFresh] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const arrive = (p: Post) => {
+      if (!p.approved || p.hidden) return;
+      setFresh((prev) => new Set(prev).add(p.id));
+      prependPost(p);
+    };
+    return subscribeToPosts(eventId, {
+      onInsert: arrive,
+      onUpdate: (p) => {
+        // A pre-moderated post approved just now is an arrival, not an edit.
+        if (useStore.getState().posts.some((x) => x.id === p.id)) updatePost(p);
+        else arrive(p);
+      },
+      onDelete: removePost,
+    }, { visibleOnly: true });
+  }, [eventId, prependPost, updatePost, removePost]);
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const eventUrl = `${origin}${basePath || ''}/welcome`;
+  // Same gates as the original page (and GuestNav): never a door to an empty room.
+  const hasChallenges =
+    wallSettings.showChallenges !== false && challenges.some((c) => c.active);
+  const slug = /^\/e\/([^/]+)/.exec(basePath)?.[1] ?? null;
+
+  // No scene = the event's own background and today's dark ink.
+  const scene = config.scene ? resolveScene(config.scene) : null;
+  const tone = scene?.tone ?? 'dark';
+  const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
+  const wallPhotos = useMemo(() => wallFieldPhotos(posts), [posts]);
+  // Until the first photo lands the wall shows stand-ins, never bare glass.
+  const fieldPhotos = wallPhotos.length > 0 ? wallPhotos : WALL_FIELD_SAMPLES;
+  // One booth screen: the newest single shot (a strip shows its first panel).
+  const shot = useBoothShot(wallPhotos);
+  const newest = shot.post;
+  const frameUrl = useHeroFrameUrl();
+  const showcase = useBoothShowcase(6);
+  // The host's own words only: the page no longer explains itself by default.
+  const intro =
+    typeof config.copy.welcomeIntro === 'string' && config.copy.welcomeIntro.trim() !== ''
+      ? config.copy.welcomeIntro
+      : null;
+
+  const actions = [
+    { to: `${basePath}/wall`, icon: Images, title: 'Live photo wall' },
+    { to: `${basePath}/me`, icon: Album, title: videoEnabled ? 'My photos and videos' : 'My photos' },
+    { to: `${basePath}/upload`, icon: UploadCloud, title: 'Share a photo' },
+    ...(hasChallenges ? [{ to: `${basePath}/challenges`, icon: Trophy, title: 'Photo challenges' }] : []),
+  ];
+
+  const moments = posts.length;
+
+  // The QR's companion: copy the page link. navigator.clipboard is undefined
+  // outside a secure context and writeText rejects when the page is not
+  // focused, so a failure shows the link itself to copy by hand.
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  useEffect(() => {
+    if (copyState !== 'copied') return;
+    const t = setTimeout(() => setCopyState('idle'), 2200);
+    return () => clearTimeout(t);
+  }, [copyState]);
+  const copyLink = () => {
+    const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+    if (!clip?.writeText) { setCopyState('failed'); return; }
+    clip.writeText(eventUrl).then(() => setCopyState('copied'), () => setCopyState('failed'));
+  };
+
+  // The room's pulse. Desktop: above the name. Phones: over the phone's screen.
+  const pulse = moments > 0 ? (
+    <Link
+      to={`${basePath}/wall`}
+      aria-live="polite"
+      className="sc-chip pressable relative inline-flex min-h-11 items-center gap-2.5 rounded-full px-4 font-sans text-[14px] font-semibold"
+    >
+      <span className="sc-rim" aria-hidden><span /></span>
+      <span aria-hidden className="sc-live-dot h-2.5 w-2.5 rounded-full" style={{ background: 'var(--sc-accent)', boxShadow: '0 0 12px var(--sc-accent)' }} />
+      Guests are snapping
+      <span className="sc-faint font-medium">· {moments}</span>
+    </Link>
+  ) : (
+    <div className="sc-chip relative inline-flex min-h-11 items-center gap-2.5 rounded-full px-4 font-sans text-[14px] font-semibold">
+      <span className="sc-rim" aria-hidden><span /></span>
+      <span aria-hidden className="sc-live-dot h-2.5 w-2.5 rounded-full" style={{ background: 'var(--sc-accent)', boxShadow: '0 0 12px var(--sc-accent)' }} />
+      Be the first on the wall
+    </div>
+  );
+
+  const scanToJoin = (
+    <div className="sc-glass flex w-full max-w-[440px] items-center gap-4 rounded-[24px] p-3 pr-4">
+      <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: '-3.4s' }}><span /></span>
+      <div className="shrink-0 rounded-[16px] bg-white p-2">
+        <QRCodeSVG value={eventUrl} size={76} bgColor="#FFFFFF" fgColor="#1A1740" level="M" title="QR code for this event page" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-sans text-[16px] font-semibold sc-ink">Scan to join</p>
+        <button
+          type="button"
+          onClick={copyLink}
+          className="sc-chip pressable mt-2 inline-flex min-h-11 items-center gap-2 rounded-full px-3.5 font-sans text-[13px] font-medium"
+        >
+          {copyState === 'copied' ? <Check className="h-4 w-4" aria-hidden /> : <Link2 className="h-4 w-4" aria-hidden />}
+          {copyState === 'copied' ? 'Link copied' : 'Copy link'}
+        </button>
+        <span className="sr-only" aria-live="polite">{copyState === 'copied' ? 'Link copied' : ''}</span>
+        {copyState === 'failed' && (
+          <p className="mt-2 select-all break-all font-sans text-[12px] leading-snug sc-muted">{eventUrl}</p>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      data-scene-ui={tone}
+      style={vars}
+      className="absolute inset-0 overflow-y-auto overflow-x-hidden bg-noir-900"
+    >
+      <EventBackground density={40} sparkle={0.6} />
+      {/* The wall stays put while the page scrolls over it. */}
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <LiveWallField photos={fieldPhotos} fresh={fresh} />
+      </div>
+      {config.scene?.border && <PageBorder border={config.scene.border} />}
+      <div className="relative z-10 mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 sm:px-8 pt-safe-top [--safe-top:1.25rem] pb-safe-bottom [--safe-bottom:1.5rem]">
+
+        {/* Top line (desktop): who this is, and the wall one tap away. On a
+            phone the name itself is the first thing, so this row is skipped. */}
+        <div className="hidden items-center justify-between gap-3 animate-rise-in lg:flex">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Emblem size={34} className="shrink-0" />
+            <span className="truncate font-sans text-[14px] font-medium sc-muted">{config.copy.eventName}</span>
+          </div>
+          <Link
+            to={`${basePath}/wall`}
+            className="sc-chip pressable relative inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full px-4 font-sans text-[13px] font-medium"
+          >
+            <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: '-2.1s' }}><span /></span>
+            <span aria-hidden className="sc-live-dot h-2 w-2 rounded-full" style={{ background: 'var(--sc-accent)' }} />
+            Live wall
+          </Link>
+        </div>
+
+        {fromLanding && (
+          <p role="status" className="sc-glass mt-3 rounded-2xl px-4 py-3 text-center font-sans text-[14px] leading-relaxed sc-ink lg:mt-5">
+            Oh, you scanned it for real. Thanks for trying it out! This is a live demo event: step into the booth, then watch your shot land on the wall.
+          </p>
+        )}
+
+        <main className="grid flex-1 grid-cols-[minmax(0,1fr)] items-start gap-x-16 gap-y-5 pb-6 pt-1 [grid-template-areas:'head'_'vf'_'qr'_'rest'] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:gap-y-8 lg:py-10 lg:[grid-template-areas:'head_vf'_'rest_vf']">
+          {/* ── Hero: the name first ── */}
+          <section className="flex min-w-0 flex-col items-center text-center animate-rise-in [grid-area:head] lg:items-start lg:pt-6 lg:text-left">
+            <div className="mb-6 hidden lg:block">{pulse}</div>
+            <h1 className="sc-display max-w-[14ch] text-[clamp(38px,11vw,92px)] font-semibold leading-[0.96] sc-ink break-words">
+              {config.copy.fullName}
+            </h1>
+            {config.copy.tagline && (
+              <p className="mt-2 max-w-xl font-sans text-[clamp(16px,2.2vw,22px)] leading-snug sc-muted lg:mt-4">{config.copy.tagline}</p>
+            )}
+            {/* Scan to join sits right under the name on a big screen. */}
+            <div className="mt-6 hidden w-full lg:block">{scanToJoin}</div>
+          </section>
+
+          {/* ── The booth, previewed, with the event's looks round it ── */}
+          <div className="flex min-w-0 flex-col items-center animate-rise-in [grid-area:vf] lg:justify-center lg:self-center">
+            <BoothShowcase cards={showcase} overlay={<div className="lg:hidden">{pulse}</div>}>
+              <BoothViewfinder
+                to={`${basePath}/booth`}
+                frameUrl={frameUrl}
+                previewUrl={newest?.image_url}
+                previewCrop={shot.crop}
+                widthClass="w-[min(62vw,280px)] lg:w-[min(24vw,310px)]"
+                previewAlt={newest ? (newest.guest_name ? `The newest photo, by ${newest.guest_name}` : 'The newest guest photo') : undefined}
+              />
+            </BoothShowcase>
+          </div>
+
+          {/* Phones: Scan to join under the phone. */}
+          <div className="flex justify-center [grid-area:qr] lg:hidden">{scanToJoin}</div>
+
+          <section className="flex min-w-0 flex-col items-start animate-rise-in [grid-area:rest]">
+            {intro && <p className="mb-5 max-w-lg font-sans text-[15px] leading-relaxed sc-muted">{intro}</p>}
+            <nav aria-label="More to do here" className="grid w-full grid-cols-2 gap-3">
+              {actions.map((a, i) => (
+                <Link
+                  key={a.to}
+                  to={a.to}
+                  className="sc-glass sc-card group flex min-h-[60px] items-center gap-3 rounded-2xl px-3.5 py-3"
+                >
+                  <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: `-${(i * 1.7).toFixed(1)}s` }}><span /></span>
+                  <span
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                    style={{ background: 'color-mix(in srgb, var(--sc-accent) 18%, transparent)', color: 'var(--sc-accent)' }}
+                  >
+                    <a.icon className="h-[18px] w-[18px]" aria-hidden />
+                  </span>
+                  <span className="min-w-0 flex-1 font-sans text-[14px] font-semibold leading-tight sc-ink">{a.title}</span>
+                  <ChevronRight className="hidden h-4 w-4 shrink-0 sc-faint transition-transform group-hover:translate-x-0.5 sm:block" aria-hidden />
+                </Link>
+              ))}
+            </nav>
+          </section>
+
+        </main>
+
+        {slug !== null && (
+          <div className="flex justify-center">
+            <ReportIssueButton
+              label="Something not working? Report a problem"
+              iconSize={14}
+              prefill={{ source: 'guest_booth', eventSlug: slug }}
+              className="pressable flex min-h-11 items-center gap-2 font-sans text-[13px] sc-faint hover:underline"
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LegacyGuestWelcome() {
   const { config, basePath } = useEvent();
   /** Arrived from the landing page's real QR code (its Easter egg): say hello. */
   const fromLanding = new URLSearchParams(useLocation().search).get('from') === 'beamy-qr';

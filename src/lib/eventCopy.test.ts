@@ -49,6 +49,12 @@ describe('copyPatch', () => {
     });
     expect(copyPatch(null, GEN, 'NOW').copy.generatedAt).toBe('NOW');
   });
+  it('keeps a welcome or keepsake line the host already wrote', () => {
+    const out = copyPatch({ welcomeIntro: 'Love, Ada & Tolu', keepsakeIntro: '  ' }, GEN, 'NOW').copy;
+    expect(out.welcomeIntro).toBe('Love, Ada & Tolu');
+    expect(out.keepsakeIntro).toBe(GEN.keepsakeIntro);
+    expect(out.tagline).toBe(GEN.tagline);
+  });
 });
 
 describe('generateEventCopy', () => {

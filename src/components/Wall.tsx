@@ -34,7 +34,7 @@
  */
 import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { QrCode } from 'lucide-react';
+import { GalleryHorizontal, LayoutDashboard, LayoutGrid, MonitorPlay, Orbit, QrCode, Trophy } from 'lucide-react';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { fetchPostsResult, subscribeToPosts, subscribeToSettings } from '../lib/db';
@@ -56,6 +56,29 @@ import ChallengesTicker from './wall/ChallengesTicker';
 import WallLightbox from './wall/WallLightbox';
 import FeaturedSpotlight from './wall/FeaturedSpotlight';
 import EmptyWall from './wall/EmptyWall';
+import GridWall from './wall/GridWall';
+import WallBackdrop, { WallTwinkles } from './wall/WallBackdrop';
+import { samplePosts } from './theme/samplePhotos';
+import {
+  PREVIEW_MAX_POSTS,
+  WALL_PREVIEW_READY,
+  isWallPreviewFrame,
+  namedSamples,
+  parseWallPreviewMessage,
+  previewArrival,
+} from '../lib/wallPreview';
+import WallHeader, { type WallTab } from './wall/WallHeader';
+import {
+  WALL_LAYOUT_META,
+  normalizeWallLook,
+  resolveScene,
+  resolveWallBackdrop,
+  sameWallArrangement,
+  WALL_CORNER_META,
+  wallGlowColor,
+  wallTone,
+  type WallLayout,
+} from '../lib/sceneThemes';
 import FetchFailed from './ui/FetchFailed';
 import { listState } from '../lib/listState';
 import {
@@ -78,12 +101,45 @@ import {
 } from '../lib/wallRuntime';
 import {
   usePageVisible,
+  usePrefersReducedMotion,
   useSlowClock,
   useWakeLock,
   useWallViewport,
 } from './wall/wallHooks';
 
 type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard' | 'carousel';
+
+/** Platform walls: the host's layouts (lib/sceneThemes) plus the leaderboard. */
+type PlatformView = WallLayout | 'leaderboard';
+const PLATFORM_VIEWS: readonly PlatformView[] = ['grid', 'masonry', 'marquee', 'carousel', 'slideshow', 'leaderboard'];
+
+/** This device's own choice of view on a platform wall (null = follow the
+ *  host's Wall design). Its own key, so the legacy persisted shape is untouched. */
+function readPersistedPlatformView(eventId: string): PlatformView | null {
+  try {
+    const v = localStorage.getItem(`beamwall:wall-view:${eventId}`);
+    return PLATFORM_VIEWS.includes(v as PlatformView) ? (v as PlatformView) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** '#RRGGBB' → 'r, g, b' for the `--accent-rgb` style tokens; null otherwise. */
+function rgbTriplet(hex: string): string | null {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
+const PLATFORM_TAB_ICONS: Record<PlatformView, WallTab<PlatformView>['Icon']> = {
+  grid: LayoutGrid,
+  masonry: LayoutDashboard,
+  marquee: GalleryHorizontal,
+  carousel: Orbit,
+  slideshow: MonitorPlay,
+  leaderboard: Trophy,
+};
 
 /** Set for the three frozen single-event deploys (see App.tsx). */
 const IS_LEGACY_BUILD = (((import.meta.env.VITE_EVENT as string | undefined) ?? '')).trim() !== '';
@@ -96,7 +152,7 @@ const IS_LEGACY_BUILD = (((import.meta.env.VITE_EVENT as string | undefined) ?? 
  * screen has no way to know the wall has gone quiet for a fixable reason.
  * A calm dot when live; a labelled amber pill only when it is not.
  */
-function SocketDot({ status }: { status: SocketStatus }) {
+function SocketDot({ status, brand = false }: { status: SocketStatus; brand?: boolean }) {
   const live = status === 'live';
   return (
     <div
@@ -115,14 +171,18 @@ function SocketDot({ status }: { status: SocketStatus }) {
           animation: live ? undefined : 'wall-socket-pulse 1.6s ease-in-out infinite',
         }}
       />
-      {!live && (
+      {!live && (brand ? (
+        <span className="font-sans font-medium text-amber-200" style={{ fontSize: 'calc(12px * var(--wall-scale, 1))' }}>
+          Reconnecting
+        </span>
+      ) : (
         <span
           className="font-label uppercase tracking-luxe text-amber-200/80"
           style={{ fontSize: 'calc(9px * var(--wall-scale, 1))' }}
         >
           Reconnecting
         </span>
-      )}
+      ))}
     </div>
   );
 }
@@ -153,7 +213,13 @@ function readPersistedWallState(eventId: string): {
 }
 
 export default function Wall() {
-  const { eventId, basePath, source } = useEvent();
+  const { eventId, basePath, source, config } = useEvent();
+  /** Every new behaviour below (Wall design, grid, backdrop, tone, chrome)
+   *  is gated on this; the three frozen legacy builds render byte-identically. */
+  const platform = source === 'db' && !IS_LEGACY_BUILD;
+  /** The setup wizard's embedded preview: sample photos, the host's unsaved
+   *  design over postMessage, no database traffic, nothing persisted. */
+  const [preview] = useState(() => platform && isWallPreviewFrame());
   const {
     posts,
     postsLoaded,
@@ -195,6 +261,7 @@ export default function Wall() {
 
   // Persist { mode, projectionMode, qrOverride } for this event.
   useEffect(() => {
+    if (preview) return;
     try {
       localStorage.setItem(
         `beamwall:wall:${eventId}`,
@@ -203,7 +270,29 @@ export default function Wall() {
     } catch {
       // storage unavailable (private mode/quota) — persistence is best-effort
     }
-  }, [eventId, mode, projectionMode, qrOverride]);
+  }, [eventId, mode, projectionMode, qrOverride, preview]);
+
+  // ── Platform: the host's Wall design (lib/sceneThemes) ──
+  // The host's layout is every screen's default view. A device can still pick
+  // another tab (persisted on that device), until the host CHANGES the
+  // arrangement live — then every screen follows (see subscribeToSettings).
+  const hostLook = useMemo(
+    () => normalizeWallLook(wallSettings.wallLook, wallSettings.galleryScroll),
+    [wallSettings.wallLook, wallSettings.galleryScroll],
+  );
+  const [viewOverride, setViewOverride] = useState<PlatformView | null>(
+    () => (platform && !preview ? readPersistedPlatformView(eventId) : null),
+  );
+  useEffect(() => {
+    if (!platform || preview) return;
+    try {
+      const key = `beamwall:wall-view:${eventId}`;
+      if (viewOverride === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, viewOverride);
+    } catch {
+      // storage unavailable — the override just lasts for this page view
+    }
+  }, [platform, eventId, viewOverride, preview]);
 
   // Controls auto-hide (projection mode hides the toggle bar after 4 s idle)
   const [showChrome, setShowChrome] = useState(true);
@@ -228,8 +317,9 @@ export default function Wall() {
   // we stop the projector laptop going to sleep mid-gala?
   const visible = usePageVisible();
   const viewport = useWallViewport(projectionMode);
-  useWakeLock(true);
-  const [socketStatus, setSocketStatus] = useState<SocketStatus>('connecting');
+  useWakeLock(!preview);
+  // The preview never opens a socket; it is a faithful 'live' wall.
+  const [socketStatus, setSocketStatus] = useState<SocketStatus>(preview ? 'live' : 'connecting');
 
   // Slow drift for the persistent high-contrast chrome (burn-in defence).
   const driftSeconds = useSlowClock(visible);
@@ -255,8 +345,16 @@ export default function Wall() {
   // Initial data load
   // ----------------------------------------------------------------
   useEffect(() => {
+    if (preview) return;
     if (!postsLoaded) fetchPosts();
-  }, [postsLoaded, fetchPosts]);
+  }, [postsLoaded, fetchPosts, preview]);
+
+  // Preview: a wall full of stand-in moments, with names for the captions.
+  const previewSamples = useMemo(() => (preview ? namedSamples(samplePosts(24)) : []), [preview]);
+  useEffect(() => {
+    if (!preview) return;
+    useStore.setState({ posts: previewSamples, postsLoaded: true, postsFailed: false });
+  }, [preview, previewSamples]);
 
   // What the gallery area should show. Previously this was just
   // `posts.length === 0`, which conflated three different situations: the
@@ -273,18 +371,29 @@ export default function Wall() {
   }, [fetchPosts]);
 
   useEffect(() => {
+    if (preview) return;
     fetchWallSettings();
-  }, [fetchWallSettings]);
+  }, [fetchWallSettings, preview]);
 
   // ----------------------------------------------------------------
   // Live settings subscription
   // ----------------------------------------------------------------
   useEffect(() => {
+    if (preview) return;
     const unsub = subscribeToSettings(eventId, (s) => {
+      if (platform) {
+        // The host changed the arrangement (layout or grid size): every
+        // screen follows, whatever tab it was on. Colour/tone changes repaint
+        // in place without yanking anyone's view.
+        const prev = useStore.getState().wallSettings;
+        const before = normalizeWallLook(prev.wallLook, prev.galleryScroll);
+        const after = normalizeWallLook(s.wallLook, s.galleryScroll);
+        if (!sameWallArrangement(before, after)) setViewOverride(null);
+      }
       setWallSettings(s);
     });
     return unsub;
-  }, [eventId, setWallSettings]);
+  }, [eventId, setWallSettings, platform, preview]);
 
   // If leaderboard mode is disabled by admin while viewing it, fall back to mosaic
   useEffect(() => {
@@ -292,6 +401,9 @@ export default function Wall() {
       setMode('mosaic');
     }
   }, [wallSettings.showLeaderboard, mode]);
+  useEffect(() => {
+    if (platform && viewOverride === 'leaderboard' && !wallSettings.showLeaderboard) setViewOverride(null);
+  }, [platform, viewOverride, wallSettings.showLeaderboard]);
 
   // ----------------------------------------------------------------
   // Realtime subscription
@@ -369,6 +481,7 @@ export default function Wall() {
   }, [ceremony]);
 
   useEffect(() => {
+    if (preview) return;
     // visibleOnly: unapproved/hidden posts never reach the wall, and a hide/
     // unapprove arrives as onDelete → removed instantly (no 20 s poll wait).
     const unsubscribe = subscribeToPosts(eventId, {
@@ -391,7 +504,38 @@ export default function Wall() {
       onStatus: (s) => setSocketStatus(socketStatusFrom(s)),
     }, { visibleOnly: true });
     return unsubscribe;
-  }, [eventId, handleInsert, updatePost, removePost]);
+  }, [eventId, handleInsert, updatePost, removePost, preview]);
+
+  // Preview: the wizard sends the host's unsaved design and "beam a photo"
+  // requests. Same-origin parent only (lib/wallPreview).
+  const beamCount = useRef(0);
+  useEffect(() => {
+    if (!preview) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.source !== window.parent) return;
+      const msg = parseWallPreviewMessage(e.data);
+      if (msg === null) return;
+      if (msg.type === 'beamwall:wall-preview:beam') {
+        const post = previewArrival(previewSamples, beamCount.current);
+        beamCount.current += 1;
+        if (post === null) return;
+        const current = useStore.getState().posts;
+        if (current.length >= PREVIEW_MAX_POSTS) removePost(current[current.length - 1].id);
+        handleInsert(post);
+        return;
+      }
+      const prev = useStore.getState().wallSettings;
+      const next = { ...prev, ...msg.settings };
+      if (!sameWallArrangement(
+        normalizeWallLook(prev.wallLook, prev.galleryScroll),
+        normalizeWallLook(next.wallLook, next.galleryScroll),
+      )) setViewOverride(null);
+      setWallSettings(next);
+    };
+    window.addEventListener('message', onMessage);
+    window.parent.postMessage({ type: WALL_PREVIEW_READY }, window.location.origin);
+    return () => window.removeEventListener('message', onMessage);
+  }, [preview, previewSamples, handleInsert, removePost, setWallSettings]);
 
   // Clean up fresh-id timers on unmount
   useEffect(() => {
@@ -435,6 +579,7 @@ export default function Wall() {
   const pollTickRef = useRef(0);
 
   useEffect(() => {
+    if (preview) return;
     const id = setInterval(() => {
       pollTickRef.current += 1;
       const action = pollActionFor({
@@ -446,14 +591,14 @@ export default function Wall() {
       else if (action === 'incremental') void catchUp();
     }, POLL_TICK_MS);
     return () => clearInterval(id);
-  }, [fetchPosts, catchUp]);
+  }, [fetchPosts, catchUp, preview]);
 
   // Coming back from hidden: catch up once, immediately, instead of waiting
   // out a tick — the wall was away, so this is the moment it is most stale.
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || preview) return;
     void catchUp();
-  }, [visible, catchUp]);
+  }, [visible, catchUp, preview]);
 
   // ----------------------------------------------------------------
   // Projection mode: dim chrome after 4 s of no mouse movement
@@ -600,6 +745,192 @@ export default function Wall() {
       : []),
   ];
 
+  // ── Platform view, tabs, backdrop and tone ──
+  const reducedMotion = usePrefersReducedMotion();
+  /** A layout this machine can actually draw (no WebGL = no carousel). */
+  const drawable = (v: PlatformView): PlatformView => (v === 'carousel' && !carouselUsable ? 'masonry' : v);
+  const requestedView: PlatformView = viewOverride ?? hostLook.layout;
+  const platformView: PlatformView = drawable(
+    requestedView === 'leaderboard' && !wallSettings.showLeaderboard ? hostLook.layout : requestedView,
+  );
+  const platformTabs: WallTab<PlatformView>[] = PLATFORM_VIEWS
+    .filter((v) => (v !== 'carousel' || carouselUsable) && (v !== 'leaderboard' || wallSettings.showLeaderboard))
+    .map((v) => ({
+      id: v,
+      label: v === 'leaderboard' ? 'Leaderboard' : WALL_LAYOUT_META[v].label,
+      Icon: PLATFORM_TAB_ICONS[v],
+    }));
+  /** Picking the host's own layout means "follow the host" again. */
+  const selectPlatformView = useCallback((v: PlatformView) => {
+    setViewOverride(v === hostLook.layout ? null : v);
+  }, [hostLook.layout]);
+
+  const backdrop = platform ? resolveWallBackdrop(hostLook) : null;
+  const eventSceneTone = config.scene ? resolveScene(config.scene).tone : 'dark';
+  const tone = wallTone(hostLook, eventSceneTone);
+  /** A chosen backdrop brings its own accent, so selected tabs, fresh rings
+   *  and glows read on it (a pale lilac accent vanishes on a light palette). */
+  // Light tone over the event's own background: the event accent is usually a
+  // pale tint built for dark screens, so the chrome takes the brand indigo.
+  const chromeAccent = backdrop !== null
+    ? backdrop.accent
+    : platform && tone === 'light' ? '#4B47B8' : null;
+  const accentRgb = chromeAccent !== null ? rgbTriplet(chromeAccent) : null;
+  const platformVars: Record<string, string> = accentRgb !== null && chromeAccent !== null
+    ? { '--color-accent': chromeAccent, '--accent-rgb': accentRgb, '--pf-accent-rgb': accentRgb }
+    : {};
+
+  // ── Host styling: cards, glow, corners, captions (lib/sceneThemes). Only
+  // rendered once the host moved off the defaults, so a wall that never
+  // chose a style paints exactly as it always did.
+  const styled = platform && (
+    hostLook.card !== 'classic' || hostLook.glow !== 'none' || hostLook.corners !== 'soft'
+    || !hostLook.captions || hostLook.glowColor !== undefined
+  );
+  const glowHex = wallGlowColor(
+    hostLook,
+    chromeAccent ?? (config.scene ? resolveScene(config.scene).accent : '#D4D6FF'),
+  );
+  const glowRgb = rgbTriplet(glowHex) ?? '212, 214, 255';
+  if (platform) {
+    platformVars['--wall-glow-rgb'] = glowRgb;
+    platformVars['--wall-radius'] = `calc(${WALL_CORNER_META[hostLook.corners].px}px * var(--wall-scale, 1))`;
+  }
+  /** Decor animates under reduced motion only in the host's preview, which
+   *  exists to show the movement. */
+  const decorAnimated = !reducedMotion || preview;
+
+  // The grid fills its area exactly (no scroll), so unlike the scrolling
+  // views it must stop above the footer QR codes and the phone tab bar.
+  const [footerH, setFooterH] = useState(0);
+  const footerObserver = useRef<ResizeObserver | null>(null);
+  const footerRef = useCallback((el: HTMLElement | null) => {
+    footerObserver.current?.disconnect();
+    footerObserver.current = null;
+    if (el === null) { setFooterH(0); return; }
+    const measure = () => setFooterH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    footerObserver.current = ro;
+  }, []);
+  useEffect(() => () => footerObserver.current?.disconnect(), []);
+  const gridAreaStyle: React.CSSProperties = {
+    ...modeAreaStyle,
+    // The phone tab bar floats OVER the footer, so the larger of the two wins.
+    paddingBottom: projectionMode ? 0 : Math.max(footerH, viewport.width < 640 ? 76 : 0),
+  };
+
+  const gallerySpotlight = wallSettings.featuredSpotlight && posts.length >= 3 && (
+    <FeaturedSpotlight
+      posts={posts}
+      enabled={wallSettings.featuredSpotlight}
+      intervalSec={wallSettings.featuredIntervalSec ?? 45}
+      pendingFeatureId={pendingFeatureId}
+      onConsumePending={consumePending}
+      suspended={ceremony !== null || lightboxPost !== null || !visible}
+      onSelect={setLightboxPost}
+      showQR={showQR}
+      showLeaderboard={wallSettings.showLeaderboard}
+      showChallenges={wallSettings.showChallenges}
+      origin={`${origin}${basePath}`}
+      joinUrl={joinUrl}
+    />
+  );
+
+  /** One platform view. Crossfaded by the AnimatePresence in the render. */
+  const renderPlatformView = () => {
+    if (platformView === 'leaderboard') {
+      // `relative` so the board's own `absolute inset-0` centres in the room
+      // under the header instead of behind it.
+      return <div className="wall-chrome wall-leaderboard relative h-full"><LeaderboardView platform /></div>;
+    }
+    if (galleryState !== 'ready') return <div className="wall-chrome h-full">{galleryPlaceholder}</div>;
+    switch (platformView) {
+      case 'grid':
+        return (
+          <>
+            <GridWall
+              posts={posts}
+              gridSize={hostLook.gridSize}
+              transition={hostLook.transition}
+              freshIds={freshIds}
+              beamingIds={beamingIds}
+              savedIds={savedIds}
+              onTileRect={handleTileRect}
+              onSelect={setLightboxPost}
+              paused={ceremony !== null || lightboxPost !== null || !visible}
+            />
+            {gallerySpotlight}
+          </>
+        );
+      case 'masonry':
+        return (
+          <>
+            <MosaicGrid
+              posts={posts}
+              freshIds={freshIds}
+              beamingIds={beamingIds}
+              savedIds={savedIds}
+              viewportH={viewport.height}
+              onTileRect={handleTileRect}
+              onSelect={setLightboxPost}
+              platformPolish
+            />
+            {gallerySpotlight}
+          </>
+        );
+      case 'marquee':
+        return (
+          <>
+            {/* MarqueeGrid is `absolute inset-0`, which resolves against the
+                PADDING box — this wrapper puts it inside the room left
+                between the header and the footer, and areaH sizes its rows
+                to that room, so no row runs under the chrome. */}
+            <div className="relative h-full w-full">
+              <MarqueeGrid
+                posts={posts}
+                scrollSpeed={wallSettings.galleryScrollSpeed ?? 1}
+                viewportH={viewport.height}
+                areaH={Math.max(0, viewport.height - (projectionMode ? 0 : headerH) - (gridAreaStyle.paddingBottom as number))}
+                savedIds={savedIds}
+                onSelect={setLightboxPost}
+              />
+            </div>
+            {gallerySpotlight}
+          </>
+        );
+      case 'carousel':
+        return (
+          <CarouselView
+            posts={posts}
+            beamingIds={beamingIds}
+            onTileRect={handleTileRect}
+            onSelect={setLightboxPost}
+            projectionMode={projectionMode}
+            stage
+          />
+        );
+      case 'slideshow':
+        return (
+          <SlideshowView
+            posts={posts}
+            projectionMode={projectionMode}
+            currentIndex={slideshowIndex}
+            onIndexChange={setSlideshowIndex}
+            slideshowInterval={wallSettings.slideshowInterval ?? 6}
+            ambient
+          />
+        );
+    }
+  };
+  const platformAreaStyle: React.CSSProperties =
+    platformView === 'slideshow'
+      ? { paddingRight: modeAreaStyle.paddingRight }
+      : platformView === 'grid' || platformView === 'marquee' || platformView === 'carousel' || platformView === 'leaderboard'
+        ? gridAreaStyle
+        : modeAreaStyle;
+
   // ----------------------------------------------------------------
   // Render
   // ----------------------------------------------------------------
@@ -615,7 +946,12 @@ export default function Wall() {
       // Exactly 1 at the 1440×900 design size, so the browser view is
       // unchanged; 2.2 on a 4K projector, where 9-13 px captions were
       // unreadable from the room. See lib/wallRuntime.wallScale.
-      style={{ '--wall-scale': viewport.scale } as React.CSSProperties}
+      style={{ '--wall-scale': viewport.scale, ...platformVars } as React.CSSProperties}
+      // Light/dark chrome for platform walls ([data-wall-tone] in index.css).
+      data-wall-tone={platform ? tone : undefined}
+      data-wall-card={styled ? hostLook.card : undefined}
+      data-wall-glow={styled && hostLook.glow !== 'none' ? hostLook.glow : undefined}
+      data-wall-captions={styled && !hostLook.captions ? 'off' : undefined}
     >
       {/* Background — always rendered.
           Projection mode used to RAISE particle density to 90. That is
@@ -624,7 +960,19 @@ export default function Wall() {
           compounds into thermal throttling — and on a 20-foot screen a dense
           drifting speckle competes with the photos instead of supporting them.
           It is now the quietest background of the three. */}
-      <EventBackground density={projectionMode ? 45 : 70} />
+      {backdrop !== null ? (
+        <WallBackdrop scene={backdrop} animated={decorAnimated} ambient={hostLook.ambient} />
+      ) : (
+        <>
+          <EventBackground density={projectionMode ? 45 : 70} />
+          {platform && hostLook.ambient === 'sparkle' && decorAnimated && <WallTwinkles />}
+        </>
+      )}
+      {/* Light tone over the event's own (dark) background: frost it, so the
+          light chrome sits on a light field instead of floating on night. */}
+      {platform && backdrop === null && tone === 'light' && (
+        <div aria-hidden className="absolute inset-0 pointer-events-none" style={{ background: 'rgba(246, 245, 252, 0.8)' }} />
+      )}
 
       <style>{`
         @keyframes wall-socket-pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.35 } }
@@ -633,6 +981,25 @@ export default function Wall() {
         }
       `}</style>
 
+      {/* ── Platform walls: the host's layout (or this device's tab), each
+             view crossfading into the next. ── */}
+      {platform && (
+        <AnimatePresence initial={false}>
+          <motion.div
+            key={platformView === 'grid' ? `grid-${hostLook.gridSize}` : platformView}
+            className="absolute inset-0"
+            style={platformAreaStyle}
+            initial={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 1.01 }}
+            transition={{ duration: reducedMotion ? 0.25 : 0.55, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {renderPlatformView()}
+          </motion.div>
+        </AnimatePresence>
+      )}
+
+      {!platform && (<>
       {/* ── Gallery: Marquee (scrolling rows) or Mosaic (masonry grid) ── */}
       {mode === 'mosaic' && (
         <div className="absolute inset-0" style={modeAreaStyle}>
@@ -722,6 +1089,7 @@ export default function Wall() {
           <LeaderboardView />
         </div>
       )}
+      </>)}
 
       {/* ── Challenges ticker — floats above footer, gated by setting;
              stays up in projection mode with a small bottom offset ── */}
@@ -731,7 +1099,22 @@ export default function Wall() {
 
       {/* ── Chrome header ── centered, viewport-contained, hidden in projection ── */}
       <AnimatePresence>
-        {!projectionMode && (
+        {!projectionMode && platform && (
+          <WallHeader
+            key="header-platform"
+            barRef={headerRef}
+            tabs={platformTabs}
+            active={platformView}
+            onSelect={selectPlatformView}
+            count={posts.length}
+            socket={<SocketDot status={socketStatus} brand />}
+            showQR={showQR}
+            onToggleQR={toggleQR}
+            onProject={() => setProjectionMode(true)}
+            driftStyle={driftStyle}
+          />
+        )}
+        {!projectionMode && !platform && (
           <motion.header
             key="header"
             ref={headerRef}
@@ -786,7 +1169,7 @@ export default function Wall() {
                     onClick={() => setMode(tab.id)}
                     className={`pressable px-3.5 min-h-11 rounded-full font-label uppercase tracking-luxe text-[10px] transition-all duration-200 ${
                       mode === tab.id
-                        ? 'bg-foil text-[color:var(--on-accent)] glow-accent'
+                        ? 'is-selected bg-foil text-[color:var(--on-accent)] glow-accent'
                         : 'text-champagne/60 hover:text-champagne'
                     }`}
                   >
@@ -835,14 +1218,18 @@ export default function Wall() {
         {!projectionMode && (
           <motion.footer
             key="footer"
+            ref={footerRef}
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
             transition={{ duration: 0.35 }}
-            className="relative z-30 shrink-0 flex items-end justify-between px-8 pb-6 pt-2 mt-auto"
+            className={`relative z-30 shrink-0 flex items-end justify-between px-8 pb-6 pt-2 mt-auto${platform ? ' wall-chrome pointer-events-none' : ''}`}
             style={{
-              background:
-                'linear-gradient(to top, rgba(10,7,3,0.92) 0%, rgba(10,7,3,0) 100%)',
+              // Platform walls float their glass panels instead of painting a
+              // dark band over the bottom row of photos.
+              background: platform
+                ? 'none'
+                : 'linear-gradient(to top, rgba(10,7,3,0.92) 0%, rgba(10,7,3,0) 100%)',
               ...driftStyle,
             }}
           >
@@ -861,7 +1248,9 @@ export default function Wall() {
                     exit={{ opacity: 0, scale: 0.92, y: 8 }}
                     transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                   >
-                    <WallQRCodes origin={`${origin}${basePath}`} joinUrl={joinUrl} />
+                    <div className={platform ? 'pointer-events-auto' : undefined}>
+                      <WallQRCodes origin={`${origin}${basePath}`} joinUrl={joinUrl} variant={platform ? 'brand' : undefined} />
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -869,7 +1258,7 @@ export default function Wall() {
 
             {/* Right: slideshow counter */}
             <div className="flex-1 flex justify-end">
-              {mode === 'slideshow' && posts.length > 0 && (
+              {(platform ? platformView === 'slideshow' : mode === 'slideshow') && posts.length > 0 && (
                 <div className="text-right">
                   <p
                     className="font-label uppercase tracking-luxe text-champagne/40"
@@ -895,7 +1284,7 @@ export default function Wall() {
         {qrRail && showQR && (
           <motion.div
             key="qr-rail"
-            className="fixed right-4 top-1/2 z-30 -translate-y-1/2"
+            className={`fixed right-4 top-1/2 z-30 -translate-y-1/2${platform ? ' wall-chrome' : ''}`}
             initial={{ opacity: 0, x: 16 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 16 }}
@@ -908,6 +1297,7 @@ export default function Wall() {
               joinUrl={joinUrl}
               layout="column"
               size={Math.round(88 * Math.min(viewport.scale, 1.6))}
+              variant={platform ? 'brand' : undefined}
             />
           </motion.div>
         )}
@@ -924,6 +1314,7 @@ export default function Wall() {
             url={joinUrl}
             label="Scan to join"
             size={Math.round(84 * Math.min(viewport.scale, 2))}
+            variant={platform ? 'brand' : undefined}
           />
         </div>
       )}
@@ -946,10 +1337,19 @@ export default function Wall() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             onClick={() => setProjectionMode(false)}
-            className="absolute top-4 right-4 z-50 glass rounded-xl px-3 py-2 font-label uppercase tracking-luxe text-[9px] text-champagne/60 hover:text-champagne transition-colors"
-            style={{ border: '1px solid rgba(var(--accent-rgb),0.15)' }}
+            className={platform
+              ? 'wall-chrome absolute top-4 right-4 z-50'
+              : 'absolute top-4 right-4 z-50 glass rounded-xl px-3 py-2 font-label uppercase tracking-luxe text-[9px] text-champagne/60 hover:text-champagne transition-colors'}
+            style={platform ? undefined : { border: '1px solid rgba(var(--accent-rgb),0.15)' }}
           >
-            Exit Projection
+            {platform ? (
+              <span
+                className="pressable wall-glass flex items-center rounded-full px-4 min-h-11 font-sans font-medium text-champagne hover:text-ivory"
+                style={{ fontSize: 'calc(12px * var(--wall-scale, 1))' }}
+              >
+                Exit projection
+              </span>
+            ) : 'Exit Projection'}
           </motion.button>
         )}
       </AnimatePresence>
@@ -963,6 +1363,9 @@ export default function Wall() {
             tileRects={tileRectsRef.current}
             onCarry={setCarriedIds}
             onDone={handleCeremonyDone}
+            variant={platform ? hostLook.beam : 'beam'}
+            glowColor={styled ? glowHex : undefined}
+            forceMotion={preview}
           />
         )}
       </AnimatePresence>

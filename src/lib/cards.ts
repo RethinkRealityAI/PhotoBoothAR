@@ -42,6 +42,15 @@ export interface CardRow {
   contribution_deadline: string | null;
   published_at: string | null;
   created_at: string;
+  /** Scheduled delivery (migration 047). Absent on rows read before it. */
+  deliver_at?: string | null;
+  deliver_time_zone?: string | null;
+  delivery_state?: string | null;
+  delivery_error?: string | null;
+  delivered_at?: string | null;
+  /** How the card arrives — reveal / email style / look (migration 049,
+   *  lib/cardPresentation.ts). Absent on rows read before it. */
+  presentation?: Record<string, unknown>;
   /** Filled by listCards via a nested count. */
   contribution_count?: number;
 }
@@ -86,6 +95,9 @@ export interface CardViewData {
    *  finished render. Absent/null whenever there is none (or signing failed),
    *  so the viewer's film affordance simply doesn't appear. */
   filmUrl?: string | null;
+  /** Host's presentation choice (lib/cardPresentation.ts normalises it).
+   *  Absent from a card-view deployment older than migration 049. */
+  presentation?: Record<string, unknown>;
 }
 
 export interface CardViewContribution {
@@ -135,6 +147,9 @@ export type CardsError =
   | 'render_submit_failed'
   | 'render_not_found'
   | 'invalid_body'
+  | 'invalid_send_at'
+  | 'delivery_in_progress'
+  | 'features_unavailable'
   | 'internal'
   | 'network';
 
@@ -246,6 +261,9 @@ export interface UpdateCardInput {
   title?: string;
   recipientName?: string | null;
   recipientEmail?: string | null;
+  /** Reveal / email style / look (lib/cardPresentation.ts). Like `template`,
+   *  it restyles an already-published card the next time it is opened. */
+  presentation?: Record<string, unknown>;
 }
 
 /**
@@ -263,6 +281,7 @@ export async function updateCard(cardId: string, patch: UpdateCardInput): Promis
   if (patch.title !== undefined) row.title = patch.title.trim();
   if (patch.recipientName !== undefined) row.recipient_name = patch.recipientName?.trim() || null;
   if (patch.recipientEmail !== undefined) row.recipient_email = patch.recipientEmail?.trim() || null;
+  if (patch.presentation !== undefined) row.presentation = patch.presentation;
   if (Object.keys(row).length === 0) return null;
 
   const { data, error } = await supabase
@@ -370,6 +389,44 @@ export function unpublishCard(cardId: string): Promise<CardsResult<{ card: Publi
 
 export function sendCardEmail(cardId: string): Promise<CardsResult<{ sent: boolean }>> {
   return invokeCardsFn('card-publish', { cardId, action: 'send_email' });
+}
+
+/** card-publish's view of a card's delivery columns (047). */
+export interface CardDeliveryView {
+  deliverAt: string | null;
+  deliverTimeZone: string | null;
+  deliveryState: string | null;
+  deliveryError: string | null;
+  deliveredAt: string | null;
+}
+
+/** The CardRow patch a delivery view maps onto (snake_case columns). */
+export function deliveryPatch(v: CardDeliveryView): Partial<CardRow> {
+  return {
+    deliver_at: v.deliverAt,
+    deliver_time_zone: v.deliverTimeZone,
+    delivery_state: v.deliveryState,
+    delivery_error: v.deliveryError,
+    delivered_at: v.deliveredAt,
+  };
+}
+
+/**
+ * Schedule the card to publish itself and email the recipient at `sendAt`
+ * (UTC ISO). `timeZone` is the zone the host chose the time in — display
+ * only. Errors: 'invalid_send_at' | 'invalid_recipient' | 'upgrade_required'.
+ */
+export function scheduleCardDelivery(
+  cardId: string,
+  sendAt: string,
+  timeZone: string,
+): Promise<CardsResult<{ delivery: CardDeliveryView }>> {
+  return invokeCardsFn('card-publish', { cardId, action: 'schedule', sendAt, timeZone });
+}
+
+/** Cancel a pending schedule. 'delivery_in_progress' while a send runs. */
+export function unscheduleCardDelivery(cardId: string): Promise<CardsResult<{ delivery: CardDeliveryView }>> {
+  return invokeCardsFn('card-publish', { cardId, action: 'unschedule' });
 }
 
 /* ------------------------------------------------------------------ */

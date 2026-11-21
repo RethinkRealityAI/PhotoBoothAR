@@ -7,6 +7,7 @@
 import type { OnboardingStep } from './events/types';
 import type { GuestLetteringStyle } from './lib/letteringFit';
 import type { FaceTrackingMode } from './lib/faceEngine/types';
+import type { WallLook } from './lib/sceneThemes';
 
 /** Categories of AR experience that can be authored in the studio. */
 export type ExperienceKind =
@@ -345,6 +346,10 @@ export interface WallSettings {
   featuredIntervalSec: number;
   /** Experience id pre-selected when the booth opens (catalog id, or null for none). */
   defaultExperienceId: string | null;
+  /** Host-chosen wall look (layout, grid size, backdrop, tone). Optional and
+   *  stored raw: always read through lib/sceneThemes.normalizeWallLook, which
+   *  maps an absent value to the gallery this wall already had. Platform only. */
+  wallLook?: Partial<WallLook>;
 }
 
 /** A single step shown on the "Join the Photo Booth" landing page. */

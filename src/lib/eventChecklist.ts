@@ -68,6 +68,8 @@ export function checklistFromStudio(
   cfg: {
     copy?: { fullName?: string | null } | null;
     themeVars?: Record<string, string> | null;
+    /** 'beamwall' = the brand look, a complete look with no themeVars. */
+    look?: string | null;
     arContent?: { borderIds?: string[] | null } | null;
   },
   stats: { published?: number; posts?: number } | null | undefined,
@@ -76,7 +78,7 @@ export function checklistFromStudio(
   const templateFrames = (cfg.arContent?.borderIds?.length ?? 0) > 0;
   return {
     name: cfg.copy?.fullName?.trim() ?? '',
-    look: Boolean(cfg.themeVars && Object.keys(cfg.themeVars).length > 0),
+    look: cfg.look === 'beamwall' || Boolean(cfg.themeVars && Object.keys(cfg.themeVars).length > 0),
     frame: false,
     filter: false,
     prop: false,

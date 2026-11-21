@@ -27,6 +27,10 @@ interface Props {
   onIndexChange: (i: number) => void;
   /** Seconds each slide is shown before auto-advancing (default 6). */
   slideshowInterval?: number;
+  /** Platform walls: let the wall's backdrop show through and fill the
+   *  letterbox with a soft blurred copy of the photo instead of flat black.
+   *  Off (the default) = byte-identical legacy. */
+  ambient?: boolean;
 }
 
 // Ken-Burns keyframe configs — cycle through them (images only)
@@ -66,6 +70,7 @@ export default function SlideshowView({
   currentIndex,
   onIndexChange,
   slideshowInterval,
+  ambient = false,
 }: Props) {
   const advanceMs = (slideshowInterval ?? 6) * 1000 || DEFAULT_ADVANCE_INTERVAL;
   const [showControls, setShowControls] = useState(false);
@@ -144,7 +149,7 @@ export default function SlideshowView({
 
   return (
     <div
-      className="absolute inset-0 overflow-hidden bg-noir-900"
+      className={ambient ? 'absolute inset-0 overflow-hidden' : 'absolute inset-0 overflow-hidden bg-noir-900'}
       onMouseMove={handleMouseMove}
     >
       {/* Cross-fading posts with Ken-Burns (images) or plain fade (videos) */}
@@ -173,6 +178,17 @@ export default function SlideshowView({
             </div>
           ) : (
             /* Image — Ken-Burns drift */
+            <>
+            {ambient && (
+              <img
+                src={post.image_url}
+                alt=""
+                aria-hidden
+                draggable={false}
+                className="absolute inset-0 h-full w-full object-cover"
+                style={{ filter: 'blur(48px) saturate(1.15)', transform: 'scale(1.2)', opacity: 0.8 }}
+              />
+            )}
             <motion.div
               className="absolute inset-0"
               initial={kbCfg.from}
@@ -185,10 +201,11 @@ export default function SlideshowView({
                 src={post.image_url}
                 alt={post.guest_name ?? 'Event moment'}
                 className="w-full h-full object-contain"
-                style={{ background: '#0a0703' }}
+                style={ambient ? undefined : { background: '#0a0703' }}
                 draggable={false}
               />
             </motion.div>
+            </>
           )}
 
           {/* Deep vignette */}

@@ -27,19 +27,29 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, Check, Copy, Download, Eye, EyeOff, ExternalLink, Film, Gift, Home,
-  Loader2, Mail, Plus, Trash2, X,
+  AlertTriangle, ArrowDown, ArrowUp, CalendarClock, Check, Copy, Download, Eye, EyeOff, ExternalLink, Film, Gift,
+  Home, Loader2, Mail, Plus, Trash2, X,
 } from 'lucide-react';
 import { useEvent } from '../../events/EventContext';
 import { useEntitlements } from '../../lib/entitlements';
 import { updateEventConfig } from '../../lib/host';
 import {
-  contributeUrl, createCard, deleteCard, deleteContribution, fetchRenderStatus, latestRender,
-  listCardsResult, listContributionsResult, publishCard, renderCard, renderDownloadUrl, sendCardEmail,
-  signContributionUrls, unpublishCard, updateCard, updateContribution, viewerPath,
-  type CardRenderRow, type CardRow, type ContributionRow,
+  contributeUrl, createCard, deleteCard, deleteContribution, deliveryPatch, fetchRenderStatus, latestRender,
+  listCardsResult, listContributionsResult, publishCard, renderCard, renderDownloadUrl, scheduleCardDelivery,
+  sendCardEmail, signContributionUrls, unpublishCard, unscheduleCardDelivery, updateCard, updateContribution,
+  viewerPath,
+  type CardRenderRow, type CardRow, type CardsError, type ContributionRow,
 } from '../../lib/cards';
-import { buildCardTheme } from '../../lib/cardTheme';
+import {
+  DEFAULT_SEND_TIME, describeDelivery, formatDelivery, inputValuesFor, relativeWhen, scheduleInstant,
+  scheduleProblem, scheduleProblemCopy, timeZoneChoices, type DeliveryFields,
+} from '../../lib/cardDelivery';
+import { buildCardTheme, normalizeCardTheme } from '../../lib/cardTheme';
+import { normalizeCardPresentation, type CardPresentation } from '../../lib/cardPresentation';
+import { mergePresentation, type PreviewPicks } from '../../lib/cardPreview';
+import CardPresentationSection from '../../components/cards/CardPresentationPicker';
+import CardPreviewModal from '../../components/cards/CardPreviewModal';
+import { useToast } from '../../components/ui/Toast';
 import { curationSummary, filterContributions, shouldOfferFilter } from '../../lib/cardCuration';
 import { DEFAULT_CARD_TEMPLATE, resolveCardTemplate } from '../../components/cards/templates/registry';
 import TemplatePicker from '../../components/cards/TemplatePicker';
@@ -461,6 +471,284 @@ function KeepsakeFilmSection({ card, onUpgrade }: { card: CardRow; onUpgrade: ()
   );
 }
 
+/* ── Scheduled delivery ────────────────────────────────────────────── */
+
+const VIEWER_TZ = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+})();
+
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+function deliveryActionError(err: CardsError): string {
+  switch (err) {
+    case 'invalid_send_at':
+      return 'Pick a time at least a few minutes from now and within a year.';
+    case 'invalid_recipient':
+      return 'Add a valid recipient email first.';
+    case 'delivery_in_progress':
+      return 'This card is being sent right now, so the schedule can’t be changed.';
+    case 'features_unavailable':
+      return 'We couldn’t check your plan just now. Please try again in a moment.';
+    case 'network':
+      return 'Connection hiccup. Check your network and try again.';
+    default:
+      return 'That didn’t save. Please try again.';
+  }
+}
+
+/**
+ * "Deliver automatically" — pick the day (and the hour, in the zone you mean
+ * it in) and the card closes, publishes itself and lands in the recipient's
+ * inbox then. Lives inside each card's panel, above the contributions, because
+ * it is the step a birthday organiser cares about most.
+ */
+function DeliverySection({ card, canPublish, onPatch, onUpgrade }: {
+  card: CardRow;
+  canPublish: boolean;
+  onPatch: (patch: Partial<CardRow>) => void;
+  onUpgrade: () => void;
+}) {
+  const fields: DeliveryFields = {
+    deliver_at: card.deliver_at ?? null,
+    deliver_time_zone: card.deliver_time_zone ?? null,
+    delivery_state: card.delivery_state ?? null,
+    delivery_error: card.delivery_error ?? null,
+    delivered_at: card.delivered_at ?? null,
+  };
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const desc = describeDelivery(fields, now);
+  const pending = desc.kind === 'scheduled' || desc.kind === 'waiting' || desc.kind === 'retrying';
+
+  const [editing, setEditing] = useState(false);
+  const initial = (() => {
+    const tz = fields.deliver_time_zone ?? VIEWER_TZ;
+    const at = fields.deliver_at !== null ? Date.parse(fields.deliver_at) : NaN;
+    return Number.isFinite(at) && pending
+      ? { ...inputValuesFor(at, tz), tz }
+      : { date: '', time: DEFAULT_SEND_TIME, tz: VIEWER_TZ };
+  })();
+  const [date, setDate] = useState(initial.date);
+  const [time, setTime] = useState(initial.time);
+  const [tz, setTz] = useState(initial.tz);
+  const [email, setEmail] = useState(card.recipient_email ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const hasEmail = EMAIL_SHAPE.test((card.recipient_email ?? '').trim());
+  const instant = scheduleInstant(date, time, tz);
+  const problem = date === '' ? null : scheduleProblem(instant, now);
+  const zones = useMemo(() => timeZoneChoices(VIEWER_TZ), []);
+  const showForm = editing;
+  const todayIso = inputValuesFor(now, tz).date;
+
+  const saveEmail = async () => {
+    const v = email.trim();
+    if (!EMAIL_SHAPE.test(v)) {
+      setErr('That email doesn’t look right.');
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    const updated = await updateCard(card.id, { recipientEmail: v });
+    setBusy(false);
+    if (!updated) {
+      setErr('Couldn’t save the email. Please try again.');
+      return;
+    }
+    onPatch({ recipient_email: updated.recipient_email });
+  };
+
+  const schedule = async () => {
+    if (!canPublish) {
+      onUpgrade();
+      return;
+    }
+    if (instant === null || problem !== null) return;
+    setBusy(true);
+    setErr(null);
+    const { data, error } = await scheduleCardDelivery(card.id, new Date(instant).toISOString(), tz);
+    setBusy(false);
+    if (error === 'upgrade_required') {
+      onUpgrade();
+      return;
+    }
+    if (error || !data) {
+      setErr(deliveryActionError(error ?? 'internal'));
+      return;
+    }
+    onPatch(deliveryPatch(data.delivery));
+    setEditing(false);
+  };
+
+  const cancel = async () => {
+    setBusy(true);
+    setErr(null);
+    const { data, error } = await unscheduleCardDelivery(card.id);
+    setBusy(false);
+    if (error || !data) {
+      setErr(deliveryActionError(error ?? 'internal'));
+      return;
+    }
+    onPatch(deliveryPatch(data.delivery));
+    setEditing(false);
+  };
+
+  const tone =
+    desc.kind === 'sent'
+      ? 'border-emerald-400/25 bg-emerald-400/[0.06]'
+      : desc.kind === 'failed'
+        ? 'border-red-400/25 bg-red-400/[0.06]'
+        : desc.kind === 'waiting' || desc.kind === 'retrying'
+          ? 'border-amber-400/25 bg-amber-400/[0.06]'
+          : pending || desc.kind === 'sending'
+            ? 'border-accent/30 bg-accent/[0.06]'
+            : 'border-white/8 bg-white/[0.02]';
+
+  return (
+    <section className={`rounded-2xl border p-4 ${tone}`} aria-labelledby={`deliver-${card.id}`}>
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
+          {desc.kind === 'sent' ? (
+            <Check className="h-4 w-4 text-emerald-400" />
+          ) : desc.kind === 'failed' || desc.kind === 'waiting' || desc.kind === 'retrying' ? (
+            <AlertTriangle className="h-4 w-4 text-amber-300" />
+          ) : (
+            <CalendarClock className="h-4 w-4 text-accent" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h4 id={`deliver-${card.id}`} className="font-serif text-base text-brand-fg">
+            {desc.kind === 'none' ? 'Deliver it on the day' : desc.kind === 'sent' ? 'Delivered' : desc.kind === 'failed' ? 'Not delivered' : 'Scheduled delivery'}
+          </h4>
+          <p className="mt-0.5 font-sans text-xs leading-relaxed text-brand-muted/70">
+            {desc.kind === 'none'
+              ? `Pick a date and we’ll close the card, publish it and email it to ${card.recipient_name || 'the recipient'} right on time. No need to remember.`
+              : desc.detail}
+          </p>
+          {pending && fields.deliver_at !== null && desc.kind !== 'scheduled' && (
+            <p className="mt-1 font-sans text-[11px] text-brand-muted/55">
+              Planned for {formatDelivery(Date.parse(fields.deliver_at), fields.deliver_time_zone)}
+            </p>
+          )}
+          {pending && hasEmail && (
+            <p className="mt-1 font-sans text-[11px] text-brand-muted/55">
+              To {card.recipient_email}. Friends can keep adding messages until then.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {!hasEmail && desc.kind !== 'sent' && (
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <label className="min-w-0 flex-1">
+            <span className="sr-only">Recipient email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={`${card.recipient_name ? `${card.recipient_name}’s` : 'Recipient'} email`}
+              className={inputClass}
+              autoComplete="off"
+            />
+          </label>
+          <button
+            onClick={saveEmail}
+            disabled={busy || !email.trim()}
+            className="min-h-11 rounded-full bg-white/[0.08] px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.14] disabled:opacity-40"
+          >
+            Save email
+          </button>
+        </div>
+      )}
+
+      {hasEmail && showForm && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_1fr]">
+          <label className="flex flex-col gap-1">
+            <span className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">Date</span>
+            <input type="date" value={date} min={todayIso} onChange={(e) => setDate(e.target.value)} className={inputClass} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">Time</span>
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={inputClass} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">Time zone</span>
+            <select value={tz} onChange={(e) => setTz(e.target.value)} className={inputClass}>
+              {zones.map((z) => (
+                <option key={z.id} value={z.id}>{z.label}</option>
+              ))}
+            </select>
+          </label>
+          <p className="sm:col-span-3 font-sans text-[11px] leading-relaxed text-brand-muted/60" aria-live="polite">
+            {date === ''
+              ? 'Choose the day it should arrive.'
+              : problem !== null
+                ? scheduleProblemCopy(problem)
+                : `Arrives ${formatDelivery(instant!, tz)}, ${relativeWhen(instant!, now)}.`}
+          </p>
+        </div>
+      )}
+
+      {err && <p role="alert" className="mt-3 font-sans text-xs text-red-400">{err}</p>}
+
+      {hasEmail && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {showForm ? (
+            <>
+              <button
+                onClick={schedule}
+                disabled={busy || date === '' || problem !== null}
+                className="flex min-h-11 items-center gap-2 rounded-full bg-foil px-5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40"
+              >
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
+                {pending ? 'Save new time' : 'Schedule delivery'}
+              </button>
+              <button
+                onClick={() => { setEditing(false); setErr(null); }}
+                className="min-h-11 rounded-full px-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-brand-fg"
+              >
+                Not now
+              </button>
+            </>
+          ) : desc.kind === 'sending' ? null : pending ? (
+            <>
+              <button
+                onClick={() => setEditing(true)}
+                className="min-h-11 rounded-full bg-white/[0.08] px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.14]"
+              >
+                Change time
+              </button>
+              <button
+                onClick={cancel}
+                disabled={busy}
+                className="min-h-11 rounded-full px-4 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 hover:text-red-300 disabled:opacity-40"
+              >
+                {busy ? 'Cancelling…' : 'Cancel delivery'}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setEditing(true)}
+              className="flex min-h-11 items-center gap-2 rounded-full bg-white/[0.08] px-5 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition hover:bg-white/[0.14]"
+            >
+              <CalendarClock className="h-3.5 w-3.5" />
+              {desc.kind === 'none' ? 'Pick a date' : desc.kind === 'failed' ? 'Schedule again' : 'Schedule another send'}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /* ── Create form ───────────────────────────────────────────────────── */
 
 function CreateCardForm({ eventSlug, defaultTemplate, themeSnapshot, onCreated, onClose }: {
@@ -576,6 +864,17 @@ export default function CardsTab() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [emailSentFor, setEmailSentFor] = useState<string | null>(null);
+  const toast = useToast();
+  /** The card whose full-screen preview is open. */
+  const [previewCardId, setPreviewCardId] = useState<string | null>(null);
+  // Stable: useDialog re-runs (refocusing) whenever its onClose changes.
+  const closePreview = useCallback(() => setPreviewCardId(null), []);
+  /** Cards with a presentation write in flight. */
+  const [savingPresentation, setSavingPresentation] = useState<ReadonlySet<string>>(new Set());
+  /** Per card: the last presentation the DB confirmed, and the newest write's
+   *  sequence number — so a stale failure never rolls back a newer pick. */
+  const confirmedPresentation = useRef(new Map<string, Record<string, unknown>>());
+  const presentationSeq = useRef(new Map<string, number>());
 
   const isDb = source === 'db';
   /** The card list read failed — distinct from an event with no cards. */
@@ -646,7 +945,13 @@ export default function CardsTab() {
     setBusyCard(null);
   };
 
-  const doSendEmail = async (card: CardRow) => {
+  const doSendEmail = async (card: CardRow, replacesSchedule = false) => {
+    if (
+      replacesSchedule &&
+      !confirm(`Send “${card.title}” now? This replaces the scheduled delivery, so it won’t be sent again later.`)
+    ) {
+      return;
+    }
     setBusyCard(card.id);
     setNotice(null);
     const { error } = await sendCardEmail(card.id);
@@ -665,6 +970,14 @@ export default function CardsTab() {
     }
     setEmailSentFor(card.id);
     setTimeout(() => setEmailSentFor(null), 3500);
+    // card-publish marks a pending/failed schedule as sent on a manual send.
+    if (card.delivery_state === 'scheduled' || card.delivery_state === 'failed') {
+      patchCard(card.id, {
+        delivery_state: 'sent',
+        delivered_at: new Date().toISOString(),
+        delivery_error: null,
+      });
+    }
   };
 
   const doDelete = async (card: CardRow) => {
@@ -702,6 +1015,69 @@ export default function CardsTab() {
           : c,
       ) ?? null,
     );
+  };
+
+  /**
+   * How a card arrives (opening / email style / colours). OPTIMISTIC: the pick
+   * shows at once and saves behind it; a failed save rolls back to what the
+   * database last confirmed and says so — never a silent success.
+   */
+  const setCardPresentation = async (
+    card: CardRow,
+    patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look'>>,
+  ) => {
+    const next: Record<string, unknown> = { ...mergePresentation(card.presentation, patch) };
+    if (!confirmedPresentation.current.has(card.id)) {
+      confirmedPresentation.current.set(card.id, card.presentation ?? {});
+    }
+    const seq = (presentationSeq.current.get(card.id) ?? 0) + 1;
+    presentationSeq.current.set(card.id, seq);
+    patchCard(card.id, { presentation: next });
+    setSavingPresentation((prev) => new Set(prev).add(card.id));
+
+    const updated = await updateCard(card.id, { presentation: next });
+    if (presentationSeq.current.get(card.id) !== seq) return; // a newer pick owns the outcome
+    setSavingPresentation((prev) => {
+      const out = new Set(prev);
+      out.delete(card.id);
+      return out;
+    });
+    if (!updated) {
+      patchCard(card.id, { presentation: confirmedPresentation.current.get(card.id) ?? {} });
+      toast.push("Couldn't save how this card arrives. Try again.", 'error');
+      return;
+    }
+    const saved = updated.presentation ?? next;
+    confirmedPresentation.current.set(card.id, saved);
+    patchCard(card.id, { presentation: saved });
+  };
+
+  /** The preview's "Use these": opening + colours (+ card style) in ONE write. */
+  const applyPreviewPicks = async (card: CardRow, picks: PreviewPicks): Promise<boolean> => {
+    const presentation: Record<string, unknown> = {
+      ...mergePresentation(card.presentation, { reveal: picks.reveal, look: picks.look }),
+    };
+    const templateChanged = picks.template !== card.template;
+    const updated = await updateCard(card.id, {
+      presentation,
+      ...(templateChanged ? { template: picks.template, theme: themeSnapshot } : {}),
+    });
+    if (!updated) {
+      toast.push("Couldn't save these choices. Try again.", 'error');
+      return false;
+    }
+    const saved = updated.presentation ?? presentation;
+    confirmedPresentation.current.set(card.id, saved);
+    // Supersede any single-pick write still in flight: this one is newer.
+    presentationSeq.current.set(card.id, (presentationSeq.current.get(card.id) ?? 0) + 1);
+    setSavingPresentation((prev) => {
+      const out = new Set(prev);
+      out.delete(card.id);
+      return out;
+    });
+    patchCard(card.id, { presentation: saved, template: updated.template, theme: updated.theme });
+    toast.push('Saved. This is how it arrives now.', 'success');
+    return true;
   };
 
   /** Event-wide default new cards start from (host-only; guests never pick). */
@@ -850,6 +1226,15 @@ export default function CardsTab() {
             const published = card.status === 'published' || card.status === 'rendered';
             const isLanding = primaryCardId === card.public_id;
             const busy = busyCard === card.id;
+            const delivery = describeDelivery({
+              deliver_at: card.deliver_at ?? null,
+              deliver_time_zone: card.deliver_time_zone ?? null,
+              delivery_state: card.delivery_state ?? null,
+              delivery_error: card.delivery_error ?? null,
+              delivered_at: card.delivered_at ?? null,
+            }, Date.now());
+            const deliveryPending =
+              delivery.kind === 'scheduled' || delivery.kind === 'waiting' || delivery.kind === 'retrying';
             return (
               <div key={card.id} className="rounded-2xl border border-white/10 bg-white/[0.02]">
                 {/* Row header */}
@@ -864,6 +1249,7 @@ export default function CardsTab() {
                       {resolveCardTemplate(card.template).name} · {card.contribution_count ?? 0}{' '}
                       {(card.contribution_count ?? 0) === 1 ? 'contribution' : 'contributions'}
                       {isLanding ? ' · event landing' : ''}
+                      {delivery.short ? ` · ${delivery.short}` : ''}
                     </p>
                   </div>
                   <StatusPill status={card.status} className="shrink-0" />
@@ -901,14 +1287,14 @@ export default function CardsTab() {
                       )}
                       {published && card.recipient_email && (
                         <button
-                          onClick={() => doSendEmail(card)}
+                          onClick={() => doSendEmail(card, deliveryPending)}
                           disabled={busy}
                           className="flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg transition disabled:opacity-40"
                         >
                           {emailSentFor === card.id ? (
                             <><Check className="w-3 h-3 text-emerald-400" /> Sent</>
                           ) : (
-                            <><Mail className="w-3 h-3" /> Email {card.recipient_name || 'recipient'}</>
+                            <><Mail className="w-3 h-3" /> {deliveryPending ? 'Email now instead' : `Email ${card.recipient_name || 'recipient'}`}</>
                           )}
                         </button>
                       )}
@@ -940,25 +1326,31 @@ export default function CardsTab() {
                       </p>
                     )}
 
-                    {/* Keepsake style — host-only; changeable after publishing
-                        so a host can fix the look without re-collecting. */}
-                    <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
-                      <div className="flex items-baseline justify-between gap-3 mb-3">
-                        <h4 className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
-                          Keepsake style
-                        </h4>
-                        <span className="font-sans text-[10px] text-brand-muted/45">
-                          {published ? 'Applies to everyone with the link' : 'What guests will see'}
-                        </span>
-                      </div>
-                      <TemplatePicker
-                        value={card.template}
-                        onChange={(id) => setCardTemplate(card, id)}
-                        busy={busyCard === card.id}
-                        defaultId={defaultTemplate}
-                        idPrefix={`card-tpl-${card.id}`}
-                      />
-                    </div>
+                    {/* Scheduled delivery — the birthday-organiser step. */}
+                    <DeliverySection
+                      card={card}
+                      canPublish={entitlements.cardsStandard}
+                      onPatch={(patch) => patchCard(card.id, patch)}
+                      onUpgrade={() => setUpgradeOpen(true)}
+                    />
+
+                    {/* How it arrives — opening, card style, email, colours.
+                        Host-only; all changeable after publishing so a host
+                        can fix the look without re-collecting. */}
+                    <CardPresentationSection
+                      presentation={normalizeCardPresentation(card.presentation)}
+                      template={card.template}
+                      defaultTemplate={defaultTemplate}
+                      onChange={(patch) => setCardPresentation(card, patch)}
+                      onTemplateChange={(id) => setCardTemplate(card, id)}
+                      onPreview={() => setPreviewCardId(card.id)}
+                      saving={savingPresentation.has(card.id)}
+                      templateBusy={busyCard === card.id}
+                      published={published}
+                      eventAccent={normalizeCardTheme(card.theme)?.vars['--color-accent'] ?? null}
+                      eventBg={normalizeCardTheme(card.theme)?.vars['--color-brand-bg'] ?? null}
+                      idPrefix={`card-arrive-${card.id}`}
+                    />
 
                     {/* Keepsake film (deluxe MP4 render) — published cards only */}
                     {entitlements.cardsPremiumRender && published && (
@@ -974,6 +1366,18 @@ export default function CardsTab() {
           })
         )}
       </div>
+
+      {(() => {
+        const previewCard = previewCardId ? cards?.find((c) => c.id === previewCardId) : undefined;
+        return previewCard ? (
+          <CardPreviewModal
+            card={previewCard}
+            eventName={config.copy.fullName ?? null}
+            onClose={closePreview}
+            onUse={(picks) => applyPreviewPicks(previewCard, picks)}
+          />
+        ) : null;
+      })()}
 
       {upgradeOpen && eventUuid && (
         <UpgradeModal eventUuid={eventUuid} currentTier={planTier} onClose={() => setUpgradeOpen(false)} />

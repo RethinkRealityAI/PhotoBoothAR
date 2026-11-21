@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DPR_CALM_S, DT_MAX, GLIDE_DT_MAX, JUMP_VH, SIGMA, STOPS, blendSlots, governDpr, damp, dampAngle, followStep, glideStep, pageProgress, pinProgress,
-  poseInSlot, slotWeight, stopIndex, storyHeightVh, storyStep, weightedNight, type GlidePt, type SlotSample,
+  poseInSlot, slotWeight, stopIndex, storyEdgeOffsets, storyEntry, storyHeightVh, storySnapOffsets, storySnapOn, storyStep, storySwipe, storySwipeLeaves, SWIPE_MIN_PX, SWIPE_MIN_V, weightedNight, type GlidePt, type SlotSample,
 } from './beamyScroll';
 
 const VW = 1440;
@@ -116,8 +116,9 @@ describe('pinned story', () => {
 
 describe('page journey', () => {
   it('lists the stops top to bottom with alternating sides after the hero', () => {
-    expect(STOPS.map((s) => s.id)).toEqual(['hero', 'story', 'films', 'pick', 'try', 'pricing', 'start']);
-    expect(stopIndex('films')).toBe(2);
+    // No films stop and no virtual stop (2026-11-20: films removed; virtual celebrations is story step 6).
+    expect(STOPS.map((s) => s.id)).toEqual(['hero', 'story', 'pick', 'try', 'pricing', 'start']);
+    expect(stopIndex('pick')).toBe(2);
     const sides = STOPS.filter((s) => s.side !== 'centre').map((s) => s.side);
     for (let i = 1; i < sides.length; i++) expect(sides[i]).not.toBe(sides[i - 1]);
   });
@@ -232,5 +233,80 @@ describe('the stage pixel budget', () => {
     expect(s.dpr).toBe(1.25);
     expect(governDpr(1.5, 60, 1.5, 10).dpr).toBe(1.5);
     expect(governDpr(1.25, 50, 1.5, 3)).toEqual({ dpr: 1.25, calm: 0 });
+  });
+
+  it('puts one phone snap anchor in the middle of every story step', () => {
+    // 390×844 phone: header 64, five steps at 75vh.
+    for (const [vh, header] of [[844, 64], [915, 72], [667, 60]]) {
+      const n = 5;
+      const h = (storyHeightVh(n, true) / 100) * vh;
+      const a = storySnapOffsets(n, h, vh, header);
+      expect(a).toHaveLength(n);
+      a.forEach((off, k) => {
+        // Snapped (anchor top at the viewport top): the page reads step k, mid-step.
+        const p = pinProgress(-off - header, h, vh - header);
+        expect(p).toBeCloseTo((k + 0.5) / n, 9);
+        expect(storyStep(p, n)).toBe(k);
+        // Inside the section, increasing, evenly spaced: one stop per step.
+        expect(off).toBeGreaterThan(0);
+        expect(off).toBeLessThan(h);
+        if (k > 0) expect(off - a[k - 1]).toBeCloseTo((h - (vh - header)) / n, 9);
+      });
+    }
+    expect(storySnapOffsets(0, 1000, 800, 64)).toEqual([]);
+  });
+
+  it('snaps only strictly inside the pinned stretch, with an anchor at each end to leave by', () => {
+    const vh = 844, header = 64, n = 5;
+    const h = (storyHeightVh(n, true) / 100) * vh;
+    const [start, end] = storyEdgeOffsets(h, vh, header);
+    expect(pinProgress(-start - header, h, vh - header)).toBe(0);
+    expect(pinProgress(-end - header, h, vh - header)).toBe(1);
+    // Snapped on an end anchor, snapping is off: the next swipe leaves freely.
+    expect(storySnapOn(-start, -start + h, header, vh)).toBe(false);
+    expect(storySnapOn(-end, -end + h, header, vh)).toBe(false);
+    // Every step anchor is strictly inside: snapping holds a flick to one step.
+    for (const a of storySnapOffsets(n, h, vh, header)) expect(storySnapOn(-a, -a + h, header, vh)).toBe(true);
+    // Above or below the story: off.
+    expect(storySnapOn(300, 300 + h, header, vh)).toBe(false);
+    expect(storySnapOn(-h, 0, header, vh)).toBe(false);
+  });
+
+  it('turns exactly one step per swipe, however long or fast, and stays on a short slow touch', () => {
+    const n = 6;
+    // Finger up (dy < 0) = on; down = back. A long, fast flick is still ONE step.
+    expect(storySwipe(2, n, -40, 0)).toBe(3);
+    expect(storySwipe(2, n, -900, -6)).toBe(3);
+    expect(storySwipe(2, n, 40, 0)).toBe(1);
+    expect(storySwipe(2, n, 900, 6)).toBe(1);
+    // A slow drag well under half a step still turns it (CSS snapping pulled these back).
+    expect(storySwipe(0, n, -SWIPE_MIN_PX, 0)).toBe(1);
+    // A short flick turns it on speed alone; a short slow touch (a tap, a wobble) stays.
+    expect(storySwipe(3, n, -10, -SWIPE_MIN_V)).toBe(4);
+    expect(storySwipe(3, n, -10, -0.05)).toBe(3);
+    expect(storySwipe(3, n, 0, 0)).toBe(3);
+  });
+
+  it('hands a swipe past either end back to the native scroll', () => {
+    const n = 6;
+    expect(storySwipe(0, n, 120, 1)).toBe('leave');
+    expect(storySwipe(n - 1, n, -120, -1)).toBe('leave');
+    expect(storySwipeLeaves(0, n, 50)).toBe(true);
+    expect(storySwipeLeaves(n - 1, n, -50)).toBe(true);
+    expect(storySwipeLeaves(0, n, -50)).toBe(false);
+    expect(storySwipeLeaves(n - 1, n, 50)).toBe(false);
+    expect(storySwipeLeaves(3, n, 50)).toBe(false);
+  });
+
+  it('catches momentum that flies into the story on its first or last step', () => {
+    const a0 = 1000, a1 = 5000;
+    expect(storyEntry(900, 1400, a0, a1)).toBe('first');
+    expect(storyEntry(1000, 1200, a0, a1)).toBe('first');
+    expect(storyEntry(5600, 4700, a0, a1)).toBe('last');
+    // Moving inside, or leaving, is not an entry.
+    expect(storyEntry(1400, 1800, a0, a1)).toBeNull();
+    expect(storyEntry(1200, 800, a0, a1)).toBeNull();
+    expect(storyEntry(4800, 5300, a0, a1)).toBeNull();
+    expect(storyEntry(200, 600, a0, a1)).toBeNull();
   });
 });

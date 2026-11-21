@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  CELEBRATIONS, EMOJI_RE, FILMS, FILM_EYEBROW, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
+  CELEBRATIONS, EMOJI_RE, FILMS, FILM_EYEBROW, KEEPSAKE_PROMISE, STORY_STEPS, LOOKS, NAV_LINKS, POKE_IDLE, POKE_STREAK_MS,
   createReactionPicker, landingCopy, nearestFront, pickCelebration, pickReaction, beamyPlanCards, planCards, pokeStep,
-  pricingSection, releaseVelocity, seededRandom, spinSettled, spinStep, startFacts,
+  pricingSection, seededRandom, spinSettled, spinStep, startFacts,
   type Moment, type PokeState, type Reaction, type Spin,
 } from './brandLanding';
-import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
+import { ENTITLEMENTS, formatPostCap, formatRetention, formatVideoLength } from './plans';
 import { DEMO_KITS } from './demoKits';
 import { DEFAULT_LANDING_CONTENT } from './landingContent';
 import { STOPS, stopIndex } from './beamyScroll';
@@ -82,11 +82,6 @@ describe('spin physics', () => {
       expect(Math.abs(s.angle - nearestFront(s.angle))).toBeLessThan(0.01);
     }
   });
-  it('derives a bounded release velocity', () => {
-    expect(releaseVelocity([{ x: 0, t: 0 }])).toBe(0);
-    expect(releaseVelocity([{ x: 0, t: 0 }, { x: 100, t: 100 }])).toBeGreaterThan(0);
-    expect(releaseVelocity([{ x: 0, t: 0 }, { x: -100000, t: 10 }])).toBe(-30);
-  });
 });
 
 describe('copy', () => {
@@ -137,12 +132,26 @@ describe('copy', () => {
       expect(f.line.length, f.id).toBeGreaterThan(0);
     }
     expect(FILM_EYEBROW).toEqual({ cards: 'Digital keepsakes' });
+    // Beamy says his own short line on every film tab (one speech bubble, no repeats).
+    for (const f of FILMS) expect(f.beamy.length, f.id).toBeGreaterThan(0);
+    for (const f of FILMS) expect(f.beamy.length, f.id).toBeLessThanOrEqual(60);
+    expect(new Set(FILMS.map((f) => f.beamy)).size).toBe(FILMS.length);
     // Step bodies stay short (about two lines on a card), each with its own effect.
     expect(STORY_STEPS.length).toBeGreaterThanOrEqual(3);
-    expect(STORY_STEPS.length).toBeLessThanOrEqual(5);
+    // Six: the owner moved virtual celebrations in as step 6 (2026-11-20).
+    expect(STORY_STEPS.length).toBeLessThanOrEqual(6);
     expect(new Set(STORY_STEPS.map((x) => x.id)).size).toBe(STORY_STEPS.length);
     for (const x of STORY_STEPS) expect(x.body.length, x.title).toBeLessThanOrEqual(80);
     for (const x of STORY_STEPS) expect(x.body, x.title).not.toMatch(/—|–/);
+  });
+
+  it('keeps the keepsake promise in one place, and only promises what ships', () => {
+    // Sending is a host button after the event, so no line names a day or says it sends itself.
+    expect(STORY_STEPS.find((x) => x.id === 'keepsake')?.body).toBe(KEEPSAKE_PROMISE.step);
+    expect(FILMS.find((f) => f.id === 'cards')?.beamy).toBe(KEEPSAKE_PROMISE.beamy);
+    for (const s of Object.values(KEEPSAKE_PROMISE)) {
+      expect(s, s).not.toMatch(/morning|tomorrow|next day|day after|automatic/i);
+    }
   });
 
   it('never words a keepsake as a physical product', () => {
@@ -173,7 +182,7 @@ describe('copy', () => {
     // appear in Landing.tsx's TIERS (the derived limits are checked below).
     const src = readFileSync(new URL('../pages/Landing.tsx', import.meta.url), 'utf8');
     const cards = planCards();
-    const derived = new Set(Object.values(ENTITLEMENTS).flatMap((e) => [formatPostCap(e.maxPosts, e.videoEnabled), formatRetention(e.retentionDays)]));
+    const derived = new Set(Object.values(ENTITLEMENTS).flatMap((e) => [formatPostCap(e.maxPosts, e.videoEnabled), formatRetention(e.retentionDays), formatVideoLength(e.videoMaxSec)]));
     expect(cards.map((c) => c.name)).toEqual(['Free', 'Essentials', 'Premium', 'Deluxe']);
     for (const c of cards) {
       for (const lit of [`name: '${c.name}'`, `price: '${c.price}'`, `unit: '${c.unit}'`, `blurb: '${c.blurb}'`]) expect(src, lit).toContain(lit);
@@ -183,8 +192,11 @@ describe('copy', () => {
       }
     }
     expect(cards.filter((c) => c.popular).map((c) => c.name)).toEqual(['Premium']);
-    expect(cards[0].features).toContain(`Up to ${ENTITLEMENTS.free.maxPosts} photos`);
-    expect(cards[2].features).toContain(`Photos kept for ${ENTITLEMENTS.premium.retentionDays} days`);
+    expect(cards[0].features).toContain(`Up to ${ENTITLEMENTS.free.maxPosts} photos & videos`);
+    expect(cards[2].features).toContain('Photos kept for 1 year');
+    expect(cards[2].features).toContain(`${ENTITLEMENTS.premium.videoMaxSec}-second video clips`);
+    expect(cards[3].features).toContain(`${ENTITLEMENTS.deluxe.videoMaxSec}-second video clips`);
+    expect(src).toContain('formatVideoLength(ENTITLEMENTS.deluxe.videoMaxSec)');
     expect(src).toContain('$79/month');
     expect(src).toContain('300 AI credits a month');
     expect(pricingSection().pro).toContain('$79/month');
@@ -199,7 +211,7 @@ describe('copy', () => {
   it('derives the Free facts from the plan table (no invented limits)', () => {
     const f = startFacts();
     expect(f.bullets.length).toBeLessThanOrEqual(3);
-    expect(f.bullets).toContain(`Up to ${ENTITLEMENTS.free.maxPosts} photos`);
+    expect(f.bullets).toContain(`Up to ${ENTITLEMENTS.free.maxPosts} photos & videos`);
     expect(f.bullets).toContain(`Photos kept for ${ENTITLEMENTS.free.retentionDays} days`);
     for (const b of f.bullets) expect(b).not.toMatch(/\$|£|€/);
   });

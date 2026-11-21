@@ -5,11 +5,11 @@
  * Shared R3F components for face-anchored AR. Used identically by the booth and
  * the studio 3D editor so placement is true WYSIWYG.
  */
-import { useRef, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useMemo, useRef, useEffect, useState, ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { initFaceEngine } from '../../lib/faceEngine';
-import { updateHeadPose, detectFaceNow, scaledAnchorBase, anchorOffset } from '../../lib/faceRig';
+import { initFaceEngine, getTrackedEars } from '../../lib/faceEngine';
+import { updateHeadPose, updateExtraHeadPose, detectFaceNow, scaledAnchorBase, anchorOffset, normalizeAnchorVersion } from '../../lib/faceRig';
 import { loadModel } from '../../lib/glbCache';
 import { describeGlbError } from '../../lib/glbErrors';
 import { resolveFinish, resolveFinishForRegionTint, type FinishOverride } from '../../lib/studio/finish';
@@ -27,9 +27,19 @@ import { attachLabelDecal, type BuiltLabelDecal } from '../../lib/studio/assetDe
 import { mirrorGeometryX } from '../../lib/studio/mirrorGeometry';
 import { useHandMirror } from './handMirror';
 import { canMirrorAsset } from '../../lib/studio/handedness';
+import { earAnchorPoints, pairWantLocal, splitScenePair, type ScenePair } from '../../lib/studio/earPair';
+import type { EarVec } from '../../lib/faceEngine/earPoints';
 import { AnchorConfig, AssetCustomization, HeadAnchor } from '../../types';
 import AssetGizmo from './AssetGizmo';
 import FaceOccluder from './FaceOccluder';
+
+/**
+ * EAR PAIR. A FaceRig on an ear anchor publishes where the OPPOSITE ear is, in
+ * the asset's own frame; a Model below it that turns out to be a pair of
+ * earrings (lib/studio/earPair.ts) carries its far earring there. null (the
+ * default, and every non-ear rig) means "not on an ear": nothing is split.
+ */
+const EarPairContext = createContext<{ want: EarVec } | null>(null);
 
 /**
  * Repaint a CLONED scene graph with a resolved finish.
@@ -290,6 +300,9 @@ export function Model({
   onDecalBuilt?: (info: { buildMs: number; triangles: number }) => void;
 }) {
   const [scene, setScene] = useState<THREE.Group | null>(null);
+  const earPair = useContext(EarPairContext);
+  const onEar = earPair !== null;
+  const pairRef = useRef<ScenePair | null>(null);
   // BOTH HANDS FROM ONE ASSET. Inside a HandRig this asks the rig which hand it
   // is on; everywhere else (head pieces, the studio's orbit view, the landing
   // demo) it is a constant false and nothing below runs.
@@ -383,6 +396,29 @@ export function Model({
     };
   }, [scene, mirrorX]);
 
+  // EAR PAIR — only under an ear-anchored rig. Declared BEFORE the tint effect
+  // so the far earring exists (and shares the near one's vertex buffers) when
+  // region ids are painted. A model that is not two separated objects is left
+  // exactly as loaded.
+  useEffect(() => {
+    if (!scene || !onEar) return;
+    const pair = splitScenePair(scene);
+    pairRef.current = pair;
+    if (!pair) return;
+    return () => {
+      pair.restore();
+      pairRef.current = null;
+    };
+  }, [scene, onEar]);
+  // Carry the far earring to the other ear. The target changes a handful of
+  // times per guest (it is a per-session average), so a plain effect is enough.
+  const wantX = earPair?.want[0], wantY = earPair?.want[1], wantZ = earPair?.want[2];
+  useEffect(() => {
+    const pair = pairRef.current;
+    if (!pair || wantX === undefined || wantY === undefined || wantZ === undefined) return;
+    pair.farGroup.position.set(wantX - pair.authoredDelta[0], wantY - pair.authoredDelta[1], wantZ - pair.authoredDelta[2]);
+  }, [scene, onEar, wantX, wantY, wantZ]);
+
   // REGION TINT — a separate effect, deliberately, rather than more work inside
   // the load effect: a host dragging a colour swatch must not re-download and
   // re-parse the GLB on every frame of the drag. This one only re-patches
@@ -435,6 +471,11 @@ export function Model({
   return <primitive object={scene} />;
 }
 
+/** Re-render threshold for a live ear point (cm). */
+const EAR_EPS_CM = 0.05;
+const farther = (a: EarVec, b: EarVec): boolean =>
+  Math.abs(a[0] - b[0]) > EAR_EPS_CM || Math.abs(a[1] - b[1]) > EAR_EPS_CM || Math.abs(a[2] - b[2]) > EAR_EPS_CM;
+
 /**
  * Tracks the head each frame and parents `children` at the chosen anchor with a
  * fine offset/rotation/scale. `videoId` is the DOM id of the source <video>.
@@ -454,6 +495,7 @@ export function FaceRig({
   headScale = 1,
   anchorVersion,
   debugOcclusion = false,
+  faceSlot = 0,
   matrixRef,
   onVisibilityChange,
   onTransformChange,
@@ -464,6 +506,13 @@ export function FaceRig({
   videoId: string;
   anchor: HeadAnchor;
   config?: Partial<AnchorConfig>;
+  /**
+   * MULTI-FACE. 0 (the default, every existing caller) = the primary tracked face,
+   * exactly as before. 1..2 = an extra face (faceRig.updateExtraHeadPose): this rig
+   * never runs detection (the primary rig does), its ears and occluder are the
+   * static ones, and it is never editable.
+   */
+  faceSlot?: number;
   /** The piece's anchor calibration version (faceRig ANCHOR_PRESETS_V2); absent
    *  = v1, which is every saved scene and legacy event. */
   anchorVersion?: number;
@@ -493,6 +542,14 @@ export function FaceRig({
   // so a consumer mounting mid-track gets the true state immediately instead
   // of waiting for the next visibility flip.
   const visibleRef = useRef<boolean | null>(null);
+  // Ear anchors at the current calibration ride the guest's real ears (v1 —
+  // every legacy event and old saved scene — keeps its fixed point).
+  const onEarAnchor = (anchor === 'leftEar' || anchor === 'rightEar') && normalizeAnchorVersion(anchorVersion) === 2;
+  const extra = faceSlot > 0;
+  // The tracked ears are the PRIMARY guest's: an extra face keeps the static lobe.
+  const liveEar = onEarAnchor && !holdPose && !extra;
+  const [ear, setEar] = useState<{ self: EarVec; other: EarVec } | null>(null);
+  const earRef = useRef<{ self: EarVec; other: EarVec } | null>(null);
 
   // SELF-INITIALIZING tracking: the component that NEEDS the landmarker owns
   // starting it. Idempotent (the face-engine manager caches its engines), so
@@ -514,6 +571,15 @@ export function FaceRig({
   useFrame(() => {
     const group = head.current;
     if (!group) return;
+    if (extra) {
+      const shown = updateExtraHeadPose(group, faceSlot, mirror);
+      group.visible = shown;
+      if (shown !== visibleRef.current) {
+        visibleRef.current = shown;
+        onVisibilityChange?.(shown);
+      }
+      return;
+    }
     const video = document.getElementById(videoId) as HTMLVideoElement | null;
     if (holdPose) {
       // Keep DETECTING — blendshapes, the trigger engine and the head-fit
@@ -537,26 +603,57 @@ export function FaceRig({
       visibleRef.current = visible;
       onVisibilityChange?.(visible);
     }
+    // LIVE EARS. The lobes are a per-guest average in head space (earPoints.ts),
+    // so they settle within a second and then barely move: re-render only when
+    // one moved by more than EAR_EPS_CM.
+    if (!onEarAnchor) {
+      if (earRef.current !== null) { earRef.current = null; setEar(null); }
+    } else if (liveEar) {
+      const e = earAnchorPoints(anchor, getTrackedEars(), mirror);
+      const cur = earRef.current;
+      if (!e.tracked) {
+        if (cur !== null) { earRef.current = null; setEar(null); }
+      } else if (cur === null || farther(cur.self, e.self) || farther(cur.other, e.other)) {
+        const next = { self: e.self, other: e.other };
+        earRef.current = next;
+        setEar(next);
+      }
+    }
   });
 
   // Anchors scale WITH the calibrated head — otherwise raising headScale grows
   // the occluder around a prop that stayed put, and the head eats it.
-  const base = scaledAnchorBase(anchorOffset(anchor, anchorVersion), headScale);
+  const staticBase = scaledAnchorBase(anchorOffset(anchor, anchorVersion), headScale);
+  // A tracked ear is THIS guest's ear: already their size, so no headScale.
+  // Gated on the anchor: this rig instance is reused when the guest switches
+  // pieces, and a hat must never inherit the last earring's lobe.
+  const liveBase = onEarAnchor ? ear : null;
+  const base: [number, number, number] = liveBase ? liveBase.self : staticBase;
+  const rot = config?.rotation;
+  const scl = config?.scale;
+  const pairValue = useMemo(() => {
+    if (!onEarAnchor) return null;
+    // Untracked: the opposite ear is this anchor's mirror image.
+    const self: EarVec = ear ? ear.self : staticBase;
+    const other: EarVec = ear ? ear.other : [-staticBase[0], staticBase[1], staticBase[2]];
+    return { want: pairWantLocal(self, other, rot, scl) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onEarAnchor, ear, staticBase[0], staticBase[1], staticBase[2], rot?.x, rot?.y, rot?.z, scl]);
 
   return (
     <group ref={head} visible={false}>
       {/* Depth-only head: a sibling of the asset (NOT inside the gizmo) so the
           real head occludes props regardless of the prop's placement. */}
-      {occlude && <FaceOccluder scale={headScale} debug={debugOcclusion} live mirror={mirror} />}
+      {occlude && <FaceOccluder scale={headScale} debug={debugOcclusion} live={!extra} mirror={mirror} />}
       <AssetGizmo
         base={base}
         config={config ?? {}}
-        enabled={editable}
+        enabled={editable && !extra}
         onChange={onTransformChange}
         onDragStart={onGizmoDragStart}
         onDragEnd={onGizmoDragEnd}
       >
-        {children}
+        <EarPairContext.Provider value={pairValue}>{children}</EarPairContext.Provider>
       </AssetGizmo>
     </group>
   );

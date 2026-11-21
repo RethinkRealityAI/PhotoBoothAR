@@ -1,4 +1,4 @@
--- 045_keepsake_autopilot.sql
+-- 050_keepsake_autopilot.sql
 -- The next-day keepsake: the morning after an event, every guest who opted in
 -- at the booth gets the album email automatically, with a short film of the
 -- night when the event has one. Before this the only path was a host pressing

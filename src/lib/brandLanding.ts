@@ -18,10 +18,11 @@
  *     plans is DERIVED from plans.ts / beta.ts so the page cannot promise a
  *     limit the product does not have.
  */
-import { ENTITLEMENTS, formatPostCap, formatRetention } from './plans';
+import { ENTITLEMENTS, FAIR_USE_LINE, formatPostCap, formatRetention, formatVideoLength } from './plans';
 import { BETA_FREE, pricingCopy } from './beta';
 import { DEFAULT_LANDING_CONTENT } from './landingContent';
 import type { StopId } from './beamyScroll';
+import { VC_COPY } from './beamyVirtual';
 
 /* ── Beamy's reactions ─────────────────────────────────────────────────── */
 
@@ -114,11 +115,9 @@ export function pokeStep(s: PokeState, now: number): { level: PokeLevel; count: 
   return { level, count, state: { count: level === 'party' ? 0 : count, lastAt: now } };
 }
 
-/* ── Drag to spin ──────────────────────────────────────────────────────── */
+/* ── The party spin (a tap reaction: he spins, then settles to front) ──── */
 
 export interface Spin { angle: number; vel: number; }
-/** Radians per CSS px dragged. */
-export const SPIN_PER_PX = 0.012;
 const TAU = Math.PI * 2;
 
 /** The "front" Beamy settles to: the nearest whole turn. */
@@ -127,7 +126,7 @@ export function nearestFront(angle: number): number {
 }
 
 /**
- * Advance a released spin by `dt` seconds: friction bleeds the fling, then a
+ * Advance a spin by `dt` seconds: friction bleeds the fling, then a
  * damped spring pulls him round to the nearest front-facing angle.
  */
 export function spinStep(s: Spin, dt: number): Spin {
@@ -145,25 +144,19 @@ export function spinSettled(s: Spin): boolean {
   return Math.abs(s.angle - nearestFront(s.angle)) < 0.002 && Math.abs(s.vel) < 0.01;
 }
 
-/** Release velocity (rad/s) from the last pointer samples [px, ms]. */
-export function releaseVelocity(samples: { x: number; t: number }[]): number {
-  if (samples.length < 2) return 0;
-  const a = samples[0];
-  const b = samples[samples.length - 1];
-  const dt = (b.t - a.t) / 1000;
-  if (dt <= 0) return 0;
-  const v = ((b.x - a.x) * SPIN_PER_PX) / dt;
-  return Math.max(-30, Math.min(30, v));
-}
-
 /* ── Copy ──────────────────────────────────────────────────────────────── */
 
-/** The hero, set like the owner's reference: a light lead-in and a bold payoff in one headline. */
+/**
+ * The hero, set like the owner's reference: a light lead-in and a bold
+ * payoff in one headline (the payoff is SET in capitals by CSS; the copy
+ * stays lower case so screen readers say words, not letters), then the
+ * promise, then three beats. Nothing sits above the headline.
+ */
 export const HERO = {
-  eyebrow: 'Every guest phone becomes the booth',
   lead: 'Welcome to your',
   strong: 'immersive booth',
-  sub: 'Guests scan, snap in AR, and every shot beams to your live wall.',
+  line: 'Every guest phone becomes the booth',
+  sub: 'Scan. Snap. Beam.',
   primary: 'Create your free event',
   /** The same action where the phone header has no room for the full label. */
   primaryShort: 'Start free',
@@ -186,7 +179,7 @@ export const WALL_LABEL = 'Live wall';
 export const SIGNUP_PATH = '/signup';
 
 /**
- * The pinned story right after the hero: five glass cards, one at a time,
+ * The pinned story right after the hero: six glass cards, one at a time,
  * each driving Beamy (his turn and clip) and ONE 3D effect drawn beside him
  * in the canvas (`fx`). Short on purpose: a title and one line each.
  */
@@ -195,7 +188,20 @@ export const STORY_COPY = {
   heading: 'One scan, a whole night of moments',
 } as const;
 
-export type StoryFxId = 'qr' | 'prop' | 'wall' | 'medal' | 'keepsake';
+/**
+ * When and how guests get their keepsake: the ONE place this promise lives,
+ * so the owner's final wording is a one-line swap. Kept honest to what ships:
+ * sending is a host button after the event (send-keepsakes), not a timed job,
+ * so nothing here names a day or says it sends itself.
+ */
+export const KEEPSAKE_PROMISE = {
+  /** The How it works step body (80 chars max, no dashes). */
+  step: 'Guests get their keepsake film after the event, a link they can keep and share.',
+  /** What Beamy says over the keepsake film (his speech bubble on its tab). */
+  beamy: 'Aww, I’m keeping this one forever.',
+} as const;
+
+export type StoryFxId = 'qr' | 'prop' | 'wall' | 'medal' | 'keepsake' | 'virtual';
 export type StoryClip = 'Wave' | 'Hop' | 'BeamyBlast' | 'Dance' | 'ShadesOn';
 
 export const STORY_STEPS: { id: StoryFxId; title: string; body: string; clip: StoryClip; yaw: number }[] = [
@@ -203,7 +209,9 @@ export const STORY_STEPS: { id: StoryFxId; title: string; body: string; clip: St
   { id: 'prop', title: 'They dress up in augmented reality (AR)', body: 'Frames, filters and 3D props in your colours, tracked on every face.', clip: 'ShadesOn', yaw: 0.45 },
   { id: 'wall', title: 'Every shot beams to your wall', body: 'Photos land on the live wall the moment they are taken.', clip: 'BeamyBlast', yaw: 0.6 },
   { id: 'medal', title: 'Challenges keep it going', body: 'Missions and points get the whole room mingling.', clip: 'Dance', yaw: 0.35 },
-  { id: 'keepsake', title: 'Everyone gets a digital keepsake', body: 'A digital album link and an auto-made video of the night, their own shots in it.', clip: 'Hop', yaw: 0.5 },
+  { id: 'keepsake', title: 'Everyone gets a digital keepsake', body: KEEPSAKE_PROMISE.step, clip: 'Hop', yaw: 0.5 },
+  // Virtual celebrations (lib/beamyVirtual owns the words and what really ships).
+  { id: 'virtual', title: VC_COPY.title, body: VC_COPY.body, clip: 'Wave', yaw: 0.4 },
 ];
 
 export const FILMS_COPY = {
@@ -223,14 +231,14 @@ export type FilmId = 'booth' | 'wall' | 'challenges' | 'cards';
 /**
  * The four feature films, with the original landing's eyebrow, title and ONE
  * hook each (the films carry the detail as in-video callouts, so the copy
- * never pre-states them), plus what Beamy says while he projects each one.
+ * never pre-states them), plus Beamy's speech-bubble line on each tab.
  */
 export const FILMS: { id: FilmId; eyebrow: string; title: string; line: string; beamy: string }[] = (
   [
-    ['booth', 'Watch this. Every phone becomes the booth.'],
-    ['wall', 'And this is where every shot lands.'],
-    ['challenges', 'Want the room to mingle? Give them a mission.'],
-    ['cards', 'And the next morning, everyone gets a digital keepsake.'],
+    ['booth', 'I hope I’m catching my good angle.'],
+    ['wall', 'That’s me, third row, waving.'],
+    ['challenges', 'I’m very competitive. I would definitely win this.'],
+    ['cards', KEEPSAKE_PROMISE.beamy],
   ] as const
 ).map(([id, beamy]) => {
   const f = DEFAULT_LANDING_CONTENT.features.find((x) => x.id === id);
@@ -292,14 +300,14 @@ export function planCards(): PlanCard[] {
     {
       name: 'Essentials', price: '$49', unit: 'per event', blurb: 'Everything a small celebration needs.',
       features: [
-        formatPostCap(E.essentials.maxPosts, E.essentials.videoEnabled), 'Video capture', 'No watermark',
+        formatPostCap(E.essentials.maxPosts, E.essentials.videoEnabled), formatVideoLength(E.essentials.videoMaxSec), 'No watermark',
         formatRetention(E.essentials.retentionDays), '+20 AI credits',
       ],
     },
     {
       name: 'Premium', price: '$99', unit: 'per event', blurb: 'The full experience, cards included.',
       features: [
-        formatPostCap(E.premium.maxPosts, E.premium.videoEnabled), 'Keepsake cards',
+        formatPostCap(E.premium.maxPosts, E.premium.videoEnabled), formatVideoLength(E.premium.videoMaxSec), 'Keepsake cards',
         formatRetention(E.premium.retentionDays), 'Priority support', '+100 AI credits',
       ],
       popular: true,
@@ -307,7 +315,7 @@ export function planCards(): PlanCard[] {
     {
       name: 'Deluxe', price: '$169', unit: 'per event', blurb: 'A keepsake film, and every finishing touch.',
       features: [
-        'Everything in Premium', 'Keepsake highlight film', 'Premium card renders',
+        'Everything in Premium', formatVideoLength(E.deluxe.videoMaxSec), 'Keepsake highlight film', 'Premium card renders',
         formatRetention(E.deluxe.retentionDays), '+130 AI credits',
       ],
     },
@@ -332,13 +340,14 @@ export function beamyPlanCards(): PlanCard[] {
 }
 
 /** The pricing section's words: the landing's own (beta-aware) heading, intro and CTAs, plus its Pro line. */
-export function pricingSection(): { heading: string; intro: string; pro: string; cta: (tier: string) => string; recommended: string; line: string } {
+export function pricingSection(): { heading: string; intro: string; pro: string; fairUse: string; cta: (tier: string) => string; recommended: string; line: string } {
   const p = pricingCopy(BETA_FREE);
   return {
     heading: p.heading,
     // The shared beta.ts wording, with its em dash read as the sentence break it is.
     intro: p.intro.replace(/\s+—\s+(\w)/g, (_m, c: string) => `. ${c.toUpperCase()}`),
     pro: 'Frequent host? Beamwall Pro is $79/month: Premium on every event, plus 300 AI credits a month.',
+    fairUse: FAIR_USE_LINE,
     cta: p.cta,
     recommended: 'Recommended',
     line: 'Start free. Upgrade only the events that need it.',
@@ -347,8 +356,6 @@ export function pricingSection(): { heading: string; intro: string; pro: string;
 
 export const START_COPY = {
   signIn: 'Sign in',
-  skipIntro: 'Skip intro',
-  skipShort: 'Skip',
 } as const;
 
 /** Footer links, matching MarketingFooter's destinations (Contact = the support dialog). */

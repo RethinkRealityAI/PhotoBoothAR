@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  AR_CATEGORIES, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, arOrder, arTour, carousel, categoryStart, demoQrUrl,
-  DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, smallWindow, stepIntoFrame, toBeamyLook, toggleLook, type HomeLook,
+  AR_CATEGORIES, AR_NOUN, DEFAULT_FIT_BY_CATEGORY, HOME_ASSET_DEFAULTS, NONE_TITLE, arOrder, arStopIndex, arStops, arTitle, arTour, carousel, categoryStart, demoQrUrl, wearStop,
+  AR_REF_FRAME_ID, AR_REF_OPENING, arPropScale, arStage,
+  DEFAULT_OPENING, PROP_MIN_SCALE, frameOnBeamy, lookAction, lookFit, lookThumb, nextAr, selectedLooks, smallWindow, standInFrame, stepIntoFrame, BODY_W, toBeamyLook, toggleLook, type HomeLook,
 } from './beamyAssets';
 import { BEAMY_LOOKS } from './beamyLooks';
 import { EMOJI_RE } from './brandLanding';
@@ -39,9 +40,67 @@ describe('beamyAssets', () => {
     }
   });
 
-  it('keeps the hero tour exactly the hero looks, after the greeting', () => {
-    expect(BEAMY_LOOKS.slice(1).map((l) => l.id)).toEqual(HOME_ASSET_DEFAULTS.heroLooks.map((l) => l.id));
-    expect(BEAMY_LOOKS.slice(1).every((l) => l.kind === 'prop' || l.kind === 'frame')).toBe(true);
+  it('keeps the hero tour exactly the hero looks', () => {
+    expect(BEAMY_LOOKS.map((l) => l.id)).toEqual(HOME_ASSET_DEFAULTS.heroLooks.map((l) => l.id));
+    expect(BEAMY_LOOKS.every((l) => l.kind === 'prop' || l.kind === 'frame')).toBe(true);
+  });
+
+  it('wears a frame’s `with` prop along with it, fitted like a prop', () => {
+    const holiday: HomeLook = { id: 'h', name: 'H', category: 'frame', url: '/guides/frames/christmas-santa-cover.png', with: '/models/props/reindeer-antlers.glb' };
+    const b = toBeamyLook(holiday);
+    expect(b.kind).toBe('frame');
+    expect(b.prop).toEqual({ url: '/models/props/reindeer-antlers.glb', fit: DEFAULT_FIT_BY_CATEGORY.prop });
+    expect(b.opening).toEqual(DEFAULT_OPENING);
+    // Only a GLB rides along; no `with`, no prop.
+    expect(toBeamyLook({ ...holiday, with: '/x.png' }).prop).toBeUndefined();
+    expect(toBeamyLook({ ...holiday, with: undefined }).prop).toBeUndefined();
+  });
+
+  it('decorates the hero with full-colour props only (no material-less GLBs)', () => {
+    // royal-crown / queens-tiara / halo-ring ship with no material: three
+    // draws them in its default grey. The owner: "make them proper nice assets".
+    for (const u of HOME_ASSET_DEFAULTS.sceneProps) {
+      expect(u, u).not.toMatch(/royal-crown|queens-tiara|halo-ring/);
+      // Read the GLB's JSON chunk: it must carry a material of its own.
+      const glb = readFileSync(pub(u));
+      const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8')) as { materials?: unknown[] };
+      expect(json.materials?.length ?? 0, u).toBeGreaterThan(0);
+    }
+    for (const l of [...HOME_ASSET_DEFAULTS.heroLooks, ...HOME_ASSET_DEFAULTS.arLooks]) expect(l.url, l.id).not.toMatch(/royal-crown|queens-tiara|halo-ring/);
+  });
+
+  it('gives every AR prop real materials, one per kind (crown, hat, necklace, earrings, glasses, mask, face paint)', () => {
+    // The owner: "every piece needs real materials or textures". A GLB with
+    // no material, or a primitive that uses none, draws in three's flat grey.
+    const props = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'prop');
+    expect(props.map((l) => l.id)).toEqual(['ar-crown', 'ar-tophat', 'ar-necklace', 'ar-earrings', 'ar-aviators', 'ar-masquerade', 'ar-facepaint']);
+    for (const l of props) {
+      const glb = readFileSync(pub(l.url));
+      expect(glb.readUInt32LE(0), l.url).toBe(0x46546c67); // 'glTF'
+      const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8')) as {
+        materials?: { name?: string; pbrMetallicRoughness?: { baseColorTexture?: unknown; baseColorFactor?: number[]; metallicFactor?: number; metallicRoughnessTexture?: unknown }; extras?: { beamyEnv?: unknown } }[];
+        meshes?: { primitives: { material?: number }[] }[];
+      };
+      const mats = json.materials ?? [];
+      expect(mats.length, l.url).toBeGreaterThan(0);
+      for (const m of json.meshes ?? []) for (const pr of m.primitives) expect(pr.material, l.url).toBeTypeOf('number');
+      // Each material is textured or carries a colour of its own (not the default white).
+      for (const m of mats) {
+        const pbr = m.pbrMetallicRoughness ?? {};
+        const c = pbr.baseColorFactor ?? [1, 1, 1, 1];
+        expect(pbr.baseColorTexture !== undefined || c.slice(0, 3).some((v) => v < 0.99), l.url).toBe(true);
+        // A bare polished metal (the silver crown, the gold chain and filigree)
+        // reflects its surroundings and has no colour of its own to show: the
+        // stage has no environment, so it must ask for one (BeamyStage
+        // litProps answers glTF extras `beamyEnv`), or it renders black.
+        if ((pbr.metallicFactor ?? 1) >= 0.9 && pbr.metallicRoughnessTexture === undefined) {
+          expect(m.extras?.beamyEnv, `${l.url} ${m.name ?? ''}`).toBeTypeOf('number');
+          expect(Number(m.extras?.beamyEnv), `${l.url} ${m.name ?? ''}`).toBeGreaterThan(0);
+        }
+      }
+      // Earrings are a split pair: they say how far apart his hooks are.
+      if (l.id === 'ar-earrings') expect(l.fit?.pair, l.id).toBeGreaterThan(0);
+    }
   });
 
   it('falls back to the category’s fit when a look names none', () => {
@@ -62,11 +121,12 @@ describe('beamyAssets', () => {
     expect(lookAction(f('filter', '/x.png'))).toEqual({ kind: 'media', url: '/x.png' });
     expect(lookAction(f('effect', 'https://cdn.example/fx.mp4')).kind).toBe('media');
     expect(lookAction(f('effect', 'javascript:alert(1)')).kind).toBe('none');
-    expect(lookAction(f('effect', 'fx:beam'))).toEqual({ kind: 'fx', fx: 'beam' });
+    expect(lookAction(f('effect', 'fx:snow'))).toEqual({ kind: 'fx', fx: 'snow' });
+    expect(lookAction(f('effect', 'fx:beam')).kind).toBe('none');
     expect(lookAction(f('effect', 'fx:explode')).kind).toBe('none');
     expect(lookAction(f('frame', '')).kind).toBe('none');
     expect(lookAction(f('frame', '/guides/frames/nye-countdown.png')).kind).toBe('frame');
-    expect(toBeamyLook(f('effect', 'fx:beam')).kind).toBe('none');
+    expect(toBeamyLook(f('effect', 'fx:snow')).kind).toBe('none');
   });
 
   it('orders the picker by category and auto-advances with a wrap', () => {
@@ -89,6 +149,69 @@ describe('beamyAssets', () => {
     expect(carousel(0, 3)).toEqual({ prev: 2, next: 1, after: null });
     expect(carousel(0, 2)).toEqual({ prev: null, next: 1, after: null });
     expect(carousel(0, 1)).toEqual({ prev: null, next: null, after: null });
+  });
+
+  it('labels the props tab "3D props", and offers 4 to 6 real photo-booth effects (no beam, no dance)', () => {
+    expect(AR_CATEGORIES.find((c) => c.id === 'prop')?.label).toBe('3D props');
+    expect(NONE_TITLE.prop).toBe('No 3D prop');
+    const fx = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'effect');
+    expect(fx.length).toBeGreaterThanOrEqual(4);
+    expect(fx.length).toBeLessThanOrEqual(6);
+    expect(fx.map((l) => l.name)).toContain('Sparkle burst');
+    for (const l of fx) {
+      expect(lookAction(l).kind, l.id).toBe('fx');
+      expect(l.name, l.id).not.toMatch(/beam|dance/i);
+    }
+    expect(new Set(fx.map((l) => l.url)).size).toBe(fx.length);
+  });
+
+  it('gives every category a carousel that starts on a None stop', () => {
+    const o = arOrder(HOME_ASSET_DEFAULTS.arLooks);
+    for (const c of AR_CATEGORIES) {
+      const stops = arStops(o, c.id);
+      expect(stops[0], c.id).toBeNull();
+      expect(stops.slice(1).every((l) => l !== null && l.category === c.id), c.id).toBe(true);
+      expect(stops.length, c.id).toBe(o.filter((l) => l.category === c.id).length + 1);
+      expect(arStopIndex({}, o, c.id), c.id).toBe(0);
+      expect(arTitle(c.id, null), c.id).toBe(NONE_TITLE[c.id]);
+      expect(AR_NOUN[c.id].length, c.id).toBeGreaterThan(0);
+    }
+    const props = o.filter((l) => l.category === 'prop');
+    expect(arStopIndex({ prop: props[1].id }, o, 'prop')).toBe(2);
+    // An id that is gone (or in another category) stands on None, never throws.
+    expect(arStopIndex({ prop: 'gone' }, o, 'prop')).toBe(0);
+    expect(arStopIndex({ prop: o.find((l) => l.category === 'frame')?.id }, o, 'prop')).toBe(0);
+  });
+
+  it('wears a carousel stop in its own category only; None takes it off', () => {
+    const o = arOrder(HOME_ASSET_DEFAULTS.arLooks);
+    const prop = o.filter((l) => l.category === 'prop')[1];
+    const before = { frame: 'ar-gala', filter: 'ar-aurora' };
+    const sel = wearStop(before, 'prop', prop);
+    expect(sel).toEqual({ frame: 'ar-gala', filter: 'ar-aurora', prop: prop.id });
+    expect(before).toEqual({ frame: 'ar-gala', filter: 'ar-aurora' });
+    expect(wearStop(sel, 'frame', null)).toEqual({ filter: 'ar-aurora', prop: prop.id });
+    expect(wearStop({}, 'effect', null)).toEqual({});
+  });
+
+  it('titles a frame by its celebration, everything else by its name', () => {
+    const frames = HOME_ASSET_DEFAULTS.arLooks.filter((l) => l.category === 'frame');
+    const want: Record<string, string> = {
+      'ar-wedding-cover': 'Wedding', 'ar-sangeet': 'Indian wedding', 'ar-birthday': 'Birthday',
+      'ar-countdown': 'New Year’s Eve', 'ar-asoebi': 'Nigerian wedding', 'ar-gala': 'Gala',
+    };
+    for (const f of frames) expect(arTitle('frame', f), f.id).toBe(want[f.id]);
+    expect(arTitle('frame', HOME_ASSET_DEFAULTS.heroLooks[0])).toBe('Christmas');
+    // No occasion (or a blank one, as a CMS row may carry): the frame's name.
+    expect(arTitle('frame', { ...frames[0], occasion: undefined })).toBe(frames[0].name);
+    expect(arTitle('frame', { ...frames[0], occasion: '  ' })).toBe(frames[0].name);
+    const prop = HOME_ASSET_DEFAULTS.arLooks.find((l) => l.category === 'prop');
+    expect(prop !== undefined && arTitle('prop', { ...prop, occasion: 'Party' })).toBe(prop?.name);
+    for (const l of [...HOME_ASSET_DEFAULTS.arLooks, ...HOME_ASSET_DEFAULTS.heroLooks]) {
+      const t = arTitle(l.category, l);
+      expect(t, l.id).not.toMatch(EMOJI_RE);
+      expect(t.length, l.id).toBeLessThanOrEqual(22);
+    }
   });
 
   it('wears one look per category, combined, and a second tap takes it off', () => {
@@ -244,5 +367,85 @@ describe('beamyAssets', () => {
     // A dev or http origin cannot be opened from a phone: production instead.
     expect(demoQrUrl('http://localhost:5180', 'demo')).toBe('https://beamwall.app/e/demo/welcome?from=beamy-qr');
     expect(demoQrUrl('https://beamwall.app/', 'a b')).toBe('https://beamwall.app/e/a%20b/welcome?from=beamy-qr');
+  });
+});
+
+describe('standInFrame (a frame look in a box narrower than him)', () => {
+  it('fills the box with the frame and stands him wholly inside its window', () => {
+    const o = { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 }; // the Holiday cover
+    for (const box of [{ top: 128, bottom: 856, left: 615, right: 924 }, { top: 100, bottom: 400, left: 0, right: 600 }]) {
+      const { frame, stand } = standInFrame({ opening: o, box });
+      const w = (frame.h * 9) / 16;
+      // The frame stays in its box.
+      expect(frame.left).toBeGreaterThanOrEqual(box.left - 0.5);
+      expect(frame.left + w).toBeLessThanOrEqual(box.right + 0.5);
+      expect(frame.top).toBeGreaterThanOrEqual(box.top - 0.5);
+      expect(frame.top + frame.h).toBeLessThanOrEqual(box.bottom + 0.5);
+      // His body is inside the window: sides, feet and head.
+      const win = { l: frame.left + o.left * w, r: frame.left + o.right * w, t: frame.top + o.top * frame.h, b: frame.top + o.bottom * frame.h };
+      expect(stand.x - (stand.heightPx * BODY_W) / 2).toBeGreaterThanOrEqual(win.l - 0.5);
+      expect(stand.x + (stand.heightPx * BODY_W) / 2).toBeLessThanOrEqual(win.r + 0.5);
+      expect(stand.y).toBeLessThanOrEqual(win.b);
+      expect(stand.y - stand.heightPx).toBeGreaterThan(win.t);
+    }
+  });
+
+  it('keeps his selfie arm clear of the copy on its left', () => {
+    const o = { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 };
+    const box = { top: 128, bottom: 856, left: 615, right: 924 };
+    const free = standInFrame({ opening: o, box });
+    // Unconstrained, a 0.66-height reach crosses x = 604 (the headline's edge).
+    expect(free.stand.x - 0.66 * free.stand.heightPx).toBeLessThan(604);
+    const { frame, stand } = standInFrame({ opening: o, box, clearLeft: { x: 604, reach: 0.66 } });
+    expect(stand.x - 0.66 * stand.heightPx).toBeGreaterThanOrEqual(603.5);
+    // ...by the least it takes (he shrinks no more than he must).
+    expect(stand.x - 0.66 * stand.heightPx).toBeLessThan(606);
+    expect(frame.left + (frame.h * 9) / 16).toBeLessThanOrEqual(box.right + 0.5);
+    expect(stand.heightPx).toBeGreaterThan(free.stand.heightPx * 0.75);
+  });
+
+  it('keeps ONE AR stage: the Nigerian wedding window sets his size, the box ignores the worn look', () => {
+    expect(AR_REF_FRAME_ID).toBe('ar-asoebi');
+    expect(AR_REF_OPENING).toEqual(HOME_ASSET_DEFAULTS.arLooks.find((l) => l.id === 'ar-asoebi')?.opening);
+    const box = { top: 120, bottom: 892, left: 420, right: 1020 };
+    const a = arStage({ box });
+    // A 9:16 box as tall as the room, centred; he stands in the reference window, feet near its bottom.
+    expect(a.frame.h).toBeCloseTo(772, 5);
+    expect(a.frame.left + (a.frame.h * 9) / 16 / 2).toBeCloseTo(720, 5);
+    const w = (a.frame.h * 9) / 16;
+    expect(a.stand.heightPx).toBeLessThanOrEqual((AR_REF_OPENING.bottom - AR_REF_OPENING.top) * a.frame.h);
+    expect(a.stand.heightPx * BODY_W).toBeLessThanOrEqual((AR_REF_OPENING.right - AR_REF_OPENING.left) * w + 0.5);
+    expect(a.stand.y).toBeLessThanOrEqual(a.frame.top + AR_REF_OPENING.bottom * a.frame.h);
+    expect(a.stand.y - a.stand.heightPx).toBeGreaterThan(a.frame.top);
+    // Same inputs, same stage (nothing in it depends on a look).
+    expect(arStage({ box })).toEqual(a);
+    // Phones: a width-bound box sits right under its top (no gap under the switcher).
+    const p = arStage({ box: { top: 318, bottom: 834, left: 47, right: 343 }, align: 'top' });
+    expect(p.frame.top).toBe(318);
+    const pm = arStage({ box: { top: 318, bottom: 900, left: 47, right: 343 } });
+    expect(pm.frame.top).toBeGreaterThan(318);
+    const pt = arStage({ box: { top: 318, bottom: 900, left: 47, right: 343 }, align: 'top' });
+    expect(pt.frame.top).toBe(318);
+    expect(pt.stand.heightPx).toBe(pm.stand.heightPx);
+    expect(pm.stand.y - pt.stand.y).toBeCloseTo(pm.frame.top - pt.frame.top, 5);
+  });
+
+  it('scales a prop to the reference window once (frozen): fits = 1, too tall = down to PROP_MIN_SCALE', () => {
+    const a = arStage({ box: { top: 120, bottom: 892, left: 420, right: 1020 } });
+    const hp = a.stand.heightPx;
+    expect(arPropScale({ stand: a.stand, frame: a.frame, lift: 0, liftBase: 0 })).toBe(1);
+    expect(arPropScale({ stand: a.stand, frame: a.frame, lift: hp * 0.02, liftBase: 0 })).toBe(1);
+    const tall = arPropScale({ stand: a.stand, frame: a.frame, lift: hp * 2, liftBase: 0 });
+    expect(tall).toBe(PROP_MIN_SCALE);
+    const mid = arPropScale({ stand: a.stand, frame: a.frame, lift: hp * 0.2, liftBase: 0 });
+    expect(mid).toBeGreaterThanOrEqual(PROP_MIN_SCALE);
+    expect(mid).toBeLessThanOrEqual(1);
+    // Where it fits, its top lands just under the frame's top edge (props draw over the frame).
+    const room = a.stand.y - hp * 1.02 - a.frame.top - hp * 0.03;
+    if (mid > PROP_MIN_SCALE && mid < 1) expect(mid * hp * 0.2).toBeCloseTo(room, 5);
+    // A prop that needs 1.25x that room shrinks to exactly 0.8 (its top on the frame's top edge),
+    // more room than the window alone gave it.
+    expect(room).toBeGreaterThan(a.stand.y - hp * 1.02 - (a.frame.top + AR_REF_OPENING.top * a.frame.h) - hp * 0.03);
+    expect(arPropScale({ stand: a.stand, frame: a.frame, lift: room / 0.8, liftBase: 0 })).toBeCloseTo(0.8, 9);
   });
 });

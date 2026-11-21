@@ -46,7 +46,7 @@
  * 409 → { error: 'event_still_live' }    429 → { error: 'recently_sent' | 'preview_rate_limited' }
  * 500 → { error: 'internal' }            503 → { error: 'email_not_configured' }
  *
- * ── THE NEXT-DAY AUTOPILOT (migration 045) ──────────────────────────────────
+ * ── THE NEXT-DAY AUTOPILOT (migration 050) ──────────────────────────────────
  * Two more POST ops, called ONLY by the keepsake worker (scripts/keepsake-
  * worker.mjs, run on a schedule by .github/workflows/keepsake-films.yml). They
  * authorize on a shared secret in the `x-keepsake-worker` header, compared in

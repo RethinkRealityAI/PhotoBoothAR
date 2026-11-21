@@ -15,12 +15,14 @@
  * A Look's `url` is a file for frames (a transparent 9:16 PNG) and props (a
  * library GLB). Filters and effects are built into the page, so their url
  * names the built-in: `tint:<css colour | prismatic>` and
- * `fx:<sparkles | beam | dance>` (see `lookAction`). An override filter or
+ * `fx:<sparkles | snow | confetti | hearts | notes | spotlight>` (see
+ * `lookAction`; lib/arFx draws all but sparkles). An override filter or
  * effect given as an image/clip url (what the CMS stores) shows that picture
  * on its tile.
  */
 import type { FilmId } from './brandLanding';
 import type { BeamyLook, PropFit } from './beamyLooks';
+import { AR_FX_KINDS, type ArFxKind } from './arFx';
 
 export type LookCategory = 'frame' | 'filter' | 'prop' | 'effect';
 
@@ -38,6 +40,10 @@ export interface HomeLook {
   fit?: PropFit;
   /** A frame's see-through window, as fractions of the frame; absent = DEFAULT_OPENING. */
   opening?: FrameOpening;
+  /** A frame worn together with a library prop (GLB url); the prop sits where `fit` says. */
+  with?: string;
+  /** A frame's celebration, the AR carousel's title ("Wedding"); absent = its name. */
+  occasion?: string;
 }
 
 /** A frame's see-through window: fractions of the frame's height (top/bottom) and width (left/right). */
@@ -82,7 +88,7 @@ export const DEFAULT_FIT_BY_CATEGORY: Record<LookCategory, PropFit> = {
 /** The AR step's category tabs, in order. */
 export const AR_CATEGORIES: { id: LookCategory; label: string }[] = [
   { id: 'frame', label: 'Frames' },
-  { id: 'prop', label: 'Props' },
+  { id: 'prop', label: '3D props' },
   { id: 'filter', label: 'Filters' },
   { id: 'effect', label: 'Effects' },
 ];
@@ -93,33 +99,65 @@ const F = '/guides/frames/';
 export const HOME_ASSET_DEFAULTS: HomeAssets = {
   films: { booth: {}, wall: {}, challenges: {}, cards: {} },
   heroLooks: [
-    { id: 'crown', name: 'Royal crown', category: 'prop', url: `${P}royal-crown.glb`, fit: { width: 0.32, at: [0, 0.31, 0], align: 'base' }, line: 'Real 3D filters, like this crown. Tap me for more!' },
-    { id: 'hat', name: 'Santa hat', category: 'prop', url: `${P}santa-hat.glb`, fit: { width: 0.29, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 }, line: 'Build your own filters, or customise any of ours.' },
-    { id: 'glasses', name: 'Neon shades', category: 'prop', url: `${P}neon-shades.glb`, fit: { width: 0.4, at: [0, 0.225, 0.19], align: 'centre' }, line: 'Got a design? Upload it, or ask us to make one.' },
-    { id: 'frame', name: 'Gala cover frame', category: 'frame', url: `${F}gala-magazine-cover.png`, line: 'Frames too, made in your event’s colours.' },
-    { id: 'antlers', name: 'Reindeer antlers', category: 'prop', url: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'A whole library of 3D props for your event.' },
-    { id: 'tiara', name: 'Tiara', category: 'prop', url: `${P}queens-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' }, line: 'Snapchat and Instagram in one, right in the browser.' },
+    // Christmas first: he lands, puts on the Holiday cover and the antlers, and
+    // that dressed-up selfie is the photo he beams to the wall.
+    { id: 'holiday', name: 'Holiday cover + antlers', category: 'frame', occasion: 'Christmas', url: `${F}christmas-santa-cover.png`, opening: { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 }, with: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'Tap me to see more!' },
+    { id: 'glasses', name: 'Neon shades', category: 'prop', url: `${P}neon-shades.glb`, fit: { width: 0.4, at: [0, 0.225, 0.19], align: 'centre' }, line: 'Real 3D filters, right in the browser.' },
+    { id: 'elf', name: 'Elf hat', category: 'prop', url: `${P}elf-hat.glb`, fit: { width: 0.3, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 }, line: 'Scroll to see what I can do.' },
+    { id: 'tree', name: 'Christmas tree hat', category: 'prop', url: `${P}tree-hat.glb`, fit: { width: 0.27, at: [0, 0.33, 0], align: 'base' }, line: 'Snapchat and Instagram in one, right in the browser.' },
+    { id: 'antlers', name: 'Reindeer antlers', category: 'prop', url: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'Tap me for another look!' },
   ],
   arLooks: [
-    { id: 'ar-wedding-cover', name: 'Wedding cover', category: 'frame', url: `${F}wedding-magazine-cover.png`, opening: { top: 0.242, bottom: 0.91, left: 0.13, right: 0.87 } },
-    { id: 'ar-sangeet', name: 'Sangeet arch', category: 'frame', url: `${F}cultural-mehndi-arch.png`, opening: { top: 0.172, bottom: 0.889, left: 0.071, right: 0.929 } },
-    { id: 'ar-birthday', name: 'Birthday monogram', category: 'frame', url: `${F}birthday-monogram-corner.png`, opening: { top: 0.056, bottom: 0.946, left: 0.093, right: 0.915 } },
-    { id: 'ar-countdown', name: 'New Year countdown', category: 'frame', url: `${F}nye-countdown.png`, opening: { top: 0.212, bottom: 0.812, left: 0.144, right: 0.863 } },
-    { id: 'ar-asoebi', name: 'Aso ebi arch', category: 'frame', url: `${F}cultural-asoebi-arch.png`, opening: { top: 0.177, bottom: 0.89, left: 0, right: 1 } },
-    { id: 'ar-santa-cover', name: 'Holiday cover', category: 'frame', url: `${F}christmas-santa-cover.png`, opening: { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 } },
-    { id: 'ar-holly', name: 'Holly crown', category: 'prop', url: `${P}holly-crown.glb`, fit: { width: 0.36, at: [0, 0.31, 0], align: 'base' } },
-    { id: 'ar-snowflake', name: 'Snowflake tiara', category: 'prop', url: `${P}snowflake-tiara.glb`, fit: { width: 0.34, at: [0, 0.31, 0.03], align: 'base' } },
-    { id: 'ar-elf', name: 'Elf hat', category: 'prop', url: `${P}elf-hat.glb`, fit: { width: 0.3, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 } },
-    { id: 'ar-halo', name: 'Halo', category: 'prop', url: `${P}halo-ring.glb`, fit: { width: 0.34, at: [0, 0.5, 0], align: 'centre' } },
+    { id: 'ar-wedding-cover', name: 'Wedding cover', category: 'frame', occasion: 'Wedding', url: `${F}wedding-magazine-cover.png`, opening: { top: 0.242, bottom: 0.91, left: 0.13, right: 0.87 } },
+    { id: 'ar-sangeet', name: 'Sangeet arch', category: 'frame', occasion: 'Indian wedding', url: `${F}cultural-mehndi-arch.png`, opening: { top: 0.172, bottom: 0.889, left: 0.071, right: 0.929 } },
+    { id: 'ar-birthday', name: 'Birthday monogram', category: 'frame', occasion: 'Birthday', url: `${F}birthday-monogram-corner.png`, opening: { top: 0.056, bottom: 0.946, left: 0.093, right: 0.915 } },
+    { id: 'ar-countdown', name: 'New Year countdown', category: 'frame', occasion: 'New Year’s Eve', url: `${F}nye-countdown.png`, opening: { top: 0.212, bottom: 0.812, left: 0.144, right: 0.863 } },
+    { id: 'ar-asoebi', name: 'Aso ebi arch', category: 'frame', occasion: 'Nigerian wedding', url: `${F}cultural-asoebi-arch.png`, opening: { top: 0.177, bottom: 0.89, left: 0, right: 1 } },
+    { id: 'ar-gala', name: 'Gala cover', category: 'frame', occasion: 'Gala', url: `${F}gala-magazine-cover.png`, opening: { top: 0.318, bottom: 0.906, left: 0.074, right: 0.926 } },
+    // One premium piece per kind a host can add: crown, hat, necklace,
+    // earrings, glasses, mask, face paint. Every one carries real materials
+    // (beamyAssets.test.ts reads each GLB). Library pieces are fitted to his
+    // shape here; the crown, necklace, mask and face paint are baked for him
+    // (scripts/bake-silver-crown.mjs: the hero's old Royal crown in polished
+    // silver with seated gems; bake-beamy-necklace.mjs: a gold chain that
+    // wraps round his body; bake-beamy-mask.mjs: a porcelain full-face
+    // Venetian mask on his face; bake-beamy-face-paint.mjs). Their metals
+    // carry glTF extras `beamyEnv`, which BeamyStage answers with studio
+    // reflections.
+    // The hat's brim rests where his head is as wide as its crown, so it
+    // sits ON him (seated lower, its crown sank into his head). The stage
+    // draws props over the frame, so a hat may rise onto its masthead.
+    // He has no neck or ears: the necklace's chain rests round his body,
+    // dipping under his mouth, and the earrings hang at his sides at eye height (a split pair,
+    // `pair`), forward enough that the far one still shows when he turns (the
+    // How it works step yaws him about 26 degrees).
+    { id: 'ar-crown', name: 'Royal crown', category: 'prop', url: `${P}silver-crown.glb`, fit: { width: 0.4, at: [0, 0.29, 0], align: 'base' } },
+    // Smaller than the hero's: at full size it hid most of a cover frame's masthead on phones.
+    { id: 'ar-tophat', name: 'Top hat', category: 'prop', url: `${P}top-hat.glb`, fit: { width: 0.27, at: [0, 0.4, 0], align: 'base', tilt: -0.06 } },
+    { id: 'ar-necklace', name: 'Emerald necklace', category: 'prop', url: `${P}beamy-necklace.glb`, fit: { width: 0.545, at: [0, 0.132, 0.015], align: 'centre' } },
+    { id: 'ar-earrings', name: 'Garnet earrings', category: 'prop', url: `${P}garnet-earrings.glb`, fit: { width: 0.042, pair: 0.4, at: [0, 0.15, 0.135], align: 'centre' } },
+    { id: 'ar-aviators', name: 'Aviators', category: 'prop', url: `${P}aviator-glasses.glb`, fit: { width: 0.42, at: [0, 0.235, -0.01], align: 'centre' } },
+    // The id stays (the picker's selection and the tests key on it); the piece is now a full-face mask.
+    { id: 'ar-masquerade', name: 'Venetian mask', category: 'prop', url: `${P}beamy-mask.glb`, fit: { width: 0.431, at: [0, 0.231, 0.126], align: 'centre' } },
+    { id: 'ar-facepaint', name: 'Butterfly face paint', category: 'prop', url: `${P}beamy-face-paint.glb`, fit: { width: 0.54, at: [0, 0.255, 0.09], align: 'centre' } },
     { id: 'ar-prismatic', name: 'Prismatic', category: 'filter', url: 'tint:prismatic' },
     { id: 'ar-aurora', name: 'Aurora', category: 'filter', url: 'tint:#34D399' },
     { id: 'ar-neon', name: 'Neon pulse', category: 'filter', url: 'tint:#E879F9' },
     { id: 'ar-golden', name: 'Golden hour', category: 'filter', url: 'tint:#FFB547' },
+    // Photo-booth effects the platform sells: sparkles (the stage's own),
+    // snowfall (the Christmas pack), confetti and hearts (the booth's
+    // trigger bursts), music notes and stage lights for a party.
     { id: 'ar-sparkles', name: 'Sparkle burst', category: 'effect', url: 'fx:sparkles' },
-    { id: 'ar-beam', name: 'Light beam', category: 'effect', url: 'fx:beam' },
-    { id: 'ar-dance', name: 'Dance party', category: 'effect', url: 'fx:dance' },
+    { id: 'ar-snow', name: 'Snowfall', category: 'effect', url: 'fx:snow' },
+    { id: 'ar-confetti', name: 'Confetti', category: 'effect', url: 'fx:confetti' },
+    { id: 'ar-hearts', name: 'Hearts', category: 'effect', url: 'fx:hearts' },
+    { id: 'ar-notes', name: 'Music notes', category: 'effect', url: 'fx:notes' },
+    { id: 'ar-spotlight', name: 'Stage lights', category: 'effect', url: 'fx:spotlight' },
   ],
-  sceneProps: ['royal-crown', 'halo-ring', 'queens-tiara', 'royal-crown', 'halo-ring', 'queens-tiara', 'royal-crown'].map((n) => `${P}${n}.glb`),
+  // Full-colour library props around the hero (the old crown/halo/tiara GLBs
+  // carry no material at all, so they rendered grey): a holly wreath, a
+  // Christmas tree, an elf hat.
+  sceneProps: ['holly-crown', 'holly-crown', 'tree-hat', 'elf-hat', 'holly-crown', 'elf-hat', 'tree-hat'].map((n) => `${P}${n}.glb`),
   wallPhotos: [],
   demoEventSlug: 'demo',
   keepsakePhotos: [],
@@ -149,12 +187,14 @@ export type LookAction =
   | { kind: 'frame'; url: string }
   | { kind: 'prop'; url: string; fit: PropFit }
   | { kind: 'tint'; color: string }
-  | { kind: 'fx'; fx: 'sparkles' | 'beam' | 'dance' }
+  | { kind: 'fx'; fx: ArFx }
   /** A filter or effect given as a picture or clip (a CMS override): shown on its tile only. */
   | { kind: 'media'; url: string }
   | { kind: 'none' };
 
-const FX = new Set(['sparkles', 'beam', 'dance']);
+/** An effect: the stage's sparkle burst, or one lib/arFx draws. */
+export type ArFx = 'sparkles' | ArFxKind;
+const FX = new Set<string>(['sparkles', ...AR_FX_KINDS]);
 /** A colour the tint accepts: #rgb / #rrggbb, or the prismatic cycle. */
 const TINT_RE = /^(#[0-9a-f]{3}|#[0-9a-f]{6}|prismatic)$/i;
 
@@ -171,7 +211,7 @@ export function lookAction(l: HomeLook): LookAction {
   if (l.category === 'effect') {
     if (!u.startsWith('fx:')) return media();
     const f = u.slice(3);
-    return FX.has(f) ? { kind: 'fx', fx: f as 'sparkles' | 'beam' | 'dance' } : { kind: 'none' };
+    return FX.has(f) ? { kind: 'fx', fx: f as ArFx } : { kind: 'none' };
   }
   if (u === '') return { kind: 'none' };
   if (l.category === 'frame') return { kind: 'frame', url: u };
@@ -292,10 +332,112 @@ export function stepIntoFrame(i: { opening: FrameOpening; box: { top: number; bo
   };
 }
 
-/** A HomeLook as the stage's BeamyLook (frames/props only; others are not worn). */
+/** His width over his height with his arms in (the body a frame's window must hold). */
+export const BODY_W = 0.8;
+
+/**
+ * A frame look worn in a box narrower than him (laptops: the gap between the
+ * hero's copy and its wall): the frame takes the whole box (centred), and he
+ * shrinks to stand INSIDE its window, his body within its width, his feet
+ * just above its bottom edge and his head clear below its top. What he wears
+ * on his head may pop out above the window (antlers do).
+ */
+export function standInFrame(i: {
+  opening: FrameOpening;
+  box: { top: number; bottom: number; left: number; right: number };
+  /** Keep his reach (x his height, left of his centre: the selfie arm and phone) right of this x. */
+  clearLeft?: { x: number; reach: number };
+}): {
+  frame: { left: number; top: number; h: number };
+  stand: { x: number; y: number; heightPx: number };
+} {
+  const r = placeInFrame(i.opening, i.box);
+  const c = i.clearLeft;
+  const clears = (q: typeof r) => c === undefined || q.stand.x - c.reach * q.stand.heightPx >= c.x;
+  if (clears(r)) return r;
+  // The arm reaches past the box: move the box's left edge in (frame and he
+  // shrink and shift right) by the least that clears. Moving it in only ever
+  // helps, so a bisection finds that edge.
+  let lo = i.box.left;
+  let hi = Math.max(lo, i.box.right - 40);
+  let best = placeInFrame(i.opening, { ...i.box, left: hi });
+  for (let k = 0; k < 16 && hi - lo > 0.5; k++) {
+    const mid = (lo + hi) / 2;
+    const q = placeInFrame(i.opening, { ...i.box, left: mid });
+    if (clears(q)) { hi = mid; best = q; } else lo = mid;
+  }
+  return best;
+}
+
+function placeInFrame(o: FrameOpening, box: { top: number; bottom: number; left: number; right: number }): {
+  frame: { left: number; top: number; h: number };
+  stand: { x: number; y: number; heightPx: number };
+} {
+  const bh = Math.max(1, box.bottom - box.top);
+  const h = Math.max(1, Math.min(bh, ((box.right - box.left) * 16) / 9));
+  const w = (h * 9) / 16;
+  const left = (box.left + box.right) / 2 - w / 2;
+  const top = box.top + (bh - h) / 2;
+  const winW = (o.right - o.left) * w;
+  const winH = (o.bottom - o.top) * h;
+  const hp = Math.max(1, Math.min(winW / BODY_W, winH * 0.82));
+  return {
+    frame: { left, top, h },
+    stand: { x: left + ((o.left + o.right) / 2) * w, y: top + o.bottom * h - winH * 0.03, heightPx: hp },
+  };
+}
+
+/** The AR step's reference frame (the owner's: the Nigerian wedding arch). Its window sets his one size there. */
+export const AR_REF_FRAME_ID = 'ar-asoebi';
+/** The reference frame's window (falls back to the typical one if the look is ever renamed). */
+export const AR_REF_OPENING: FrameOpening = HOME_ASSET_DEFAULTS.arLooks.find((l) => l.id === AR_REF_FRAME_ID)?.opening ?? DEFAULT_OPENING;
+
+/**
+ * The AR step's ONE stage, fixed for the whole step: a 9:16 frame box (as
+ * big as `box` allows) and where he stands in it, placed by the reference
+ * frame's window (standInFrame's rule). Every frame renders in this same
+ * box, and he never leaves this stand on any tab or item, so the only
+ * things that move are the looks themselves. `align` 'top' puts the box
+ * right under `box.top` (phones: no gap under the switcher); 'middle'
+ * centres it in `box`.
+ */
+export function arStage(i: { box: { top: number; bottom: number; left: number; right: number }; align?: 'top' | 'middle' }): {
+  frame: { left: number; top: number; h: number };
+  stand: { x: number; y: number; heightPx: number };
+} {
+  const r = placeInFrame(AR_REF_OPENING, i.box);
+  if (i.align !== 'top') return r;
+  const up = r.frame.top - i.box.top;
+  return { frame: { ...r.frame, top: r.frame.top - up }, stand: { ...r.stand, y: r.stand.y - up } };
+}
+
+/**
+ * How much his worn prop shrinks on the AR stage, FROZEN to the stage's frame
+ * box (so cycling frames never resizes it). The stage draws what he wears
+ * OVER the frame (BeamyStage decor.arOver), so a hat may rise past the
+ * window onto the frame's masthead, but its top stays under the frame's top
+ * edge (the carousel's title sits right above it); never smaller than
+ * PROP_MIN_SCALE (a taller hat then pops past it). `lift`/`liftBase`: how far
+ * it reaches above his tip at full size and at its seat, in px. 1 when it
+ * fits as fitted.
+ */
+export function arPropScale(i: { stand: { y: number; heightPx: number }; frame: { top: number; h: number }; lift: number; liftBase: number }): number {
+  const hp = Math.max(1, i.stand.heightPx);
+  const base = Math.max(0, Math.min(i.liftBase, i.lift));
+  const span = i.lift - base;
+  if (!(span > 0.5)) return 1;
+  const tip = i.stand.y - hp * 1.02;
+  const room = tip - i.frame.top - hp * 0.03 - base;
+  return Math.min(1, Math.max(PROP_MIN_SCALE, room / span));
+}
+
+/** A HomeLook as the stage's BeamyLook (frames/props only; others are not worn). A frame's `with` prop rides along. */
 export function toBeamyLook(l: HomeLook, frame?: { h: number; c: number }): BeamyLook {
   const a = lookAction(l);
-  if (a.kind === 'frame') return { id: l.id, name: l.name, kind: 'frame', url: a.url, line: l.line ?? '', frame };
+  if (a.kind === 'frame') {
+    const w = l.with !== undefined && l.with.endsWith('.glb') ? { url: l.with, fit: lookFit({ ...l, category: 'prop' }) } : undefined;
+    return { id: l.id, name: l.name, kind: 'frame', url: a.url, line: l.line ?? '', frame, opening: l.opening ?? DEFAULT_OPENING, ...(w !== undefined ? { prop: w } : {}) };
+  }
   if (a.kind === 'prop') return { id: l.id, name: l.name, kind: 'prop', url: a.url, fit: a.fit, line: l.line ?? '' };
   return { id: l.id, name: l.name, kind: 'none', line: l.line ?? '' };
 }
@@ -348,6 +490,39 @@ export function arTour(k: number, looks: HomeLook[]): { sel: ArSelection; tab: L
     sel[cats[j]] = inCat[round % inCat.length].id;
   }
   return { sel, tab: cats[upto] };
+}
+
+/** The AR carousels' "nothing on" stop, titled per category. */
+export const NONE_TITLE: Record<LookCategory, string> = { frame: 'No frame', prop: 'No 3D prop', filter: 'No filter', effect: 'No effect' };
+/** What one item of a category is called (the carousel's arrow labels). */
+export const AR_NOUN: Record<LookCategory, string> = { frame: 'frame', prop: '3D prop', filter: 'filter', effect: 'effect' };
+
+/** A category's carousel stops: "None" (null) first, so it can always be taken off, then its looks in order. */
+export function arStops(looks: HomeLook[], cat: LookCategory): (HomeLook | null)[] {
+  return [null, ...looks.filter((l) => l.category === cat)];
+}
+
+/** The stop a category's carousel stands on: the worn look's, else None (0). */
+export function arStopIndex(sel: ArSelection, looks: HomeLook[], cat: LookCategory): number {
+  const id = sel[cat];
+  if (id === undefined) return 0;
+  const k = looks.filter((l) => l.category === cat).findIndex((l) => l.id === id);
+  return k < 0 ? 0 : k + 1;
+}
+
+/** Wear a carousel stop: its look replaces the category's pick; the None stop takes it off. Other categories stay. */
+export function wearStop(sel: ArSelection, cat: LookCategory, stop: HomeLook | null): ArSelection {
+  const out = { ...sel };
+  if (stop === null) delete out[cat];
+  else out[cat] = stop.id;
+  return out;
+}
+
+/** A carousel's title: a frame names its celebration (occasion, else its name); the rest their name; None says so. */
+export function arTitle(cat: LookCategory, look: HomeLook | null): string {
+  if (look === null) return NONE_TITLE[cat];
+  const occ = look.occasion?.trim() ?? '';
+  return cat === 'frame' && occ !== '' ? occ : look.name;
 }
 
 /** Auto-advance: the next look, wrapping to the first. */

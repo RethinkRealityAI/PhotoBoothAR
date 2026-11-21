@@ -166,6 +166,48 @@ describe.each(ENGINES)('%s engine', (_label, L) => {
     });
   });
 
+  describe('lineage', () => {
+    const LINE = '5d1c2b3a-4f5e-4a6b-8c7d-9e0f1a2b3c4d';
+    it('readLibraryMeta keeps a uuid lineageId and drops anything else (it goes into a filter)', () => {
+      expect(L.readLibraryMeta({ library: { lineageId: LINE } })?.lineageId).toBe(LINE);
+      for (const bad of ['', 'x', `${LINE},id.neq.0`, 7, null]) {
+        const meta = L.readLibraryMeta({ library: { lineageId: bad } });
+        expect(meta).not.toBeNull();
+        expect('lineageId' in (meta as object)).toBe(false);
+      }
+    });
+    it('lineageOf: explicit lineage, then the source scene, then the row itself', () => {
+      expect(L.lineageOf({ id: NEW_ID, config: { library: { lineageId: LINE, sourceExperienceId: SRC_ID } } })).toBe(LINE);
+      // A row published before lineage existed: its chain is the scene it came from.
+      expect(L.lineageOf({ id: NEW_ID, config: { library: { sourceExperienceId: SRC_ID } } })).toBe(SRC_ID);
+      // A bulk import (sourceExperienceId '') is the root of its own chain.
+      expect(L.lineageOf({ id: NEW_ID, config: { library: { sourceExperienceId: '' } } })).toBe(NEW_ID);
+      expect(L.lineageOf({ id: NEW_ID, config: { library: { lineageId: 'junk', sourceExperienceId: 'junk' } } })).toBe(NEW_ID);
+      expect(L.lineageOf({ id: NEW_ID, config: null })).toBe(NEW_ID);
+    });
+    it('every version of a chain resolves to one lineage, so a version count spans them all', () => {
+      // v1 published the classic way from SRC_ID; v2 and v3 from workshop copies.
+      const v1 = { id: NEW_ID, config: { library: { version: 1, sourceExperienceId: SRC_ID } } };
+      const v2 = { id: 'a', config: { library: { version: 2, sourceExperienceId: LINE, lineageId: SRC_ID } } };
+      const v3 = { id: 'b', config: { library: { version: 3, sourceExperienceId: NEW_ID, lineageId: SRC_ID } } };
+      expect(new Set([v1, v2, v3].map(L.lineageOf))).toEqual(new Set([SRC_ID]));
+      expect(L.nextLibraryVersion([v1, v2, v3].map((r) => r.config))).toBe(4);
+    });
+    it('buildLibraryRow stamps the lineage when given and writes no key when not', () => {
+      const base = {
+        newId: NEW_ID, name: 'Crown', tags: L.emptyLibraryTags(), listed: true, version: 3,
+        sourceExperienceId: SRC_ID, publishedBy: 'u', publishedAt: 't', origin: ORIGIN, mapping: new Map<string, string>(),
+      };
+      const src = { kind: 'shader', asset_url: null, thumbnail_url: null, config: { library: { lineageId: 'stale' } } };
+      const withLine = L.buildLibraryRow(src, { ...base, lineageId: LINE }).config as { library: Record<string, unknown> };
+      expect(withLine.library.lineageId).toBe(LINE);
+      expect(withLine.library.sourceExperienceId).toBe(SRC_ID);
+      const without = L.buildLibraryRow(src, base).config as { library: Record<string, unknown> };
+      // The source's own (stale) library block never leaks through.
+      expect('lineageId' in without.library).toBe(false);
+    });
+  });
+
   describe('thumbnail requirement', () => {
     it('3D, composite and layered items need one; flat 2D does not', () => {
       expect(L.needsThumbnail({ kind: '3d_attachment', config: {} })).toBe(true);

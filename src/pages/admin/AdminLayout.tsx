@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Building2, CalendarRange, Receipt, Coins, Users, ScrollText, ShieldCheck,
-  LifeBuoy, Tags, ToggleLeft, Megaphone, LogOut, BookImage,
+  LifeBuoy, Tags, ToggleLeft, Megaphone, LogOut, BookImage, House,
   type LucideIcon,
 } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
@@ -35,6 +35,7 @@ const NAV: NavItem[] = [
   { to: '/admin/catalog', label: 'Catalog', Icon: Tags, ready: true },
   { to: '/admin/library', label: 'Library', Icon: BookImage, ready: true },
   { to: '/admin/features', label: 'Features', Icon: ToggleLeft, ready: true },
+  { to: '/admin/home-assets', label: 'Homepage', Icon: House, ready: true },
   { to: '/admin/landing', label: 'Landing', Icon: Megaphone, ready: true },
   { to: '/admin/credits', label: 'Credits', Icon: Coins, ready: true },
   { to: '/admin/users', label: 'Users', Icon: Users, ready: true },
@@ -44,7 +45,7 @@ const NAV: NavItem[] = [
 
 function Spinner() {
   return (
-    <div className="absolute inset-0 app-bg flex items-center justify-center">
+    <div data-surface="night" className="absolute inset-0 app-bg flex items-center justify-center">
       <div className="w-10 h-10 rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)] animate-spin" />
     </div>
   );
@@ -86,7 +87,7 @@ export default function AdminLayout() {
     'pressable flex items-center gap-2.5 rounded-xl px-3.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[10px] transition-colors shrink-0';
 
   return (
-    <div className="absolute inset-0 app-bg text-brand-fg flex flex-col md:flex-row overflow-hidden md:gap-0">
+    <div data-surface="night" className="absolute inset-0 app-bg text-brand-fg flex flex-col md:flex-row overflow-hidden md:gap-0">
       {/* Floating rail: inset from the window edge with its own rounding,
           bevel and shadow, so it reads as a panel resting on the canvas rather
           than a wall bolted to the side. Below md it becomes a scrollable
@@ -123,7 +124,7 @@ export default function AdminLayout() {
               aria-label={label}
               title={label}
               className={({ isActive }) =>
-                `${railLink} ${isActive ? 'bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]'}`
+                `${railLink} ${isActive ? 'is-selected bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]'}`
               }
             >
               <span className="relative shrink-0">

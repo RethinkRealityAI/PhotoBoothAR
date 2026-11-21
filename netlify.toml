@@ -3,6 +3,15 @@
   command = "npm run build"
   publish = "dist"
 
+# beamwall.app is the one production address. The old netlify.app host 301s
+# there (path kept, so printed QR codes still work) so nobody signs in on an
+# origin Supabase won't return to. Host-scoped: deploy previews are untouched.
+[[redirects]]
+  from = "https://beamwall.netlify.app/*"
+  to = "https://beamwall.app/:splat"
+  status = 301
+  force = true
+
 # Client-side routing: serve index.html for all paths
 [[redirects]]
   from = "/*"

@@ -17,7 +17,11 @@ export default function StudioHarness() {
   return (
     <StudioBaseContext.Provider value="/dev/studio">
       <EventProvider slug="hope-gala" basePath="">
-        <StudioShell />
+        {/* data-platform, as EventStudio wraps the real studio: without it the
+            harness wears the legacy event's theme and screenshots mislead. */}
+        <div data-platform className="contents">
+          <StudioShell />
+        </div>
       </EventProvider>
     </StudioBaseContext.Provider>
   );

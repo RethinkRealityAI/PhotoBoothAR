@@ -10,6 +10,7 @@
  * to the event, and keeps admin branding overrides live-synced — everything
  * that used to be hard-wired to the build-time active event.
  */
+import { isWallPreviewFrame } from '../lib/wallPreview';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { EventConfig } from './types';
@@ -74,6 +75,13 @@ const THEME_STYLE_ID = 'pbar-event-theme';
 function applyEventTheme(event: RuntimeEvent) {
   if (typeof document === 'undefined') return;
   document.documentElement.dataset.event = event.eventId;
+  // Brand v2 on the guest surfaces (src/styles/platform.css). Only a DB event
+  // can opt in: a coded legacy event must render byte-identically.
+  if (event.source === 'db' && event.config.look === 'beamwall') {
+    document.documentElement.dataset.eventLook = 'beamwall';
+  } else {
+    delete document.documentElement.dataset.eventLook;
+  }
 
   const vars = event.config.themeVars ?? {};
   let style = document.getElementById(THEME_STYLE_ID) as HTMLStyleElement | null;
@@ -128,6 +136,7 @@ const PLATFORM_TITLE = 'Beamwall — your event photo booth, on every guest’s 
 function resetPlatformTheme() {
   if (typeof document === 'undefined') return;
   delete document.documentElement.dataset.event;
+  delete document.documentElement.dataset.eventLook;
   const style = document.getElementById(THEME_STYLE_ID);
   if (style) style.textContent = '';
   for (const v of MANAGED_CSS_VARS) document.documentElement.style.removeProperty(v);
@@ -402,7 +411,7 @@ export default function EventProvider({ slug: slugProp, basePath, previewBanner 
       {/* A member looking at an event guests cannot reach yet (or any more).
           Without this a host testing a draft sees a working booth and can
           reasonably conclude their guests do too. */}
-      {access === 'preview' && previewBanner && (
+      {access === 'preview' && previewBanner && !isWallPreviewFrame() && (
         <div
           role="status"
           className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-3 pt-safe-top [--safe-top:0.5rem]"

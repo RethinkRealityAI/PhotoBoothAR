@@ -1,5 +1,5 @@
 /**
- * autopilot — the pure half of the next-day keepsake (migration 045).
+ * autopilot — the pure half of the next-day keepsake (migration 050).
  *
  * WHEN an event's keepsake goes out, WHICH photos make its film, and WHAT the
  * film is told. No Deno, no fetch, no Supabase: index.ts does the I/O and this
@@ -11,7 +11,7 @@
  *   • `starts_at` is the event DATE, written by updateEventDate as that day's
  *     LOCAL midnight. +34h is therefore 10:00 local the next day, whatever the
  *     host's timezone, without the server ever knowing the timezone.
- *   • A host who ends the event (status → ended, stamped ended_at by 045's
+ *   • A host who ends the event (status → ended, stamped ended_at by 050's
  *     trigger) gets it 12h after they pressed End, so "ended at 11pm" also
  *     lands mid-morning.
  *   • Whichever comes FIRST wins.

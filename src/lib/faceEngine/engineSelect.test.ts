@@ -4,6 +4,7 @@ import {
   builtinDefaultMode,
   fallbackModeFor,
   hasFaceExpressionTrigger,
+  needsMediapipeExpressions,
   modeNeedsMediapipe,
   modeNeedsXr8,
   parseFaceTrackingMode,
@@ -202,5 +203,15 @@ describe('face paint needs the 8th Wall face mesh', () => {
     for (const inp of [{ legacy: false, config: 'mediapipe' }, { legacy: false, env: 'mediapipe' }, { legacy: false }]) {
       expect(resolveFaceTrackingMode({ ...inp, requiresFaceMesh: false })).toEqual(resolveFaceTrackingMode(inp));
     }
+  });
+});
+
+describe('needsMediapipeExpressions', () => {
+  it('smile and mouthOpen ride 8th Wall alone; wink and browRaise bring MediaPipe', () => {
+    expect(needsMediapipeExpressions([{ source: 'smile' }, { source: 'mouthOpen' }])).toBe(false);
+    expect(needsMediapipeExpressions([{ source: 'smile' }, { source: 'wink' }])).toBe(true);
+    expect(needsMediapipeExpressions([{ source: 'browRaise' }])).toBe(true);
+    expect(needsMediapipeExpressions([{ source: 'fistClench' }])).toBe(false);
+    expect(needsMediapipeExpressions(null)).toBe(false);
   });
 });

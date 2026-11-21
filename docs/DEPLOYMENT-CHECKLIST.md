@@ -279,6 +279,28 @@ the concierge-ui work; server-first, order matters).** Live before this wave:
       (default `Beamwall <cards@beamwall.app>`; must be a domain you've verified
       in Resend).
 
+### 4a. Scheduled card delivery (added 2026-11-19, migration 047)
+
+Hosts pick a date, time and time zone per card; at that moment the card
+publishes itself and is emailed. Pieces:
+
+- [x] Migration `047_card_scheduled_delivery` — applied live 2026-11-19
+      (columns, `claim_due_card_deliveries`, `card_delivery_token_ok`, the Vault
+      secret `card_delivery_cron_token` generated IN the database, cron job
+      `card-deliveries` every 5 min that only calls out when a card is due).
+      Nothing to copy anywhere: the token never leaves Postgres.
+- [ ] Deploy `card-publish` with **verify_jwt OFF** (the cron call has no JWT;
+      every host action still runs `auth.getUser` itself). Read back + diff,
+      then boot-probe: POST `{"action":"deliver_due"}` with no token → the
+      function's own `401 {"error":"unauthorized"}`.
+- [ ] `RESEND_API_KEY` (§4). Until it is set, due cards stay scheduled with
+      `delivery_error = 'email_not_configured'` (host sees "Waiting to send"),
+      are retried every 30 min, and are NOT published early.
+- Verify: `select jobname, status, return_message from cron.job_run_details d
+  join cron.job j using (jobid) where jobname = 'card-deliveries' order by
+  start_time desc limit 5;` and the function log line
+  `deliver_due {"claimed":…}` (counts only — no names or addresses are logged).
+
 ## 4b. Support desk — new-ticket email (added 2026-07-28)
 
 - [ ] `SUPPORT_NOTIFY_EMAIL` — the inbox that gets a Resend email when a
@@ -288,13 +310,35 @@ the concierge-ui work; server-first, order matters).** Live before this wave:
       is always written first — only the notification is skipped.
       Uses the same `RESEND_API_KEY` + `PUBLIC_SITE_URL` as §4.
 
+## 4c. Media retention — enforcing what the plans promise (added 2026-11-19)
+
+Plans promise 7 / 90 / 365 / 730 days; until this, nothing removed anything.
+Ships **off**: nothing is emailed or deleted until the owner moves the mode.
+
+- [ ] Apply `043_video_length_tiers` (clip lengths, video on Free, Deluxe 730 d)
+      and `044_media_retention` (`event_retention` ledger, service-role only).
+- [ ] Deploy `media-retention` with **verify_jwt OFF** (pg_cron sends no JWT;
+      the shared secret is the authorization). Also redeploy `stripe-webhook`
+      (its fallback feature snapshot gained `videoMaxSec`; verify_jwt OFF as before).
+- [ ] Secrets: `RETENTION_CRON_SECRET` (≥16 chars, random), optional
+      `RETENTION_FROM_EMAIL`; reuses `RESEND_API_KEY` + `PUBLIC_SITE_URL`.
+- [ ] Dry run: POST with header `x-retention-secret` and read the `report`
+      (mode `off` = report only). Then schedule the daily cron (commented block
+      at the end of migration 044).
+- [ ] `RETENTION_ENFORCE=notify` → reminders go out (14 days ahead); after
+      reading a few, `RETENTION_ENFORCE=purge`. A purge never happens without a
+      reminder sent ≥14 days earlier, never on a live event, never on the three
+      legacy slugs, and the clock never starts before 2026-11-19.
+- Removes guest captures only (`posts/<slug>/` + `posts` rows). Frames, assets,
+  keepsake cards and the event itself stay.
+
 ## 4d. Next-day keepsake autopilot — album email + event film (added 2026-11-19)
 
 The morning after an event (10 AM local the day after `starts_at`, or 12h after
 the host ends it; nothing older than 7 days), every guest who opted in gets the
 album email automatically; paid events (`watermark = false` in the resolver)
 also get a ~40s film of the night that plays on `/r/<slug>#film`. Pieces:
-migration `045_keepsake_autopilot` (`events.ended_at` + trigger, `keepsake_runs`),
+migration `050_keepsake_autopilot` (`events.ended_at` + trigger, `keepsake_runs`),
 `send-keepsakes` ops `due`/`finish` (deploys as TWO files: `index.ts` +
 `autopilot.ts`, plus `deno.json`; verify_jwt stays OFF), the worker
 `scripts/keepsake-worker.mjs`, run hourly by `.github/workflows/keepsake-films.yml`

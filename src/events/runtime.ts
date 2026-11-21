@@ -16,6 +16,9 @@ import { supabase } from '../lib/supabase';
 import { createGenericVisuals } from './generic';
 import { resolveBackgroundTemplate } from '../components/theme/backgrounds';
 import { isEmptyBrief, normalizeBrief } from '../lib/eventBrief';
+import { isUntouchedTemplateTheme } from '../lib/eventTemplates';
+import { normalizeScene } from '../lib/sceneThemes';
+import { powerUpTriggers } from '../lib/wizard/powerUps';
 
 export interface RuntimeEvent {
   /** slug — doubles as the posts/experiences/app_settings event_id. */
@@ -74,7 +77,7 @@ function buildRuntimeCopy(name: string, cfg: Record<string, unknown>): EventCopy
     onboardingSteps: [
       { eyebrow: 'Step One', title: 'Choose Your Look', body: 'Pick an Effect, then layer it with a Frame — they were designed to pair beautifully together.' },
       { eyebrow: 'Step Two', title: 'Flip & Adorn', body: 'Tap to flip between front and back cameras, and try a 3D accessory tracked live to your head.' },
-      { eyebrow: 'Step Three', title: 'Photo or Video', body: 'Press the shutter for a single frame, or switch to Video to capture up to 30 seconds of magic.' },
+      { eyebrow: 'Step Three', title: 'Photo or Video', body: 'Press the shutter for a single frame, or switch to Video to record a short clip with sound, motion and your effects.' },
       { eyebrow: 'Step Four', title: 'Send & Shine', body: 'Set a hands-free timer for the perfect pose, then beam your moment straight to the live wall.' },
       // Gestures exist but nothing taught them — this is the only surface that
       // can. Legacy coded events keep their own registry copy untouched; a DB
@@ -133,6 +136,18 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   const brief = cfg.brief === null || cfg.brief === undefined ? undefined : normalizeBrief(cfg.brief);
   // Keepsake style new cards start from. Host-only setting; guests never pick.
   const defaultCardTemplate = str(cfg.default_card_template);
+  // The brand look: set explicitly (new events, Branding's "Beamwall" look),
+  // or by default for an event that never chose its colours (an untouched
+  // occasion theme). `look: null` is Branding's explicit opt-out. The template
+  // tokens are dropped so the brand tokens show (platform.css).
+  const rawThemeVars = (cfg.themeVars && typeof cfg.themeVars === 'object'
+    ? (cfg.themeVars as Record<string, string>)
+    : {});
+  // Guest-page scene (lib/sceneThemes): absent/invalid = today's background.
+  const scene = normalizeScene(cfg.scene);
+  // Event-wide power-ups (setup wizard): preset ids → booth triggers.
+  const powerUps = powerUpTriggers(cfg.powerUps);
+  const brandLook = cfg.look === 'beamwall' || (cfg.look === undefined && isUntouchedTemplateTheme(rawThemeVars));
 
   return {
     id: row.slug,
@@ -149,10 +164,11 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     arContent,
     accentHexes,
     defaultExperienceId: str(cfg.defaultExperienceId),
-    themeVars: (cfg.themeVars && typeof cfg.themeVars === 'object'
-      ? (cfg.themeVars as Record<string, string>)
-      : {}),
+    themeVars: brandLook ? {} : rawThemeVars,
     ...(brief !== undefined && !isEmptyBrief(brief) ? { brief } : {}),
+    ...(brandLook ? { look: 'beamwall' as const } : {}),
+    ...(scene ? { scene } : {}),
+    ...(powerUps.length > 0 ? { powerUps } : {}),
   };
 }
 

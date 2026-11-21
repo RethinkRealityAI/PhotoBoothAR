@@ -113,18 +113,33 @@ function anchorToStudio(a: AnchorConfig): StudioAnchorConfig {
 
 /**
  * Resolve parsed triggers against the freshly-rebuilt scene. Object ids are
- * regenerated on load, so a `reveal` action's stored objectId is remapped
- * through `idMap` (stored layer id → new object id) to the live piece; a reveal
- * whose target no longer exists is DROPPED. Burst / filterPulse actions
- * reference no object, so they always survive.
+ * regenerated on load, so every action that names a piece has its stored
+ * objectId remapped through `idMap` (stored layer id → new object id):
+ *  - reveal / animate: the piece IS the action, so one whose target no longer
+ *    exists is DROPPED.
+ *  - beam: the piece is only the EMITTER (optional). A gone target loses its
+ *    objectId and the beam fires from the default emitter, the same as a beam
+ *    saved without one.
+ * Burst / filterPulse actions reference no object, so they always survive.
+ *
+ * Remapping animate + beam is load-bearing: before it, ids were carried over
+ * stale, so a re-saved scene's animate triggers moved nothing and its beams
+ * lost their emitter (the booth looks the id up in config.layers).
  */
 function finalizeTriggers(raw: TriggerConfig[], idMap: Map<string, string>): TriggerConfig[] {
   const out: TriggerConfig[] = [];
   for (const t of raw) {
-    if (t.action.type === 'reveal') {
-      const newId = idMap.get(t.action.objectId);
+    const a = t.action;
+    if (a.type === 'reveal' || a.type === 'animate') {
+      const newId = idMap.get(a.objectId);
       if (!newId) continue; // target piece gone → drop
-      out.push({ ...t, action: { ...t.action, objectId: newId } });
+      out.push({ ...t, action: { ...a, objectId: newId } });
+    } else if (a.type === 'beam' && a.objectId !== undefined) {
+      const newId = idMap.get(a.objectId);
+      const action = { ...a };
+      if (newId) action.objectId = newId;
+      else delete action.objectId; // emitter gone → default emitter
+      out.push({ ...t, action });
     } else {
       out.push(t);
     }
@@ -567,10 +582,13 @@ export function draftToPayload(
   const config: ExperienceConfig = {};
   let assetUrl: string | null = null;
   const kind = deriveKind(draft);
-  // A reveal trigger references a piece by id, so that scene must persist
-  // config.layers (each layer carries its id) even when it would otherwise take
-  // the byte-identical singular path. Scenes with no reveal are unaffected.
-  const revealActive = draft.triggers.some((t) => t.action.type === 'reveal');
+  // A trigger that names a piece by id (reveal, animate, or a beam with an
+  // emitter) needs that scene to persist config.layers (each layer carries its
+  // id) even when it would otherwise take the byte-identical singular path; the
+  // booth looks the id up in config.layers and finds nothing without it. Scenes
+  // with no such trigger are unaffected.
+  const revealActive = draft.triggers.some((t) =>
+    t.action.type === 'reveal' || t.action.type === 'animate' || (t.action.type === 'beam' && t.action.objectId !== undefined));
 
   if (kind === 'shader') {
     config.shader = { shaderId: draft.shaderId, params: draft.shaderParams };

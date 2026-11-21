@@ -469,6 +469,13 @@ export default function NewEvent() {
         patch.themeVars = { ...(patch.themeVars as Record<string, string>), ...themeOverride };
       } else if (accent) {
         patch.themeVars = { ...(patch.themeVars as Record<string, string>), ...accentThemePatch(accent) };
+      } else if (!effectiveAccent) {
+        // No colour chosen (the same test TemplatePreview uses, so the
+        // preview matches): the event starts in the brand look on every guest
+        // surface (config.look, src/styles/platform.css); the occasion still
+        // seeds its frames, effects and copy. Branding can switch it later.
+        delete patch.themeVars;
+        patch.look = 'beamwall';
       }
       // Frames & filters: the template's set in best-match order; with a
       // colour, the recolourable frames take it on in the booth (framePalette).
@@ -937,7 +944,6 @@ export default function NewEvent() {
                       {/* min-w-0 + truncate: at 390px "Corporate" in luxe
                           tracking is wider than its tile and ran into the next. */}
                       <div className="flex min-w-0 items-center gap-1">
-                        <span className="text-[13px] leading-none shrink-0">{t.emoji}</span>
                         <span className="min-w-0 truncate font-label uppercase tracking-wider ui-caption text-brand-fg">{t.label}</span>
                       </div>
                       {on && (
@@ -1050,7 +1056,7 @@ export default function NewEvent() {
               </div>
               <div className="flex justify-between gap-4 text-sm">
                 <span className="text-brand-muted/50">Style</span>
-                <span className="text-brand-fg text-right">{template.emoji} {template.label}{remote ? ' · Remote' : ''}</span>
+                <span className="text-brand-fg text-right">{template.label}{remote ? ' · Remote' : ''}</span>
               </div>
               <div className="flex justify-between gap-4 text-sm">
                 <span className="text-brand-muted/50">Link</span>
@@ -1120,7 +1126,7 @@ export default function NewEvent() {
         <div className="text-center">
           <p className="font-serif italic text-lg text-foil-static leading-tight">{name.trim() || 'Your event'}</p>
           <p className="mt-0.5 font-label uppercase tracking-luxe ui-caption text-brand-muted/55">
-            {template.emoji} {template.label}{remote ? ' · Remote' : ''} · live preview
+            {template.label}{remote ? ' · Remote' : ''} · live preview
           </p>
         </div>
       </aside>
