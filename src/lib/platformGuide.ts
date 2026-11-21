@@ -28,7 +28,7 @@ HOST STUDIO (/host/events/<id>, tabs):
 - Assets (Studio add-on only): every file uploaded to the event's asset bucket (browse, copy URL, delete).
 - Wall: moderation + wall settings (QR, leaderboard, challenges toggle).
 - Challenges: create/edit/delete photo missions (title, emoji, points, active).
-- Cards: greeting cards / video guestbook — create a card, share its contribution link (/c/<publicId>/contribute?t=<token>) so anyone can add photos/videos/notes; publish makes the card viewable at /c/<publicId>; publishing/email requires a premium+ event (or org Pro subscription). A rendered keepsake highlight film is COMING SOON — it is not available yet; never tell a host they can get one today.
+- Cards: greeting cards / video guestbook — create a card, share its contribution link (/c/<publicId>/contribute?t=<token>) so anyone can add photos/videos/notes; publish makes the card viewable at /c/<publicId>; publishing/email requires a premium+ event (or org Pro subscription); Deluxe adds a rendered MP4 keepsake film (30 credits).
 - Share: QR kit for every guest surface + print signage mode.
 - Branding: theme colours, background, fonts, copy. Settings: landing route, defaults. Manager access: mint day-of staff links.
 
@@ -38,8 +38,8 @@ CREATING EVENTS:
 - Remote/virtual celebrations: guests contribute to a greeting card from anywhere; the card can be pinned as the event landing.
 
 PLANS & CREDITS:
-- Tiers per event: free (25 posts, photos + 30s video clips, watermark, 7-day retention) → essentials (500 posts, 30s clips, no watermark, AI studio, 90 days) → premium (unlimited posts, 60s clips, cards, 1 year) → deluxe (90s clips, 2 years; highlight film coming soon). "Unlimited" has a fair-use line of 2,000 new posts a day per event. An org-level Pro subscription raises every event to premium-level.
-- Credits: AI generation currency (1 credit ≈ one AI image; 3D costs more). Bought in packs; first 3 images per event are free. Billing lives at /host/billing.
+- Tiers per event: free (25 posts, photos + 30s video clips, watermark, 7-day retention) → essentials (500 posts, 30s clips, no watermark, AI studio, 90 days) → premium (unlimited posts, 60s clips, cards, 1 year) → deluxe (90s clips, premium render/keepsake film, 2 years). "Unlimited" has a fair-use line of 2,000 new posts a day per event. An org-level Pro subscription raises every event to premium-level.
+- Credits: AI generation currency (1 credit ≈ one AI image; 3D and film cost more). Bought in packs; first 3 images per event are free. Billing lives at /host/billing.
 
 COMMON HOW-TOS:
 - Show someone what Beamwall does without an account: the home page (/) has a live no-sign-in demo booth — real AR camera, frames, effects and a mini live wall.

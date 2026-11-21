@@ -286,7 +286,7 @@ export default function Billing() {
             <span className="font-label uppercase tracking-luxe text-[10px]">Credits</span>
           </div>
           <p className="font-sans text-[11px] text-brand-muted/50 leading-snug -mt-2">
-            Credits power the AI studio — an AI frame is 1 credit and a 3D prop about 11.
+            Credits power the AI studio — an AI frame is 1 credit, a 3D prop about 11, and the keepsake film render 30.
           </p>
           {/* fetchCreditBalance returns null on query failure (a real zero
               comes back as 0) — never render that null as a false "0". */}

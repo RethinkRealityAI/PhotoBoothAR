@@ -213,7 +213,7 @@ export default function UpgradeCard({ eventUuid, planTier }: { eventUuid: string
       ? '25 posts, watermark on — unlock the full booth for this event.'
       : tier === 'essentials'
         ? 'Unlock unlimited posts and photo cards with Premium.'
-        : 'Get 90-second clips and two years of photos with Deluxe.';
+        : 'Add the rendered MP4 keepsake film with Deluxe.';
 
   return (
     <>

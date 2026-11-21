@@ -881,7 +881,7 @@ const USE_THE_STUDIO: GuideDoc = {
         'Assets (add-on) — your uploads and your AI generations. Frames, stickers and 3D files all land here, and the chip you have active decides which kind an upload becomes.',
         'Wall — the big screen. Choose how photos arrive and how they are laid out, and get the link you open on the projector.',
         'Challenges — little missions for guests, worth points, optionally checked by AI from the photo itself, with a running count of how many passed.',
-        'Cards — keepsake cards: a shareable page friends and family contribute photos and messages to, with a rendered short film of it coming soon on Deluxe. It appears on Premium and above, and on every remote celebration.',
+        'Cards — keepsake cards: a shareable page friends and family contribute photos and messages to, which can be rendered into a short film. It appears on Premium and above, and on every remote celebration.',
         'Share — the print kit. QR signage, table cards and the links you hand to your venue.',
       ],
     },
@@ -1131,7 +1131,7 @@ const RUN_THE_NIGHT: GuideDoc = {
         'Then pick the opening: the moment the link opens, before the card itself. Envelope breaks a wax seal and lets the light out. Satin ribbon unties a bow. Grand reveal parts the screen like stage doors onto a card floating in 3D. Paper airplane glides in and unfolds. Stardust gathers glowing particles into the card. Pop-up paper springs up in layers that drift as the phone tilts. Straight to the card skips the moment entirely. Each tile says which occasions it suits. The ones marked 3D need a phone that can draw 3D, and on one that cannot, the envelope plays instead, so nobody misses the moment.',
         'The email that delivers it comes in three styles. Glow is calm and roomy: your title, a glimpse of the photos and one button. Sealed is a closed envelope with a glowing wax seal carrying an initial, and it shows nothing until they open it. Spotlight puts one big photo from the card across the whole email with your title over it. None of them print a greeting or your event’s name, so the title you wrote is the headline. Colours sets whose palette the card and the email wear: Automatic uses your event’s colours when you have set custom branding and the Beamwall look otherwise, Beamwall always uses the soft dusk-blue look, and Event colours always uses yours.',
         'Press Preview to see it full screen, exactly as they will: the opening, then the card, holding every message that is in it so far, even while friends are still adding to it. Flip the opening, the card style and the colours along the bottom and watch it change. Nothing there is saved until you press Use these. Everything else in How it arrives saves the moment you tap it, and you can still change the opening, style and colours after the card has gone out; the next person to open the link sees your new choice.',
-        'Turning a full card into a short rendered film is coming soon on Deluxe. Guests can also bulk-save everything they appear in from their own gallery, so nobody has to ask you for their photos afterwards.',
+        'When it is full you can render it into a short film, which costs around 30 credits. Guests can also bulk-save everything they appear in from their own gallery, so nobody has to ask you for their photos afterwards.',
       ],
     },
     {
@@ -1189,8 +1189,8 @@ const RUN_THE_NIGHT: GuideDoc = {
         },
         {
           label: 'Keepsake film render',
-          value: 'Coming soon',
-          why: 'A Deluxe render that turns a full card into a shareable film. It is not available yet.',
+          value: '≈30 credits',
+          why: 'One render turns a full card into a shareable film.',
         },
         {
           label: 'Photos and videos',
@@ -1414,7 +1414,7 @@ export const GUIDE_COVERAGE: {
     watermark: { guide: 'run-the-night', note: 'What things cost — paid plans remove the Beamwall signature from guest photos.' },
     aiStudio: { guide: 'make-a-frame', note: 'Describe it to AI Frame Studio, and the credit table in run-the-night.' },
     cardsStandard: { guide: 'run-the-night', note: 'Keepsake cards, after the night — contributing photos and messages.' },
-    cardsPremiumRender: { guide: 'run-the-night', note: 'Keepsake cards / What things cost — the film render (coming soon on Deluxe).' },
+    cardsPremiumRender: { guide: 'run-the-night', note: 'Keepsake cards / What things cost — the ≈30-credit film render.' },
     projectionMode: { guide: 'run-the-night', note: 'Set up the wall — Projection mode for an actual projector.' },
     retentionDays: { guide: 'run-the-night', note: 'After the event — how long each plan keeps photos, the Dashboard date, Download everything and the reminder email.' },
     studio: { guide: 'use-the-studio', note: 'Opening prose — the Studio and Assets tabs are an add-on for teams and large organisations; every host gets Frames & filters.' },

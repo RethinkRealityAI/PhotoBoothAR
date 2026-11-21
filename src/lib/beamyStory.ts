@@ -32,9 +32,7 @@ export const STORY_SCENE = {
     sent: 'Sent by Ada',
     winPts: 50,
   },
-  // What ships after the night is the album link (/r/<slug>), not a rendered
-  // film: the reel in the scene is the recap's slideshow of their shots.
-  keepsake: { album: 'Your digital album', count: '48 photos', film: 'Your night, all in one link', length: '48 shots', making: 'Gathering your shots' },
+  keepsake: { album: 'Your digital album', count: '48 photos', film: 'Your night, auto-made', length: '0:30', making: 'Making your film' },
 } as const;
 
 /** Every line a scene puts on screen, for the copy rules. */

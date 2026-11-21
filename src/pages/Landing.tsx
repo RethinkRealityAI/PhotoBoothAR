@@ -226,12 +226,12 @@ const TIERS: Tier[] = [
     name: 'Deluxe',
     price: '$169',
     unit: 'per event',
-    blurb: 'Longer clips, two years of photos, every finishing touch.',
+    blurb: 'A keepsake film, and every finishing touch.',
     features: [
       'Everything in Premium',
       formatVideoLength(ENTITLEMENTS.deluxe.videoMaxSec),
-      // The film render is not live yet (no render backend): sold as coming soon.
-      'Highlight film (coming soon)',
+      'Keepsake highlight film',
+      'Premium card renders',
       formatRetention(ENTITLEMENTS.deluxe.retentionDays),
       '+130 AI credits',
     ],

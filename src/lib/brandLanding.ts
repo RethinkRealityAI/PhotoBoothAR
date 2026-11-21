@@ -195,11 +195,9 @@ export const STORY_COPY = {
  * so nothing here names a day or says it sends itself.
  */
 export const KEEPSAKE_PROMISE = {
-  /** The How it works step body (80 chars max, no dashes). What ships: the
-   *  host emails opted-in guests the album link (/r/<slug>) with their own
-   *  shots; no film is rendered (that is a Deluxe "coming soon"). */
-  step: 'After the event, the host sends guests the digital album with their own shots.',
-  /** What Beamy says over the keepsake cards film (his speech bubble on its tab). */
+  /** The How it works step body (80 chars max, no dashes). */
+  step: 'Guests get their keepsake film after the event, a link they can keep and share.',
+  /** What Beamy says over the keepsake film (his speech bubble on its tab). */
   beamy: 'Aww, I’m keeping this one forever.',
 } as const;
 
@@ -315,9 +313,9 @@ export function planCards(): PlanCard[] {
       popular: true,
     },
     {
-      name: 'Deluxe', price: '$169', unit: 'per event', blurb: 'Longer clips, two years of photos, every finishing touch.',
+      name: 'Deluxe', price: '$169', unit: 'per event', blurb: 'A keepsake film, and every finishing touch.',
       features: [
-        'Everything in Premium', formatVideoLength(E.deluxe.videoMaxSec), 'Highlight film (coming soon)',
+        'Everything in Premium', formatVideoLength(E.deluxe.videoMaxSec), 'Keepsake highlight film', 'Premium card renders',
         formatRetention(E.deluxe.retentionDays), '+130 AI credits',
       ],
     },
@@ -332,6 +330,7 @@ export function planCards(): PlanCard[] {
 const PLAN_DIGITAL: Record<string, string> = {
   'The full experience, cards included.': 'The full experience, digital keepsakes included.',
   'Keepsake cards': 'Digital keepsake cards',
+  'Premium card renders': 'Premium digital card designs',
 };
 
 /** The plan cards as /beamy shows them: planCards() with PLAN_DIGITAL's wording. */
