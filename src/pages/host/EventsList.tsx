@@ -25,6 +25,10 @@ import StatusPill from '../../components/ui/StatusPill';
 import { useToast } from '../../components/ui/Toast';
 import { copyText } from '../../lib/clipboard';
 import SpotlightTour from '../../components/ui/SpotlightTour';
+import FirstPhotoMoment from '../../components/host/FirstPhotoMoment';
+import { coverWithPost, firstPhotoWatchSlugs, isCelebratablePost } from '../../lib/firstPhoto';
+import { subscribeToPosts } from '../../lib/db';
+import type { Post } from '../../types';
 import { DASHBOARD_TOUR, TOUR_CACHE_KEY, TOUR_METADATA_KEY, TOUR_START_DELAY_MS, parseTourOutcome, shouldShowTour, tourOutcomeFromMetadata, type TourOutcome } from '../../lib/onboardingTour';
 
 function CopyLinkButton({ text }: { text: string }) {
@@ -424,6 +428,30 @@ export default function EventsList() {
     const t = window.setTimeout(() => setTourOpen(true), TOUR_START_DELAY_MS);
     return () => window.clearTimeout(t);
   }, [tourDue]);
+
+  // "Your first guest photo just landed": watch live events that have no
+  // photos yet (a KNOWN zero from the cover read) and celebrate the first
+  // one. The event leaves the watch list as soon as its count is 1, so the
+  // subscription closes itself and the moment fires once.
+  const [firstPhoto, setFirstPhoto] = useState<{ ev: HostEventRow; post: Post } | null>(null);
+  const watchKey = events
+    ? firstPhotoWatchSlugs(events.map((e) => ({ id: e.id, slug: e.slug, status: e.status, count: covers[e.id]?.count }))).join('|')
+    : '';
+  useEffect(() => {
+    if (!watchKey || !events) return;
+    const offs = watchKey.split('|').map((slug) => {
+      const ev = events.find((e) => e.slug === slug);
+      return subscribeToPosts(slug, {
+        onInsert: (post) => {
+          if (!ev || !isCelebratablePost(post)) return;
+          setCovers((c) => ({ ...c, [ev.id]: coverWithPost(c[ev.id], post) }));
+          setFirstPhoto((cur) => cur ?? { ev, post });
+        },
+      });
+    });
+    return () => { offs.forEach((off) => off()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchKey]);
 
   /** Saved to the account (follows the host to other devices) and cached on
    *  this one. Neither write may block or throw: the tour is a nicety. */
@@ -845,6 +873,16 @@ export default function EventsList() {
     // square, so it sat on top of the last card's actions at 390px.
     <div className="p-5 pb-24 md:p-10 md:pb-12 max-w-6xl mx-auto">
       {tourOpen && <SpotlightTour steps={DASHBOARD_TOUR} onFinish={finishTour} />}
+      {firstPhoto && (
+        <FirstPhotoMoment
+          eventName={firstPhoto.ev.name}
+          slug={firstPhoto.ev.slug}
+          imageUrl={firstPhoto.post.image_url}
+          mediaType={firstPhoto.post.media_type}
+          guestName={firstPhoto.post.guest_name}
+          onClose={() => setFirstPhoto(null)}
+        />
+      )}
       <header className="relative mb-7 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[15px] text-brand-muted">
