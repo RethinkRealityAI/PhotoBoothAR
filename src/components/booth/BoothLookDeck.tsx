@@ -23,7 +23,7 @@
  *
  * Platform events only. Legacy events keep BoothControlDeck untouched.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ArrowLeftRight, Ban, LayoutGrid, Sparkles } from 'lucide-react';
 import FilterThumb from './FilterThumb';
@@ -33,7 +33,9 @@ import { isPristine, type DeckSection, type DeckSelection } from '../../lib/boot
 import {
   activeLookIds,
   buildLookStrip,
+  categoryBreaks,
   centeredScrollLeft,
+  isSwipeUp,
   changedLook,
   lookHintSeen,
   lookTapAction,
@@ -80,11 +82,13 @@ function Tile({
       aria-pressed={active}
       aria-busy={pending || undefined}
       aria-label={ariaLabel}
-      className="group flex w-[60px] shrink-0 snap-start flex-col items-center gap-1.5 rounded-xl"
+      // snap-CENTER, matching `centre()` below: with snap-start a centred
+      // selection was immediately re-snapped to the left edge.
+      className="group flex w-[68px] shrink-0 snap-center flex-col items-center gap-1.5 rounded-xl"
     >
-      <span className="relative h-[52px] w-[52px]">
+      <span className="relative h-[60px] w-[60px]">
         <motion.span
-          animate={{ scale: active ? 1.08 : 1 }}
+          animate={{ scale: active ? 1.1 : 1 }}
           transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 20 }}
           className={`pressable relative flex h-full w-full items-center justify-center overflow-hidden rounded-full ${active ? 'is-selected' : ''}`}
           style={{
@@ -92,9 +96,12 @@ function Tile({
             // A plain accent ring under the glimmering rim, so the selected
             // state still reads on a db event whose look opts out of the
             // platform's `.is-selected` styling.
+            // Selected = accent ring + a dark keyline outside it, so it reads
+            // over a white wall as well as a dark room. Unselected tiles get a
+            // brighter rim + drop shadow for the same reason.
             boxShadow: active
-              ? '0 0 0 2px var(--color-accent), 0 0 22px -4px rgba(var(--accent-rgb), 0.9)'
-              : 'inset 0 0 0 1px rgba(255,255,255,0.16), 0 2px 8px -3px rgba(0,0,0,0.6)',
+              ? '0 0 0 2.5px var(--color-accent), 0 0 0 5px rgba(5,6,11,0.55), 0 0 24px -4px rgba(var(--accent-rgb), 0.95)'
+              : 'inset 0 0 0 1.5px rgba(255,255,255,0.3), 0 3px 10px -3px rgba(0,0,0,0.7)',
           }}
         >
           {children}
@@ -112,9 +119,15 @@ function Tile({
         </motion.span>
         {badge}
       </span>
+      {/* Label on its own scrim, so it stays legible over any camera image. */}
       <span
-        className="w-full truncate text-center font-sans text-[12px] leading-none transition-colors"
-        style={{ color: active ? 'var(--color-brand-fg)' : 'rgba(205,210,235,0.72)', fontWeight: active ? 600 : 500 }}
+        className="max-w-full truncate rounded-full px-1.5 py-[3px] text-center font-sans text-[12px] leading-none transition-colors"
+        style={{
+          color: active ? 'var(--color-brand-fg)' : 'rgba(232,235,250,0.9)',
+          fontWeight: active ? 600 : 500,
+          background: active ? 'rgba(var(--accent-rgb),0.34)' : 'rgba(5,6,11,0.55)',
+          textShadow: '0 1px 2px rgba(0,0,0,0.65)',
+        }}
       >
         {label}
       </span>
@@ -127,12 +140,18 @@ function CategoryBadge({ category }: { category: keyof typeof CATEGORY_ICON }) {
   return (
     <span
       aria-hidden
-      className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full"
-      style={{ background: 'rgba(9,11,20,0.85)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.22)' }}
+      className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full"
+      style={{ background: 'rgba(9,11,20,0.9)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.28)' }}
     >
-      <Icon className="h-2.5 w-2.5 text-brand-fg/80" strokeWidth={2} />
+      <Icon className="h-3 w-3 text-brand-fg/90" strokeWidth={2} />
     </span>
   );
+}
+
+/** A quiet rule between groups (built-ins · frames · 3D · effects): the strip
+ *  stays one swipe, but the groups read as groups. Centred on the tile row. */
+function Divider() {
+  return <span aria-hidden className="mt-[18px] h-6 w-px shrink-0 self-start rounded-full bg-white/25" />;
 }
 
 /* ── Deck ─────────────────────────────────────────────────────────────── */
@@ -174,7 +193,12 @@ export default function BoothLookDeck({
   const reduced = useReducedMotion() ?? false;
   const strip = useMemo(() => buildLookStrip(sections), [sections]);
   const activeIds = useMemo(() => activeLookIds(strip, selection), [strip, selection]);
+  const breaks = useMemo(() => categoryBreaks(strip), [strip]);
   const handlers: LookHandlers = { onSelectEffect, onSelectFrame, onSelectAttachment };
+
+  // Swipe UP on the strip opens "More looks" — the camera-app gesture, on top
+  // of the labelled button (which stays the obvious way in).
+  const swipeRef = useRef<{ x: number; y: number } | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const tileRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -328,9 +352,21 @@ export default function BoothLookDeck({
           ref={scrollerRef}
           role="group"
           aria-label="Looks"
-          onPointerDown={() => setHint(false)}
-          className="flex snap-x snap-mandatory scroll-px-4 gap-2.5 overflow-x-auto overscroll-x-contain px-4 pb-0.5 pt-1.5 hide-scrollbar"
+          onPointerDown={(e) => { setHint(false); swipeRef.current = { x: e.clientX, y: e.clientY }; }}
+          onPointerUp={(e) => {
+            const start = swipeRef.current;
+            swipeRef.current = null;
+            if (start && !recording && isSwipeUp(e.clientX - start.x, e.clientY - start.y)) {
+              haptic('tap');
+              onOpenAll();
+            }
+          }}
+          onPointerCancel={() => { swipeRef.current = null; }}
+          className="flex snap-x snap-mandatory scroll-px-4 gap-2 overflow-x-auto overscroll-x-contain px-4 pb-0.5 pt-2 hide-scrollbar"
           style={{
+            // Sideways is the strip's own scroll; vertical moves stay with us
+            // (the swipe-up above) instead of being claimed by the browser.
+            touchAction: 'pan-x',
             // Faded edges: the next tile peeks through, which is what says
             // "swipe" before anyone has to read a word.
             WebkitMaskImage: 'linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 30px), transparent 100%)',
@@ -361,12 +397,14 @@ export default function BoothLookDeck({
               <Sparkles className="h-5 w-5 text-brand-fg/85" />
             </span>
           </Tile>
+          {strip.length > 0 && <Divider />}
 
           {strip.map((item) => {
             const on = activeIds.has(item.exp.id);
             return (
+              <Fragment key={item.exp.id}>
+              {breaks.has(item.exp.id) && <Divider />}
               <Tile
-                key={item.exp.id}
                 tileRef={(el) => {
                   if (el) tileRefs.current.set(item.exp.id, el);
                   else tileRefs.current.delete(item.exp.id);
@@ -384,6 +422,7 @@ export default function BoothLookDeck({
               >
                 <LookThumb item={item} />
               </Tile>
+              </Fragment>
             );
           })}
           {/* Trailing gutter so the last tile can snap clear of the faded edge. */}

@@ -30,6 +30,7 @@ import { wallFieldPhotos } from '../lib/scenePage';
 import { subscribeToPosts } from '../lib/db';
 import { FROM_WELCOME_STATE } from '../lib/guestFlow';
 import { PrivacyLine } from './booth/Welcome';
+import { isPlatformBooth, useViewportLock } from '../lib/boothViewport';
 import type { Post } from '../types';
 
 /** Platform events get the immersive page; coded legacy events keep the
@@ -46,9 +47,13 @@ export default function GuestWelcome() {
  * host may put a border round it all (PageBorder).
  */
 function SceneGuestWelcome() {
-  const { config, basePath, eventId } = useEvent();
+  const { config, basePath, eventId, source } = useEvent();
   const fromLanding = new URLSearchParams(useLocation().search).get('from') === 'beamy-qr';
   const { videoEnabled } = useEntitlements();
+  // The page scrolls inside its own scroller; pin the DOCUMENT so iOS's
+  // 100vh-vs-visible gap can't double-scroll it, and the booth opens from the
+  // top. Scroll lock only — pinch-zoom stays available here (WCAG 1.4.4).
+  useViewportLock(isPlatformBooth(source), false);
   const {
     wallSettings, fetchWallSettings,
     posts, fetchPosts, prependPost, updatePost, removePost,
