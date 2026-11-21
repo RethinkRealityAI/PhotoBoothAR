@@ -104,7 +104,24 @@ export default function Login() {
             Sign in to your events
           </h1>
 
-          <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
+          <button
+            type="button"
+            onClick={handleGoogle}
+            disabled={googleLoading}
+            className="mt-8 w-full rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {googleLoading ? 'Redirecting…' : 'Continue with Google'}
+          </button>
+
+          <div className="my-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-white/10" />
+            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
+              or
+            </span>
+            <div className="h-px flex-1 bg-white/10" />
+          </div>
+
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1.5">
               <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
                 Email
@@ -181,23 +198,6 @@ export default function Login() {
               {submitting ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
-
-          <div className="my-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-white/10" />
-            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
-              or
-            </span>
-            <div className="h-px flex-1 bg-white/10" />
-          </div>
-
-          <button
-            type="button"
-            onClick={handleGoogle}
-            disabled={googleLoading}
-            className="w-full rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {googleLoading ? 'Redirecting…' : 'Continue with Google'}
-          </button>
 
           <p className="mt-7 text-center text-sm text-brand-muted/70">
             New here?{' '}

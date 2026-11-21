@@ -151,13 +151,16 @@ export function WizardFrame({ eventName, saveState, rail, footer, children }: {
   );
 }
 
-export function WizardFooter({ onBack, onSkip, onContinue, continueLabel, busy, blocked }: {
+export function WizardFooter({ onBack, onSkip, onContinue, continueLabel, busy, blocked, continueTone = 'primary' }: {
   onBack: (() => void) | null;
   onSkip: (() => void) | null;
   onContinue: () => void;
   continueLabel: string;
   busy: boolean;
   blocked: string | null;
+  /** 'secondary' steps the button back when the step has its own primary
+   *  action (Launch's "Go live") so the two do not compete. */
+  continueTone?: 'primary' | 'secondary';
 }) {
   return (
     <div className="wz-footer">
@@ -179,7 +182,9 @@ export function WizardFooter({ onBack, onSkip, onContinue, continueLabel, busy, 
             onClick={onContinue}
             disabled={busy || blocked !== null}
             aria-describedby={blocked ? 'wz-blocked' : undefined}
-            className="pressable bg-foil inline-flex items-center gap-2 rounded-full px-6 min-h-12 text-[15px] font-semibold disabled:opacity-55"
+            className={`pressable inline-flex items-center gap-2 rounded-full px-6 min-h-12 text-[15px] disabled:opacity-55 ${
+              continueTone === 'primary' ? 'bg-foil font-semibold' : 'liquid-glass-raised font-medium'
+            }`}
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
             {continueLabel}
