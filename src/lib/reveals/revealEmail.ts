@@ -29,6 +29,9 @@ import { THEME_PALETTES, type RevealDoc, type RevealTheme, type RevealUnlock } f
 
 export const REVEAL_ART_VERSION = 'v1';
 
+/** Production site: where sent emails link and load their art from. */
+export const REVEAL_SITE = 'https://beamwall.app';
+
 /** Art files at their @1x display size (files are @2x). */
 export const REVEAL_ART = {
   hero: { w: 560, h: 336 },

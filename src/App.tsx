@@ -185,6 +185,11 @@ const DevAssetPrepTool = import.meta.env.DEV
   ? lazy(() => import('./dev/AssetPrepTool'))
   : (() => null);
 
+/** DEV-only reveal editor harness (no database, no login), gated like the harness above. */
+const DevRevealEditorHarness = import.meta.env.DEV
+  ? lazy(() => import('./dev/RevealEditorHarness'))
+  : (() => null);
+
 /** Set at build time for the legacy single-event deploys. */
 const LEGACY_EVENT = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim();
 /** Where the old top-level guest routes redirect in runtime mode. Defaults to
@@ -316,6 +321,9 @@ export default function App() {
               )}
               {import.meta.env.DEV && (
                 <Route path="/dev/asset-prep" element={<Suspense fallback={null}><DevAssetPrepTool /></Suspense>} />
+              )}
+              {import.meta.env.DEV && (
+                <Route path="/dev/reveal-editor" element={<Suspense fallback={null}><DevRevealEditorHarness /></Suspense>} />
               )}
               <Route path="/e/:slug" element={<EventProvider><Outlet /></EventProvider>}>
                 {guestRoutes()}
