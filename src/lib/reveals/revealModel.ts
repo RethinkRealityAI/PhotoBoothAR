@@ -557,7 +557,7 @@ export function normalizeRevealDoc(raw: unknown): RevealDoc {
       preheader: opt(e.preheader, CAPS.preheader, base.email.preheader),
       kicker: opt(e.kicker, CAPS.kicker, base.email.kicker),
       headline: req(e.headline, CAPS.headline, base.email.headline),
-      body: opt(e.body, CAPS.body, base.email.body),
+      body: e.body === undefined ? base.email.body : cleanText(e.body, CAPS.body, '', true),
       ctaLabel: req(e.ctaLabel, CAPS.ctaLabel, base.email.ctaLabel),
       footnote: opt(e.footnote, CAPS.footnote, base.email.footnote),
     },
