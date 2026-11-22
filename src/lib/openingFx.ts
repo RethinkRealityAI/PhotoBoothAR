@@ -73,6 +73,8 @@ export const DESIGN_FX: Record<CardDesignId, DesignFx> = {
   'golden-hour': { kind: 'golddust', colors: ['#FFE3A3', '#FFF1C4', '#F2C46B'] },
   'jungle-party': { kind: 'confetti', also: 'leaves', colors: ['#FFD23F', '#FF6B6B', '#5ED1C6', '#A98BFF', '#3F9E4E'] },
   'winter-glow': { kind: 'melt', colors: ['#FFFFFF', '#E3EEFF', '#BFD8FF'] },
+  'balloon-release': { kind: 'confetti', colors: ['#FFD36B', '#FF8F7A', '#9AA4FF', '#C9A8FF', '#FFFFFF'] },
+  showtime: { kind: 'confetti', also: 'golddust', colors: ['#F2C14E', '#FFE7A3', '#B0213A', '#FFFFFF'] },
 };
 
 /** How long the flourish plays, from the moment the gateway starts to open. */

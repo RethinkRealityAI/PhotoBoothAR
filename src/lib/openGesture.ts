@@ -48,6 +48,8 @@ export const OPEN_HINT: Record<CardDesignId, string> = {
   'golden-hour': 'Hold to lift the drapes',
   'jungle-party': 'Pull the leaves apart',
   'winter-glow': 'Trace the arch to open',
+  'balloon-release': 'Hold to let the balloons go',
+  showtime: 'Pull the curtains apart',
 };
 
 /* ------------------------------------------------------------------ */

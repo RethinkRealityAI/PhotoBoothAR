@@ -61,6 +61,8 @@ const EMAIL_FOCUS: Partial<Record<CardDesignId, number>> = {
   'golden-hour': 0.56,
   'jungle-party': 0.66,
   'winter-glow': 0.62,
+  'balloon-release': 0.6,
+  showtime: 0.56,
 };
 
 export interface DesignPack {
@@ -110,6 +112,8 @@ const KICKERS: Record<CardDesignId, string> = {
   'golden-hour': 'A toast to you',
   'jungle-party': 'Hooray, it’s party time',
   'winter-glow': 'Warm wishes, from all of us',
+  'balloon-release': 'Let them go, it’s your day',
+  showtime: 'Tonight, the spotlight is yours',
 };
 
 export function designPack(id: CardDesignId): DesignPack {

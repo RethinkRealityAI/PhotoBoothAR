@@ -56,6 +56,8 @@ import {
 import MotifLayer from './MotifLayer';
 import OpeningFx from './OpeningFx';
 import GateDissolve from './GateDissolve';
+import LiveGate from './LiveGate';
+import { LIVE_SEED } from '../../../lib/liveGates';
 import { SceneStage, MidPair, decodeImages } from './sceneParts';
 import SceneLife from './SceneLife';
 
@@ -139,6 +141,16 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
     [kind, design.gateway.shape],
   );
 
+  /** Timeline position the live gate reads (it animates its own pieces from it). */
+  const tRef = useRef(0);
+  const applyT = useCallback(
+    (t: number) => {
+      tRef.current = t;
+      apply(sceneFrame(kind, t, reducedMotion));
+    },
+    [apply, kind, reducedMotion],
+  );
+
   // Load the art: show the gateway as soon as IT is ready; the scene behind
   // keeps loading while the recipient reads the name plate.
   useEffect(() => {
@@ -152,9 +164,11 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
   }, [assets.gate]);
 
   // Paint frame 0 before anything moves.
+  // Only while closed: once opening, a hold or pull has already moved the gate
+  // and snapping it back to 0 for a frame would flicker.
   useEffect(() => {
-    apply(sceneFrame(kind, 0, reducedMotion));
-  }, [apply, kind, reducedMotion, phase]);
+    if (phase === 'loading' || phase === 'closed') applyT(0);
+  }, [applyT, phase]);
 
   /** Open, carrying on from wherever a gesture already pushed the gate (0 = closed). */
   const open = useCallback(async (from: unknown = 0) => {
@@ -174,7 +188,7 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
     setMotifOn(1);
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / total);
-      apply(sceneFrame(kind, t, reducedMotion));
+      applyT(t);
       if (t < 1) {
         rafRef.current = requestAnimationFrame(step);
         return;
@@ -211,7 +225,7 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
     (p: number) => {
       chargeRef.current = p;
       ringRef.current?.style.setProperty('stroke-dashoffset', String(1 - p));
-      apply(sceneFrame(kind, holdT(p), reducedMotion));
+      applyT(holdT(p));
     },
     [apply, kind, reducedMotion],
   );
@@ -290,7 +304,7 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
       const r = pullRef.current;
       if (!r.down || phase !== 'closed') return;
       r.p = Math.min(1, r.base + pullProgress(e.clientX - r.x0, r.width));
-      apply(sceneFrame(kind, pullT(r.p), reducedMotion));
+      applyT(pullT(r.p));
     },
     [phase, apply, kind, reducedMotion],
   );
@@ -309,7 +323,7 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
     const t0 = performance.now();
     const settle = (now: number) => {
       r.p = pullSettle(from, now - t0);
-      apply(sceneFrame(kind, pullT(r.p), reducedMotion));
+      applyT(pullT(r.p));
       if (r.p > 0) gestureRaf.current = requestAnimationFrame(settle);
     };
     gestureRaf.current = requestAnimationFrame(settle);
@@ -433,7 +447,7 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
           visibility: phase === 'loading' ? 'hidden' : undefined,
         }}
       >
-        {(kind === 'doors' || kind === 'slide') && (
+        {!design.live && (kind === 'doors' || kind === 'slide') && (
           <>
             <div
               ref={leftRef}
@@ -461,7 +475,7 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
             />
           </>
         )}
-        {kind === 'rise' &&
+        {!design.live && kind === 'rise' &&
           [0, 1, 2].map((i) => (
             <div
               key={i}
@@ -478,6 +492,9 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
               }}
             />
           ))}
+        {design.live && (
+          <LiveGate kind={design.live} seed={LIVE_SEED} tRef={tRef} chargeRef={chargeRef} reducedMotion={reducedMotion} />
+        )}
         {kind === 'iris' && (
           <svg ref={svgRef} viewBox="0 0 900 1600" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
             <defs>

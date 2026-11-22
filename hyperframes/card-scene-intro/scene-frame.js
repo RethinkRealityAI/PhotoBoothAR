@@ -49,7 +49,9 @@ var SceneIntro = (() => {
     "crescent-night",
     "golden-hour",
     "jungle-party",
-    "winter-glow"
+    "winter-glow",
+    "balloon-release",
+    "showtime"
   ];
   var pal = (bg, accent, glow, fg = "#FFFFFF") => ({
     bg,
@@ -208,6 +210,28 @@ var SceneIntro = (() => {
       mid: { placement: "bottom", size: 0.36 },
       motif: { kind: "snow", colors: ["#FFFFFF", "#E3EEFF"] },
       palette: pal("#1B2B5A", "#DCEBFF", "#FFE6B8")
+    },
+    {
+      id: "balloon-release",
+      label: "Balloon release",
+      description: "Hold the seal and a wall of balloons lets go one by one, drifting up and away from the party.",
+      goodFor: "Birthdays, kids, baby showers, surprise parties",
+      gateway: { kind: "rise" },
+      mid: { placement: "top", size: 0.42 },
+      motif: { kind: "confetti", colors: ["#FFD36B", "#FF8F7A", "#9AA4FF", "#C9A8FF", "#FFFFFF"] },
+      palette: pal("#4B4FA8", "#FFE29A", "#FFF1C9"),
+      live: "balloons"
+    },
+    {
+      id: "showtime",
+      label: "Showtime",
+      description: "Pull red velvet curtains apart onto a spotlit stage under a marquee of lights and gold stars.",
+      goodFor: "Recitals, premieres, graduations, milestone birthdays",
+      gateway: { kind: "slide" },
+      mid: { placement: "top", size: 0.34 },
+      motif: { kind: "sparkle", colors: ["#FFE7A3", "#FFFFFF", "#F2C14E"] },
+      palette: pal("#2A0A14", "#F2C14E", "#FFE2A0"),
+      live: "curtains"
     }
   ];
   function isCardDesignId(raw) {

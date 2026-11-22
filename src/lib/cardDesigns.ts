@@ -31,6 +31,8 @@
 /* The closed set                                                      */
 /* ------------------------------------------------------------------ */
 
+import type { LiveGateKind } from './liveGates';
+
 export type CardDesignId =
   | 'garden-gate'
   | 'gala-night'
@@ -46,7 +48,9 @@ export type CardDesignId =
   | 'love-notes'
   | 'festival-of-lights'
   | 'crescent-night'
-  | 'golden-hour';
+  | 'golden-hour'
+  | 'balloon-release'
+  | 'showtime';
 
 /** Hosts see them in this order (broadest occasions first). */
 export const CARD_DESIGN_IDS = [
@@ -65,6 +69,8 @@ export const CARD_DESIGN_IDS = [
   'golden-hour',
   'jungle-party',
   'winter-glow',
+  'balloon-release',
+  'showtime',
 ] as const satisfies readonly CardDesignId[];
 
 /** 'none' = no illustrated design: the card uses its reveal + look as before. */
@@ -109,6 +115,11 @@ export interface CardDesign {
   mid: { placement: 'bottom' | 'top'; /** width as a fraction of the stage */ size: number };
   motif: { kind: MotifKind; colors: readonly string[] };
   palette: DesignPalette;
+  /**
+   * The gate is drawn piece by piece in the app (lib/liveGates.ts) so each
+   * piece moves on its own; its gate.webp is only the still for pictures.
+   */
+  live?: LiveGateKind;
 }
 
 const pal = (bg: string, accent: string, glow: string, fg = '#FFFFFF'): DesignPalette => ({
@@ -269,6 +280,28 @@ export const CARD_DESIGNS: readonly CardDesign[] = [
     mid: { placement: 'bottom', size: 0.36 },
     motif: { kind: 'snow', colors: ['#FFFFFF', '#E3EEFF'] },
     palette: pal('#1B2B5A', '#DCEBFF', '#FFE6B8'),
+  },
+  {
+    id: 'balloon-release',
+    label: 'Balloon release',
+    description: 'Hold the seal and a wall of balloons lets go one by one, drifting up and away from the party.',
+    goodFor: 'Birthdays, kids, baby showers, surprise parties',
+    gateway: { kind: 'rise' },
+    mid: { placement: 'top', size: 0.42 },
+    motif: { kind: 'confetti', colors: ['#FFD36B', '#FF8F7A', '#9AA4FF', '#C9A8FF', '#FFFFFF'] },
+    palette: pal('#4B4FA8', '#FFE29A', '#FFF1C9'),
+    live: 'balloons',
+  },
+  {
+    id: 'showtime',
+    label: 'Showtime',
+    description: 'Pull red velvet curtains apart onto a spotlit stage under a marquee of lights and gold stars.',
+    goodFor: 'Recitals, premieres, graduations, milestone birthdays',
+    gateway: { kind: 'slide' },
+    mid: { placement: 'top', size: 0.34 },
+    motif: { kind: 'sparkle', colors: ['#FFE7A3', '#FFFFFF', '#F2C14E'] },
+    palette: pal('#2A0A14', '#F2C14E', '#FFE2A0'),
+    live: 'curtains',
   },
 ];
 

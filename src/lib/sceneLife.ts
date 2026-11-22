@@ -379,6 +379,20 @@ export const DESIGN_LIFE: Record<CardDesignId, readonly LifeProp[]> = {
     { kind: 'flicker', x: 470, y: 1270, size: 0.8, color: '#FFC56B' },
     { kind: 'flicker', x: 800, y: 1220, size: 0.7, phase: 0.5, color: '#FFC56B' },
   ],
+  'balloon-release': [
+    { kind: 'balloon', x: 170, y: 0, size: 1, phase: 0.1, color: '#FF9EC4' },
+    { kind: 'balloon', x: 720, y: 0, size: 1.1, phase: 0.45, color: '#5ED1C6' },
+    { kind: 'balloon', x: 450, y: 0, size: 0.8, phase: 0.75, color: '#FFD36B' },
+  ],
+  showtime: [
+    { kind: 'rays', x: 450, y: 1300, size: 1.5, color: '#FFF1C9' },
+    { kind: 'glint', x: 210, y: 420, size: 1, phase: 0 },
+    { kind: 'glint', x: 690, y: 360, size: 0.9, phase: 0.4 },
+    { kind: 'glint', x: 455, y: 250, size: 0.7, phase: 0.7 },
+    { kind: 'flicker', x: 70, y: 600, size: 0.7, color: '#FFE9A8' },
+    { kind: 'flicker', x: 830, y: 760, size: 0.7, phase: 0.5, color: '#FFE9A8' },
+    { kind: 'flicker', x: 450, y: 170, size: 0.7, phase: 0.25, color: '#FFE9A8' },
+  ],
 };
 
 export function designLife(id: CardDesignId): readonly LifeProp[] {

@@ -42,6 +42,8 @@ const SAMPLE: Record<CardDesignId, { title: string; recipient: string }> = {
   'golden-hour': { title: 'Happy retirement, Uncle Femi', recipient: 'Uncle Femi' },
   'jungle-party': { title: 'Happy 5th birthday, Tayo!', recipient: 'Tayo' },
   'winter-glow': { title: 'Merry Christmas, Grandma', recipient: 'Grandma' },
+  'balloon-release': { title: 'Happy 7th birthday, Zara!', recipient: 'Zara' },
+  showtime: { title: 'Bravo, Nneka!', recipient: 'Nneka' },
 };
 
 function sampleContributions(): CardViewContribution[] {

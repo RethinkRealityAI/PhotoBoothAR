@@ -31,7 +31,7 @@ function jpegSize(path: string): { w: number; h: number } {
 describe('design packs — every design, everywhere it appears', () => {
   it('there is exactly one pack per design, in library order', () => {
     expect(DESIGN_PACKS.map((p) => p.id)).toEqual([...CARD_DESIGN_IDS]);
-    expect(DESIGN_PACKS.length).toBe(15);
+    expect(DESIGN_PACKS.length).toBe(17);
   });
 
   for (const pack of DESIGN_PACKS) {

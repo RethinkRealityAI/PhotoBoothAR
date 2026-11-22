@@ -78,6 +78,8 @@ export const DESIGN_SKINS: Record<CardDesignId, DesignSkin> = {
   'golden-hour': { photo: 'rounded', decor: 'grasses', filigree: false, colors: ['#D9B25E', '#B58C3E', '#F7C6A3'] },
   'jungle-party': { photo: 'blob', decor: 'leaves', filigree: false, colors: ['#2C8C57', '#57B474', '#FF6B6B'] },
   'winter-glow': { photo: 'arch', decor: 'snow', filigree: false, colors: ['#FFFFFF', '#DCEBFF', '#FFE6B8'] },
+  'balloon-release': { photo: 'blob', decor: 'balloons', filigree: false, colors: ['#F07B6B', '#7C83D6', '#FFD36B'] },
+  showtime: { photo: 'deco', decor: 'stars', filigree: true, colors: ['#F2C14E', '#FFE7A3', '#FFFFFF'] },
 };
 
 export function designSkin(id: CardDesignId): DesignSkin {
