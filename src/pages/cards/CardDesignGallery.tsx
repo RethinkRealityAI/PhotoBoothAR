@@ -9,6 +9,9 @@
  * with sample data from bundled images, so what plays here is exactly what a
  * recipient gets. Used to review the library, and as a link a host or a
  * prospect can open on their phone.
+ *
+ * The app shell is h-screen overflow-hidden, so this page owns its own
+ * scrolling (h-full overflow-y-auto), like Landing and Guides.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useReducedMotion } from 'motion/react';
@@ -106,7 +109,7 @@ export default function CardDesignGallery() {
     : null;
 
   return (
-    <div data-platform className="app-bg min-h-[100dvh] px-4 pb-16 pt-[max(1.5rem,env(safe-area-inset-top))] sm:px-8">
+    <div data-platform className="app-bg h-full overflow-y-auto overscroll-contain px-4 pb-16 pt-[max(1.5rem,env(safe-area-inset-top))] sm:px-8">
       <header className="mx-auto max-w-5xl">
         <p className="font-sans text-[13px] font-semibold text-brand-muted/80">Beamwall keepsake cards</p>
         <h1 className="mt-1 font-serif text-[clamp(1.9rem,6vw,3rem)] leading-tight text-brand-fg">Card designs</h1>
