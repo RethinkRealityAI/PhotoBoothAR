@@ -21,6 +21,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { clampIndex, pageCount, type CardTemplateProps } from './types';
 import type { CardViewContribution } from '../../../lib/cards';
 import CardOrnament from './cardOrnament';
+import { DesignDecor, useDesignSkin } from '../designSkin';
 import { ShimmerRim } from './cardChrome';
 import {
   ClosingContent,
@@ -48,11 +49,15 @@ function PageShell({
   reducedMotion: boolean;
   sheen?: boolean;
 }) {
+  // A card design dresses the page: its own paper cut-outs in the corners,
+  // and the gold filigree only where the occasion is formal.
+  const skin = useDesignSkin();
   return (
     <div className="absolute inset-0 rounded-[2rem]">
       <div className="liquid-glass h-full w-full overflow-hidden rounded-[2rem]">
         {sheen && <TiltSheen reducedMotion={reducedMotion} />}
-        <CardOrnament density={density} reducedMotion={reducedMotion} />
+        {(skin === null || skin.filigree) && <CardOrnament density={density} reducedMotion={reducedMotion} />}
+        <DesignDecor />
         <div
           className="relative flex h-full w-full flex-col items-center overflow-y-auto overscroll-contain px-8 py-11 text-center sm:px-12"
           style={{ scrollbarWidth: 'none' }}

@@ -40,6 +40,8 @@ import { REVEAL_HANDOFF_MS } from './reveals/types';
 import { hasWebGL } from '../carousel/PhotoCarousel';
 import { cardDesign, designCssVars } from '../../lib/cardDesigns';
 import SceneBackdrop from './scenes/SceneBackdrop';
+import { designSkin } from '../../lib/designSkins';
+import { DesignSkinContext } from './designSkin';
 
 /** A design's opening is its own lazy chunk, like every other reveal. */
 const SceneOpener = lazy(() => import('./scenes/SceneOpener'));
@@ -227,6 +229,8 @@ export default function CardExperience({
       : undefined;
 
   const showCard = phase !== 'reveal';
+  // The design's reading-view skin (photo frames, corner cut-outs), read by the templates.
+  const skin = useMemo(() => (design ? designSkin(design.id) : null), [design]);
 
   // Hand-off choreography: the reveal fades out FAST and the card fades in a
   // beat later, so the reveal's title and the template's title (which sit at
@@ -246,6 +250,7 @@ export default function CardExperience({
   }, [phase]);
 
   return (
+    <DesignSkinContext.Provider value={skin}>
     <div
       className={`absolute inset-0 flex flex-col overflow-hidden ${!design && look === 'beamwall' ? 'app-bg' : ''}`}
       style={rootStyle}
@@ -348,5 +353,6 @@ export default function CardExperience({
         </div>
       )}
     </div>
+    </DesignSkinContext.Provider>
   );
 }

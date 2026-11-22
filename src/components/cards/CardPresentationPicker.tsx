@@ -488,7 +488,17 @@ export default function CardPresentationSection({
             idPrefix={`${idPrefix}-tpl`}
           />
         </div>
-        <EmailStylePicker value={presentation.email} onChange={(email) => onChange({ email })} />
+        {presentation.design === 'none' ? (
+          <EmailStylePicker value={presentation.email} onChange={(email) => onChange({ email })} />
+        ) : (
+          <div>
+            <GroupHeading id={`${idPrefix}-email`} title="Email" />
+            <p className="font-sans text-[13px] leading-relaxed text-brand-muted/85">
+              The email opens on the {cardDesign(presentation.design).label} scene, in its colours. Pick Classic above
+              to choose your own style.
+            </p>
+          </div>
+        )}
         {presentation.design === 'none' ? (
           <LookPicker
             value={presentation.look}
