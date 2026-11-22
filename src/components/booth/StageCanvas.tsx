@@ -44,6 +44,13 @@ export interface StageCanvasHandle {
   runner: ShaderRunner | null;
   /** Snap a full-res 1080×1920 JPEG data-URL from the current frame. */
   capturePhoto: () => Promise<string>;
+  /**
+   * Resize the live canvas (the recorded stream) to the 1080x1920 still buffer
+   * (true) or back to the 720x1280 preview (false). Synchronous, so a caller
+   * can switch BEFORE captureStream() and the recording is full size from its
+   * first frame. Returns the buffer size now in effect.
+   */
+  setRecordBuffer: (hiRes: boolean) => { width: number; height: number };
 }
 
 /** One layer of a multi-object 2D scene (studio `config.layers`). */
@@ -641,7 +648,9 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       if (!activeRef.current) return;
       ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
       drawFrame(
-        ctx!, canvas!, runner, PREVIEW_W, PREVIEW_H,
+        // The canvas's own size: PREVIEW_W/H normally, CAPTURE_W/H while a
+        // platform booth records 1080p (setRecordBuffer).
+        ctx!, canvas!, runner, canvas!.width, canvas!.height,
         // Step 6 on ONLY while recording: this canvas IS the recorded stream.
         burnSignatureRef.current,
         shadeGateRef.current,
@@ -714,6 +723,17 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     get canvas() { return canvasRef.current; },
     get runner() { return runnerRef.current; },
     capturePhoto,
+    setRecordBuffer(hiRes: boolean) {
+      const c = canvasRef.current;
+      if (!c) return { width: PREVIEW_W, height: PREVIEW_H };
+      const w = hiRes ? CAPTURE_W : PREVIEW_W;
+      const h = hiRes ? CAPTURE_H : PREVIEW_H;
+      if (c.width !== w || c.height !== h) {
+        c.width = w;
+        c.height = h;
+      }
+      return { width: c.width, height: c.height };
+    },
   }), [capturePhoto]);
 
   return (
