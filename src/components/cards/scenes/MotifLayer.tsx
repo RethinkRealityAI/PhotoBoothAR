@@ -114,13 +114,16 @@ export default function MotifLayer({
     let raf = 0;
     let last = performance.now();
     let clock = 0;
+    // Eased toward the requested intensity, so particles fade in and out
+    // instead of popping when a layer is switched on.
+    let k = intensityRef.current;
 
     const draw = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       clock += dt * speed;
       ctx.clearRect(0, 0, w, h);
-      const k = intensityRef.current;
+      k += (intensityRef.current - k) * Math.min(1, dt * 2.5);
       if (k > 0.001) {
         const unit = Math.min(w, h) / 100; // particle size scales with the stage
         for (const q of parts) {

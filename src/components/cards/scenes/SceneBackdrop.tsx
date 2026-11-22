@@ -25,12 +25,27 @@ export interface SceneBackdropProps {
   scrollRef: MutableRefObject<number>;
   reducedMotion: boolean;
   seed: string;
+  /**
+   * False while the opening still plays on top. The backdrop then holds the
+   * opener's final composition exactly (scale 1, no drift, no scrim), and
+   * eases into its reading pose once the card arrives — so the hand-off has
+   * no crop jump and no scrim pop. Absent = arrived (no opening).
+   */
+  arrived?: boolean;
 }
 
-export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed }: SceneBackdropProps) {
+/** How long the scene takes to settle into its reading pose after the opening. */
+const ARRIVE_MS = 2400;
+/** Reading-pose zoom: the headroom the parallax drift needs so no edge shows. */
+const READ_SCALE = 1.16;
+
+export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed, arrived = true }: SceneBackdropProps) {
   const assets = useMemo(() => designAssets(design.id), [design.id]);
   const backRef = useRef<HTMLDivElement | null>(null);
   const midRef = useRef<HTMLDivElement | null>(null);
+  const scrimRef = useRef<HTMLDivElement | null>(null);
+  const arrivedRef = useRef(arrived);
+  arrivedRef.current = arrived;
 
   useEffect(() => {
     let raf = 0;
@@ -46,7 +61,26 @@ export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed }
       py = (e.clientY / window.innerHeight) * 2 - 1;
     };
     const start = performance.now();
+    // 0 = the opener's last frame, 1 = the reading pose. Already arrived on
+    // mount (no opening) means no ramp at all.
+    let a = arrivedRef.current ? 1 : 0;
+    let arrivedAt = arrivedRef.current ? -Infinity : 0;
     const tick = (now: number) => {
+      if (!arrivedRef.current) {
+        // The opening is on top: hold still and spend nothing per frame.
+        a = 0;
+        arrivedAt = 0;
+        if (backRef.current) backRef.current.style.transform = 'none';
+        if (midRef.current) midRef.current.style.transform = 'none';
+        if (scrimRef.current) scrimRef.current.style.opacity = '0';
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+      if (arrivedAt === 0) arrivedAt = now;
+      if (a < 1) {
+        const p = Math.min(1, (now - arrivedAt) / ARRIVE_MS);
+        a = p * p * p * (p * (p * 6 - 15) + 10); // smootherstep: no kick at the start, no bump at the end
+      }
       const t = (now - start) / 1000;
       const tx = usedPointer ? px : Math.sin(t * 0.21) * 0.6;
       const ty = usedPointer ? py : Math.cos(t * 0.17) * 0.4;
@@ -54,8 +88,11 @@ export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed }
       cur.x += (tx - cur.x) * 0.05;
       cur.y += (ty - cur.y) * 0.05;
       const o = sceneParallax(cur.s, cur.x, cur.y, reducedMotion);
-      if (backRef.current) backRef.current.style.transform = `translate3d(${o.backX}%, ${o.backY}%, 0) scale(1.08)`;
-      if (midRef.current) midRef.current.style.transform = `translate3d(${o.midX}%, ${o.midY}%, 0)`;
+      const zoom = 1 + (READ_SCALE - 1) * a;
+      if (backRef.current) backRef.current.style.transform = `translate3d(${o.backX * a}%, ${o.backY * a}%, 0) scale(${zoom.toFixed(4)})`;
+      if (midRef.current) midRef.current.style.transform = `translate3d(${o.midX * a}%, ${o.midY * a}%, 0)`;
+      if (scrimRef.current && a < 1) scrimRef.current.style.opacity = a.toFixed(3);
+      else if (scrimRef.current && scrimRef.current.style.opacity !== '1') scrimRef.current.style.opacity = '1';
       raf = requestAnimationFrame(tick);
     };
     const onVisibility = () => {
@@ -84,19 +121,23 @@ export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed }
         className="absolute inset-0 hidden h-full w-full scale-110 object-cover opacity-55 blur-2xl sm:block"
       />
       <div className="absolute inset-0 mx-auto aspect-[9/16] h-full max-w-full overflow-hidden">
-        <div ref={backRef} className="absolute -inset-[4%] will-change-transform">
+        <div ref={backRef} className="absolute inset-0 will-change-transform" style={{ transformOrigin: '50% 55%' }}>
           <img src={assets.back} alt="" draggable={false} className="h-full w-full object-cover" />
-          <SceneLife design={design} reducedMotion={reducedMotion} offset={6} />
+          <SceneLife design={design} reducedMotion={reducedMotion} />
         </div>
       </div>
       {/* Scrim in the design's own colour: lighter at the top so the scene
           reads, deeper where the messages sit. */}
       <div
+        ref={scrimRef}
         className="absolute inset-0"
-        style={{ background: `linear-gradient(180deg, ${bg}59 0%, ${bg}8C 45%, ${bg}C7 100%)` }}
+        style={{ opacity: arrived ? 1 : 0, background: `linear-gradient(180deg, ${bg}59 0%, ${bg}8C 45%, ${bg}C7 100%)` }}
       />
-      <div ref={midRef} className="absolute inset-0 mx-auto max-w-[min(100%,72vh)] will-change-transform">
-        <MidPair src={assets.mid} design={design} />
+      {/* Same column as the opener's cut-outs, so they hand over in place. */}
+      <div className="absolute inset-0 mx-auto aspect-[9/16] h-full max-w-full">
+        <div ref={midRef} className="absolute inset-0 will-change-transform">
+          <MidPair src={assets.mid} design={design} />
+        </div>
       </div>
       <MotifLayer
         kind={design.motif.kind}
@@ -104,6 +145,7 @@ export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed }
         seed={seed}
         reducedMotion={reducedMotion}
         density={0.55}
+        intensity={arrived ? 1 : 0}
       />
     </div>
   );

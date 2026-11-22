@@ -53,6 +53,19 @@ type Phase = 'reveal' | 'handoff' | 'card';
 const REVEAL_FADE_MS = 300;
 const REVEAL_CARD_DELAY_MS = 220;
 
+/**
+ * A design's scene hands over more slowly: its last frame IS the backdrop the
+ * card sits on, so the opener dissolves into it while the card rises in from
+ * just below. The card is mounted (hidden) under the opener from the start,
+ * so nothing loads or lays out during the hand-off — that load was the stutter.
+ */
+const SCENE_HANDOFF_MS = 1250;
+const SCENE_FADE_MS = 800;
+const SCENE_CARD_DELAY_MS = 160;
+const SCENE_RISE_MS = 1050;
+/** A long, soft settle (easeOutExpo-like): fast start, no visible stop. */
+const SETTLE = 'cubic-bezier(0.16, 1, 0.3, 1)';
+
 export interface CardExperienceProps {
   card: CardViewData;
   contributions: CardViewContribution[];
@@ -161,7 +174,11 @@ export default function CardExperience({
   // `run` re-keys the reveal so Replay mounts a fresh one.
   const [run, setRun] = useState(0);
   const [phase, setPhase] = useState<Phase>(hasOpening ? 'reveal' : 'card');
-  const [index, setIndex] = useState(0);
+  // A design's scene is not WebGL, so the card can wait, mounted and hidden,
+  // under its opening (other reveals keep the one-GPU-context rule: the card
+  // mounts only after them).
+  const premount = design !== null && revealId === 'scene';
+  const [index, setIndex] = useState(() => (premount ? firstReadingPage(true, contributions.length) : 0));
 
   // A different opening (host preview switching options) restarts the moment.
   // Skips the first render: the initial state already matches.
@@ -170,9 +187,9 @@ export default function CardExperience({
     if (lastOpening.current === openingKey) return;
     lastOpening.current = openingKey;
     setPhase(hasOpening ? 'reveal' : 'card');
-    setIndex(0);
+    setIndex(premount ? firstReadingPage(true, contributions.length) : 0);
     setRun((r) => r + 1);
-  }, [openingKey, hasOpening]);
+  }, [openingKey, hasOpening, premount, contributions.length]);
 
   // The opening was the "open your card" moment: land on the first message,
   // not on a cover asking them to open it again.
@@ -184,16 +201,16 @@ export default function CardExperience({
 
   useEffect(() => {
     if (phase !== 'handoff') return;
-    const t = window.setTimeout(() => setPhase('card'), REVEAL_HANDOFF_MS);
+    const t = window.setTimeout(() => setPhase('card'), premount ? SCENE_HANDOFF_MS : REVEAL_HANDOFF_MS);
     return () => window.clearTimeout(t);
-  }, [phase]);
+  }, [phase, premount]);
 
   const replay = useCallback(() => {
     if (!hasOpening) return;
-    setIndex(0);
+    setIndex(premount ? readingStart : 0);
     setRun((r) => r + 1);
     setPhase('reveal');
-  }, [hasOpening]);
+  }, [hasOpening, premount, readingStart]);
 
   const goNext = useCallback(() => setIndex((i) => clampIndex(i + 1, contributions)), [contributions]);
   const goPrev = useCallback(
@@ -228,7 +245,7 @@ export default function CardExperience({
         } as CSSProperties)
       : undefined;
 
-  const showCard = phase !== 'reveal';
+  const showCard = phase !== 'reveal' || premount;
   // The design's reading-view skin (photo frames, corner cut-outs), read by the templates.
   const skin = useMemo(() => (design ? designSkin(design.id) : null), [design]);
 
@@ -245,9 +262,21 @@ export default function CardExperience({
       setCardIn(true);
       return;
     }
-    const t = window.setTimeout(() => setCardIn(true), REVEAL_CARD_DELAY_MS);
+    const t = window.setTimeout(() => setCardIn(true), premount ? SCENE_CARD_DELAY_MS : REVEAL_CARD_DELAY_MS);
     return () => window.clearTimeout(t);
-  }, [phase]);
+  }, [phase, premount]);
+
+  // The card's entrance. A design's card rises and settles into place
+  // (transform + opacity only: both run on the compositor, so the phone never
+  // re-lays the page out mid-move); reduced motion keeps the fade alone.
+  const mainMotion: CSSProperties = premount
+    ? {
+        opacity: cardIn ? 1 : 0,
+        transform: cardIn || reducedMotion ? 'none' : 'translate3d(0, 34px, 0) scale(0.96)',
+        transition: `opacity ${SCENE_RISE_MS * 0.7}ms ${SETTLE}, transform ${SCENE_RISE_MS}ms ${SETTLE}`,
+        willChange: cardIn ? undefined : 'opacity, transform',
+      }
+    : { opacity: cardIn ? 1 : 0, transitionDuration: `${REVEAL_HANDOFF_MS - REVEAL_CARD_DELAY_MS}ms` };
 
   return (
     <DesignSkinContext.Provider value={skin}>
@@ -269,16 +298,20 @@ export default function CardExperience({
               scrollRef={scrollRef}
               reducedMotion={reducedMotion}
               seed={`${card.title}|${card.publishedAt ?? ''}`}
+              arrived={phase !== 'reveal'}
             />
           ) : (
             <CardField seed={`${card.title}|${card.publishedAt ?? ''}`} reducedMotion={reducedMotion} />
           )}
           <main
             onScrollCapture={design ? onScrollCapture : undefined}
-            className={`relative mx-auto flex min-h-0 w-full flex-1 flex-col pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] transition-opacity ease-out ${
-              fullBleed ? 'max-w-none px-3 sm:px-6' : 'max-w-2xl px-4'
-            }`}
-            style={{ opacity: cardIn ? 1 : 0, transitionDuration: `${REVEAL_HANDOFF_MS - REVEAL_CARD_DELAY_MS}ms` }}
+            className={`relative mx-auto flex min-h-0 w-full flex-1 flex-col pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] ${
+              premount ? '' : 'transition-opacity ease-out'
+            } ${fullBleed ? 'max-w-none px-3 sm:px-6' : 'max-w-2xl px-4'}`}
+            style={mainMotion}
+            // Waiting under the opening: hidden from screen readers and taps.
+            aria-hidden={cardIn ? undefined : true}
+            inert={!cardIn}
           >
             {card.filmUrl && <KeepsakeFilm url={card.filmUrl} reducedMotion={reducedMotion} />}
             <Template
@@ -291,7 +324,7 @@ export default function CardExperience({
             />
           </main>
           {hasOpening && phase === 'card' && (
-            <footer className="relative flex shrink-0 justify-center pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+            <footer className="card-footer-in relative flex shrink-0 justify-center pb-[max(0.5rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
                 onClick={replay}
@@ -311,7 +344,8 @@ export default function CardExperience({
           className="absolute inset-0 z-20 transition-opacity ease-out"
           style={{
             opacity: phase === 'handoff' ? 0 : 1,
-            transitionDuration: `${REVEAL_FADE_MS}ms`,
+            transitionDuration: `${premount ? SCENE_FADE_MS : REVEAL_FADE_MS}ms`,
+            transitionTimingFunction: premount ? 'cubic-bezier(0.4, 0, 0.2, 1)' : undefined,
             pointerEvents: phase === 'handoff' ? 'none' : undefined,
           }}
         >

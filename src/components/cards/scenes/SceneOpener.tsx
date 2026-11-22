@@ -32,7 +32,18 @@ import {
   type SceneFrame,
 } from '../../../lib/cardDesigns';
 import { coverRecipientLine } from '../../../lib/cardTemplates';
+import {
+  newTrace,
+  rimOutline,
+  traceComplete,
+  tracedPath,
+  traceHint,
+  traceLift,
+  traceStep,
+  type TraceState,
+} from '../../../lib/traceOpen';
 import MotifLayer from './MotifLayer';
+import OpeningFx from './OpeningFx';
 import { SceneStage, MidPair, decodeImages } from './sceneParts';
 import SceneLife from './SceneLife';
 
@@ -65,6 +76,16 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
   const glowRef = useRef<HTMLDivElement | null>(null);
   const plateRef = useRef<HTMLDivElement | null>(null);
   const doneRef = useRef(false);
+
+  // Trace-to-open (iris designs): the finger runs round the carved rim.
+  const traceShape = kind === 'iris' ? (design.gateway.shape ?? 'circle') : null;
+  const outline = useMemo(() => (traceShape ? rimOutline(traceShape) : []), [traceShape]);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const tracedRef = useRef<SVGPathElement | null>(null);
+  const sparkRef = useRef<SVGCircleElement | null>(null);
+  const traceRef = useRef<TraceState>(newTrace(outline.length || undefined));
+  const [tracing, setTracing] = useState(false);
+  const [traceDone, setTraceDone] = useState(false);
 
   const apply = useCallback(
     (f: SceneFrame) => {
@@ -140,6 +161,67 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
     };
     rafRef.current = requestAnimationFrame(step);
   }, [phase, assets.back, assets.mid, reducedMotion, apply, kind, onDone]);
+
+  /** Pointer → the 900x1600 stage space the rim is drawn in. */
+  const toStage = useCallback((e: React.PointerEvent) => {
+    const svg = svgRef.current;
+    const m = svg?.getScreenCTM();
+    if (!svg || !m) return null;
+    const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+    return { x: pt.x, y: pt.y };
+  }, []);
+
+  const onTraceMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!traceShape || phase !== 'closed' || traceDone) return;
+      if (e.type === 'pointermove' && e.buttons === 0 && e.pointerType === 'mouse') return;
+      const p = toStage(e);
+      if (!p) return;
+      const next = traceStep(traceRef.current, outline, p);
+      if (sparkRef.current) {
+        sparkRef.current.setAttribute('cx', String(p.x));
+        sparkRef.current.setAttribute('cy', String(p.y));
+        sparkRef.current.style.opacity = next.last === null ? '0.35' : '1';
+      }
+      if (next === traceRef.current) return;
+      traceRef.current = next;
+      tracedRef.current?.setAttribute('d', tracedPath(outline, next));
+      if (traceComplete(next)) {
+        setTraceDone(true);
+        // Close the loop on screen, a small tick in the hand, then open.
+        tracedRef.current?.setAttribute('d', tracedPath(outline, { covered: next.covered.map(() => true), last: null }));
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try {
+            navigator.vibrate(18);
+          } catch {
+            /* not allowed here: the light is enough */
+          }
+        }
+        timerRef.current = window.setTimeout(() => void open(), reducedMotion ? 120 : 380);
+      }
+    },
+    [traceShape, phase, traceDone, toStage, outline, open, reducedMotion],
+  );
+
+  const onTraceDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (!traceShape || phase !== 'closed') return;
+      if ((e.target as HTMLElement).closest('button')) return;
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        /* capture is a nicety */
+      }
+      setTracing(true);
+      onTraceMove(e);
+    },
+    [traceShape, phase, onTraceMove],
+  );
+
+  const onTraceUp = useCallback(() => {
+    traceRef.current = traceLift(traceRef.current);
+    if (sparkRef.current) sparkRef.current.style.opacity = '0';
+  }, []);
 
   const rafRef = useRef(0);
   const timerRef = useRef(0);
@@ -242,7 +324,7 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
             />
           ))}
         {kind === 'iris' && (
-          <svg viewBox="0 0 900 1600" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
+          <svg ref={svgRef} viewBox="0 0 900 1600" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
             <defs>
               <mask id={`iris-${design.id}`} maskUnits="userSpaceOnUse" x="0" y="0" width="900" height="1600">
                 <rect width="900" height="1600" fill="white" />
@@ -268,9 +350,54 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
               strokeOpacity="0.85"
               filter={`url(#rim-${design.id})`}
             />
+            {traceShape && phase === 'closed' && (
+              <g aria-hidden>
+                {/* The guide: a soft dotted line over the rim, and (until the
+                    first touch) a glowing bead tracing it to show the way. */}
+                <path
+                  d={irisPath(traceShape, 0.16)}
+                  fill="none"
+                  stroke="#FFFFFF"
+                  strokeOpacity={tracing ? 0.35 : 0.6}
+                  strokeWidth="3"
+                  strokeDasharray="2 16"
+                  strokeLinecap="round"
+                  className="transition-[stroke-opacity] duration-500"
+                />
+                {!tracing && !reducedMotion && (
+                  <circle r="11" fill="#FFFFFF" style={{ filter: `drop-shadow(0 0 10px ${design.palette.glow})` }}>
+                    <animateMotion dur="3.6s" repeatCount="indefinite" path={irisPath(traceShape, 0.16)} />
+                  </circle>
+                )}
+                <path
+                  ref={tracedRef}
+                  d=""
+                  fill="none"
+                  stroke="#FFFFFF"
+                  strokeWidth="9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ filter: `drop-shadow(0 0 8px ${design.palette.glow}) drop-shadow(0 0 22px ${design.palette.accent})` }}
+                />
+                <circle
+                  ref={sparkRef}
+                  r="16"
+                  fill="#FFFFFF"
+                  style={{ opacity: 0, filter: `drop-shadow(0 0 14px ${design.palette.glow})`, transition: 'opacity 200ms' }}
+                />
+              </g>
+            )}
           </svg>
         )}
       </div>
+
+      {/* The design's own flourish as it opens (petals, frost, confetti…) */}
+      <OpeningFx
+        design={design}
+        seed={`${design.id}|${card.title}`}
+        reducedMotion={reducedMotion}
+        playing={phase === 'opening' || phase === 'done'}
+      />
 
       {/* The title plate the opening lands on */}
       <div className="pointer-events-none absolute inset-x-0 top-[30%] flex justify-center px-6">
@@ -285,7 +412,15 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
 
       {/* Before the tap: the name plate and the button */}
       {closed && (
-        <div className="absolute inset-0 flex flex-col items-center justify-between px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[22%]">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-between px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[22%]"
+          style={traceShape ? { touchAction: 'none' } : undefined}
+          onPointerDown={traceShape ? onTraceDown : undefined}
+          onPointerMove={traceShape ? onTraceMove : undefined}
+          onPointerUp={traceShape ? onTraceUp : undefined}
+          onPointerCancel={traceShape ? onTraceUp : undefined}
+          data-trace={traceShape ?? undefined}
+        >
           <div
             className="liquid-glass rounded-full px-6 py-3 text-center transition-opacity duration-500"
             style={{ opacity: phase === 'closed' ? 1 : 0, boxShadow: `0 0 0 1px rgba(${design.palette.accentRgb},0.5)` }}
@@ -296,16 +431,39 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
               <p className="font-serif text-[clamp(1.2rem,5.4vw,1.6rem)] leading-tight text-white">{card.title}</p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={open}
-            disabled={phase !== 'closed'}
-            autoFocus
-            className="bw-cta liquid-glass-raised flex min-h-[52px] items-center gap-2 rounded-full px-7 font-sans text-[15px] font-semibold text-white transition disabled:opacity-60"
-            style={{ boxShadow: `0 0 0 1px rgba(${design.palette.accentRgb},0.65), 0 0 36px -6px rgba(${design.palette.accentRgb},0.85)` }}
-          >
-            {phase === 'loading' ? 'Getting it ready…' : 'Tap to open'}
-          </button>
+{traceShape ? (
+            <div className="flex flex-col items-center gap-2">
+              <p
+                role="status"
+                className="liquid-glass rounded-full px-5 py-2.5 text-center font-sans text-[15px] font-semibold text-white"
+                style={{ boxShadow: `0 0 0 1px rgba(${design.palette.accentRgb},0.55), 0 0 30px -8px rgba(${design.palette.accentRgb},0.8)` }}
+              >
+                {phase === 'loading' ? 'Getting it ready…' : traceDone ? 'Opening…' : traceHint(traceShape)}
+              </p>
+              {/* Keyboard, switch and screen-reader users (and anyone in a
+                  hurry) open it with one press, as before. */}
+              <button
+                type="button"
+                onClick={open}
+                disabled={phase !== 'closed'}
+                autoFocus
+                className="min-h-[44px] rounded-full bg-black/25 px-4 font-sans text-[13px] font-medium text-white/90 underline decoration-white/40 underline-offset-4 backdrop-blur-sm transition hover:text-white disabled:opacity-60"
+              >
+                Or tap here to open
+              </button>
+            </div>
+          ) : (
+                      <button
+              type="button"
+              onClick={open}
+              disabled={phase !== 'closed'}
+              autoFocus
+              className="bw-cta liquid-glass-raised flex min-h-[52px] items-center gap-2 rounded-full px-7 font-sans text-[15px] font-semibold text-white transition disabled:opacity-60"
+              style={{ boxShadow: `0 0 0 1px rgba(${design.palette.accentRgb},0.65), 0 0 36px -6px rgba(${design.palette.accentRgb},0.85)` }}
+            >
+              {phase === 'loading' ? 'Getting it ready…' : 'Tap to open'}
+            </button>
+          )}
         </div>
       )}
     </SceneStage>
