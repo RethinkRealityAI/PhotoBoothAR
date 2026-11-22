@@ -2,13 +2,13 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Step 7 — check it over, go live, share the QR. The preview here is the
+ * The last step — check it over, go live, share the QR. The preview here is the
  * REAL welcome page (an iframe of /e/<slug>/welcome; the host's session
  * reads its own draft), so the last thing they see is exactly what guests
  * will get.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { CalendarDays, Camera, Check, ExternalLink, Image as ImageIcon, LayoutGrid, Loader2, Monitor, PartyPopper, Pencil, Printer, RefreshCw, Sparkles, Trophy, Zap, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Camera, Check, ExternalLink, Gift, Image as ImageIcon, LayoutGrid, Loader2, Monitor, PartyPopper, Pencil, Printer, RefreshCw, Sparkles, Trophy, Zap, type LucideIcon } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import ShareActions from '../../../../components/host/ShareActions';
 import { goLive } from '../../../../lib/host';
@@ -19,7 +19,7 @@ import { buildLookCatalog, countPicked, eventFilters } from '../../../../lib/wiz
 import { currentPicks, fetchLooksData } from '../../../../lib/wizard/wizardApi';
 import { formatEventDate, ymdFromIso } from '../../../../lib/wizard/occasions';
 import type { WizardStepId } from '../../../../lib/wizard/wizardModel';
-import { StepPanel, StepShell } from '../chrome';
+import { StepShell } from '../chrome';
 import { useWizard } from '../wizardContext';
 
 interface Summary {
@@ -149,7 +149,6 @@ export default function LaunchStep() {
   // ONE panel (owner, 2026-11-21): the checklist and the go-live / share
   // part side by side on wide screens, one under the other when narrower.
   const panel = (
-    <StepPanel step="launch">
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 xl:gap-6 items-start">
         <section aria-label="Your setup" className="min-w-0 -mx-2">
           <h2 className="px-2 mb-1 text-[13px] font-semibold text-white/85">Your setup</h2>
@@ -163,6 +162,7 @@ export default function LaunchStep() {
               <Row icon={Zap} title="Power-ups" detail={powerUps > 0 ? `${powerUps} gesture${powerUps === 1 ? '' : 's'} on` : 'None yet (optional)'} step="powerups" ok={powerUps > 0} onEdit={w.goTo} />
               <Row icon={Trophy} title="Challenges" detail={summary.challenges > 0 ? `${summary.challenges} mission${summary.challenges === 1 ? '' : 's'}` : 'None yet (optional)'} step="challenges" ok={summary.challenges > 0} onEdit={w.goTo} />
               <Row icon={Monitor} title="Live wall" detail={`${summary.layout} wall`} step="booth" ok onEdit={w.goTo} />
+              <Row icon={Gift} title="Keepsake" detail="The album every guest gets the morning after" step="keepsake" ok onEdit={w.goTo} />
             </ul>
           )}
           <div className="px-2 @container">
@@ -210,22 +210,22 @@ export default function LaunchStep() {
             )}
         </section>
       </div>
-    </StepPanel>
   );
 
   const preview = (
     <div className="flex flex-col items-center gap-3 w-full">
       <LaunchPhone slug={ev.slug} frameKey={frameKey} />
+      {/* One line under the phone, so the phone keeps its full size in the card. */}
       <div className="flex flex-wrap items-center justify-center gap-x-2">
-        <p className="text-[12.5px] text-white/65">This is your real welcome page.</p>
-        <button type="button" onClick={() => setFrameKey((k) => k + 1)} className="inline-flex items-center gap-1.5 rounded-full px-3 min-h-11 text-[13px] hover:bg-white/10">
-          <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Reload preview
+        <p className="text-[12.5px] text-white/65">Your real welcome page.</p>
+        <button type="button" onClick={() => setFrameKey((k) => k + 1)} aria-label="Reload preview" className="inline-flex items-center gap-1.5 rounded-full px-3 min-h-11 text-[13px] hover:bg-white/10">
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Reload
         </button>
       </div>
     </div>
   );
 
-  return <StepShell panel={panel} preview={preview} mobile="stack" sheetLabel="Launch" />;
+  return <StepShell step="launch" preview={preview} mobile="stack" sheetLabel="Launch">{panel}</StepShell>;
 }
 
 /** Guests' welcome page is laid out at a real phone width (390px). */

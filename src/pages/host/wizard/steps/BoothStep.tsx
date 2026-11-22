@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Step 6 — the live wall: how guests' photos show on the TV or projector.
- * One-tap styles, then simple tabs for the layout, background, photo cards,
+ * A one-tap style, then guided parts for the layout, background, photo cards,
  * how a new photo arrives, and what else is on screen. The preview on the
  * right is the REAL wall (LiveWallFrame) wearing the unsaved design, with a
  * "Beam a photo" button that plays the chosen arrival effect.
@@ -13,7 +13,7 @@
  * kept (the look is read, edited and written whole).
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ImageUp, Loader2, QrCode, Sparkles, Trophy, Wand2, Zap } from 'lucide-react';
+import { ImageUp, LayoutGrid, Loader2, Monitor, Palette, QrCode, Sparkles, Square, Trophy, Wand2, Zap } from 'lucide-react';
 import { getWallSettingsResult, setWallSettings, uploadAsset } from '../../../../lib/db';
 import {
   SCENE_PALETTES,
@@ -51,8 +51,10 @@ import {
 } from '../../../../lib/sceneThemes';
 import type { WallSettings } from '../../../../types';
 import { wallImageProblem } from '../../../../components/admin/WallDesignPanel';
-import { StepPanel, StepShell, TabPanel, WizardTabs } from '../chrome';
+import { StepShell } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
+import { WALL_SUBSTEPS } from '../../../../lib/wizard/subSteps';
+import { useSubSteps } from '../useSubSteps';
 import { useWizard } from '../wizardContext';
 import { SAMPLE_SHOTS } from '../WelcomePreview';
 import LiveWallFrame from '../LiveWallFrame';
@@ -65,15 +67,9 @@ interface WallDraft {
   featuredSpotlight: boolean;
 }
 
-type Tab = 'style' | 'layout' | 'background' | 'photos' | 'arrival' | 'screen';
-const TABS: { id: Tab; label: string; short?: string }[] = [
-  { id: 'style', label: 'Styles', short: 'Style' },
-  { id: 'layout', label: 'Layout' },
-  { id: 'background', label: 'Background', short: 'Backdrop' },
-  { id: 'photos', label: 'Photos', short: 'Cards' },
-  { id: 'arrival', label: 'Arrival' },
-  { id: 'screen', label: 'Screen' },
-];
+/** A style, then each part of the wall: separate decisions, so they are
+ *  guided sub-steps (lib/wizard/subSteps WALL_SUBSTEPS). */
+const SUB_ICONS = { style: Wand2, layout: LayoutGrid, background: Palette, photos: Square, arrival: Sparkles, screen: Monitor } as const;
 
 /** Plain colours first (black, white), then a few deep and soft tones. */
 const PLAIN_COLORS = ['#0B0B12', '#FFFFFF', '#1A1740', '#2B1E3F', '#0F2E3A', '#F4EFE6', '#EDE9FF', '#FBE7EC'];
@@ -243,7 +239,8 @@ export default function BoothStep() {
   const { ev } = w;
   const [draft, setDraft] = useState<WallDraft | null>(null);
   const [failed, setFailed] = useState(false);
-  const [tab, setTab] = useState<Tab>('style');
+  const sub = useSubSteps('booth', WALL_SUBSTEPS, SUB_ICONS);
+  const tab = sub.current;
   const [beamSignal, setBeamSignal] = useState(0);
   const [upload, setUpload] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const fileInput = useRef<HTMLInputElement>(null);
@@ -538,20 +535,15 @@ export default function BoothStep() {
     }
   };
 
+  const notice = failed ? (
+    <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">
+      We couldn’t load your live wall settings. Check your connection, then come back to this step. You can carry on meanwhile.
+    </p>
+  ) : undefined;
   const controls = (
-    <StepPanel
-      step="booth"
-      tabs={<WizardTabs<Tab> idBase="wall" label="Live wall settings" className="wz-tabs-even wz-tabs-6" value={tab} onChange={setTab} tabs={TABS} />}
-      notice={failed ? (
-        <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">
-          We couldn’t load your live wall settings. Check your connection, then come back to this step. You can carry on meanwhile.
-        </p>
-      ) : undefined}
-    >
-      <TabPanel idBase="wall" value={tab}>
+      <div {...sub.panelProps} className="outline-none">
         {draft ? panel() : <div className="h-40 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" /></div>}
-      </TabPanel>
-    </StepPanel>
+      </div>
   );
   const previewNode = (
     <div className="flex flex-col gap-3 w-full">
@@ -569,5 +561,9 @@ export default function BoothStep() {
     </div>
   );
 
-  return <StepShell panel={controls} preview={previewNode} previewKind="wide" sheetLabel={stepDef('booth').title} />;
+  return (
+    <StepShell step="booth" hint={sub.hint} tabs={sub.bar} nav={sub.nav} notice={notice} preview={previewNode} previewKind="wide" sheetLabel={stepDef('booth').title}>
+      {controls}
+    </StepShell>
+  );
 }

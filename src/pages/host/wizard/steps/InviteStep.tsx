@@ -7,7 +7,7 @@
  * photo), an optional border and a line of welcome. Saves as the host goes,
  * into the SAME events.config.scene the live page reads.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Frame, ImagePlus, Loader2, MessageSquareText, Palette, Sparkles, Upload } from 'lucide-react';
 import SceneBackdrop from '../../../../components/theme/SceneBackdrop';
 import {
@@ -17,15 +17,19 @@ import {
 import { sceneUploadError } from '../../../../lib/scenePage';
 import { uploadAsset } from '../../../../lib/wizard/wizardApi';
 import { formatEventDate, ymdFromIso } from '../../../../lib/wizard/occasions';
-import { StepPanel, StepShell, TabPanel, WizardTabs } from '../chrome';
+import { StepShell, TabPanel, WizardTabs } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
+import { WELCOME_SUBSTEPS } from '../../../../lib/wizard/subSteps';
+import { useSubSteps } from '../useSubSteps';
 import { useWizard } from '../wizardContext';
 import { useAutosave } from '../useAutosave';
 import WelcomePreview from '../WelcomePreview';
 import ImageFitTool from '../ImageFitTool';
 
 type Mode = 'template' | 'colour' | 'photo';
-/** The background modes, then the border and the welcome line — one row of tabs. */
+/** What the options show: a background mode, the border, or the welcome line.
+ *  Background · Border · Words are guided sub-steps (separate decisions); the
+ *  three background modes stay tabs (three ways to make ONE choice). */
 type Tab = Mode | 'border' | 'words';
 
 const SOLIDS = ['#1A1740', '#2B2A8C', '#4840C6', '#0F4B5C', '#3B1F4F', '#7A2E4A', '#F4F2FA', '#FBE3DA', '#DDE9DF'];
@@ -42,6 +46,11 @@ interface Draft {
   intro: string;
 }
 
+/** The background's three modes are tabs; Border and Words are not. */
+function BackgroundPanel({ on, value, children }: { on: boolean; value: Mode; children: ReactNode }) {
+  return on ? <TabPanel idBase="wz-invite" value={value}>{children}</TabPanel> : <>{children}</>;
+}
+
 export default function InviteStep() {
   const { ev } = useWizard();
   const initialScene = normalizeScene(ev.config.scene);
@@ -51,7 +60,9 @@ export default function InviteStep() {
     intro: typeof copy.welcomeIntro === 'string' ? copy.welcomeIntro : '',
   });
   const [mode, setMode] = useState<Mode>(modeOf(initialScene));
-  const [tab, setTab] = useState<Tab>(modeOf(initialScene));
+  const [bgTab, setBgTab] = useState<Mode>(modeOf(initialScene));
+  const sub = useSubSteps('invite', WELCOME_SUBSTEPS, { background: ImagePlus, border: Frame, words: MessageSquareText });
+  const tab: Tab = sub.current === 'background' ? bgTab : sub.current;
   // The last pick in each mode, so flipping tabs and back does not lose it.
   const memory = useRef<Partial<Record<Mode, EventScene>>>({ [modeOf(initialScene)]: initialScene });
   const [uploading, setUploading] = useState(false);
@@ -108,28 +119,26 @@ export default function InviteStep() {
   }), [ev.name, ev.starts_at, d.intro]);
   const image = d.scene?.kind === 'image' ? d.scene : null;
 
-  const pickTab = (id: Tab) => { setTab(id); if (id === 'template' || id === 'colour' || id === 'photo') { if (id !== mode) switchMode(id); } };
-  const card = (
-          <StepPanel
-            step="invite"
-            tabs={(
-              <WizardTabs<Tab>
+  const pickTab = (id: Mode) => { setBgTab(id); if (id !== mode) switchMode(id); };
+  const preview = <WelcomePreview scene={d.scene} copy={previewCopy} url={`${origin}/e/${ev.slug}/welcome`} />;
+  return (
+    <StepShell step="invite" hint={sub.hint} tabs={sub.bar} nav={sub.nav} preview={preview} sheetLabel={stepDef('invite').title}>
+          <div {...sub.panelProps} className="outline-none">
+            {sub.current === 'background' && (
+              <WizardTabs<Mode>
                 idBase="wz-invite"
-                label="Welcome page settings"
-                className="wz-tabs-even"
-                value={tab}
+                label="Background"
+                className="wz-tabs-even wz-tabs-3 mb-4"
+                value={bgTab}
                 onChange={pickTab}
                 tabs={[
                   { id: 'template', label: 'Templates', short: 'Styles', Icon: Sparkles },
                   { id: 'colour', label: 'Colour', short: 'Colour', Icon: Palette },
                   { id: 'photo', label: 'Photo', short: 'Photo', Icon: ImagePlus },
-                  { id: 'border', label: 'Border', short: 'Border', Icon: Frame },
-                  { id: 'words', label: 'Message', short: 'Words', Icon: MessageSquareText },
                 ]}
               />
             )}
-          >
-            <TabPanel idBase="wz-invite" value={tab}>
+            <BackgroundPanel on={sub.current === 'background'} value={bgTab}>
             {tab === 'template' && (
               <div className="wz-sq grid grid-cols-3 sm:grid-cols-4 gap-2.5" role="radiogroup" aria-label="Templates">
                 {SCENE_TEMPLATES.map((t) => {
@@ -272,10 +281,8 @@ export default function InviteStep() {
                 <p className="mt-1 text-right text-[12px] text-white/50">{d.intro.length}/200</p>
               </div>
             )}
-            </TabPanel>
-          </StepPanel>
+            </BackgroundPanel>
+          </div>
+    </StepShell>
   );
-  const preview = <WelcomePreview scene={d.scene} copy={previewCopy} url={`${origin}/e/${ev.slug}/welcome`} />;
-
-  return <StepShell panel={card} preview={preview} sheetLabel={stepDef('invite').title} />;
 }

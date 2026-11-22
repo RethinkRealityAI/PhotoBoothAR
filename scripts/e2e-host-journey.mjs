@@ -130,7 +130,7 @@ try {
     return `event ${eventId}`;
   });
 
-  for (const s of ['invite', 'looks', 'powerups', 'challenges', 'booth']) {
+  for (const s of ['invite', 'looks', 'powerups', 'challenges', 'booth', 'keepsake']) {
     await step(`wizard: ${s} → continue`, async () => {
       await hp.waitForTimeout(2500);
       await shot(hp, `11-${s}-1440`);
