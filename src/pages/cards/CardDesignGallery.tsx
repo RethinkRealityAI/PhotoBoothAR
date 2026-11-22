@@ -36,6 +36,7 @@ const SAMPLE: Record<CardDesignId, { title: string; recipient: string }> = {
   'cloud-nine': { title: 'Welcome, baby Amara', recipient: 'Amara' },
   'grand-hall': { title: 'You did it, Dr. Okafor', recipient: 'Chidi' },
   'island-sunset': { title: 'Just married!', recipient: 'Lena and Marco' },
+  'jungle-party': { title: 'Happy 5th birthday, Tayo!', recipient: 'Tayo' },
   'winter-glow': { title: 'Merry Christmas, Grandma', recipient: 'Grandma' },
 };
 

@@ -31,7 +31,8 @@ export type LifeKind =
   | 'cap'
   | 'smoke'
   | 'rays'
-  | 'shimmer';
+  | 'shimmer'
+  | 'butterfly';
 
 export interface LifeProp {
   kind: LifeKind;
@@ -94,6 +95,7 @@ export const DEFAULT_PERIOD: Record<LifeKind, number> = {
   smoke: 5,
   rays: 18,
   shimmer: 3.2,
+  butterfly: 9,
 };
 
 /**
@@ -200,6 +202,17 @@ export function lifePose(prop: LifeProp, t: number, reducedMotion = false): Life
       const tw = Math.abs(Math.sin(u * Math.PI));
       return { ...base, x: prop.x + Math.sin(u * TAU) * 14 * a, opacity: r3(0.1 + 0.75 * tw), scale: s * (0.7 + 0.3 * tw) };
     }
+    case 'butterfly': {
+      // Loops lazily round its anchor (a figure of eight), wings beating fast.
+      const w = u * TAU;
+      return {
+        ...base,
+        x: prop.x + Math.sin(w + ph * TAU) * 70 * a,
+        y: prop.y + Math.sin(w * 2 + ph * TAU) * 34 * a - Math.abs(Math.sin(time * k * 1.3)) * 10 * a,
+        rot: Math.cos(w + ph * TAU) * 14 * a * dir,
+        flap: Math.sin(time * k * 17 + ph * 20),
+      };
+    }
     default:
       return base;
   }
@@ -293,6 +306,15 @@ export const DESIGN_LIFE: Record<CardDesignId, readonly LifeProp[]> = {
     { kind: 'shimmer', x: 450, y: 1110, size: 1.2, color: '#FFE2C4' },
     { kind: 'shimmer', x: 330, y: 1160, size: 0.8, phase: 0.4, color: '#FFE2C4' },
     { kind: 'shimmer', x: 590, y: 1180, size: 0.9, phase: 0.7, color: '#FFE2C4' },
+  ],
+  'jungle-party': [
+    { kind: 'butterfly', x: 600, y: 560, size: 1, phase: 0, color: '#FF9F43', color2: '#FFD23F' },
+    { kind: 'butterfly', x: 280, y: 760, size: 0.8, phase: 0.45, dir: -1, color: '#F368E0', color2: '#FFFFFF' },
+    { kind: 'butterfly', x: 700, y: 1300, size: 0.7, phase: 0.7, color: '#5ED1C6', color2: '#FFF4D6' },
+    { kind: 'balloon', x: 760, y: 0, size: 0.9, phase: 0.2, color: '#A98BFF' },
+    { kind: 'balloon', x: 130, y: 0, size: 0.8, phase: 0.65, color: '#FF6B6B' },
+    { kind: 'rays', x: 450, y: 640, size: 1.1, color: '#FFE48A' },
+    { kind: 'glint', x: 470, y: 1035, size: 0.6, phase: 0.1, color: '#FFF4C2' },
   ],
   'winter-glow': [
     { kind: 'smoke', x: 455, y: 1180, size: 1, phase: 0 },

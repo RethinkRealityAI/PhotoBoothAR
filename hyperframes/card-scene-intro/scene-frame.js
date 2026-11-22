@@ -44,6 +44,7 @@ var SceneIntro = (() => {
     "cloud-nine",
     "grand-hall",
     "island-sunset",
+    "jungle-party",
     "winter-glow"
   ];
   var pal = (bg, accent, glow, fg = "#FFFFFF") => ({
@@ -143,6 +144,16 @@ var SceneIntro = (() => {
       mid: { placement: "bottom", size: 0.46 },
       motif: { kind: "petals", colors: ["#FF8A7A", "#FFC1A8", "#FFFFFF"] },
       palette: pal("#3A2C5E", "#FFB38A", "#FFD2A6")
+    },
+    {
+      id: "jungle-party",
+      label: "Jungle party",
+      description: "A wall of jungle leaves slides apart onto a sunny clearing with cake, balloons and a toucan.",
+      goodFor: "Kids’ birthdays, first birthdays, summer parties",
+      gateway: { kind: "slide" },
+      mid: { placement: "bottom", size: 0.44 },
+      motif: { kind: "confetti", colors: ["#FFD23F", "#FF6B6B", "#5ED1C6", "#A98BFF", "#FFFFFF"] },
+      palette: pal("#1F5E45", "#FFD23F", "#FFE7A6")
     },
     {
       id: "winter-glow",

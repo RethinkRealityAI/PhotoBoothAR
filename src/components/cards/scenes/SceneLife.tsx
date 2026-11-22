@@ -150,6 +150,22 @@ function Piece({ p, i, design, parts }: { p: LifeProp; i: number; design: CardDe
     case 'shimmer':
       body = <ellipse rx="46" ry="3" fill={c} style={{ filter: 'blur(1px)', mixBlendMode: 'screen' }} />;
       break;
+    case 'butterfly':
+      body = (
+        <g style={{ filter: PAPER }}>
+          <g ref={set('wings')}>
+            <path d="M0 0 C-10 -22 -34 -30 -36 -12 C-38 2 -18 6 0 2 Z" fill={c} />
+            <path d="M0 2 C-14 6 -28 18 -20 28 C-12 34 -4 18 0 4 Z" fill={c} />
+            <path d="M0 0 C10 -22 34 -30 36 -12 C38 2 18 6 0 2 Z" fill={c} />
+            <path d="M0 2 C14 6 28 18 20 28 C12 34 4 18 0 4 Z" fill={c} />
+            <circle cx="-22" cy="-12" r="5" fill={c2} />
+            <circle cx="22" cy="-12" r="5" fill={c2} />
+          </g>
+          <ellipse cx="0" cy="6" rx="2.6" ry="13" fill="#2A1E2E" />
+          <path d="M0 -6 C-3 -14 -7 -18 -10 -20 M0 -6 C3 -14 7 -18 10 -20" stroke="#2A1E2E" strokeWidth="1.4" fill="none" />
+        </g>
+      );
+      break;
     default:
       body = <g />;
   }
@@ -181,7 +197,11 @@ export default function SceneLife({ design, reducedMotion, offset = 0, className
           `translate(${q.x.toFixed(1)} ${q.y.toFixed(1)}) rotate(${q.rot.toFixed(2)}) scale(${q.scale.toFixed(3)})`,
         );
         part.g.setAttribute('opacity', q.opacity.toFixed(3));
-        if (part.wings) part.wings.setAttribute('transform', `scale(1 ${(0.35 + 0.65 * Math.abs(q.flap)).toFixed(3)})`);
+        if (part.wings) {
+          const f = (0.35 + 0.65 * Math.abs(q.flap)).toFixed(3);
+          // Birds beat up and down; a butterfly's wings fold in towards its body.
+          part.wings.setAttribute('transform', p.kind === 'butterfly' ? `scale(${f} 1)` : `scale(1 ${f})`);
+        }
         if (part.grow) {
           if (p.kind === 'shootingStar') part.grow.setAttribute('transform', `scale(${q.grow.toFixed(3)} 1)`);
           else part.grow.setAttribute('transform', `scale(${Math.max(0.001, q.grow).toFixed(3)})`);
