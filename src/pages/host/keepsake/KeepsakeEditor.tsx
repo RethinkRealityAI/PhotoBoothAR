@@ -37,8 +37,8 @@
  * disabled with a note; nothing throws) · no ToastProvider above (inline status
  * only).
  */
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Check, ChevronLeft, ChevronRight, Download, ListChecks, Loader2, Mail, MessageCircleHeart, Music, Palette, RotateCcw, Wand2, type LucideIcon } from 'lucide-react';
+import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Check, Download, ListChecks, Loader2, Mail, MessageCircleHeart, Music, Palette, RotateCcw, Wand2, type LucideIcon } from 'lucide-react';
 import { fetchMyOrg } from '../../../lib/host';
 import { fetchKeepsakeFilmIncluded, fetchKeepsakeSettings, saveKeepsakeSettings } from '../../../lib/keepsakeContacts';
 import type { KeepsakeSettings } from '../../../lib/keepsakeSettings';
@@ -72,12 +72,18 @@ import { KEEPSAKE_EDITOR_CSS, KeepsakePreview } from './KeepsakePreview';
 import { LookPanel } from './LookPanel';
 import { GreetingPanel } from './GreetingPanel';
 import { MusicPanel, SendingPanel, TakeHomePanel } from './ChoicePanels';
+import StageCard, { StageBarContext, StepBar, StepNav, focusStepPanel } from '../wizard/StageCard';
 
 export interface KeepsakeEditorProps {
   eventUuid: string;
   eventName: string;
-  /** 'panel' = its own card (Share & Print). 'wizard' = no card chrome, tabs become steps. */
+  /** 'panel' = its own card (Share & Print). 'wizard' = the setup wizard's
+   *  Keepsake step: the same card wears the wizard's stages on top and these
+   *  steps under its head, always guided. */
   variant?: 'panel' | 'wizard';
+  /** Wizard only: hands the wizard a "save if there are changes" to run when
+   *  the host presses Continue (false = stay; the editor says why). */
+  onRegisterSave?: (fn: (() => Promise<boolean>) | null) => void;
 }
 
 type LoadState = 'loading' | 'failed' | 'ready';
@@ -110,7 +116,7 @@ function rememberSeenAll(eventUuid: string) {
   }
 }
 
-export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel' }: KeepsakeEditorProps) {
+export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel', onRegisterSave }: KeepsakeEditorProps) {
   const toast = useOptionalToast();
   const wizard = variant === 'wizard';
   const [load, setLoad] = useState<LoadState>('loading');
@@ -126,7 +132,8 @@ export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel' }: Keep
    *  the bar does not turn into tabs under the host the moment they reach
    *  Review; finishing is remembered and the NEXT open is free tabs. */
   const [seenAtOpen, setSeenAtOpen] = useState<readonly KeepsakeStepId[]>(['look']);
-  const tabRefs = useRef<Partial<Record<KeepsakeStepId, HTMLButtonElement | null>>>({});
+  const tabRefs = useRef<Partial<Record<string, HTMLButtonElement | null>>>({});
+  const wizardStages = useContext(StageBarContext);
   const [now] = useState(() => Date.now());
   const music = useTrackPreview();
   const mode = keepsakeEditorMode(variant, seenAtOpen);
@@ -167,15 +174,26 @@ export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel' }: Keep
     setSaveState((s) => (s === 'saving' ? s : 'idle'));
   }, []);
 
-  async function save() {
-    if (draft === null || saveState === 'saving') return;
+  async function save(): Promise<boolean> {
+    if (draft === null || saveState === 'saving') return false;
     const snapshot = draft;
     setSaveState('saving');
     const ok = await saveKeepsakeSettings(eventUuid, snapshot);
     if (ok) setStored(snapshot);
     setSaveState(ok ? 'saved' : 'failed');
     toast?.(ok ? 'Keepsake saved. Guests will see it in their album.' : 'Couldn’t save your keepsake. Check your connection and try again.', ok ? 'success' : 'error');
+    return ok;
   }
+
+  // The wizard's Continue saves unsaved changes first (nothing changes for
+  // Share & Print, where Save stays the only way to write).
+  const saveIfDirty = useRef<() => Promise<boolean>>(async () => true);
+  saveIfDirty.current = async () => (dirty ? save() : true);
+  useEffect(() => {
+    if (!onRegisterSave) return;
+    onRegisterSave(() => saveIfDirty.current());
+    return () => onRegisterSave(null);
+  }, [onRegisterSave]);
 
   /** Switch step and mark it seen; a track only plays while the Music step can
    *  show it playing. `focus`: 'tab' = its button in the bar, 'panel' = its
@@ -189,22 +207,18 @@ export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel' }: Keep
       if (keepsakeAllStepsSeen(nextSeen)) rememberSeenAll(eventUuid);
     }
     if (focus === 'tab') requestAnimationFrame(() => tabRefs.current[next]?.focus());
-    if (focus === 'panel') requestAnimationFrame(() => document.getElementById(`ks-panel-${next}`)?.focus());
-  }
-
-  function onTabKey(e: KeyboardEvent<HTMLDivElement>) {
-    const next = keepsakeStepForKey(step, e.key);
-    if (next === null) return;
-    e.preventDefault();
-    goTo(next, 'tab');
+    if (focus === 'panel') focusStepPanel(`ks-panel-${next}`);
   }
 
   const sized = load === 'ready' && draft !== null;
   const shell = (children: ReactNode) =>
     wizard ? (
-      <div className={sized ? 'ks-ed' : 'flex flex-col gap-4'}>{children}</div>
+      <section className="sc liquid-glass flex flex-col gap-4" aria-labelledby="keepsake-editor-title">
+        {wizardStages && <div className="sc-stages hidden lg:block">{wizardStages}</div>}
+        {children}
+      </section>
     ) : (
-      <section aria-labelledby="keepsake-editor-title" className={`print:hidden liquid-glass rounded-3xl border border-accent/20 p-4 sm:p-6 ${sized ? 'ks-ed' : 'flex flex-col gap-4'}`}>
+      <section aria-labelledby="keepsake-editor-title" className="print:hidden liquid-glass rounded-3xl border border-accent/20 p-4 sm:p-6 flex flex-col gap-4">
         {children}
       </section>
     );
@@ -256,11 +270,29 @@ export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel' }: Keep
     sending: <SendingPanel draft={draft} onChange={update} />,
   };
 
-  return shell(
-    <>
-      <style>{KEEPSAKE_EDITOR_CSS}</style>
+  const bar = (
+    <StepBar<KeepsakeStepId>
+      idBase="ks"
+      label={free ? 'Keepsake settings' : 'Keepsake steps'}
+      mode={free ? 'tabs' : 'steps'}
+      current={step}
+      refs={tabRefs}
+      doneText=", seen"
+      keyFor={keepsakeStepForKey}
+      items={KEEPSAKE_STEPS.map((s) => ({
+        id: s.id,
+        label: s.label,
+        Icon: TAB_ICON[s.id],
+        done: seen.includes(s.id),
+        reachable: keepsakeStepReachable(s.id, seen, mode),
+        dirty: dirtyTabs.includes(s.id),
+        glyph: s.id === 'review' ? <ListChecks className="h-3 w-3" /> : undefined,
+      }))}
+      onPick={(id, via) => goTo(id, via === 'key' ? 'tab' : null)}
+    />
+  );
 
-      {/* The save bar: the editor's own header row, never over a field. */}
+  const header = (
       <header className="flex items-center gap-2 sm:gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           {title}
@@ -291,80 +323,40 @@ export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel' }: Keep
           </button>
         </div>
       </header>
+  );
 
-      <div className="ks-grid ks-steps-on">
-        {free ? (
-          <div className="ks-area-tabs">
-            <div className="wz-tabs ks-tabs" role="tablist" aria-label="Keepsake settings" onKeyDown={onTabKey}>
-              {KEEPSAKE_STEPS.map((s) => {
-                const Icon = TAB_ICON[s.id];
-                const selected = step === s.id;
-                const isDirty = dirtyTabs.includes(s.id);
-                return (
-                  <button
-                    key={s.id}
-                    ref={(el) => { tabRefs.current[s.id] = el; }}
-                    id={`ks-tab-${s.id}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    aria-controls={`ks-panel-${s.id}`}
-                    tabIndex={selected ? 0 : -1}
-                    className="wz-tab"
-                    onClick={() => goTo(s.id)}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" aria-hidden />
-                    <span className="max-w-full truncate">{s.label}</span>
-                    {isDirty && (
-                      <>
-                        <span className="ks-dot" aria-hidden />
-                        <span className="sr-only">, unsaved changes</span>
-                      </>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <nav className="ks-area-tabs" aria-label="Keepsake steps">
-            <ol className="wz-tabs ks-tabs ks-steps">
-              {KEEPSAKE_STEPS.map((s, i) => {
-                const current = step === s.id;
-                const reachable = keepsakeStepReachable(s.id, seen, mode);
-                const done = !current && seen.includes(s.id);
-                const isDirty = dirtyTabs.includes(s.id);
-                const review = s.id === 'review';
-                return (
-                  <li key={s.id}>
-                    <button
-                      ref={(el) => { tabRefs.current[s.id] = el; }}
-                      id={`ks-tab-${s.id}`}
-                      type="button"
-                      aria-current={current ? 'step' : undefined}
-                      aria-disabled={reachable ? undefined : true}
-                      className="wz-tab"
-                      onClick={() => { if (reachable) goTo(s.id); }}
-                    >
-                      <span className={`ks-num ${done ? 'is-done' : ''}`} aria-hidden>
-                        {done ? <Check className="h-3 w-3" strokeWidth={3} /> : review ? <ListChecks className="h-3 w-3" /> : i + 1}
-                      </span>
-                      <span className="max-w-full truncate">{review ? null : <span className="sr-only">Step {i + 1}: </span>}{s.label}</span>
-                      <span className="sr-only">{done ? ', seen' : reachable ? '' : ', not reached yet'}</span>
-                      {isDirty && (
-                        <>
-                          <span className="ks-dot" aria-hidden />
-                          <span className="sr-only">, unsaved changes</span>
-                        </>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          </nav>
+  return (
+    <>
+      <style>{KEEPSAKE_EDITOR_CSS}</style>
+      {/* The same card as every wizard step (StageCard). Share & Print: the
+          save bar on top, these steps across the card. In the wizard: the
+          wizard's stages on top, the save bar and these steps in the options
+          column. */}
+      <StageCard
+        top={wizard ? undefined : header}
+        head={wizard ? header : undefined}
+        stages={wizard ? undefined : bar}
+        bar={wizard ? bar : undefined}
+        nav={(
+          <StepNav
+            onBack={nav.prev !== null ? () => { if (nav.prev !== null) goTo(nav.prev); } : null}
+            next={nav.next !== null ? keepsakeStepLabel(nav.next) : null}
+            position={position !== null ? `Step ${position.number} of ${position.total}` : 'Review'}
+            onNext={() => { if (nav.next !== null) goTo(nav.next, nav.next === 'review' ? 'panel' : null); }}
+          />
         )}
-
+        preview={
+          /* Review previews the album itself: its cover, in the chosen look. */
+          <KeepsakePreview tab={step === 'review' ? 'look' : step} settings={draft} eventName={eventName} orgName={orgName ?? ''} filmIncluded={filmIncluded} music={music} />
+        }
+        previewKind="album"
+        previewFit="fill"
+        phone={wizard ? 'sheet' : 'pinned'}
+        sheetLabel="Keepsake"
+        standalone={!wizard}
+        labelledBy="keepsake-editor-title"
+        className={wizard ? '' : 'print:hidden rounded-3xl border border-accent/20'}
+      >
         {KEEPSAKE_TABS.map((t) => (
           <div
             key={t.id}
@@ -373,7 +365,7 @@ export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel' }: Keep
             aria-labelledby={`ks-tab-${t.id}`}
             hidden={step !== t.id}
             tabIndex={0}
-            className="ks-area-panel @container"
+            className="@container outline-none"
           >
             <div className="flex flex-col gap-4">
               <TabHint>{t.hint}</TabHint>
@@ -388,7 +380,7 @@ export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel' }: Keep
           aria-labelledby="ks-tab-review"
           hidden={step !== 'review'}
           tabIndex={0}
-          className="ks-area-panel @container"
+          className="@container outline-none"
         >
           <div className="flex flex-col gap-3">
             <TabHint>{KEEPSAKE_REVIEW_STEP.hint}</TabHint>
@@ -440,37 +432,8 @@ export function KeepsakeEditor({ eventUuid, eventName, variant = 'panel' }: Keep
           </div>
         </div>
 
-        <aside className="ks-area-preview" aria-label="Live preview">
-          {/* Review previews the album itself: its cover, in the chosen look. */}
-          <KeepsakePreview tab={step === 'review' ? 'look' : step} settings={draft} eventName={eventName} orgName={orgName ?? ''} filmIncluded={filmIncluded} music={music} />
-        </aside>
-
-        <nav className="ks-area-steps flex items-center gap-2" aria-label="Step navigation">
-          <button
-            type="button"
-            onClick={() => { if (nav.prev !== null) goTo(nav.prev); }}
-            disabled={nav.prev === null}
-            className="flex min-h-11 shrink-0 items-center gap-1 rounded-full glass px-4 font-sans text-sm text-brand-fg transition hover:text-accent-2 disabled:opacity-35"
-          >
-            <ChevronLeft className="h-4 w-4" aria-hidden /> Back
-          </button>
-          <p className="min-w-0 flex-1 text-center font-sans text-xs leading-tight text-brand-muted/70" aria-live="polite">
-            {position !== null ? `Step ${position.number} of ${position.total}` : 'Review'}
-          </p>
-          {nav.next !== null ? (
-            <button
-              type="button"
-              onClick={() => { if (nav.next !== null) goTo(nav.next, nav.next === 'review' ? 'panel' : null); }}
-              className="flex min-h-11 shrink-0 items-center gap-1 rounded-full bg-white/90 px-4 font-sans text-sm font-semibold text-[color:var(--bw-on-accent,#1A1740)] transition active:scale-[0.98]"
-            >
-              Next: {keepsakeStepLabel(nav.next)} <ChevronRight className="h-4 w-4" aria-hidden />
-            </button>
-          ) : (
-            <span aria-hidden className="w-[5.5rem] shrink-0" />
-          )}
-        </nav>
-      </div>
-    </>,
+      </StageCard>
+    </>
   );
 }
 

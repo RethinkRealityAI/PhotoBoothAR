@@ -59,11 +59,14 @@ function FitBox({ children }: { children: ReactNode }) {
   );
 }
 
-export default function PreviewSheet({ preview, label, children }: {
+export default function PreviewSheet({ preview, label, children, fit = true }: {
   preview: ReactNode;
   /** The drawer's title, shown even when it is collapsed. */
   label: string;
   children: ReactNode;
+  /** true: scale a fixed-size preview down to fit. false: the preview fills the
+   *  space and sizes itself (the keepsake album). */
+  fit?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [avail, setAvail] = useState<number | null>(null);
@@ -118,8 +121,8 @@ export default function PreviewSheet({ preview, label, children }: {
 
   return (
     <div ref={host} className="relative -mx-4" style={{ height: avail ?? undefined, minHeight: avail === null ? '70dvh' : undefined }}>
-      <div className="wz-sheet-preview absolute inset-x-4 top-0" style={{ height: previewH }} data-dragging={dragH !== null || undefined}>
-        <FitBox>{preview}</FitBox>
+      <div className="wz-sheet-preview absolute inset-x-4 top-0" style={{ height: previewH, '--sheet-preview-h': `${previewH}px` } as React.CSSProperties} data-dragging={dragH !== null || undefined}>
+        {fit ? <FitBox>{preview}</FitBox> : <div className="h-full w-full min-h-0">{preview}</div>}
       </div>
       <section className="wz-sheet" style={{ height: sheetH }} data-dragging={dragH !== null || undefined} aria-label={label}>
         <div
