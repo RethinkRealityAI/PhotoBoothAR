@@ -95,6 +95,7 @@ const AdminCredits = lazy(() => import('./pages/admin/Credits'));
 const AdminUsers = lazy(() => import('./pages/admin/Users'));
 const AdminAudit = lazy(() => import('./pages/admin/Audit'));
 const AdminAdmins = lazy(() => import('./pages/admin/Admins'));
+const AdminReveals = lazy(() => import('./pages/admin/reveals/AdminReveals'));
 // Lazy: the Copilot tree (CopilotChat → studio glb helpers) statically pulls
 // the three/R3F stack — eager imports here would ship it to every marketing
 // visitor. Both components gate their own visibility to /host surfaces.
@@ -157,6 +158,20 @@ const BrandPage = import.meta.env.VITE_EVENT
 const CardDesignGallery = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/cards/CardDesignGallery'));
+
+/** Beamwall's own marketing reveals: /reveal/:slug (Beamy guards the news),
+ *  /reveal/demo/:occasion (a preset, no database) and /reveal/preview (the
+ *  editor's iframe). Platform-only, same fold as the gallery. */
+const RevealPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/reveals/RevealPage'));
+const RevealPreview = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/reveals/RevealPreview'));
+/** The reveal editor: full-viewport like the setup wizard, its own admin gate. */
+const RevealEditor = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/admin/reveals/RevealEditor'));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -332,6 +347,10 @@ export default function App() {
               <Route path="/beamy" element={<RedirectToHome />} />
               <Route path="/brand" element={<BrandPage />} />
               <Route path="/card-designs" element={<CardDesignGallery />} />
+              <Route path="/reveal/preview" element={<RevealPreview />} />
+              <Route path="/reveal/demo/:occasion" element={<RevealPage />} />
+              <Route path="/reveal/:slug" element={<RevealPage />} />
+              <Route path="/admin/reveals/:id" element={<RevealEditor />} />
 
               {/* Host platform (session-gated) */}
               {/* The setup wizard: full-screen, its own session gate. A new
@@ -369,6 +388,7 @@ export default function App() {
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="audit" element={<AdminAudit />} />
                 <Route path="admins" element={<AdminAdmins />} />
+                <Route path="reveals" element={<AdminReveals />} />
               </Route>
 
               {/* Greeting cards: public viewer + token-gated contribute page */}
