@@ -53,7 +53,9 @@ function FitBox({ children }: { children: ReactNode }) {
     return () => ro.disconnect();
   }, []);
   return (
-    <div ref={outer} className="h-full w-full overflow-hidden">
+    // Not clipped: the child is already scaled to fit, and a clip cut its
+    // shadow and the Beam button's glow off in a hard-edged box (owner, 2026-11-22).
+    <div ref={outer} className="h-full w-full overflow-visible">
       <div ref={inner} style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}>{children}</div>
     </div>
   );

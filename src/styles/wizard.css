@@ -770,12 +770,20 @@
 .sc-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
 .sc-body { min-height: 0; min-width: 0; }
 .sc-sheet { display: flex; flex-direction: column; gap: 12px; }
-.sc-fit { height: 100%; width: 100%; overflow: hidden; display: grid; place-items: center; }
+/* Not clipped: FitToBox already scales its child down to fit, and a clip
+   here cut the preview's glow and drop shadow off at the column's edge,
+   which drew a hard rectangle behind the live wall (owner, 2026-11-22). */
+.sc-fit { height: 100%; width: 100%; overflow: visible; display: grid; place-items: center; }
 .sc-fit-inner { width: 100%; transform-origin: center; }
 .sc-fill { height: 100%; width: 100%; min-height: 0; }
 /* A scrolling options column clips: a glass card's outer halo was cut off at
    its edges and read as a hard-edged box (owner, 2026-11-21). The rim stays. */
 .sc-body :is(.glass, .glass-strong, .liquid-glass) { --pf-card-glow: 0 0 #0000 !important; }
+/* A preview INSIDE the card is not a card of its own: no 48px outer halo
+   (it would spill over the card's edge or be cut off by the phone drawer,
+   either way a hard-edged box). The 1px rim and the drop shadow stay. */
+:is(.sc-preview, .sc-pinned-preview, .wz-sheet-preview) { --wz-halo: 0 0 #0000; }
+:is(.sc-preview, .sc-pinned-preview, .wz-sheet-preview) :is(.glass, .glass-strong, .liquid-glass) { --pf-card-glow: 0 0 #0000 !important; }
 
 /* The bar: numbered stages (or free tabs), even columns on a phone. */
 .sc-bar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: 100%; overflow: visible; border-radius: 20px; }
