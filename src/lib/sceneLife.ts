@@ -32,7 +32,8 @@ export type LifeKind =
   | 'smoke'
   | 'rays'
   | 'shimmer'
-  | 'butterfly';
+  | 'butterfly'
+  | 'heart';
 
 export interface LifeProp {
   kind: LifeKind;
@@ -96,6 +97,7 @@ export const DEFAULT_PERIOD: Record<LifeKind, number> = {
   rays: 18,
   shimmer: 3.2,
   butterfly: 9,
+  heart: 17,
 };
 
 /**
@@ -201,6 +203,13 @@ export function lifePose(prop: LifeProp, t: number, reducedMotion = false): Life
     case 'shimmer': {
       const tw = Math.abs(Math.sin(u * Math.PI));
       return { ...base, x: prop.x + Math.sin(u * TAU) * 14 * a, opacity: r3(0.1 + 0.75 * tw), scale: s * (0.7 + 0.3 * tw) };
+    }
+    case 'heart': {
+      // A paper heart floating up out of the garden, rocking as it goes.
+      const y = prop.y - u * 900 * a;
+      const x = prop.x + Math.sin(u * TAU * 1.3 + ph * TAU) * 46 * a;
+      const edge = Math.min(u / 0.12, (1 - u) / 0.2, 1);
+      return { ...base, x, y, rot: Math.sin(time * k * 1.7 + ph * TAU) * 12 * a, opacity: r3(clamp01(edge) * 0.95) };
     }
     case 'butterfly': {
       // Loops lazily round its anchor (a figure of eight), wings beating fast.
@@ -315,6 +324,16 @@ export const DESIGN_LIFE: Record<CardDesignId, readonly LifeProp[]> = {
     { kind: 'balloon', x: 130, y: 0, size: 0.8, phase: 0.65, color: '#FF6B6B' },
     { kind: 'rays', x: 450, y: 640, size: 1.1, color: '#FFE48A' },
     { kind: 'glint', x: 470, y: 1035, size: 0.6, phase: 0.1, color: '#FFF4C2' },
+  ],
+  'love-notes': [
+    { kind: 'heart', x: 300, y: 1350, size: 1, phase: 0, color: '#E0566E' },
+    { kind: 'heart', x: 600, y: 1400, size: 0.8, phase: 0.33, color: '#F08AA0' },
+    { kind: 'heart', x: 450, y: 1320, size: 0.65, phase: 0.66, color: '#FFE1D6' },
+    { kind: 'flicker', x: 279, y: 778, size: 0.55, color: '#FFD9A8' },
+    { kind: 'flicker', x: 450, y: 808, size: 0.55, phase: 0.35, color: '#FFD9A8' },
+    { kind: 'flicker', x: 621, y: 778, size: 0.55, phase: 0.7, color: '#FFD9A8' },
+    { kind: 'shimmer', x: 600, y: 1192, size: 0.9, color: '#FFF1DE' },
+    { kind: 'shootingStar', x: 140, y: 160, size: 1, period: 11, phase: 0.4 },
   ],
   'winter-glow': [
     { kind: 'smoke', x: 455, y: 1180, size: 1, phase: 0 },

@@ -42,7 +42,8 @@ export type CardDesignId =
   | 'cloud-nine'
   | 'grand-hall'
   | 'island-sunset'
-  | 'jungle-party';
+  | 'jungle-party'
+  | 'love-notes';
 
 /** Hosts see them in this order (broadest occasions first). */
 export const CARD_DESIGN_IDS = [
@@ -55,6 +56,7 @@ export const CARD_DESIGN_IDS = [
   'cloud-nine',
   'grand-hall',
   'island-sunset',
+  'love-notes',
   'jungle-party',
   'winter-glow',
 ] as const satisfies readonly CardDesignId[];
@@ -71,7 +73,7 @@ export type CardDesignChoice = CardDesignId | 'none';
  *   rise  — the gateway lifts away in staggered strips (a balloon wall).
  */
 export type GatewayKind = 'doors' | 'iris' | 'slide' | 'rise';
-export type IrisShape = 'circle' | 'arch';
+export type IrisShape = 'circle' | 'arch' | 'heart';
 
 /** Particles that drift over the scene. Drawn procedurally (no images). */
 export type MotifKind = 'petals' | 'sparkle' | 'confetti' | 'lanterns' | 'snow' | 'stars' | 'fireflies';
@@ -201,6 +203,16 @@ export const CARD_DESIGNS: readonly CardDesign[] = [
     mid: { placement: 'bottom', size: 0.46 },
     motif: { kind: 'petals', colors: ['#FF8A7A', '#FFC1A8', '#FFFFFF'] },
     palette: pal('#3A2C5E', '#FFB38A', '#FFD2A6'),
+  },
+  {
+    id: 'love-notes',
+    label: 'Love notes',
+    description: 'A heart opens in a wall of roses onto a moonlit garden with a bench for two.',
+    goodFor: 'Anniversaries, proposals, Valentine’s, vow renewals',
+    gateway: { kind: 'iris', shape: 'heart' },
+    mid: { placement: 'bottom', size: 0.42 },
+    motif: { kind: 'petals', colors: ['#E0566E', '#F08AA0', '#FFE1D6'] },
+    palette: pal('#3A1F4A', '#F08AA0', '#FFD9C4'),
   },
   {
     id: 'jungle-party',
@@ -423,15 +435,32 @@ export function sceneParallax(scroll: number, px: number, py: number, reducedMot
 const CX = 450;
 const CY = 760;
 const DIAG = Math.hypot(900, 1600);
+const HEART_STEPS = 64;
 
 /**
  * SVG path of the iris cut-out at radius `r` (a fraction of the stage
- * diagonal). circle = a moon gate; arch = a tall window with a round top.
- * Both fully cover the stage by r ≈ 0.6.
+ * diagonal). circle = a moon gate; arch = a tall window with a round top;
+ * heart = a heart. All fully cover the stage by r ≈ 0.6.
  */
 export function irisPath(shape: IrisShape, r: number): string {
   const R = Math.max(0, r) * DIAG;
   if (R < 0.5) return 'M0 0';
+  if (shape === 'heart') {
+    // The classic heart curve (x = 16 sin^3, y = 13 cos - 5 cos 2 - 2 cos 3 - cos 4).
+    // A heart covers less of a rectangle than a circle does, so it grows a little
+    // faster as it opens: small enough closed that the whole heart shows on a phone,
+    // big enough at the opener's widest to cover every corner of the stage.
+    const open = Math.max(0, Math.min(1, (Math.max(0, r) - 0.16) / 0.46));
+    const k = R * (0.05 + 0.03 * open);
+    let d = '';
+    for (let i = 0; i < HEART_STEPS; i++) {
+      const a = (i / HEART_STEPS) * Math.PI * 2;
+      const x = CX + 16 * Math.sin(a) ** 3 * k;
+      const y = CY - (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * k;
+      d += `${i ? 'L' : 'M'}${Math.round(x * 10) / 10 + 0} ${Math.round(y * 10) / 10 + 0} `;
+    }
+    return `${d}Z`;
+  }
   if (shape === 'arch') {
     const hw = R * 0.66; // half width
     const h = R * 2.05;

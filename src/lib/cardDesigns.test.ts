@@ -7,6 +7,7 @@ import {
   cardDesign,
   designAssets,
   designCssVars,
+  irisPath,
   isCardDesignId,
   normalizeCardDesign,
   sceneFrame,
@@ -14,6 +15,7 @@ import {
   SCENE_OPEN_MS,
   SCENE_OPEN_MS_REDUCED,
   type GatewayKind,
+  type IrisShape,
 } from './cardDesigns';
 
 const KINDS: GatewayKind[] = ['doors', 'iris', 'slide', 'rise'];
@@ -168,5 +170,45 @@ describe('sceneParallax', () => {
     expect(calm.backX).toBe(0);
     expect(calm.midX).toBe(0);
     expect(calm.midY).toBeCloseTo(sceneParallax(1, 0, 0).midY / 2, 5);
+  });
+});
+
+describe('irisPath — the iris cut-out', () => {
+  // Point-in-polygon over the path's own points (every shape is drawn as lines or
+  // a closed outline we can sample), so "the scene is fully open" is checked, not assumed.
+  const polygon = (d: string): Array<[number, number]> =>
+    [...d.matchAll(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  const inside = (pts: Array<[number, number]>, x: number, y: number) => {
+    let c = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i];
+      const [xj, yj] = pts[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  };
+  const corners: Array<[number, number]> = [[1, 1], [899, 1], [1, 1599], [899, 1599]];
+
+  it('the heart covers every corner of the stage once the opener is at its widest', () => {
+    const widest = sceneFrame('iris', 1).irisR;
+    const pts = polygon(irisPath('heart', widest));
+    expect(pts.length).toBeGreaterThan(40);
+    for (const [x, y] of corners) expect(inside(pts, x, y), `${x},${y}`).toBe(true);
+  });
+
+  it('every shape is a closed path, and a closed iris draws nothing', () => {
+    for (const shape of ['circle', 'arch', 'heart'] as IrisShape[]) {
+      expect(irisPath(shape, 0.3).trim().endsWith('Z')).toBe(true);
+      expect(irisPath(shape, 0)).toBe('M0 0');
+    }
+  });
+
+  it('the heart looks like a heart: a point at the bottom and a dip at the top', () => {
+    const pts = polygon(irisPath('heart', 0.2));
+    const ys = pts.map((p) => p[1]);
+    const bottom = pts[ys.indexOf(Math.max(...ys))];
+    expect(Math.abs(bottom[0] - 450)).toBeLessThan(1);
+    // The top of the centre line (the dip) sits below the top of the lobes.
+    expect(pts[0][1]).toBeGreaterThan(Math.min(...ys) + 10);
   });
 });

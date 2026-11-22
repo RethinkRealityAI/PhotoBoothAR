@@ -44,6 +44,7 @@ var SceneIntro = (() => {
     "cloud-nine",
     "grand-hall",
     "island-sunset",
+    "love-notes",
     "jungle-party",
     "winter-glow"
   ];
@@ -144,6 +145,16 @@ var SceneIntro = (() => {
       mid: { placement: "bottom", size: 0.46 },
       motif: { kind: "petals", colors: ["#FF8A7A", "#FFC1A8", "#FFFFFF"] },
       palette: pal("#3A2C5E", "#FFB38A", "#FFD2A6")
+    },
+    {
+      id: "love-notes",
+      label: "Love notes",
+      description: "A heart opens in a wall of roses onto a moonlit garden with a bench for two.",
+      goodFor: "Anniversaries, proposals, Valentine’s, vow renewals",
+      gateway: { kind: "iris", shape: "heart" },
+      mid: { placement: "bottom", size: 0.42 },
+      motif: { kind: "petals", colors: ["#E0566E", "#F08AA0", "#FFE1D6"] },
+      palette: pal("#3A1F4A", "#F08AA0", "#FFD9C4")
     },
     {
       id: "jungle-party",
@@ -258,9 +269,22 @@ var SceneIntro = (() => {
   var CX = 450;
   var CY = 760;
   var DIAG = Math.hypot(900, 1600);
+  var HEART_STEPS = 64;
   function irisPath(shape, r) {
     const R = Math.max(0, r) * DIAG;
     if (R < 0.5) return "M0 0";
+    if (shape === "heart") {
+      const open = Math.max(0, Math.min(1, (Math.max(0, r) - 0.16) / 0.46));
+      const k = R * (0.05 + 0.03 * open);
+      let d = "";
+      for (let i = 0; i < HEART_STEPS; i++) {
+        const a = i / HEART_STEPS * Math.PI * 2;
+        const x = CX + 16 * Math.sin(a) ** 3 * k;
+        const y = CY - (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * k;
+        d += `${i ? "L" : "M"}${Math.round(x * 10) / 10 + 0} ${Math.round(y * 10) / 10 + 0} `;
+      }
+      return `${d}Z`;
+    }
     if (shape === "arch") {
       const hw = R * 0.66;
       const h = R * 2.05;

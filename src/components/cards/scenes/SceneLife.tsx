@@ -150,6 +150,14 @@ function Piece({ p, i, design, parts }: { p: LifeProp; i: number; design: CardDe
     case 'shimmer':
       body = <ellipse rx="46" ry="3" fill={c} style={{ filter: 'blur(1px)', mixBlendMode: 'screen' }} />;
       break;
+    case 'heart':
+      body = (
+        <g style={{ filter: PAPER }}>
+          <path d="M0 16 C-28 -4 -24 -28 -10 -28 C-4 -28 0 -24 0 -18 C0 -24 4 -28 10 -28 C24 -28 28 -4 0 16 Z" fill={c} />
+          <path d="M-14 -20 C-18 -16 -18 -10 -15 -6" stroke="rgba(255,255,255,0.45)" strokeWidth="3" strokeLinecap="round" fill="none" />
+        </g>
+      );
+      break;
     case 'butterfly':
       body = (
         <g style={{ filter: PAPER }}>
