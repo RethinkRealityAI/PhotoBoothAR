@@ -34,6 +34,7 @@ import {
 import { coverRecipientLine } from '../../../lib/cardTemplates';
 import MotifLayer from './MotifLayer';
 import { SceneStage, MidPair, decodeImages } from './sceneParts';
+import SceneLife from './SceneLife';
 
 /** Hold on the settled title plate before handing over to the card. */
 const HOLD_MS = 650;
@@ -159,6 +160,7 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
       {/* The scene behind the gateway */}
       <div ref={backRef} className="absolute inset-0 will-change-transform" style={{ transformOrigin: '50% 55%' }}>
         <img src={assets.back} alt="" draggable={false} className="h-full w-full object-cover" />
+        <SceneLife design={design} reducedMotion={reducedMotion} />
       </div>
       <div ref={midRef} className="absolute inset-0 will-change-transform" style={{ transformOrigin: '50% 100%', opacity: 0 }}>
         <MidPair src={assets.mid} design={design} />

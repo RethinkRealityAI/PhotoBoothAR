@@ -239,6 +239,16 @@ export function effectiveReveal(reveal: CardRevealId, design: CardDesignChoice):
   return 'scene';
 }
 
+/**
+ * The page the card lands on once an opening has played. The opening already
+ * did the "open your card" moment, so a second cover asking the recipient to
+ * open it again is skipped: they land on the first message (page 1). With no
+ * opening, or nothing inside yet, the cover (page 0) is still the first page.
+ */
+export function firstReadingPage(hasOpening: boolean, contributionCount: number): number {
+  return hasOpening && contributionCount > 0 ? 1 : 0;
+}
+
 export function revealOption(id: CardRevealId): CardRevealOption {
   return CARD_REVEAL_OPTIONS.find((o) => o.id === id) ?? CARD_REVEAL_OPTIONS[0];
 }

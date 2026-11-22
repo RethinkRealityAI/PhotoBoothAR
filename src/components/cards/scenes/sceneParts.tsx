@@ -9,6 +9,7 @@
  */
 import type { HTMLAttributes, ReactNode } from 'react';
 import type { CardDesign } from '../../../lib/cardDesigns';
+import './scenes.css';
 
 /**
  * A portrait (9:16) stage: edge to edge on a phone, a centred column on a
@@ -45,18 +46,18 @@ export function SceneStage({
 export function MidPair({ src, design }: { src: string; design: CardDesign }) {
   const size = `${design.mid.size * 100}%`;
   const top = design.mid.placement === 'top';
-  const common = 'absolute select-none object-contain drop-shadow-[0_18px_24px_rgba(0,0,0,0.45)]';
+  const common = `scene-sway absolute select-none object-contain drop-shadow-[0_18px_24px_rgba(0,0,0,0.45)]`;
   const v = top ? { top: '-3%' } : { bottom: '-4%' };
   return (
     <>
-      <img src={src} alt="" aria-hidden draggable={false} className={common} style={{ ...v, left: '-9%', width: size }} />
+      <img src={src} alt="" aria-hidden draggable={false} className={common} style={{ ...v, left: '-9%', width: size, transformOrigin: top ? '0% 0%' : '0% 100%' }} />
       <img
         src={src}
         alt=""
         aria-hidden
         draggable={false}
         className={common}
-        style={{ ...v, right: '-9%', width: size, transform: 'scaleX(-1)' }}
+        style={{ ...v, right: '-9%', width: size, transform: 'scaleX(-1)', transformOrigin: top ? '0% 0%' : '0% 100%', animationDelay: '-2.3s' }}
       />
     </>
   );

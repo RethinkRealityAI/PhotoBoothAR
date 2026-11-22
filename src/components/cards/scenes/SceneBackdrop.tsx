@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { designAssets, sceneParallax, type CardDesign } from '../../../lib/cardDesigns';
 import MotifLayer from './MotifLayer';
+import SceneLife from './SceneLife';
 import { MidPair } from './sceneParts';
 
 export interface SceneBackdropProps {
@@ -85,6 +86,7 @@ export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed }
       <div className="absolute inset-0 mx-auto aspect-[9/16] h-full max-w-full overflow-hidden">
         <div ref={backRef} className="absolute -inset-[4%] will-change-transform">
           <img src={assets.back} alt="" draggable={false} className="h-full w-full object-cover" />
+          <SceneLife design={design} reducedMotion={reducedMotion} offset={6} />
         </div>
       </div>
       {/* Scrim in the design's own colour: lighter at the top so the scene

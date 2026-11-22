@@ -1,0 +1,20 @@
+/*
+ * Paper cut-outs in the foreground sway as if in a light breeze (trees,
+ * palms, flowers, fans). `rotate` composes with each cut-out's own transform
+ * (the right one is mirrored with scaleX(-1)), so one keyframe serves both.
+ * Reduced motion: a smaller, slower sway — still alive, never still.
+ */
+@keyframes scene-sway {
+  0%, 100% { rotate: -1.1deg; }
+  50% { rotate: 1.3deg; }
+}
+.scene-sway {
+  animation: scene-sway 6.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes scene-sway-soft {
+    0%, 100% { rotate: -0.5deg; }
+    50% { rotate: 0.6deg; }
+  }
+  .scene-sway { animation: scene-sway-soft 11s ease-in-out infinite; }
+}

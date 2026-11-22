@@ -25,7 +25,7 @@ import { ChevronDown, Play, RotateCcw } from 'lucide-react';
 import type { CardViewContribution, CardViewData } from '../../lib/cards';
 import {
   cardPalette,
-  effectiveReveal,
+  effectiveReveal, firstReadingPage,
   normalizeCardPresentation,
   playableReveal,
   resolveCardLook,
@@ -172,9 +172,13 @@ export default function CardExperience({
     setRun((r) => r + 1);
   }, [openingKey, hasOpening]);
 
+  // The opening was the "open your card" moment: land on the first message,
+  // not on a cover asking them to open it again.
+  const readingStart = firstReadingPage(hasOpening, contributions.length);
   const finishReveal = useCallback(() => {
     setPhase((p) => (p === 'reveal' ? 'handoff' : p));
-  }, []);
+    setIndex(readingStart);
+  }, [readingStart]);
 
   useEffect(() => {
     if (phase !== 'handoff') return;
@@ -190,7 +194,10 @@ export default function CardExperience({
   }, [hasOpening]);
 
   const goNext = useCallback(() => setIndex((i) => clampIndex(i + 1, contributions)), [contributions]);
-  const goPrev = useCallback(() => setIndex((i) => clampIndex(i - 1, contributions)), [contributions]);
+  const goPrev = useCallback(
+    () => setIndex((i) => Math.max(readingStart, clampIndex(i - 1, contributions))),
+    [contributions, readingStart],
+  );
 
   useEffect(() => {
     if (!keyboard || phase === 'reveal') return;
