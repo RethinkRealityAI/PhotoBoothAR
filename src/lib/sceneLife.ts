@@ -335,6 +335,18 @@ export const DESIGN_LIFE: Record<CardDesignId, readonly LifeProp[]> = {
     { kind: 'shimmer', x: 600, y: 1192, size: 0.9, color: '#FFF1DE' },
     { kind: 'shootingStar', x: 140, y: 160, size: 1, period: 11, phase: 0.4 },
   ],
+  'festival-of-lights': [
+    { kind: 'firework', x: 210, y: 170, size: 1.2, phase: 0, color: '#FFC93C' },
+    { kind: 'firework', x: 680, y: 140, size: 1, phase: 0.35, color: '#E63973' },
+    { kind: 'firework', x: 470, y: 640, size: 0.8, phase: 0.68, color: '#00D1C1' },
+    { kind: 'glint', x: 290, y: 400, size: 0.8, phase: 0.2, color: '#FFF4D6' },
+    { kind: 'glint', x: 640, y: 470, size: 0.7, phase: 0.6, color: '#FFF4D6' },
+    { kind: 'flicker', x: 150, y: 1272, size: 0.5, color: '#FFB347' },
+    { kind: 'flicker', x: 450, y: 1272, size: 0.5, phase: 0.3, color: '#FFB347' },
+    { kind: 'flicker', x: 750, y: 1272, size: 0.5, phase: 0.6, color: '#FFB347' },
+    { kind: 'flicker', x: 150, y: 1220, size: 1, phase: 0.15, color: '#FFB347' },
+    { kind: 'flicker', x: 750, y: 1220, size: 1, phase: 0.8, color: '#FFB347' },
+  ],
   'winter-glow': [
     { kind: 'smoke', x: 455, y: 1180, size: 1, phase: 0 },
     { kind: 'smoke', x: 455, y: 1180, size: 1, phase: 0.5 },

@@ -43,7 +43,8 @@ export type CardDesignId =
   | 'grand-hall'
   | 'island-sunset'
   | 'jungle-party'
-  | 'love-notes';
+  | 'love-notes'
+  | 'festival-of-lights';
 
 /** Hosts see them in this order (broadest occasions first). */
 export const CARD_DESIGN_IDS = [
@@ -57,6 +58,7 @@ export const CARD_DESIGN_IDS = [
   'grand-hall',
   'island-sunset',
   'love-notes',
+  'festival-of-lights',
   'jungle-party',
   'winter-glow',
 ] as const satisfies readonly CardDesignId[];
@@ -213,6 +215,16 @@ export const CARD_DESIGNS: readonly CardDesign[] = [
     mid: { placement: 'bottom', size: 0.42 },
     motif: { kind: 'petals', colors: ['#E0566E', '#F08AA0', '#FFE1D6'] },
     palette: pal('#3A1F4A', '#F08AA0', '#FFD9C4'),
+  },
+  {
+    id: 'festival-of-lights',
+    label: 'Festival of lights',
+    description: 'Carved doors hung with marigolds open onto a lamp-lit courtyard under fireworks.',
+    goodFor: 'Diwali, family celebrations, any night lit by lamps',
+    gateway: { kind: 'doors' },
+    mid: { placement: 'top', size: 0.42 },
+    motif: { kind: 'sparkle', colors: ['#FFC93C', '#FFB347', '#FFF4D6'] },
+    palette: pal('#2D1458', '#FFB627', '#FFC93C'),
   },
   {
     id: 'jungle-party',
