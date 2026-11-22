@@ -443,3 +443,136 @@ export function frostLevel(meltAt: number, seconds: number): number {
   if (seconds >= MELT_S) return 0;
   return clamp01((meltAt - seconds) / (0.22 * MELT_S));
 }
+
+/* ------------------------------------------------------------------ */
+/* Gate dissolves: the gateway itself turns into the theme              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Some designs do not swing or slide their gate open: the gate itself turns
+ * into the occasion and is carried away, like the winter window's frost.
+ *
+ *   shatter  the gate breaks into pieces from the middle out; each piece
+ *            becomes a petal / a scrap of confetti / a fleck of gold as it flies
+ *   burn     the gate burns away from the middle out behind a glowing edge,
+ *            like a lamp-lit paper lantern or a sunset catching the drapes
+ */
+export type DissolveStyle = 'shatter' | 'burn';
+
+export interface DesignDissolve {
+  style: DissolveStyle;
+  /** shatter: what each piece becomes. */
+  into?: FxKind;
+  /** burn: the colour of the glowing edge. */
+  edge?: string;
+}
+
+export const DESIGN_DISSOLVE: Partial<Record<CardDesignId, DesignDissolve>> = {
+  'garden-gate': { style: 'shatter', into: 'petals' },
+  'balloon-bash': { style: 'shatter', into: 'confetti' },
+  'grand-hall': { style: 'shatter', into: 'golddust' },
+  'festival-of-lights': { style: 'burn', edge: '#FF9A3C' },
+  'golden-hour': { style: 'burn', edge: '#FFD27A' },
+};
+
+export const SHATTER_COLS = 12;
+export const SHATTER_ROWS = 22;
+/** The last piece lets go by this many seconds. */
+export const SHATTER_SPREAD_S = 0.95;
+/** Seconds a piece flies. */
+export const SHATTER_LIFE_S = 1.7;
+
+export interface ShatterTile {
+  col: number;
+  row: number;
+  /** Centre, stage fractions. */
+  cx: number;
+  cy: number;
+  delay: number;
+  vx: number;
+  vy: number;
+  spin: number;
+  /** Index into the design's flourish colours. */
+  color: number;
+}
+
+export function shatterTiles(seed: string, colorCount = 4): ShatterTile[] {
+  const rand = mulberry32(hash(`shatter|${seed}`));
+  const colors = Math.max(1, Math.floor(colorCount));
+  const out: ShatterTile[] = [];
+  for (let row = 0; row < SHATTER_ROWS; row++) {
+    for (let col = 0; col < SHATTER_COLS; col++) {
+      const cx = (col + 0.5) / SHATTER_COLS;
+      const cy = (row + 0.5) / SHATTER_ROWS;
+      const dx = cx - FX_ORIGIN.x;
+      const dy = (cy - FX_ORIGIN.y) * (16 / 9);
+      const dist = Math.min(1, Math.hypot(dx, dy) / 1.05);
+      const len = Math.hypot(dx, dy) || 1;
+      const r1 = rand();
+      const r2 = rand();
+      const r3 = rand();
+      const sp = 0.22 + r1 * 0.38;
+      out.push({
+        col,
+        row,
+        cx,
+        cy,
+        delay: Math.min(1, dist * 0.75 + r2 * 0.25) * SHATTER_SPREAD_S,
+        vx: (dx / len) * sp,
+        vy: ((dy / len) * sp * 9) / 16 - 0.12,
+        spin: (r3 - 0.5) * 8,
+        color: Math.floor(rand() * colors) % colors,
+      });
+    }
+  }
+  return out;
+}
+
+export interface ShatterPose {
+  /** Offset from the tile's home, stage fractions. */
+  dx: number;
+  dy: number;
+  rot: number;
+  /** Size of the piece relative to its tile. */
+  scale: number;
+  alpha: number;
+  /** 0 = still a piece of the gate, 1 = fully the theme's particle. */
+  morph: number;
+}
+
+/** Where a piece is `seconds` after the dissolve began; null once it is gone. */
+export function shatterPose(t: ShatterTile, seconds: number): ShatterPose | null {
+  if (!Number.isFinite(seconds)) return null;
+  const age = seconds - t.delay;
+  if (age < 0) return { dx: 0, dy: 0, rot: 0, scale: 1, alpha: 1, morph: 0 };
+  if (age > SHATTER_LIFE_S) return null;
+  return {
+    dx: ballistic(t.vx, 1.6, 0, age),
+    dy: ballistic(t.vy, 1.6, 0.3, age),
+    rot: t.spin * age,
+    scale: 1 - 0.6 * clamp01(age / 0.5),
+    alpha: 1 - clamp01((age - SHATTER_LIFE_S * 0.5) / (SHATTER_LIFE_S * 0.5)),
+    morph: clamp01(age / 0.4),
+  };
+}
+
+/** The burn: seconds to clear the gate, and when each cell of the melt grid goes. */
+export const BURN_S = 2.1;
+
+export function burnAt(col: number, row: number, seed: number): number {
+  return (frostMeltAt(col, row, seed) / MELT_S) * BURN_S;
+}
+
+/** Gate left on a cell (1 = untouched, 0 = burnt away). */
+export function burnLevel(at: number, seconds: number): number {
+  if (!Number.isFinite(seconds)) return 0;
+  if (seconds <= 0) return 1;
+  if (seconds >= BURN_S) return 0;
+  return clamp01((at - seconds) / (0.16 * BURN_S));
+}
+
+/** The glowing edge: brightest where the gate is just going, nothing on clear or untouched paper. */
+export function burnEdge(level: number): number {
+  if (!(level > 0) || level >= 1) return 0;
+  return Math.sin(Math.PI * Math.min(1, level * 1.6)) ** 2;
+}

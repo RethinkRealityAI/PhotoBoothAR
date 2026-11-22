@@ -38,8 +38,9 @@ import { clampIndex } from './templates/types';
 import { revealComponent } from './reveals/registry';
 import { REVEAL_HANDOFF_MS } from './reveals/types';
 import { hasWebGL } from '../carousel/PhotoCarousel';
-import { cardDesign, designCssVars } from '../../lib/cardDesigns';
+import { cardDesign, designAssets, designCssVars } from '../../lib/cardDesigns';
 import SceneBackdrop from './scenes/SceneBackdrop';
+import { MidPair } from './scenes/sceneParts';
 import { designSkin } from '../../lib/designSkins';
 import { DesignSkinContext } from './designSkin';
 
@@ -272,7 +273,9 @@ export default function CardExperience({
   const mainMotion: CSSProperties = premount
     ? {
         opacity: cardIn ? 1 : 0,
-        transform: cardIn || reducedMotion ? 'none' : 'translate3d(0, 34px, 0) scale(0.96)',
+        // The page grows out of the gateway it came through (the scene's centre).
+        transform: cardIn || reducedMotion ? 'none' : 'translate3d(0, 22px, 0) scale(0.9)',
+        transformOrigin: '50% 47%',
         transition: `opacity ${SCENE_RISE_MS * 0.7}ms ${SETTLE}, transform ${SCENE_RISE_MS}ms ${SETTLE}`,
         willChange: cardIn ? undefined : 'opacity, transform',
       }
@@ -307,7 +310,14 @@ export default function CardExperience({
             onScrollCapture={design ? onScrollCapture : undefined}
             className={`relative mx-auto flex min-h-0 w-full flex-1 flex-col pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] ${
               premount ? '' : 'transition-opacity ease-out'
-            } ${fullBleed ? 'max-w-none px-3 sm:px-6' : 'max-w-2xl px-4'}`}
+            } ${
+              design
+                ? // Inside the scene's own portrait column, never wider than the art.
+                  'max-w-[min(100%,calc(100dvh*9/16))] px-4'
+                : fullBleed
+                  ? 'max-w-none px-3 sm:px-6'
+                  : 'max-w-2xl px-4'
+            }`}
             style={mainMotion}
             // Waiting under the opening: hidden from screen readers and taps.
             aria-hidden={cardIn ? undefined : true}
@@ -323,8 +333,18 @@ export default function CardExperience({
               reducedMotion={reducedMotion}
             />
           </main>
+          {/* The scene's foreground cut-outs hang IN FRONT of the page, like the
+              front layer of a paper diorama (the pager and footer sit above them). */}
+          {design && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 left-1/2 z-10 aspect-[9/16] h-full max-w-full -translate-x-1/2"
+            >
+              <MidPair src={designAssets(design.id).mid} design={design} />
+            </div>
+          )}
           {hasOpening && phase === 'card' && (
-            <footer className="card-footer-in relative flex shrink-0 justify-center pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+            <footer className="card-footer-in relative z-20 flex shrink-0 justify-center pb-[max(0.5rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
                 onClick={replay}

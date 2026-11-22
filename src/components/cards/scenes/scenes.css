@@ -31,3 +31,16 @@
   @keyframes card-footer-fade { from { opacity: 0; } to { opacity: 1; } }
   .card-footer-in { animation: card-footer-fade 500ms ease-out both; }
 }
+
+/* Open gestures (SceneOpener): the hold seal breathes; a full hold bursts a ring of light. */
+@keyframes seal-breathe { 0%, 100% { opacity: 0.65; transform: scale(1.05); } 50% { opacity: 1; transform: scale(1.22); } }
+.seal-breathe { animation: seal-breathe 2.4s ease-in-out infinite; }
+@keyframes seal-burst { from { opacity: 0.95; transform: scale(1); } to { opacity: 0; transform: scale(2.6); } }
+.seal-burst { animation: seal-burst 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+@keyframes pull-nudge-left { 0%, 100% { transform: translateX(0); opacity: 0.9; } 50% { transform: translateX(-4px); opacity: 0.5; } }
+@keyframes pull-nudge-right { 0%, 100% { transform: translateX(0); opacity: 0.9; } 50% { transform: translateX(4px); opacity: 0.5; } }
+.pull-nudge-left { animation: pull-nudge-left 1.4s ease-in-out infinite; }
+.pull-nudge-right { animation: pull-nudge-right 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .seal-breathe, .seal-burst, .pull-nudge-left, .pull-nudge-right { animation: none; }
+}

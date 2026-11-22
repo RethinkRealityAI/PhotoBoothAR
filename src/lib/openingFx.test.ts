@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_DESIGN_IDS } from './cardDesigns';
+import { CARD_DESIGN_IDS, cardDesign } from './cardDesigns';
 import {
+  burnAt,
+  burnEdge,
+  burnLevel,
+  BURN_S,
+  DESIGN_DISSOLVE,
+  shatterPose,
+  shatterTiles,
+  SHATTER_COLS,
+  SHATTER_LIFE_S,
+  SHATTER_ROWS,
+  SHATTER_SPREAD_S,
   DESIGN_FX,
   frostAt,
   fxParticles,
@@ -138,5 +149,59 @@ describe('frost melt', () => {
     const mid = frostAt(Math.floor(MELT_COLS / 2), Math.floor(MELT_ROWS * 0.475), MELT_S * 0.45, 7);
     const corner = frostAt(0, 0, MELT_S * 0.45, 7);
     expect(mid).toBeLessThan(corner);
+  });
+});
+
+describe('gate dissolves', () => {
+  it('only names real designs, and each style has what it needs', () => {
+    for (const [id, d] of Object.entries(DESIGN_DISSOLVE)) {
+      expect(CARD_DESIGN_IDS as readonly string[]).toContain(id);
+      if (d!.style === 'shatter') expect(FX_KINDS).toContain(d!.into);
+      if (d!.style === 'burn') expect(d!.edge).toMatch(HEX);
+    }
+  });
+
+  it('dissolves only gates that do not need the finger to move them (no trace or pull designs)', () => {
+    for (const id of Object.keys(DESIGN_DISSOLVE)) {
+      const kind = cardDesign(id as (typeof CARD_DESIGN_IDS)[number]).gateway.kind;
+      expect(['doors', 'rise']).toContain(kind);
+    }
+  });
+
+  it('shatter: whole at first, breaks from the middle out, gone by the end', () => {
+    const tiles = shatterTiles('s');
+    expect(tiles).toHaveLength(SHATTER_COLS * SHATTER_ROWS);
+    for (const t of tiles) expect(shatterPose(t, 0)).toEqual({ dx: 0, dy: 0, rot: 0, scale: 1, alpha: 1, morph: 0 });
+    const centre = tiles.reduce((a, b) => (Math.hypot(a.cx - 0.5, a.cy - 0.475) < Math.hypot(b.cx - 0.5, b.cy - 0.475) ? a : b));
+    const corner = tiles[0];
+    expect(centre.delay).toBeLessThan(corner.delay);
+    for (const t of tiles) expect(shatterPose(t, SHATTER_SPREAD_S + SHATTER_LIFE_S + 0.01)).toBeNull();
+    expect(SHATTER_SPREAD_S + SHATTER_LIFE_S).toBeLessThanOrEqual(FX_DURATION_S);
+  });
+
+  it('shatter: pieces fly outward from the gateway centre', () => {
+    for (const t of shatterTiles('s').filter((x) => Math.abs(x.cx - 0.5) > 0.2)) {
+      const q = shatterPose(t, t.delay + 0.5)!;
+      expect(Math.sign(q.dx)).toBe(Math.sign(t.cx - 0.5));
+    }
+  });
+
+  it('burn: starts whole, ends clear, never un-burns, and glows only at the edge', () => {
+    for (let r = 0; r < MELT_ROWS; r += 4) {
+      for (let c = 0; c < MELT_COLS; c += 4) {
+        const at = burnAt(c, r, 3);
+        expect(burnLevel(at, 0)).toBe(1);
+        expect(burnLevel(at, BURN_S)).toBe(0);
+        let prev = 1;
+        for (let s = 0; s <= BURN_S; s += 0.05) {
+          const l = burnLevel(at, s);
+          expect(l).toBeLessThanOrEqual(prev + 1e-9);
+          prev = l;
+        }
+      }
+    }
+    expect(burnEdge(0)).toBe(0);
+    expect(burnEdge(1)).toBe(0);
+    expect(burnEdge(0.3)).toBeGreaterThan(0.5);
   });
 });

@@ -7,7 +7,8 @@
  * The opening ends on this exact composition (scene at scale 1, cut-outs
  * home), so the hand-off has nothing to jump. From then on the layers drift
  * with the reader: whatever scrolls inside the card moves the scene a little
- * and the foreground cut-outs more (lib/cardDesigns.ts sceneParallax), and
+ * (lib/cardDesigns.ts sceneParallax; the foreground cut-outs now hang in front
+ * of the page, in CardExperience), and
  * a pointer — or, on a phone, a very slow idle sway — tilts the depth.
  * A scrim in the design's own colour keeps every template legible on top.
  *
@@ -17,7 +18,6 @@ import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { designAssets, sceneParallax, type CardDesign } from '../../../lib/cardDesigns';
 import MotifLayer from './MotifLayer';
 import SceneLife from './SceneLife';
-import { MidPair } from './sceneParts';
 
 export interface SceneBackdropProps {
   design: CardDesign;
@@ -42,7 +42,6 @@ const READ_SCALE = 1.16;
 export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed, arrived = true }: SceneBackdropProps) {
   const assets = useMemo(() => designAssets(design.id), [design.id]);
   const backRef = useRef<HTMLDivElement | null>(null);
-  const midRef = useRef<HTMLDivElement | null>(null);
   const scrimRef = useRef<HTMLDivElement | null>(null);
   const arrivedRef = useRef(arrived);
   arrivedRef.current = arrived;
@@ -71,7 +70,6 @@ export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed, 
         a = 0;
         arrivedAt = 0;
         if (backRef.current) backRef.current.style.transform = 'none';
-        if (midRef.current) midRef.current.style.transform = 'none';
         if (scrimRef.current) scrimRef.current.style.opacity = '0';
         raf = requestAnimationFrame(tick);
         return;
@@ -90,7 +88,6 @@ export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed, 
       const o = sceneParallax(cur.s, cur.x, cur.y, reducedMotion);
       const zoom = 1 + (READ_SCALE - 1) * a;
       if (backRef.current) backRef.current.style.transform = `translate3d(${o.backX * a}%, ${o.backY * a}%, 0) scale(${zoom.toFixed(4)})`;
-      if (midRef.current) midRef.current.style.transform = `translate3d(${o.midX * a}%, ${o.midY * a}%, 0)`;
       if (scrimRef.current && a < 1) scrimRef.current.style.opacity = a.toFixed(3);
       else if (scrimRef.current && scrimRef.current.style.opacity !== '1') scrimRef.current.style.opacity = '1';
       raf = requestAnimationFrame(tick);
@@ -133,12 +130,6 @@ export default function SceneBackdrop({ design, scrollRef, reducedMotion, seed, 
         className="absolute inset-0"
         style={{ opacity: arrived ? 1 : 0, background: `linear-gradient(180deg, ${bg}59 0%, ${bg}8C 45%, ${bg}C7 100%)` }}
       />
-      {/* Same column as the opener's cut-outs, so they hand over in place. */}
-      <div className="absolute inset-0 mx-auto aspect-[9/16] h-full max-w-full">
-        <div ref={midRef} className="absolute inset-0 will-change-transform">
-          <MidPair src={assets.mid} design={design} />
-        </div>
-      </div>
       <MotifLayer
         kind={design.motif.kind}
         colors={design.motif.colors}

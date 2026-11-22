@@ -1056,7 +1056,7 @@ export function Pager({
   className?: string;
 }) {
   return (
-    <nav className={`flex items-center justify-center gap-4 ${className}`} aria-label="Card pages">
+    <nav className={`relative z-20 flex items-center justify-center gap-4 ${className}`} aria-label="Card pages">
       {onPrev && <GlassArrow dir="prev" onClick={onPrev} disabled={page === 0} label={`Previous ${noun}`} />}
       {total <= 12 ? (
         <div className="flex items-center gap-1.5" aria-label={`${noun} ${page + 1} of ${total}`} role="img">

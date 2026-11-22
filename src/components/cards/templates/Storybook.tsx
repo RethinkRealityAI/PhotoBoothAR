@@ -52,12 +52,40 @@ function PageShell({
   // A card design dresses the page: its own paper cut-outs in the corners,
   // and the gold filigree only where the occasion is formal.
   const skin = useDesignSkin();
+  if (skin) {
+    // Inside a design's scene the page is a pane of tinted paper set INTO the
+    // scene: sized to its content (the scene shows above and below it), no
+    // backdrop blur (blurring a moving scene every frame is what made the
+    // page shimmer), and the scene's cut-outs hang in front of its corners.
+    return (
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div
+          className="relative flex max-h-full w-full flex-col overflow-hidden rounded-[1.75rem]"
+          style={{
+            background:
+              'linear-gradient(180deg, color-mix(in srgb, var(--color-brand-bg) 58%, transparent), color-mix(in srgb, var(--color-brand-bg) 74%, transparent))',
+            boxShadow:
+              'inset 0 0 0 1px rgba(var(--accent-rgb),0.35), inset 0 1px 0 rgba(255,255,255,0.18), 0 30px 70px -28px rgba(0,0,0,0.55)',
+          }}
+        >
+          {skin.filigree && <CardOrnament density={density} reducedMotion={reducedMotion} />}
+          <DesignDecor />
+          <div
+            className="relative flex min-h-0 w-full flex-col items-center overflow-y-auto overscroll-contain px-6 py-7 text-center sm:px-9"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            <div className="flex w-full flex-col items-center">{children}</div>
+          </div>
+          <ShimmerRim radius="1.75rem" width={1.25} lapS={11} reducedMotion={reducedMotion} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="absolute inset-0 rounded-[2rem]">
       <div className="liquid-glass h-full w-full overflow-hidden rounded-[2rem]">
         {sheen && <TiltSheen reducedMotion={reducedMotion} />}
-        {(skin === null || skin.filigree) && <CardOrnament density={density} reducedMotion={reducedMotion} />}
-        <DesignDecor />
+        <CardOrnament density={density} reducedMotion={reducedMotion} />
         <div
           className="relative flex h-full w-full flex-col items-center overflow-y-auto overscroll-contain px-8 py-11 text-center sm:px-12"
           style={{ scrollbarWidth: 'none' }}
@@ -82,6 +110,7 @@ export function ContributionPage({
   of: number;
   reducedMotion: boolean;
 }) {
+  const inScene = useDesignSkin() !== null;
   if (c.mediaType === 'text' || !c.url) {
     return (
       <>
@@ -98,9 +127,11 @@ export function ContributionPage({
       <ContributionMedia
         c={c}
         reducedMotion={reducedMotion}
-        className="mt-4 aspect-[4/5] w-full max-w-[22rem] max-h-[min(52dvh,30rem)]"
+        className={`mt-4 aspect-[4/5] w-full ${
+          inScene ? 'max-w-[18.5rem] max-h-[min(44dvh,26rem)]' : 'max-w-[22rem] max-h-[min(52dvh,30rem)]'
+        }`}
       />
-      <Message message={c.message} className="mt-6 max-w-md" />
+      <Message message={c.message} className={inScene ? 'mt-5 max-w-md' : 'mt-6 max-w-md'} />
       <Signature name={c.contributorName} className="mt-4" />
     </>
   );

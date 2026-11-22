@@ -64,7 +64,7 @@ function star4(ctx: CanvasRenderingContext2D, s: number) {
   ctx.closePath();
 }
 
-function drawParticle(
+export function drawParticle(
   ctx: CanvasRenderingContext2D,
   kind: FxKind,
   q: FxPose,
