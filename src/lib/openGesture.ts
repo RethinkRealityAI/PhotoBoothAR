@@ -11,6 +11,13 @@
  *   pull   drapes, cloth, leaves and clouds: drag outwards and the two halves
  *          follow the finger; let go past halfway and they glide the rest of the
  *          way, short of it and they settle back
+ *   pop    a wall of balloons: tap them to pop them; once most are popped the
+ *          rest float away
+ *   bolts  a jewel box: slide its three gold bolts aside, each clicks open
+ *   turn   a porthole: turn its brass wheel and the window cracks open with it
+ *
+ * A design can ask for any of these (CardDesign.gesture); otherwise its
+ * gateway kind decides.
  *
  * Every gesture has a one-press fallback (keyboard, switch access, a hurry).
  * Pure: the component turns pointer events into numbers and asks these
@@ -18,7 +25,7 @@
  */
 import { cardDesign, type CardDesignId, type GatewayKind } from './cardDesigns';
 
-export type OpenGesture = 'trace' | 'hold' | 'pull';
+export type OpenGesture = 'trace' | 'hold' | 'pull' | 'pop' | 'bolts' | 'turn';
 
 export const GESTURE_FOR_KIND: Record<GatewayKind, OpenGesture> = {
   iris: 'trace',
@@ -28,7 +35,8 @@ export const GESTURE_FOR_KIND: Record<GatewayKind, OpenGesture> = {
 };
 
 export function gestureFor(id: CardDesignId): OpenGesture {
-  return GESTURE_FOR_KIND[cardDesign(id).gateway.kind];
+  const d = cardDesign(id);
+  return d.gesture ?? GESTURE_FOR_KIND[d.gateway.kind];
 }
 
 /** What the prompt says, in the design's own words. */
@@ -50,7 +58,13 @@ export const OPEN_HINT: Record<CardDesignId, string> = {
   'winter-glow': 'Trace the arch to open',
   'balloon-release': 'Hold to let the balloons go',
   showtime: 'Pull the curtains apart',
+  'pop-party': 'Pop the balloons',
+  'jewel-box': 'Slide the bolts to open',
+  'deep-blue': 'Turn the wheel to open',
 };
+
+/** The prompt when the host asked for the initials instead. */
+export const INITIALS_HINT = 'Trace your initials to open';
 
 /* ------------------------------------------------------------------ */
 /* hold                                                                */
@@ -130,4 +144,105 @@ export function pullSettle(from: number, ms: number): number {
   if (!Number.isFinite(ms) || ms <= 0) return f;
   const k = Math.min(1, ms / PULL_SETTLE_MS);
   return f * (1 - k) ** 3;
+}
+
+/* ------------------------------------------------------------------ */
+/* pop                                                                 */
+/* ------------------------------------------------------------------ */
+
+/** A tap pops every balloon whose centre is this close (stage units). */
+export const POP_RADIUS = 150;
+/** Share of the reachable balloons that opens it (the rest float away). */
+export const POP_OPEN_AT = 0.7;
+/** Balloons a finger can reach on a phone (the stage is cropped at the sides). */
+export const POP_REACH = { x0: 90, x1: 810, y0: 40, y1: 1560 } as const;
+
+export function popTargets(pieces: ReadonlyArray<{ x: number; y: number }>): number[] {
+  const out: number[] = [];
+  pieces.forEach((p, i) => {
+    if (p.x >= POP_REACH.x0 && p.x <= POP_REACH.x1 && p.y >= POP_REACH.y0 && p.y <= POP_REACH.y1) out.push(i);
+  });
+  return out;
+}
+
+/** The balloons a tap at `at` pops (not already popped), nearest first. */
+export function popAt(
+  pieces: ReadonlyArray<{ x: number; y: number }>,
+  popped: ReadonlySet<number>,
+  at: { x: number; y: number },
+  radius = POP_RADIUS,
+): number[] {
+  if (!Number.isFinite(at.x) || !Number.isFinite(at.y)) return [];
+  return pieces
+    .map((p, i) => ({ i, d: Math.hypot(p.x - at.x, p.y - at.y) }))
+    .filter((q) => q.d <= radius && !popped.has(q.i))
+    .sort((a, b) => a.d - b.d)
+    .map((q) => q.i);
+}
+
+/** How many reachable balloons are still to pop before it opens. */
+export function popsLeft(targets: readonly number[], popped: ReadonlySet<number>): number {
+  const need = Math.ceil(targets.length * POP_OPEN_AT);
+  const done = targets.reduce((n, i) => n + (popped.has(i) ? 1 : 0), 0);
+  return Math.max(0, need - done);
+}
+
+/* ------------------------------------------------------------------ */
+/* bolts                                                               */
+/* ------------------------------------------------------------------ */
+
+/** The three bolts across the jewel box's seam, in stage space. dir: which way it slides open. */
+export const BOLTS: ReadonlyArray<{ y: number; dir: -1 | 1 }> = [
+  { y: 560, dir: -1 },
+  { y: 800, dir: 1 },
+  { y: 1040, dir: -1 },
+];
+/** How far a bolt slides to clear the seam (stage units). */
+export const BOLT_TRAVEL = 150;
+/** Let go past this and it clicks open; short of it, it slides back. */
+export const BOLT_CLICK_AT = 0.7;
+/** How far into the opening timeline each open bolt lets the doors give. */
+export const BOLT_CRACK_T = 0.012;
+
+/** Bolt progress 0..1 from the finger's horizontal travel (stage units). */
+export function boltProgress(dx: number, dir: -1 | 1): number {
+  if (!Number.isFinite(dx)) return 0;
+  return Math.max(0, Math.min(1, (dx * dir) / BOLT_TRAVEL));
+}
+
+/** Where a released bolt settles: open (1) or back home (0). */
+export function boltRelease(p: number): 0 | 1 {
+  return Number.isFinite(p) && p >= BOLT_CLICK_AT ? 1 : 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* turn                                                                */
+/* ------------------------------------------------------------------ */
+
+/** How far round the wheel turns to open (radians; either way round). */
+export const TURN_FULL = (330 * Math.PI) / 180;
+/** Samples this close to the hub are ignored (the angle is meaningless there). */
+export const TURN_DEADZONE = 36;
+/** How far into the opening timeline a full turn has cracked the window. */
+export const TURN_CRACK_T = 0.06;
+
+/** The signed change of angle between two samples, unwrapped to (-pi, pi]. */
+export function turnDelta(prev: number, next: number): number {
+  if (!Number.isFinite(prev) || !Number.isFinite(next)) return 0;
+  let d = next - prev;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d <= -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
+/** Turn progress 0..1 from the accumulated angle (either direction). */
+export function turnProgress(acc: number): number {
+  if (!Number.isFinite(acc)) return 0;
+  return Math.min(1, Math.abs(acc) / TURN_FULL);
+}
+
+/** Opening-timeline position for a turn: the window cracks as the wheel turns. */
+export function turnT(progress: number): number {
+  const p = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+  return TURN_CRACK_T * p * p;
 }

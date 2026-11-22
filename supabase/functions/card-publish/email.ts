@@ -91,6 +91,9 @@ export const EMAIL_DESIGNS: Readonly<Record<string, { bg: string; accent: string
   'winter-glow': { bg: '#1B2B5A', accent: '#DCEBFF', fg: '#FFFFFF', kicker: 'Warm wishes, from all of us' },
   'balloon-release': { bg: '#4B4FA8', accent: '#FFE29A', fg: '#FFFFFF', kicker: 'Let them go, it’s your day' },
   showtime: { bg: '#2A0A14', accent: '#F2C14E', fg: '#FFFFFF', kicker: 'Tonight, the spotlight is yours' },
+  'pop-party': { bg: '#7A2E5C', accent: '#FFD36B', fg: '#FFFFFF', kicker: 'Pop, pop, hooray, it’s your day' },
+  'jewel-box': { bg: '#2A0E24', accent: '#E4B451', fg: '#FFFFFF', kicker: 'A little treasure, just for you' },
+  'deep-blue': { bg: '#0F3A4A', accent: '#D7A54C', fg: '#FFFFFF', kicker: 'Dive in, something wonderful is waiting' },
 };
 
 /** MIRROR of EMAIL_HERO_VERSION / EMAIL_HERO_W / EMAIL_HERO_H in src/lib/designPacks.ts (parity-tested). */

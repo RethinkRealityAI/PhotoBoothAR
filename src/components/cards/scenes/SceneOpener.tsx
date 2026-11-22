@@ -43,7 +43,10 @@ import {
 } from '../../../lib/traceOpen';
 import { DESIGN_DISSOLVE } from '../../../lib/openingFx';
 import {
+  BOLT_CRACK_T,
   gestureFor,
+  INITIALS_HINT,
+  turnT,
   holdDrain,
   holdProgress,
   holdT,
@@ -60,6 +63,12 @@ import LiveGate from './LiveGate';
 import { LIVE_SEED } from '../../../lib/liveGates';
 import { SceneStage, MidPair, decodeImages } from './sceneParts';
 import SceneLife from './SceneLife';
+import PopLayer from './PopLayer';
+import BoltsLock from './BoltsLock';
+import TurnWheel from './TurnWheel';
+import InitialsGate from './InitialsGate';
+import { DESIGN_LETTERING, initialsLayout, initialsOf } from '../../../lib/initialsTrace';
+import type { CardUnlock } from '../../../lib/cardPresentation';
 
 /** Hold on the settled title plate before handing over to the card. */
 const PLATE_HOLD_MS = 650;
@@ -68,11 +77,13 @@ const ART_TIMEOUT_MS = 2500;
 
 export interface SceneOpenerProps extends CardRevealProps {
   design: CardDesign;
+  /** 'initials': the recipient traces their initials instead of the design's gesture. */
+  unlock?: CardUnlock;
 }
 
 type Phase = 'loading' | 'closed' | 'opening' | 'done';
 
-export default function SceneOpener({ card, design, reducedMotion, onDone }: SceneOpenerProps) {
+export default function SceneOpener({ card, design, reducedMotion, onDone, unlock = 'design' }: SceneOpenerProps) {
   const assets = useMemo(() => designAssets(design.id), [design.id]);
   const kind = design.gateway.kind;
   const [phase, setPhase] = useState<Phase>('loading');
@@ -93,8 +104,17 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
   const dissolve = DESIGN_DISSOLVE[design.id] ?? null;
   const dissolvingRef = useRef(false);
 
+  // The host can ask for the recipient's initials instead of the design's own gesture.
+  const initials = useMemo(
+    () => (unlock === 'initials' ? initialsLayout(initialsOf(card.recipientName)) : null),
+    [unlock, card.recipientName],
+  );
+  const gesture = initials ? 'initials' : gestureFor(design.id);
+  /** Gestures drawn as their own layer over the gate (the closed UI lets taps through to it). */
+  const layered = gesture === 'initials' || gesture === 'pop' || gesture === 'bolts' || gesture === 'turn';
+
   // Trace-to-open (iris designs): the finger runs round the carved rim.
-  const traceShape = kind === 'iris' ? (design.gateway.shape ?? 'circle') : null;
+  const traceShape = gesture === 'trace' && kind === 'iris' ? (design.gateway.shape ?? 'circle') : null;
   const outline = useMemo(() => (traceShape ? rimOutline(traceShape) : []), [traceShape]);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const tracedRef = useRef<SVGPathElement | null>(null);
@@ -204,7 +224,6 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
   }, [phase, assets.back, assets.mid, reducedMotion, apply, kind, onDone, dissolve]);
 
   // --- Hold (doors, seals, lifting walls) and pull (drapes, leaves) -------
-  const gesture = gestureFor(design.id);
   const gestureRaf = useRef(0);
   const ringRef = useRef<SVGCircleElement | null>(null);
   const holdRef = useRef({ down: false, start: 0, releasedAt: 0, fromP: 0, p: 0 });
@@ -330,6 +349,40 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
   }, [open, apply, kind, reducedMotion]);
 
   useEffect(() => () => cancelAnimationFrame(gestureRaf.current), []);
+
+  // --- Pop, bolts, turn, initials: their layers report progress here -----
+  const poppedRef = useRef<Map<string, number>>(new Map());
+  const [popsLeft, setPopsLeftState] = useState<number | null>(null);
+  /** How many it takes, so the prompt only starts counting once popping has begun. */
+  const popsTotal = useRef(Infinity);
+  const setPopsLeft = useCallback((n: number) => {
+    if (popsTotal.current === Infinity) popsTotal.current = n;
+    setPopsLeftState(n);
+  }, []);
+  const [boltsOpen, setBoltsOpen] = useState(0);
+  const [turned, setTurned] = useState(0);
+  const [unlocked, setUnlocked] = useState(false);
+  const onBoltCount = useCallback(
+    (n: number) => {
+      setBoltsOpen(n);
+      applyT(BOLT_CRACK_T * n);
+    },
+    [applyT],
+  );
+  const onTurn = useCallback(
+    (p: number) => {
+      setTurned(p);
+      applyT(turnT(p));
+    },
+    [applyT],
+  );
+  const unlockAndOpen = useCallback(
+    (from = 0) => {
+      setUnlocked(true);
+      void open(from);
+    },
+    [open],
+  );
 
   /** Pointer → the 900x1600 stage space the rim is drawn in. */
   const toStage = useCallback((e: React.PointerEvent) => {
@@ -493,7 +546,15 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
             />
           ))}
         {design.live && (
-          <LiveGate kind={design.live} seed={LIVE_SEED} tRef={tRef} chargeRef={chargeRef} reducedMotion={reducedMotion} />
+          <LiveGate
+            kind={design.live}
+            seed={LIVE_SEED}
+            tRef={tRef}
+            chargeRef={chargeRef}
+            reducedMotion={reducedMotion}
+            poppedRef={gesture === 'pop' ? poppedRef : undefined}
+            noBase={gesture === 'pop'}
+          />
         )}
         {kind === 'iris' && (
           <svg ref={svgRef} viewBox="0 0 900 1600" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
@@ -595,10 +656,56 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
         </div>
       </div>
 
+      {/* Gestures with their own layer over the gate */}
+      {gesture === 'pop' && phase !== 'done' && (
+        <PopLayer
+          seed={LIVE_SEED}
+          poppedRef={poppedRef}
+          disabled={phase !== 'closed'}
+          reducedMotion={reducedMotion}
+          onLeft={setPopsLeft}
+          onAllPopped={() => unlockAndOpen(0)}
+        />
+      )}
+      {gesture === 'bolts' && phase !== 'done' && phase !== 'loading' && (
+        <BoltsLock
+          accent={design.palette.accent}
+          glow={design.palette.glow}
+          disabled={phase !== 'closed'}
+          reducedMotion={reducedMotion}
+          onOpenCount={onBoltCount}
+          onAllOpen={() => unlockAndOpen(BOLT_CRACK_T * 3)}
+          leaving={phase === 'opening'}
+        />
+      )}
+      {gesture === 'turn' && phase !== 'done' && phase !== 'loading' && (
+        <TurnWheel
+          accent={design.palette.accent}
+          glow={design.palette.glow}
+          disabled={phase !== 'closed'}
+          reducedMotion={reducedMotion}
+          onProgress={onTurn}
+          onComplete={() => unlockAndOpen(turnT(1))}
+          leaving={phase === 'opening'}
+        />
+      )}
+      {initials && phase !== 'done' && phase !== 'loading' && (
+        <InitialsGate
+          layout={initials}
+          style={DESIGN_LETTERING[design.id]}
+          accent={design.palette.accent}
+          glow={design.palette.glow}
+          disabled={phase !== 'closed'}
+          reducedMotion={reducedMotion}
+          leaving={phase === 'opening'}
+          onComplete={() => unlockAndOpen(0)}
+        />
+      )}
+
       {/* Before the tap: the name plate and the button */}
       {closed && (
         <div
-          className="absolute inset-0 flex flex-col items-center justify-between px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[22%]"
+          className={`absolute inset-0 flex flex-col items-center justify-between px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[22%] ${layered ? 'pointer-events-none' : ''}`}
           style={traceShape || gesture === 'pull' ? { touchAction: 'none' } : undefined}
           onPointerDown={traceShape ? onTraceDown : gesture === 'pull' ? onPullDown : undefined}
           onPointerMove={traceShape ? onTraceMove : gesture === 'pull' ? onPullMove : undefined}
@@ -640,8 +747,16 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
               <span>
                 {phase === 'loading'
                   ? 'Getting it ready…'
-                  : traceDone || holdState === 'done'
+                  : traceDone || holdState === 'done' || unlocked
                     ? 'Opening…'
+                    : gesture === 'initials'
+                      ? INITIALS_HINT
+                      : gesture === 'pop' && popsLeft !== null && popsLeft < Math.ceil(popsTotal.current)
+                        ? `${popsLeft} more to pop`
+                        : gesture === 'bolts' && boltsOpen > 0
+                          ? `${boltsOpen} of 3 open`
+                          : gesture === 'turn' && turned > 0.04
+                            ? 'Keep turning…'
                     : holdState === 'holding'
                       ? 'Keep holding…'
                       : holdState === 'short'
@@ -656,10 +771,10 @@ export default function SceneOpener({ card, design, reducedMotion, onDone }: Sce
             {gesture !== 'hold' && (
               <button
                 type="button"
-                onClick={open}
+                onClick={() => unlockAndOpen(0)}
                 disabled={phase !== 'closed'}
                 autoFocus
-                className="min-h-[44px] rounded-full bg-black/25 px-4 font-sans text-[13px] font-medium text-white/90 underline decoration-white/40 underline-offset-4 backdrop-blur-sm transition hover:text-white disabled:opacity-60"
+                className="pointer-events-auto min-h-[44px] rounded-full bg-black/25 px-4 font-sans text-[13px] font-medium text-white/90 underline decoration-white/40 underline-offset-4 backdrop-blur-sm transition hover:text-white disabled:opacity-60"
               >
                 Or tap here to open
               </button>

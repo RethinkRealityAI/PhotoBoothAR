@@ -393,6 +393,29 @@ export const DESIGN_LIFE: Record<CardDesignId, readonly LifeProp[]> = {
     { kind: 'flicker', x: 830, y: 760, size: 0.7, phase: 0.5, color: '#FFE9A8' },
     { kind: 'flicker', x: 450, y: 170, size: 0.7, phase: 0.25, color: '#FFE9A8' },
   ],
+  'pop-party': [
+    { kind: 'flicker', x: 385, y: 865, size: 0.6, color: '#FFD58A' },
+    { kind: 'flicker', x: 420, y: 858, size: 0.6, phase: 0.3, color: '#FFD58A' },
+    { kind: 'flicker', x: 475, y: 860, size: 0.6, phase: 0.6, color: '#FFD58A' },
+    { kind: 'flicker', x: 505, y: 866, size: 0.6, phase: 0.8, color: '#FFD58A' },
+    { kind: 'balloon', x: 120, y: 520, size: 0.8, phase: 0.2, color: '#5ED1C6' },
+    { kind: 'balloon', x: 790, y: 600, size: 0.75, phase: 0.6, color: '#FFD36B' },
+    { kind: 'glint', x: 450, y: 420, size: 0.8, phase: 0.4 },
+  ],
+  'jewel-box': [
+    { kind: 'glint', x: 450, y: 1395, size: 1.3, phase: 0 },
+    { kind: 'glint', x: 448, y: 905, size: 0.9, phase: 0.35 },
+    { kind: 'glint', x: 175, y: 965, size: 0.6, phase: 0.6 },
+    { kind: 'glint', x: 735, y: 1040, size: 0.6, phase: 0.8 },
+    { kind: 'shimmer', x: 450, y: 220, size: 1.2, color: '#FFFFFF' },
+    { kind: 'rays', x: 450, y: 1390, size: 0.8, color: '#FFF4DE' },
+  ],
+  'deep-blue': [
+    { kind: 'rays', x: 450, y: 0, size: 1.6, color: '#E8FBFF' },
+    { kind: 'shimmer', x: 450, y: 60, size: 1.5, color: '#FFFFFF' },
+    { kind: 'glint', x: 610, y: 240, size: 0.6, phase: 0.2 },
+    { kind: 'glint', x: 140, y: 380, size: 0.5, phase: 0.7 },
+  ],
 };
 
 export function designLife(id: CardDesignId): readonly LifeProp[] {

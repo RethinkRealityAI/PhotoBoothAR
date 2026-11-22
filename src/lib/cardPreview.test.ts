@@ -95,7 +95,7 @@ describe('buildCardPreview', () => {
 describe('mergePresentation', () => {
   it('applies one axis onto the stored value and fills the rest', () => {
     expect(mergePresentation({ reveal: 'curtain' }, { email: 'spotlight' })).toEqual({
-      v: 1, reveal: 'curtain', email: 'spotlight', look: 'auto', design: 'none',
+      v: 1, reveal: 'curtain', email: 'spotlight', look: 'auto', design: 'none', unlock: 'design',
     });
   });
   it('carries a design pick through and keeps it across other picks', () => {

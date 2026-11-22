@@ -44,6 +44,9 @@ const SAMPLE: Record<CardDesignId, { title: string; recipient: string }> = {
   'winter-glow': { title: 'Merry Christmas, Grandma', recipient: 'Grandma' },
   'balloon-release': { title: 'Happy 7th birthday, Zara!', recipient: 'Zara' },
   showtime: { title: 'Bravo, Nneka!', recipient: 'Nneka' },
+  'pop-party': { title: 'Happy 5th birthday, Leo!', recipient: 'Leo Martins' },
+  'jewel-box': { title: 'Happy anniversary, Ada', recipient: 'Ada Obi' },
+  'deep-blue': { title: 'Happy retirement, Sam!', recipient: 'Sam Reyes' },
 };
 
 function sampleContributions(): CardViewContribution[] {
@@ -84,6 +87,7 @@ export default function CardDesignGallery() {
   const reducedMotion = useReducedMotion() ?? false;
   const [open, setOpen] = useState<CardDesignId | null>(null);
   const [template, setTemplate] = useState('storybook');
+  const [unlock, setUnlock] = useState<'design' | 'initials'>('design');
   const contributions = useMemo(sampleContributions, []);
 
   useEffect(() => {
@@ -108,7 +112,7 @@ export default function CardDesignGallery() {
         recipientName: SAMPLE[open].recipient,
         template,
         theme: {},
-        presentation: { reveal: 'envelope', design: open },
+        presentation: { reveal: 'envelope', design: open, unlock },
         publishedAt: '2026-11-21T00:00:00Z',
         eventName: null,
         filmUrl: null,
@@ -145,6 +149,29 @@ export default function CardDesignGallery() {
         </div>
       </div>
 
+      <div className="mx-auto mt-4 max-w-5xl">
+        <p id="gallery-unlock" className="mb-2 font-sans text-[13px] font-semibold text-brand-fg">How it opens</p>
+        <div role="radiogroup" aria-labelledby="gallery-unlock" className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
+          {([
+            ['design', 'The design’s own way'],
+            ['initials', 'Trace their initials'],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={unlock === id}
+              onClick={() => setUnlock(id)}
+              className={`pressable min-h-11 shrink-0 rounded-full px-4 font-sans text-[13px] font-medium ${
+                unlock === id ? 'is-selected text-brand-fg' : 'liquid-glass text-brand-muted hover:text-brand-fg'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <ul className="mx-auto mt-6 grid max-w-5xl grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {CARD_DESIGNS.map((d) => (
           <li key={d.id}>
@@ -170,7 +197,7 @@ export default function CardDesignGallery() {
 
       {open && card && (
         <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={`${SAMPLE[open].title}, sample card`}>
-          <CardExperience key={`${open}:${template}`} card={card} contributions={contributions} reducedMotion={reducedMotion} />
+          <CardExperience key={`${open}:${template}:${unlock}`} card={card} contributions={contributions} reducedMotion={reducedMotion} />
           <button
             type="button"
             onClick={() => setOpen(null)}

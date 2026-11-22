@@ -63,6 +63,9 @@ const EMAIL_FOCUS: Partial<Record<CardDesignId, number>> = {
   'winter-glow': 0.62,
   'balloon-release': 0.6,
   showtime: 0.56,
+  'pop-party': 0.62,
+  'jewel-box': 0.62,
+  'deep-blue': 0.55,
 };
 
 export interface DesignPack {
@@ -114,6 +117,9 @@ const KICKERS: Record<CardDesignId, string> = {
   'winter-glow': 'Warm wishes, from all of us',
   'balloon-release': 'Let them go, it’s your day',
   showtime: 'Tonight, the spotlight is yours',
+  'pop-party': 'Pop, pop, hooray, it’s your day',
+  'jewel-box': 'A little treasure, just for you',
+  'deep-blue': 'Dive in, something wonderful is waiting',
 };
 
 export function designPack(id: CardDesignId): DesignPack {

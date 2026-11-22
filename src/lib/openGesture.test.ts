@@ -13,7 +13,21 @@ import {
   pullSettle,
   pullT,
   PULL_MAX_T,
+  boltProgress,
+  boltRelease,
+  BOLTS,
+  BOLT_TRAVEL,
+  popAt,
+  popsLeft,
+  popTargets,
+  POP_OPEN_AT,
+  turnDelta,
+  turnProgress,
+  turnT,
+  TURN_CRACK_T,
+  TURN_FULL,
 } from './openGesture';
+import { livePieces } from './liveGates';
 
 describe('every design asks to be opened its own way', () => {
   it('has a hint for every design and no strays', () => {
@@ -27,13 +41,26 @@ describe('every design asks to be opened its own way', () => {
       if (g === 'trace') expect(hint).toMatch(/^trace /);
       if (g === 'hold') expect(hint).toMatch(/^hold /);
       if (g === 'pull') expect(hint).toMatch(/^(pull|part) /);
+      if (g === 'pop') expect(hint).toMatch(/^pop /);
+      if (g === 'bolts') expect(hint).toMatch(/^slide /);
+      if (g === 'turn') expect(hint).toMatch(/^turn /);
     });
   }
 
-  it('window shapes trace, drapes pull, doors and lifting walls hold', () => {
+  it('window shapes trace, drapes pull, doors and lifting walls hold, unless the design asks for its own', () => {
     for (const id of CARD_DESIGN_IDS) {
-      const kind = cardDesign(id).gateway.kind;
-      expect(gestureFor(id)).toBe(kind === 'iris' ? 'trace' : kind === 'slide' ? 'pull' : 'hold');
+      const d = cardDesign(id);
+      const kind = d.gateway.kind;
+      expect(gestureFor(id)).toBe(d.gesture ?? (kind === 'iris' ? 'trace' : kind === 'slide' ? 'pull' : 'hold'));
+    }
+  });
+
+  it('the special mechanics sit on gates that can carry them', () => {
+    for (const id of CARD_DESIGN_IDS) {
+      const d = cardDesign(id);
+      if (d.gesture === 'pop') expect(d.live).toBe('balloons');
+      if (d.gesture === 'bolts') expect(d.gateway.kind).toBe('doors');
+      if (d.gesture === 'turn') expect(d.gateway.kind).toBe('iris');
     }
   });
 });
@@ -93,5 +120,92 @@ describe('pull', () => {
     expect(pullSettle(0.4, 0)).toBe(0.4);
     expect(pullSettle(0.4, 100)).toBeLessThan(0.4);
     expect(pullSettle(0.4, 10_000)).toBe(0);
+  });
+});
+
+describe('pop', () => {
+  const pieces = livePieces('balloons');
+  const targets = popTargets(pieces);
+
+  it('only counts balloons a finger can reach', () => {
+    expect(targets.length).toBeGreaterThan(30);
+    expect(targets.length).toBeLessThan(pieces.length);
+  });
+
+  it('a tap pops the balloons around it, nearest first, never twice', () => {
+    const hit = popAt(pieces, new Set(), { x: 450, y: 760 });
+    expect(hit.length).toBeGreaterThan(1);
+    const d = (i: number) => Math.hypot(pieces[i].x - 450, pieces[i].y - 760);
+    for (let k = 1; k < hit.length; k++) expect(d(hit[k])).toBeGreaterThanOrEqual(d(hit[k - 1]));
+    expect(popAt(pieces, new Set(hit), { x: 450, y: 760 })).toEqual([]);
+    expect(popAt(pieces, new Set(), { x: NaN, y: 0 })).toEqual([]);
+  });
+
+  it('opens once most reachable balloons are popped, in a handful of taps', () => {
+    const popped = new Set<number>();
+    expect(popsLeft(targets, popped)).toBe(Math.ceil(targets.length * POP_OPEN_AT));
+    let taps = 0;
+    while (popsLeft(targets, popped) > 0 && taps < 60) {
+      // Tap on the next balloon still standing.
+      const next = targets.find((i) => !popped.has(i))!;
+      for (const i of popAt(pieces, popped, pieces[next])) popped.add(i);
+      taps++;
+    }
+    expect(popsLeft(targets, popped)).toBe(0);
+    expect(taps).toBeGreaterThanOrEqual(4);
+    expect(taps).toBeLessThanOrEqual(16);
+  });
+});
+
+describe('bolts', () => {
+  it('three bolts that alternate, each slid its own way', () => {
+    expect(BOLTS).toHaveLength(3);
+    expect(BOLTS[0].dir).not.toBe(BOLTS[1].dir);
+  });
+
+  it('progress follows the finger only in the bolt\'s direction', () => {
+    expect(boltProgress(BOLT_TRAVEL / 2, 1)).toBeCloseTo(0.5, 5);
+    expect(boltProgress(-BOLT_TRAVEL / 2, 1)).toBe(0);
+    expect(boltProgress(-BOLT_TRAVEL * 3, -1)).toBe(1);
+    expect(boltProgress(NaN, 1)).toBe(0);
+  });
+
+  it('clicks open past the catch, slides home short of it', () => {
+    expect(boltRelease(0.9)).toBe(1);
+    expect(boltRelease(0.3)).toBe(0);
+    expect(boltRelease(NaN)).toBe(0);
+  });
+});
+
+describe('turn', () => {
+  it('unwraps across the seam at pi', () => {
+    expect(turnDelta(3.1, -3.1)).toBeCloseTo(2 * Math.PI - 6.2, 5);
+    expect(turnDelta(-3.1, 3.1)).toBeCloseTo(-(2 * Math.PI - 6.2), 5);
+    expect(turnDelta(0, 0.5)).toBeCloseTo(0.5, 5);
+    expect(turnDelta(NaN, 1)).toBe(0);
+  });
+
+  it('either way round counts, and a full turn opens', () => {
+    expect(turnProgress(TURN_FULL / 2)).toBeCloseTo(0.5, 5);
+    expect(turnProgress(-TURN_FULL / 2)).toBeCloseTo(0.5, 5);
+    expect(turnProgress(TURN_FULL * 2)).toBe(1);
+    expect(turnProgress(NaN)).toBe(0);
+  });
+
+  it('a slow circle of small steps adds up to a turn', () => {
+    let acc = 0;
+    let prev = Math.atan2(0, 1);
+    for (let a = 0.05; a <= 2 * Math.PI; a += 0.05) {
+      const next = Math.atan2(Math.sin(a), Math.cos(a));
+      acc += turnDelta(prev, next);
+      prev = next;
+    }
+    expect(turnProgress(acc)).toBe(1);
+  });
+
+  it('cracks the window as the wheel turns', () => {
+    expect(turnT(0)).toBe(0);
+    expect(turnT(1)).toBeCloseTo(TURN_CRACK_T, 9);
+    expect(turnT(0.5)).toBeLessThan(TURN_CRACK_T / 2);
   });
 });

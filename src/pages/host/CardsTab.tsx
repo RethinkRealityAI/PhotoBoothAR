@@ -1024,7 +1024,7 @@ export default function CardsTab() {
    */
   const setCardPresentation = async (
     card: CardRow,
-    patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look' | 'design'>>,
+    patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look' | 'design' | 'unlock'>>,
   ) => {
     const next: Record<string, unknown> = { ...mergePresentation(card.presentation, patch) };
     if (!confirmedPresentation.current.has(card.id)) {

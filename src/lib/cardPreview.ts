@@ -106,7 +106,7 @@ export function buildCardPreview(input: CardPreviewInput): CardPreviewData {
  *  normalised presentation — the shape migration 049's CHECK expects. */
 export function mergePresentation(
   stored: unknown,
-  patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look' | 'design'>>,
+  patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look' | 'design' | 'unlock'>>,
 ): CardPresentation {
   return normalizeCardPresentation({ ...normalizeCardPresentation(stored), ...patch });
 }

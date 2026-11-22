@@ -84,6 +84,8 @@ export interface LivePiece {
   rand: number;
   /** Per-piece phase, radians. */
   phase: number;
+  /** Its main colour (a popped balloon bursts in it). */
+  color?: string;
 }
 
 export interface LivePose {
@@ -141,6 +143,7 @@ export function livePieces(kind: LiveGateKind, seed = 'live'): LivePiece[] {
         dist: Math.min(1, Math.hypot(hx - CX, (hy - CY) * 0.62) / 640),
         rand: rand(),
         phase: rand() * Math.PI * 2,
+        color: BALLOON_COLORS[ci],
       });
     }
   }

@@ -31,6 +31,7 @@
 /* The closed set                                                      */
 /* ------------------------------------------------------------------ */
 
+import type { OpenGesture } from './openGesture';
 import type { LiveGateKind } from './liveGates';
 
 export type CardDesignId =
@@ -50,7 +51,10 @@ export type CardDesignId =
   | 'crescent-night'
   | 'golden-hour'
   | 'balloon-release'
-  | 'showtime';
+  | 'showtime'
+  | 'pop-party'
+  | 'jewel-box'
+  | 'deep-blue';
 
 /** Hosts see them in this order (broadest occasions first). */
 export const CARD_DESIGN_IDS = [
@@ -71,6 +75,9 @@ export const CARD_DESIGN_IDS = [
   'winter-glow',
   'balloon-release',
   'showtime',
+  'pop-party',
+  'jewel-box',
+  'deep-blue',
 ] as const satisfies readonly CardDesignId[];
 
 /** 'none' = no illustrated design: the card uses its reveal + look as before. */
@@ -120,6 +127,11 @@ export interface CardDesign {
    * piece moves on its own; its gate.webp is only the still for pictures.
    */
   live?: LiveGateKind;
+  /**
+   * How the recipient opens it, when not the gateway kind's usual gesture
+   * (lib/openGesture.ts): pop the balloons, slide the bolts, turn the wheel.
+   */
+  gesture?: OpenGesture;
 }
 
 const pal = (bg: string, accent: string, glow: string, fg = '#FFFFFF'): DesignPalette => ({
@@ -302,6 +314,40 @@ export const CARD_DESIGNS: readonly CardDesign[] = [
     motif: { kind: 'sparkle', colors: ['#FFE7A3', '#FFFFFF', '#F2C14E'] },
     palette: pal('#2A0A14', '#F2C14E', '#FFE2A0'),
     live: 'curtains',
+  },
+  {
+    id: 'pop-party',
+    label: 'Pop party',
+    description: 'Pop a wall of balloons, one burst of confetti at a time, onto a candy-bright party with cake and presents.',
+    goodFor: 'Kids’ birthdays, first birthdays, surprise parties',
+    gateway: { kind: 'rise' },
+    mid: { placement: 'top', size: 0.4 },
+    motif: { kind: 'confetti', colors: ['#FFD36B', '#5ED1C6', '#F07B6B', '#C9A8FF', '#FFFFFF'] },
+    palette: pal('#7A2E5C', '#FFD36B', '#FFF0C2'),
+    live: 'balloons',
+    gesture: 'pop',
+  },
+  {
+    id: 'jewel-box',
+    label: 'Jewel box',
+    description: 'Slide three gold bolts on a lacquered jewel box and its doors swing open onto velvet, pearls and gems.',
+    goodFor: 'Anniversaries, engagements, milestone birthdays, proposals',
+    gateway: { kind: 'doors' },
+    mid: { placement: 'top', size: 0.36 },
+    motif: { kind: 'sparkle', colors: ['#FFE7A3', '#FFFFFF', '#F6C1D9'] },
+    palette: pal('#2A0E24', '#E4B451', '#FFE2A8'),
+    gesture: 'bolts',
+  },
+  {
+    id: 'deep-blue',
+    label: 'Deep blue',
+    description: 'Turn the brass wheel on a ship’s porthole and it opens onto a sunlit coral reef.',
+    goodFor: 'Kids’ birthdays, summer parties, retirements, bon voyages',
+    gateway: { kind: 'iris', shape: 'circle' },
+    mid: { placement: 'bottom', size: 0.42 },
+    motif: { kind: 'fireflies', colors: ['#E8FBFF', '#BFF3FF'] },
+    palette: pal('#0F3A4A', '#D7A54C', '#62D3EA'),
+    gesture: 'turn',
   },
 ];
 

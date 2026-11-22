@@ -46,7 +46,13 @@ describe('normalizeCardPresentation', () => {
   it('keeps valid choices and drops unknown keys', () => {
     expect(
       normalizeCardPresentation({ reveal: 'airplane', email: 'spotlight', look: 'event', extra: '<script>' }),
-    ).toEqual({ v: 1, reveal: 'airplane', email: 'spotlight', look: 'event', design: 'none' });
+    ).toEqual({ v: 1, reveal: 'airplane', email: 'spotlight', look: 'event', design: 'none', unlock: 'design' });
+  });
+
+  it('keeps the initials unlock and drops an unknown one (old rows open the design’s way)', () => {
+    expect(normalizeCardPresentation({ design: 'gala-night', unlock: 'initials' }).unlock).toBe('initials');
+    expect(normalizeCardPresentation({ unlock: 'retina-scan' }).unlock).toBe('design');
+    expect(normalizeCardPresentation({}).unlock).toBe('design');
   });
 
   it('keeps a known design and drops an unknown one (old rows have none)', () => {
@@ -81,6 +87,13 @@ describe('effectiveReveal', () => {
     expect(effectiveReveal('envelope', 'garden-gate')).toBe('scene');
     expect(effectiveReveal('airplane', 'owambe')).toBe('scene');
     expect(effectiveReveal('none', 'owambe')).toBe('none');
+  });
+});
+
+describe('parseCardViewOverrides — unlock', () => {
+  it('previews the initials, ignores anything else', () => {
+    expect(parseCardViewOverrides('?unlock=initials')).toEqual({ unlock: 'initials' });
+    expect(parseCardViewOverrides('?unlock=nope')).toEqual({});
   });
 });
 

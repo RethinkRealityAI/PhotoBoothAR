@@ -31,6 +31,7 @@ import {
   type CardRevealId,
 } from '../../lib/cardPresentation';
 import { CARD_DESIGNS, cardDesign, designAssets, type CardDesignChoice } from '../../lib/cardDesigns';
+import type { CardUnlock } from '../../lib/cardPresentation';
 import TemplatePicker from './TemplatePicker';
 import { CARD_TEMPLATES } from './templates/registry';
 
@@ -279,28 +280,42 @@ export function DesignPicker({
 }
 
 export function RevealPicker({
-  value, onChange, disabled = false, design = 'none',
-}: { value: CardRevealId; onChange: (id: CardRevealId) => void; disabled?: boolean; design?: CardDesignChoice }) {
+  value, onChange, disabled = false, design = 'none', unlock = 'design', onDesignOpening,
+}: {
+  value: CardRevealId;
+  onChange: (id: CardRevealId) => void;
+  disabled?: boolean;
+  design?: CardDesignChoice;
+  unlock?: CardUnlock;
+  /** With a design: its own opening, the initials, or none, in one write. */
+  onDesignOpening?: (patch: { reveal?: CardRevealId; unlock?: CardUnlock }) => void;
+}) {
   const headingId = useId();
   const selected = CARD_REVEAL_OPTIONS.find((o) => o.id === value) ?? CARD_REVEAL_OPTIONS[0];
   if (design !== 'none') {
     // The design opens itself; the only choice left is whether to open at all.
     const off = value === 'none';
+    const pick = (o: { reveal: CardRevealId; unlock: CardUnlock }) =>
+      onDesignOpening ? onDesignOpening(o) : onChange(o.reveal);
+    const options = [
+      { id: 'design', label: `${cardDesign(design).label} opening`, on: !off && unlock !== 'initials', set: { reveal: 'envelope' as CardRevealId, unlock: 'design' as CardUnlock } },
+      ...(onDesignOpening
+        ? [{ id: 'initials', label: 'Trace their initials', on: !off && unlock === 'initials', set: { reveal: 'envelope' as CardRevealId, unlock: 'initials' as CardUnlock } }]
+        : []),
+      { id: 'none', label: 'Straight to the card', on: off, set: { reveal: 'none' as CardRevealId, unlock } },
+    ];
     return (
       <div>
         <GroupHeading id={headingId} title="Opening" hint="The moment the link opens" />
-        <div role="radiogroup" aria-labelledby={headingId} className="grid grid-cols-2 gap-2">
-          {[
-            { id: 'envelope' as const, label: `${cardDesign(design).label} opening`, on: !off },
-            { id: 'none' as const, label: 'Straight to the card', on: off },
-          ].map((o) => (
+        <div role="radiogroup" aria-labelledby={headingId} className={`grid gap-2 ${options.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          {options.map((o) => (
             <button
               key={o.id}
               type="button"
               role="radio"
               aria-checked={o.on}
               disabled={disabled}
-              onClick={() => !o.on && onChange(o.id)}
+              onClick={() => !o.on && pick(o.set)}
               className={`pressable liquid-glass min-h-11 rounded-2xl px-3 py-2 text-left font-sans text-[13px] font-semibold text-brand-fg transition disabled:opacity-50 ${o.on ? 'is-selected' : ''}`}
             >
               {o.label}
@@ -308,7 +323,11 @@ export function RevealPicker({
           ))}
         </div>
         <SelectedNote>
-          {off ? 'The card is on screen the second the link opens, over the design’s scene.' : 'They tap, it opens onto the scene, then the card arrives.'}
+          {off
+            ? 'The card is on screen the second the link opens, over the design’s scene.'
+            : unlock === 'initials'
+              ? 'Their initials hang over the closed scene in its own lettering. Tracing them with a finger opens it (there is always a tap to open too).'
+              : 'They open it the design’s own way, it opens onto the scene, then the card arrives.'}
         </SelectedNote>
       </div>
     );
@@ -433,7 +452,7 @@ export interface CardPresentationSectionProps {
   presentation: CardPresentation;
   template: string;
   defaultTemplate: string;
-  onChange: (patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look' | 'design'>>) => void;
+  onChange: (patch: Partial<Pick<CardPresentation, 'reveal' | 'email' | 'look' | 'design' | 'unlock'>>) => void;
   onTemplateChange: (id: string) => void;
   onPreview: () => void;
   /** A presentation write is in flight (the UI already shows the new pick). */
@@ -476,6 +495,8 @@ export default function CardPresentationSection({
         <RevealPicker
           value={presentation.reveal}
           design={presentation.design}
+          unlock={presentation.unlock}
+          onDesignOpening={(patch) => onChange(patch)}
           onChange={(reveal) => onChange({ reveal })}
         />
         <div>

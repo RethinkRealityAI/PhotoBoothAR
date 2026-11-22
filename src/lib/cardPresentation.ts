@@ -191,6 +191,15 @@ export interface CardPresentation {
   /** Illustrated scene design, or 'none'. Additive: old rows have no key and
    *  normalise to 'none', so they render exactly as before. */
   design: CardDesignChoice;
+  /** How a design asks to be opened: its own gesture, or tracing the
+   *  recipient's initials. Additive: old rows normalise to 'design'. */
+  unlock: CardUnlock;
+}
+
+export const CARD_UNLOCKS = ['design', 'initials'] as const;
+export type CardUnlock = (typeof CARD_UNLOCKS)[number];
+export function isCardUnlock(raw: unknown): raw is CardUnlock {
+  return typeof raw === 'string' && (CARD_UNLOCKS as readonly string[]).includes(raw);
 }
 
 /**
@@ -203,6 +212,7 @@ export const DEFAULT_CARD_PRESENTATION: Readonly<CardPresentation> = Object.free
   email: 'glow',
   look: 'auto',
   design: 'none',
+  unlock: 'design',
 });
 
 /** Where a WebGL reveal lands on a device without WebGL. */
@@ -227,6 +237,7 @@ export function normalizeCardPresentation(raw: unknown): CardPresentation {
     email: isCardEmailStyleId(obj.email) ? obj.email : DEFAULT_CARD_PRESENTATION.email,
     look: isCardLookId(obj.look) ? obj.look : DEFAULT_CARD_PRESENTATION.look,
     design: normalizeCardDesign(obj.design),
+    unlock: isCardUnlock(obj.unlock) ? obj.unlock : DEFAULT_CARD_PRESENTATION.unlock,
   };
 }
 
@@ -292,6 +303,8 @@ export interface CardViewOverrides {
   /** A raw template id; the viewer resolves it through the template
    *  registry, which already falls back on an unknown id. */
   template?: string;
+  /** 'initials' to preview the trace-your-initials opening. */
+  unlock?: CardUnlock;
 }
 
 const TEMPLATE_PARAM_RE = /^[a-z0-9-]{1,32}$/;
@@ -317,6 +330,8 @@ export function parseCardViewOverrides(search: string): CardViewOverrides {
   if (design === 'none' || normalizeCardDesign(design) !== 'none') out.design = normalizeCardDesign(design);
   const template = params.get('template');
   if (template !== null && TEMPLATE_PARAM_RE.test(template)) out.template = template;
+  const unlock = params.get('unlock');
+  if (isCardUnlock(unlock)) out.unlock = unlock;
   return out;
 }
 

@@ -75,6 +75,9 @@ export const DESIGN_FX: Record<CardDesignId, DesignFx> = {
   'winter-glow': { kind: 'melt', colors: ['#FFFFFF', '#E3EEFF', '#BFD8FF'] },
   'balloon-release': { kind: 'confetti', colors: ['#FFD36B', '#FF8F7A', '#9AA4FF', '#C9A8FF', '#FFFFFF'] },
   showtime: { kind: 'confetti', also: 'golddust', colors: ['#F2C14E', '#FFE7A3', '#B0213A', '#FFFFFF'] },
+  'pop-party': { kind: 'confetti', colors: ['#F07B6B', '#5ED1C6', '#FFD36B', '#C9A8FF', '#FFFFFF'] },
+  'jewel-box': { kind: 'golddust', also: 'sparks', colors: ['#FFE7A3', '#E4B451', '#FFFFFF', '#F6C1D9'] },
+  'deep-blue': { kind: 'golddust', colors: ['#E8FBFF', '#BFF3FF', '#FFFFFF'] },
 };
 
 /** How long the flourish plays, from the moment the gateway starts to open. */

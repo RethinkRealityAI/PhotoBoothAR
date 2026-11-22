@@ -374,6 +374,7 @@ export default function CardExperience({
               <SceneOpener
                 key={`${run}:${design.id}`}
                 design={design}
+                unlock={overrides?.unlock ?? presentation.unlock}
                 card={card}
                 contributions={contributions}
                 look={look}

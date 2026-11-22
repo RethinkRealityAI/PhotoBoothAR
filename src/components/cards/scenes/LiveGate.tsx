@@ -28,9 +28,16 @@ export interface LiveGateProps {
   chargeRef: MutableRefObject<number>;
   reducedMotion: boolean;
   hidden?: boolean;
+  /** Pop party: piece key → when it was popped (performance.now ms). */
+  poppedRef?: MutableRefObject<Map<string, number>>;
+  /** Leave out the wall behind the balloons, so popped ones show the party. */
+  noBase?: boolean;
 }
 
-export default function LiveGate({ kind, seed, tRef, chargeRef, reducedMotion, hidden }: LiveGateProps) {
+/** How long a popped balloon takes to burst away. */
+const POP_MS = 170;
+
+export default function LiveGate({ kind, seed, tRef, chargeRef, reducedMotion, hidden, poppedRef, noBase }: LiveGateProps) {
   const pieces = useMemo(() => livePieces(kind, seed), [kind, seed]);
   const groupRefs = useRef<Record<string, SVGGElement | null>>({});
   const baseRef = useRef<SVGRectElement | null>(null);
@@ -46,6 +53,19 @@ export default function LiveGate({ kind, seed, tRef, chargeRef, reducedMotion, h
       for (const p of pieces) {
         const el = groupRefs.current[p.key];
         if (!el) continue;
+        const popped = poppedRef?.current.get(p.key);
+        if (popped !== undefined) {
+          // A pop: a quick swell and gone.
+          const age = Math.min(1, (now - popped) / POP_MS);
+          if (age >= 1) {
+            if (el.style.display !== 'none') el.style.display = 'none';
+            continue;
+          }
+          const q = livePose(kind, p, t, 0, timeS, reducedMotion);
+          el.setAttribute('transform', `${q.transform} scale(${(1 + 0.4 * age).toFixed(3)})`);
+          el.setAttribute('opacity', (1 - age).toFixed(3));
+          continue;
+        }
         const q = livePose(kind, p, t, chargeRef.current, timeS, reducedMotion);
         if (q.d !== undefined) {
           for (const path of Array.from(el.querySelectorAll('path'))) path.setAttribute('d', q.d);
@@ -59,7 +79,7 @@ export default function LiveGate({ kind, seed, tRef, chargeRef, reducedMotion, h
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [kind, pieces, tRef, chargeRef, reducedMotion]);
+  }, [kind, pieces, tRef, chargeRef, reducedMotion, poppedRef]);
 
   return (
     <svg
@@ -71,7 +91,7 @@ export default function LiveGate({ kind, seed, tRef, chargeRef, reducedMotion, h
       data-live-gate={kind}
     >
       <defs dangerouslySetInnerHTML={{ __html: defs }} />
-      {kind === 'balloons' && <rect ref={baseRef} width="900" height="1600" fill="#FBE7D6" />}
+      {kind === 'balloons' && !noBase && <rect ref={baseRef} width="900" height="1600" fill="#FBE7D6" />}
       {pieces.map((p) => {
         const q = livePose(kind, p, 0, 0, 0, true);
         if (kind === 'curtains' && p.key !== 'valance') {
