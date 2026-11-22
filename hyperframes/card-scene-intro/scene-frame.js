@@ -46,6 +46,7 @@ var SceneIntro = (() => {
     "island-sunset",
     "love-notes",
     "festival-of-lights",
+    "crescent-night",
     "jungle-party",
     "winter-glow"
   ];
@@ -166,6 +167,16 @@ var SceneIntro = (() => {
       mid: { placement: "top", size: 0.42 },
       motif: { kind: "sparkle", colors: ["#FFC93C", "#FFB347", "#FFF4D6"] },
       palette: pal("#2D1458", "#FFB627", "#FFC93C")
+    },
+    {
+      id: "crescent-night",
+      label: "Crescent night",
+      description: "An arch opens in a carved lattice onto a courtyard of lanterns under a new moon.",
+      goodFor: "Eid, Ramadan iftars, evening gatherings",
+      gateway: { kind: "iris", shape: "arch" },
+      mid: { placement: "top", size: 0.34 },
+      motif: { kind: "stars", colors: ["#FFE6A8", "#FFFFFF", "#7FD1C4"] },
+      palette: pal("#0E1A3D", "#E8C77A", "#FFC36B")
     },
     {
       id: "jungle-party",

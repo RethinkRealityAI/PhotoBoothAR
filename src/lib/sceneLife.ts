@@ -347,6 +347,18 @@ export const DESIGN_LIFE: Record<CardDesignId, readonly LifeProp[]> = {
     { kind: 'flicker', x: 150, y: 1220, size: 1, phase: 0.15, color: '#FFB347' },
     { kind: 'flicker', x: 750, y: 1220, size: 1, phase: 0.8, color: '#FFB347' },
   ],
+  'crescent-night': [
+    { kind: 'flicker', x: 250, y: 220, size: 0.8, color: '#FFC36B' },
+    { kind: 'flicker', x: 430, y: 115, size: 0.6, phase: 0.4, color: '#7FD1C4' },
+    { kind: 'flicker', x: 780, y: 270, size: 0.7, phase: 0.75, color: '#F28C6B' },
+    { kind: 'flicker', x: 120, y: 1370, size: 0.9, phase: 0.2, color: '#FFC36B' },
+    { kind: 'flicker', x: 780, y: 1420, size: 1, phase: 0.55, color: '#FFB04A' },
+    { kind: 'glint', x: 180, y: 220, size: 0.7, phase: 0.1, color: '#FFE6A8' },
+    { kind: 'glint', x: 760, y: 380, size: 0.55, phase: 0.6, color: '#FFE6A8' },
+    { kind: 'shootingStar', x: 90, y: 120, size: 1, period: 10, phase: 0.3 },
+    { kind: 'shimmer', x: 450, y: 1330, size: 1, color: '#FFF6DE' },
+    { kind: 'shimmer', x: 470, y: 1460, size: 1.2, phase: 0.5, color: '#FFF6DE' },
+  ],
   'winter-glow': [
     { kind: 'smoke', x: 455, y: 1180, size: 1, phase: 0 },
     { kind: 'smoke', x: 455, y: 1180, size: 1, phase: 0.5 },

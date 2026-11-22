@@ -38,6 +38,7 @@ const SAMPLE: Record<CardDesignId, { title: string; recipient: string }> = {
   'island-sunset': { title: 'Just married!', recipient: 'Lena and Marco' },
   'love-notes': { title: 'Ten years of us, Bisi', recipient: 'Bisi' },
   'festival-of-lights': { title: 'Happy Diwali, Priya', recipient: 'Priya' },
+  'crescent-night': { title: 'Eid Mubarak, Aisha', recipient: 'Aisha' },
   'jungle-party': { title: 'Happy 5th birthday, Tayo!', recipient: 'Tayo' },
   'winter-glow': { title: 'Merry Christmas, Grandma', recipient: 'Grandma' },
 };
