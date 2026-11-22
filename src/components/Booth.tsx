@@ -91,6 +91,7 @@ import { normalizeGuestLettering } from '../lib/letteringFit';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
 import { videoBitsPerSecondFor } from '../lib/plans';
+import { photoDprMax } from '../lib/cameraQuality';
 import { dataUrlToBlob } from './booth/capture';
 import { challengeNeedsCheck, validateChallengePhoto } from '../lib/challengeValidation';
 import { reportError } from '../lib/errorReport';
@@ -693,6 +694,11 @@ export default function Booth() {
 
   // ── Derived flags ─────────────────────────────────────────────────────
   const isFront = facingMode === 'user';
+  /** R3F dpr range that makes the 3D layer as wide as the 1080px photo (see cameraQuality). */
+  const boothDpr = useMemo<[number, number]>(
+    () => [1, photoDprMax(typeof window !== 'undefined' ? window.innerWidth : 0)],
+    [],
+  );
   // Composite carries its 2D content in config.layers (never the singular
   // asset_url field, which the legacy mirror may repurpose for either family) —
   // so a composite frame "lights up" 2D by actually having a 2D-kind layer.
@@ -2006,6 +2012,10 @@ export default function Booth() {
                     // Group selfies: head pieces on every face 8th Wall tracks.
                     // PLATFORM only, like `composited` (and a no-op outside 8th Wall).
                     multiFace={is3D && !isLegacyFaceSurface(source !== 'db')}
+                    // Sharper props in the saved photo: R3F's default 2x cap left
+                    // the 3D buffer ~780px wide on a 3x phone, stretched into the
+                    // 1080px still. PLATFORM only; legacy keeps R3F's [1, 2].
+                    dpr={isLegacyFaceSurface(source !== 'db') ? undefined : boothDpr}
                   />
                 )}
               </div>
