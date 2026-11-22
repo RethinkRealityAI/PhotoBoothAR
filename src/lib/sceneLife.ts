@@ -359,6 +359,17 @@ export const DESIGN_LIFE: Record<CardDesignId, readonly LifeProp[]> = {
     { kind: 'shimmer', x: 450, y: 1330, size: 1, color: '#FFF6DE' },
     { kind: 'shimmer', x: 470, y: 1460, size: 1.2, phase: 0.5, color: '#FFF6DE' },
   ],
+  'golden-hour': [
+    ...flock(380, 1, 0.15, '#5A3A4A'),
+    ...flock(520, -1, 0.6, '#5A3A4A', 2),
+    { kind: 'rays', x: 450, y: 900, size: 1.2, color: '#FFE3A3' },
+    { kind: 'glint', x: 280, y: 828, size: 0.55, phase: 0.1, color: '#FFF1C4' },
+    { kind: 'glint', x: 620, y: 828, size: 0.55, phase: 0.55, color: '#FFF1C4' },
+    { kind: 'glint', x: 450, y: 935, size: 0.5, phase: 0.8, color: '#FFF1C4' },
+    { kind: 'flicker', x: 432, y: 1150, size: 0.45, color: '#FFC857' },
+    { kind: 'flicker', x: 470, y: 1255, size: 0.5, phase: 0.4, color: '#FFC857' },
+    { kind: 'flicker', x: 428, y: 1370, size: 0.6, phase: 0.75, color: '#FFC857' },
+  ],
   'winter-glow': [
     { kind: 'smoke', x: 455, y: 1180, size: 1, phase: 0 },
     { kind: 'smoke', x: 455, y: 1180, size: 1, phase: 0.5 },

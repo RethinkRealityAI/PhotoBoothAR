@@ -47,6 +47,7 @@ var SceneIntro = (() => {
     "love-notes",
     "festival-of-lights",
     "crescent-night",
+    "golden-hour",
     "jungle-party",
     "winter-glow"
   ];
@@ -177,6 +178,16 @@ var SceneIntro = (() => {
       mid: { placement: "top", size: 0.34 },
       motif: { kind: "stars", colors: ["#FFE6A8", "#FFFFFF", "#7FD1C4"] },
       palette: pal("#0E1A3D", "#E8C77A", "#FFC36B")
+    },
+    {
+      id: "golden-hour",
+      label: "Golden hour",
+      description: "Gold drapes strung with lights lift onto a long table set on a hillside at sunset.",
+      goodFor: "Milestone birthdays, retirements, dinner parties, rehearsal dinners",
+      gateway: { kind: "rise" },
+      mid: { placement: "bottom", size: 0.4 },
+      motif: { kind: "fireflies", colors: ["#FFE3A3", "#FFF1C4"] },
+      palette: pal("#4A2F4E", "#FFC857", "#FFE3A3")
     },
     {
       id: "jungle-party",
