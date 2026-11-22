@@ -15,6 +15,10 @@ import {
   PULL_MAX_T,
   boltProgress,
   boltRelease,
+  blendVelocity,
+  BOLT_CLICK_AT,
+  turnCoast,
+  TURN_MAX_SPIN,
   BOLTS,
   BOLT_TRAVEL,
   popAt,
@@ -175,6 +179,23 @@ describe('bolts', () => {
     expect(boltRelease(0.3)).toBe(0);
     expect(boltRelease(NaN)).toBe(0);
   });
+
+  it('a quick flick opens it without dragging to the catch', () => {
+    expect(boltRelease(0.25, 0)).toBe(0);
+    expect(boltRelease(0.25, 0.005)).toBe(1);
+    // a flick back toward home never opens it
+    expect(boltRelease(0.5, -0.02)).toBe(0);
+    expect(boltRelease(BOLT_CLICK_AT - 0.01, NaN)).toBe(0);
+  });
+
+  it('release speed is smoothed and survives a bad sample', () => {
+    const v = blendVelocity(0, 0.1, 20);
+    expect(v).toBeCloseTo(0.002, 6);
+    expect(blendVelocity(v, 0.1, 0)).toBe(v);
+    expect(blendVelocity(NaN, NaN, 16)).toBe(0);
+    // a 1ms burst is read as 8ms, not a huge spike
+    expect(blendVelocity(0, 0.08, 1)).toBeCloseTo(0.004, 6);
+  });
 });
 
 describe('turn', () => {
@@ -201,6 +222,23 @@ describe('turn', () => {
       prev = next;
     }
     expect(turnProgress(acc)).toBe(1);
+  });
+
+  it('a flicked wheel coasts, slows and stops', () => {
+    let spin = 0.012;
+    let angle = 0;
+    let frames = 0;
+    while (spin !== 0 && frames < 600) {
+      angle += spin * 16;
+      spin = turnCoast(spin, 16);
+      frames++;
+    }
+    expect(spin).toBe(0);
+    expect(frames).toBeLessThan(120); // under two seconds
+    expect(angle).toBeGreaterThan(2); // a good flick carries over 110 degrees
+    expect(Math.abs(turnCoast(1, 0.001))).toBeLessThanOrEqual(TURN_MAX_SPIN);
+    expect(turnCoast(NaN, 16)).toBe(0);
+    expect(turnCoast(-0.01, 16)).toBeLessThan(0);
   });
 
   it('cracks the window as the wheel turns', () => {

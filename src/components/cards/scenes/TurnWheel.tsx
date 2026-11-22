@@ -6,12 +6,13 @@
  * the porthole; the recipient turns it round (either way) and it turns with
  * the finger, a ring of light filling as it goes and the porthole cracking
  * open with it. Ticks in the hand every eighth of a turn; a full turn spins
- * it free and the porthole opens.
+ * it free and the porthole opens. Let go mid-spin and it coasts on with the
+ * flick, slowing as it goes, so a couple of quick spins open it too.
  *
  * Drawn in the 900x1600 stage space, centred on the gateway (450, 760).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { turnDelta, turnProgress, TURN_DEADZONE } from '../../../lib/openGesture';
+import { blendVelocity, RELEASE_STALE_MS, turnCoast, turnDelta, turnProgress, TURN_DEADZONE } from '../../../lib/openGesture';
 
 export interface TurnWheelProps {
   accent: string;
@@ -34,7 +35,7 @@ export default function TurnWheel({ accent, glow, disabled, reducedMotion, onPro
   const svgRef = useRef<SVGSVGElement | null>(null);
   const wheelRef = useRef<SVGGElement | null>(null);
   const ringRef = useRef<SVGCircleElement | null>(null);
-  const st = useRef({ down: false, prev: 0, acc: 0, ticks: 0, done: false });
+  const st = useRef({ down: false, prev: 0, acc: 0, ticks: 0, done: false, spin: 0, at: 0 });
   const [turning, setTurning] = useState(false);
   const raf = useRef(0);
 
@@ -88,6 +89,32 @@ export default function TurnWheel({ accent, glow, disabled, reducedMotion, onPro
     onComplete();
   }, [onComplete, paint, reducedMotion]);
 
+  /** Turn the wheel by `delta` radians: paint, report, tick, open at a full turn. */
+  const advance = useCallback(
+    (delta: number) => {
+      const s = st.current;
+      if (s.done) return;
+      s.acc += delta;
+      const p = turnProgress(s.acc);
+      paint(s.acc);
+      onProgress(p);
+      const ticks = Math.floor(p * 8);
+      if (ticks > s.ticks) {
+        s.ticks = ticks;
+        try {
+          navigator.vibrate?.(5);
+        } catch {
+          /* not allowed here */
+        }
+      }
+      if (p >= 1) {
+        s.down = false;
+        finish();
+      }
+    },
+    [finish, onProgress, paint],
+  );
+
   const onDown = (e: React.PointerEvent<SVGGElement>) => {
     if (disabled || st.current.done) return;
     const a = angleOf(e);
@@ -98,8 +125,13 @@ export default function TurnWheel({ accent, glow, disabled, reducedMotion, onPro
     } catch {
       /* capture is a nicety */
     }
-    st.current.down = true;
-    st.current.prev = a;
+    // Catching a coasting wheel stops it under the finger.
+    cancelAnimationFrame(raf.current);
+    const s = st.current;
+    s.down = true;
+    s.prev = a;
+    s.spin = 0;
+    s.at = performance.now();
     setTurning(true);
   };
 
@@ -108,29 +140,33 @@ export default function TurnWheel({ accent, glow, disabled, reducedMotion, onPro
     if (!s.down || s.done) return;
     const a = angleOf(e);
     if (a === null) return;
-    s.acc += turnDelta(s.prev, a);
+    const d = turnDelta(s.prev, a);
+    const now = performance.now();
+    s.spin = blendVelocity(s.spin, d, now - s.at);
+    s.at = now;
     s.prev = a;
-    const p = turnProgress(s.acc);
-    paint(s.acc);
-    onProgress(p);
-    const ticks = Math.floor(p * 8);
-    if (ticks > s.ticks) {
-      s.ticks = ticks;
-      try {
-        navigator.vibrate?.(5);
-      } catch {
-        /* not allowed here */
-      }
-    }
-    if (p >= 1) {
-      s.down = false;
-      finish();
-    }
+    advance(d);
   };
 
-  const onUp = () => {
-    st.current.down = false;
+  const onUp = (e: React.PointerEvent<SVGGElement>) => {
+    const s = st.current;
+    const wasDown = s.down;
+    s.down = false;
     setTurning(false);
+    if (!wasDown || s.done || e.type === 'pointercancel' || reducedMotion) return;
+    if (performance.now() - s.at > RELEASE_STALE_MS) s.spin = 0;
+    if (s.spin === 0) return;
+    // Let go mid-spin: it coasts on with the flick and slows to a stop.
+    let last = performance.now();
+    const coast = (now: number) => {
+      const dt = Math.min(48, now - last);
+      last = now;
+      const before = s.spin;
+      s.spin = turnCoast(s.spin, dt);
+      advance(((before + s.spin) / 2) * dt);
+      if (s.spin !== 0 && !s.done && !s.down) raf.current = requestAnimationFrame(coast);
+    };
+    raf.current = requestAnimationFrame(coast);
   };
 
   return (
@@ -139,7 +175,9 @@ export default function TurnWheel({ accent, glow, disabled, reducedMotion, onPro
       viewBox="0 0 900 1600"
       preserveAspectRatio="xMidYMid slice"
       className="pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-700"
-      style={{ opacity: leaving ? 0 : 1 }}
+      // touch-action on inner SVG shapes is ignored: it has to sit on the <svg>
+      // itself, or a phone pans and cancels the turn a few degrees in.
+      style={{ opacity: leaving ? 0 : 1, touchAction: 'none' }}
       aria-hidden
       data-turn-wheel
     >

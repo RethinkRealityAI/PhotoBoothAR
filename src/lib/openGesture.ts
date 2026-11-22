@@ -210,9 +210,30 @@ export function boltProgress(dx: number, dir: -1 | 1): number {
   return Math.max(0, Math.min(1, (dx * dir) / BOLT_TRAVEL));
 }
 
-/** Where a released bolt settles: open (1) or back home (0). */
-export function boltRelease(p: number): 0 | 1 {
-  return Number.isFinite(p) && p >= BOLT_CLICK_AT ? 1 : 0;
+/** A flick counts: a release is carried this far ahead (ms) at the bolt's speed. */
+export const BOLT_FLICK_MS = 140;
+
+/**
+ * Where a released bolt settles: open (1) or back home (0). `velocity` is the
+ * bolt's speed toward open at release (progress per ms), so a quick flick
+ * opens it without dragging all the way to the catch.
+ */
+export function boltRelease(p: number, velocity = 0): 0 | 1 {
+  if (!Number.isFinite(p)) return 0;
+  const v = Number.isFinite(velocity) ? Math.max(0, velocity) : 0;
+  return p + v * BOLT_FLICK_MS >= BOLT_CLICK_AT ? 1 : 0;
+}
+
+/**
+ * Release speed from the last moves (progress or radians per ms): a smoothed
+ * average, and zero when the finger had stopped before letting go.
+ */
+export const RELEASE_STALE_MS = 90;
+export function blendVelocity(prev: number, delta: number, dtMs: number): number {
+  if (!Number.isFinite(delta) || !Number.isFinite(dtMs) || dtMs <= 0) return Number.isFinite(prev) ? prev : 0;
+  const v = delta / Math.max(8, dtMs);
+  const p = Number.isFinite(prev) ? prev : 0;
+  return p * 0.6 + v * 0.4;
 }
 
 /* ------------------------------------------------------------------ */
@@ -239,6 +260,18 @@ export function turnDelta(prev: number, next: number): number {
 export function turnProgress(acc: number): number {
   if (!Number.isFinite(acc)) return 0;
   return Math.min(1, Math.abs(acc) / TURN_FULL);
+}
+
+/** Fastest spin a flick can give the wheel (radians per ms, ~1700 deg/s). */
+export const TURN_MAX_SPIN = 0.03;
+/** How quickly a spinning wheel slows once let go (per ms, exponential). */
+export const TURN_FRICTION = 0.004;
+
+/** The wheel's spin after coasting dtMs; settles to 0 once it is barely moving. */
+export function turnCoast(spin: number, dtMs: number): number {
+  if (!Number.isFinite(spin) || !Number.isFinite(dtMs) || dtMs <= 0) return 0;
+  const s = Math.max(-TURN_MAX_SPIN, Math.min(TURN_MAX_SPIN, spin)) * Math.exp(-TURN_FRICTION * dtMs);
+  return Math.abs(s) < 0.0002 ? 0 : s;
 }
 
 /** Opening-timeline position for a turn: the window cracks as the wheel turns. */

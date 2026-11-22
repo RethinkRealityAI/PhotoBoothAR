@@ -5,14 +5,15 @@
  * BoltsLock — "slide the bolts to open" (Jewel box). Three gold bolts lie
  * across the seam of the closed doors; the recipient slides each one aside
  * (alternating ways, the chevrons say which). Past the catch it clicks open
- * with a tick in the hand, short of it it slides home. Each open bolt lets
+ * with a tick in the hand, short of it it slides home; a quick flick is
+ * enough. Each open bolt lets
  * the doors give a hair; the third one opens the box.
  *
  * Drawn in the 900x1600 stage space (lib/openGesture.ts BOLTS), so the bolts
  * line up with the keepers painted in the gate art at every screen size.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BOLTS, BOLT_TRAVEL, boltRelease } from '../../../lib/openGesture';
+import { blendVelocity, BOLTS, BOLT_TRAVEL, boltRelease, RELEASE_STALE_MS } from '../../../lib/openGesture';
 
 export interface BoltsLockProps {
   accent: string;
@@ -34,10 +35,12 @@ export default function BoltsLock({ accent, glow, disabled, reducedMotion, onOpe
   const svgRef = useRef<SVGSVGElement | null>(null);
   const barRefs = useRef<Array<SVGGElement | null>>([]);
   const pos = useRef<number[]>(BOLTS.map(() => 0));
-  const drag = useRef<{ i: number; x0: number; p0: number; scale: number } | null>(null);
+  const drag = useRef<{ i: number; x0: number; p0: number; scale: number; v: number; at: number } | null>(null);
   const [open, setOpen] = useState<boolean[]>(() => BOLTS.map(() => false));
+  const openRef = useRef<boolean[]>(BOLTS.map(() => false));
   const [active, setActive] = useState<number | null>(null);
-  const raf = useRef(0);
+  /** One settle animation per bolt, so letting one go and grabbing the next never freezes the first. */
+  const raf = useRef<number[]>(BOLTS.map(() => 0));
   const done = useRef(false);
 
   const paint = useCallback((i: number, p: number) => {
@@ -46,7 +49,7 @@ export default function BoltsLock({ accent, glow, disabled, reducedMotion, onOpe
     if (el) el.setAttribute('transform', `translate(${(p * BOLT_TRAVEL * BOLTS[i].dir).toFixed(1)} 0)`);
   }, []);
 
-  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  useEffect(() => () => raf.current.forEach((id) => cancelAnimationFrame(id)), []);
 
   const settle = useCallback(
     (i: number, to: number) => {
@@ -56,25 +59,25 @@ export default function BoltsLock({ accent, glow, disabled, reducedMotion, onOpe
         const k = reducedMotion ? 1 : Math.min(1, (now - t0) / SETTLE_MS);
         const e = 1 - (1 - k) ** 3;
         paint(i, from + (to - from) * e);
-        if (k < 1) raf.current = requestAnimationFrame(step);
+        if (k < 1) raf.current[i] = requestAnimationFrame(step);
       };
-      cancelAnimationFrame(raf.current);
-      raf.current = requestAnimationFrame(step);
+      cancelAnimationFrame(raf.current[i]);
+      raf.current[i] = requestAnimationFrame(step);
     },
     [paint, reducedMotion],
   );
 
   const onDown = (i: number) => (e: React.PointerEvent<SVGGElement>) => {
-    if (disabled || open[i]) return;
+    if (disabled || openRef.current[i] || drag.current) return;
     e.preventDefault();
     try {
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
     } catch {
       /* capture is a nicety */
     }
-    cancelAnimationFrame(raf.current);
+    cancelAnimationFrame(raf.current[i]);
     const m = svgRef.current?.getScreenCTM();
-    drag.current = { i, x0: e.clientX, p0: pos.current[i], scale: m?.a || 1 };
+    drag.current = { i, x0: e.clientX, p0: pos.current[i], scale: m?.a || 1, v: 0, at: performance.now() };
     setActive(i);
     try {
       navigator.vibrate?.(6);
@@ -88,19 +91,24 @@ export default function BoltsLock({ accent, glow, disabled, reducedMotion, onOpe
     if (!d) return;
     const dx = (e.clientX - d.x0) / d.scale;
     // Follows the finger both ways along the slot, from wherever it was grabbed.
-    const p = d.p0 + (dx * BOLTS[d.i].dir) / BOLT_TRAVEL;
-    paint(d.i, Math.max(0, Math.min(1, p)));
+    const p = Math.max(0, Math.min(1, d.p0 + (dx * BOLTS[d.i].dir) / BOLT_TRAVEL));
+    const now = performance.now();
+    d.v = blendVelocity(d.v, p - pos.current[d.i], now - d.at);
+    d.at = now;
+    paint(d.i, p);
   };
 
-  const onUp = () => {
+  const onUp = (e: React.PointerEvent<SVGGElement>) => {
     const d = drag.current;
     if (!d) return;
     drag.current = null;
     setActive(null);
-    const to = boltRelease(pos.current[d.i]);
+    const stale = e.type === 'pointercancel' || performance.now() - d.at > RELEASE_STALE_MS;
+    const to = boltRelease(pos.current[d.i], stale ? 0 : d.v);
     settle(d.i, to);
     if (to === 1) {
-      const next = open.map((o, k) => o || k === d.i);
+      const next = openRef.current.map((o, k) => o || k === d.i);
+      openRef.current = next;
       setOpen(next);
       const n = next.filter(Boolean).length;
       onOpenCount(n);
@@ -122,7 +130,9 @@ export default function BoltsLock({ accent, glow, disabled, reducedMotion, onOpe
       viewBox="0 0 900 1600"
       preserveAspectRatio="xMidYMid slice"
       className="absolute inset-0 h-full w-full transition-opacity duration-500"
-      style={{ opacity: leaving ? 0 : 1, pointerEvents: disabled || leaving ? 'none' : undefined }}
+      // touch-action on inner SVG shapes is ignored: it has to sit on the <svg>
+      // itself, or a phone pans and cancels the slide after a few pixels.
+      style={{ opacity: leaving ? 0 : 1, pointerEvents: disabled || leaving ? 'none' : undefined, touchAction: 'none' }}
       aria-hidden
       data-bolts={open.filter(Boolean).length}
     >
