@@ -35,7 +35,7 @@ import {
 import {
   addFilterRow, applyPicks, currentPicks, fetchLooksData, removeFilterRow, type LooksData,
 } from '../../../../lib/wizard/wizardApi';
-import { StepPanel, StepShell, TabPanel, WizardTabs, type TabDef } from '../chrome';
+import { StepShell, TabPanel, WizardTabs, type TabDef } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
 import { useWizard } from '../wizardContext';
 import LookStage from '../LookStage';
@@ -533,14 +533,13 @@ export default function LooksStep() {
   if (!data || !catalog || !picks) {
     return (
       <StepShell
+        step="looks"
         sheetLabel={stepDef('looks').title}
-        panel={(
-          <StepPanel step="looks">
-            <div className="h-64 grid place-items-center"><Loader2 className="h-6 w-6 animate-spin" aria-label="Loading the looks" /></div>
-          </StepPanel>
-        )}
+        previewKind="stage"
         preview={<div className="wz-stage w-[min(100%,220px)] lg:w-full" aria-hidden />}
-      />
+      >
+        <div className="h-64 grid place-items-center"><Loader2 className="h-6 w-6 animate-spin" aria-label="Loading the looks" /></div>
+      </StepShell>
     );
   }
 
@@ -572,10 +571,7 @@ export default function LooksStep() {
     if (v === 'own' && builder === null) startBuilder();
   };
 
-  const controls = (
-          <StepPanel
-            step="looks"
-            tabs={(
+  const lookTabs = (
               <WizardTabs<LookCategory | 'filters'>
                 idBase="wz-looks"
                 label="Look type"
@@ -584,14 +580,15 @@ export default function LooksStep() {
                 onChange={(id) => (id === 'filters' ? setOnFilters(true) : switchTab(id))}
                 tabs={mainTabs}
               />
-            )}
-            notice={loadFailed ? (
+  );
+  const notice = loadFailed ? (
               <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14px] flex flex-wrap items-center gap-3">
                 We couldn’t load the shared library, so only the built-in looks are showing.
                 <button type="button" onClick={() => void load()} className="underline underline-offset-2 min-h-11">Try again</button>
               </p>
-            ) : undefined}
-          >
+  ) : undefined;
+  const controls = (
+          <>
             <TabPanel idBase="wz-looks" value={mainTab}>
             {!onFilters && (<>
             <div>
@@ -774,7 +771,7 @@ export default function LooksStep() {
             </>)}
             </TabPanel>
             {note && <p role="status" className="mt-3 text-[13px] text-[#FFE1A8]">{note}</p>}
-          </StepPanel>
+          </>
   );
   const previewNode = (
     <div className="flex flex-col items-center w-full">
@@ -785,7 +782,11 @@ export default function LooksStep() {
     </div>
   );
 
-  return <StepShell panel={controls} preview={previewNode} sheetLabel={stepDef('looks').title} />;
+  return (
+    <StepShell step="looks" tabs={lookTabs} notice={notice} preview={previewNode} previewKind="stage" sheetLabel={stepDef('looks').title}>
+      {controls}
+    </StepShell>
+  );
 }
 
 /** Bundled prop names for the Launch summary. */

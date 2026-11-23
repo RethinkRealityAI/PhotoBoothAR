@@ -7,7 +7,9 @@
  *   /host/new                     step 1 (basics); Continue creates the event
  *   /host/setup/:eventId/:step?   every later step, resumable
  *
- * One idea per screen, a live preview beside it, and a sticky Back / Continue.
+ * One card per step (StageCard): the stages across its top, the options on
+ * the left, the live preview embedded on the right, and a sticky Back /
+ * Continue.
  * The event is created as a draft at the end of step 1, so every later step
  * saves to the real event as the host goes and a host who leaves can come
  * back to the step they left (progress lives in events.config.wizard — see
@@ -26,13 +28,15 @@ import {
 } from '../../../lib/wizard/wizardModel';
 import { fetchWizardEvent, saveConfig as saveEventConfig, type WizardEvent } from '../../../lib/wizard/wizardApi';
 import { WizardContext, type SaveState, type WizardCtx } from './wizardContext';
-import { Rail, WizardFooter, WizardFrame } from './chrome';
+import { Rail, StageBar, WizardFooter, WizardFrame } from './chrome';
+import { StageBarContext } from './StageCard';
 import BasicsStep from './steps/BasicsStep';
 import InviteStep from './steps/InviteStep';
 import BoothStep from './steps/BoothStep';
 import LooksStep from './steps/LooksStep';
 import PowerUpsStep from './steps/PowerUpsStep';
 import ChallengesStep from './steps/ChallengesStep';
+import KeepsakeStep from './steps/KeepsakeStep';
 import LaunchStep from './steps/LaunchStep';
 
 /* ── The wizard ────────────────────────────────────────────────────── */
@@ -43,6 +47,7 @@ const STEP_COMPONENTS: Record<Exclude<WizardStepId, 'basics'>, () => ReactNode> 
   looks: () => <LooksStep />,
   powerups: () => <PowerUpsStep />,
   challenges: () => <ChallengesStep />,
+  keepsake: () => <KeepsakeStep />,
   launch: () => <LaunchStep />,
 };
 
@@ -232,10 +237,13 @@ function SetupWizard({ eventUuid, stepParam }: { eventUuid: string; stepParam: s
           />
         }
       >
-        {/* Full height on desktop: the step's one panel fills the screen. */}
-        <div key={step} className="lg:h-full">
-          {step === 'basics' ? <BasicsStep mode="edit" /> : STEP_COMPONENTS[step]()}
-        </div>
+        {/* Full height on desktop: the step's one card fills the screen and
+            wears the stage bar (StageBarContext) across its top. */}
+        <StageBarContext.Provider value={<StageBar current={step} progress={progress} onPick={(id) => void go(id, 'visit')} />}>
+          <div key={step} className="lg:h-full">
+            {step === 'basics' ? <BasicsStep mode="edit" /> : STEP_COMPONENTS[step]()}
+          </div>
+        </StageBarContext.Provider>
       </WizardFrame>
     </WizardContext.Provider>
   );

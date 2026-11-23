@@ -714,12 +714,13 @@
   }
 }
 
-/* Touch targets: every tab is at least 44px tall. */
+/* Touch targets: every tab, pill and dropdown is at least 44px tall. */
 .wz-tab { min-height: 44px; }
+.wz-pill { min-height: 44px; }
+.wz-select select { min-height: 44px; }
 @media (max-width: 1023.98px) {
-  .wz-pill { min-height: 44px; }
   /* 16px stops iOS zooming into the field on focus. */
-  .wz-select select { min-height: 44px; font-size: 16px; }
+  .wz-select select { font-size: 16px; }
 }
 
 /* Challenges: a scannable pick list, not cards. */
@@ -757,3 +758,97 @@
 @media (prefers-reduced-motion: reduce) { .wz-pick, .wz-pick-box { transition: none; } }
 .wz-tabs-even.wz-tabs-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .wz-sheet-toggle { min-height: 44px; }
+
+/* ── StageCard: ONE card per step (2026-11-22, owner: "have the rest of
+   the setup wizard look exactly like this … one large component with the
+   stages and their icons at the top … the preview nicely embedded").
+   Shared by every wizard step and the keepsake editor (StageCard.tsx), so
+   the two cannot drift. Desktop: stage bar on top, options left (only they
+   scroll), preview right inside the same card. ───────────────────────── */
+.sc { display: flex; flex-direction: column; gap: 12px; min-width: 0; border-radius: 28px; padding: 16px; }
+@media (min-width: 640px) { .sc { padding: 18px 20px; } }
+.sc-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+.sc-body { min-height: 0; min-width: 0; }
+.sc-sheet { display: flex; flex-direction: column; gap: 12px; }
+/* Not clipped: FitToBox already scales its child down to fit, and a clip
+   here cut the preview's glow and drop shadow off at the column's edge,
+   which drew a hard rectangle behind the live wall (owner, 2026-11-22). */
+.sc-fit { height: 100%; width: 100%; overflow: visible; display: grid; place-items: center; }
+.sc-fit-inner { width: 100%; transform-origin: center; }
+.sc-fill { height: 100%; width: 100%; min-height: 0; }
+/* A scrolling options column clips: a glass card's outer halo was cut off at
+   its edges and read as a hard-edged box (owner, 2026-11-21). The rim stays. */
+.sc-body :is(.glass, .glass-strong, .liquid-glass) { --pf-card-glow: 0 0 #0000 !important; }
+/* A preview INSIDE the card is not a card of its own: no 48px outer halo
+   (it would spill over the card's edge or be cut off by the phone drawer,
+   either way a hard-edged box). The 1px rim and the drop shadow stay. */
+:is(.sc-preview, .sc-pinned-preview, .wz-sheet-preview) { --wz-halo: 0 0 #0000; }
+:is(.sc-preview, .sc-pinned-preview, .wz-sheet-preview) :is(.glass, .glass-strong, .liquid-glass) { --pf-card-glow: 0 0 #0000 !important; }
+
+/* The bar: numbered stages (or free tabs), even columns on a phone. */
+.sc-bar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: 100%; overflow: visible; border-radius: 20px; }
+.sc-bar .wz-tab { position: relative; min-height: 52px; min-width: 0; padding: 4px 2px; gap: 2px; flex-direction: column; justify-content: center; font-size: 11px; line-height: 1.15; border-radius: 16px; }
+.sc-bar .wz-tab:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (max-width: 420px) {
+  .sc-bar .wz-tab { font-size: 10.5px; padding: 4px 1px; letter-spacing: -0.01em; }
+  .sc-bar .wz-tab > .truncate { white-space: normal; text-overflow: clip; text-align: center; }
+}
+.sc-dot { position: absolute; top: 6px; right: 8px; width: 7px; height: 7px; border-radius: 999px; background: var(--bw-core, #FFC56B); box-shadow: 0 0 0 2px rgba(15, 13, 51, 0.55); }
+.sc-steps > li { display: flex; min-width: 0; }
+.sc-steps > li > .wz-tab { flex: 1 1 auto; width: 100%; }
+.sc-bar .wz-tab[aria-current='step'] { background: #fff; color: var(--bw-on-accent); }
+.sc-bar .wz-tab[aria-disabled='true'] { opacity: 0.5; cursor: default; }
+.sc-num { display: inline-grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 1; background: rgba(255, 255, 255, 0.16); }
+.wz-tab[aria-current='step'] .sc-num { background: var(--bw-on-accent, #1A1740); color: #fff; }
+.sc-num.is-done { background: var(--bw-core, #FFC56B); color: #1A1740; }
+.sc-step-icon { display: none; }
+
+/* Phone, pinned (keepsake editor on Share & Print): one viewport-tall card. */
+.sc-pinned { height: min(calc(100dvh - 7rem), 780px); min-height: 540px; }
+.sc-pinned-preview { flex: none; height: clamp(160px, 24dvh, 220px); min-height: 0; }
+.sc-pinned .sc-main { flex: 1; }
+.sc-pinned .sc-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 2px 4px 8px 2px; scrollbar-width: thin; }
+
+@media (min-width: 1024px) {
+  .sc { padding: 16px 22px 18px; gap: 14px; }
+  .wz-root main > div > .sc, .wz-root .sc-fill-frame { height: 100%; min-height: 560px; }
+  .sc-standalone { height: min(calc(100dvh - 4rem), 760px); min-height: 540px; }
+  .sc-frame { flex: 1; min-height: 0; container-type: size; }
+  .sc-grid {
+    display: grid;
+    height: 100%;
+    gap: 24px;
+    grid-template-rows: minmax(0, 1fr);
+    /* The preview column comes from the card's OWN height: a phone (9 / 19.5
+       plus a caption) as tall as the card allows; the 3D try-on stage (9 / 16
+       plus its camera button) wider; the live wall takes the larger half. */
+    grid-template-columns: minmax(0, 1fr) min(calc((100cqh - 64px) * 0.4615), 38cqw, 420px);
+  }
+  .sc-grid[data-preview='stage'] { grid-template-columns: minmax(0, 1fr) min(calc((100cqh - 110px) * 0.5625), 44cqw, 540px); }
+  .sc-grid[data-preview='wide'] { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+  .sc-grid[data-preview='album'] { grid-template-columns: minmax(0, 1fr) min(max(18rem, 30cqw), 24rem); }
+  .sc-main { height: 100%; }
+  .sc-body {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 2px 4px 8px 2px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  }
+  /* The column already scrolls: no box-in-a-box. */
+  .sc-body .wz-scrollgrid { max-height: none; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+  .sc-preview { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+
+  .sc-bar { display: flex; border-radius: 999px; }
+  .sc-bar .wz-tab { flex: 1 1 auto; min-height: 44px; flex-direction: row; gap: 6px; font-size: 13px; padding: 0 8px; border-radius: 999px; }
+  .sc-steps > li { flex: 1 1 auto; }
+  .sc-dot { top: 5px; right: 6px; }
+}
+@media (min-width: 1280px) { .sc-step-icon { display: block; } }
+
+/* Phone drawer: the try-on stage is sized from the room above the drawer
+   (PreviewSheet sets --sheet-preview-h) instead of being scaled down, so its
+   camera button stays a full 44px target. 110px = the button, its gap and
+   the caption under it. */
+.wz-sheet-preview .wz-stage { width: min(100%, 320px, max(120px, calc((var(--sheet-preview-h, 600px) - 110px) * 0.5625))) !important; }

@@ -11,6 +11,10 @@ describe('wizard step order', () => {
     expect(WIZARD_STEP_IDS[0]).toBe('basics');
     expect(WIZARD_STEP_IDS.at(-1)).toBe('launch');
     expect(COUNTED_STEPS).not.toContain('launch');
+    // The keepsake (the morning after) follows the live wall and precedes Launch.
+    expect(nextStepId('booth')).toBe('keepsake');
+    expect(nextStepId('keepsake')).toBe('launch');
+    expect(COUNTED_STEPS).toContain('keepsake');
     expect(nextStepId('basics')).toBe('invite');
     expect(nextStepId('launch')).toBeNull();
     expect(prevStepId('basics')).toBeNull();
@@ -68,7 +72,7 @@ describe('dashboard chip', () => {
   it('shows only for events mid-setup', () => {
     expect(setupChip({})).toBeNull();
     expect(setupChip(null)).toBeNull();
-    expect(setupChip({ wizard: startProgress(NOW) })).toEqual({ label: 'Welcome page', step: 'invite', done: 1, total: 6 });
+    expect(setupChip({ wizard: startProgress(NOW) })).toEqual({ label: 'Welcome page', step: 'invite', done: 1, total: 7 });
   });
   it('builds the route', () => {
     expect(setupPath('abc')).toBe('/host/setup/abc');
@@ -100,9 +104,9 @@ describe('new event seed', () => {
   });
   it('setup percent starts ahead: the account is the first step done', () => {
     const t = '2026-11-20T00:00:00.000Z';
-    expect(setupPercent(null)).toBe(14);
-    expect(setupPercent(startProgress(t))).toBe(29); // basics is done once the draft exists
-    expect(setupPercent(completeStep(startProgress(t), 'invite', t))).toBe(43);
+    expect(setupPercent(null)).toBe(13); // 1 of 8 (the account + 7 counted steps)
+    expect(setupPercent(startProgress(t))).toBe(25); // basics is done once the draft exists
+    expect(setupPercent(completeStep(startProgress(t), 'invite', t))).toBe(38);
     const all = COUNTED_STEPS.reduce((p, id) => completeStep(p, id, t), startProgress(t));
     expect(setupPercent(all)).toBe(100);
     expect(setupPercent({ ...startProgress(t), completedAt: t })).toBe(100);
