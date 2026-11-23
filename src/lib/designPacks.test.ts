@@ -3,10 +3,12 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CARD_DESIGN_IDS } from './cardDesigns';
 import { DECOR_KINDS, PHOTO_SHAPES } from './designSkins';
-import { DESIGN_PACKS, EMAIL_HERO_H, EMAIL_HERO_VERSION, EMAIL_HERO_W } from './designPacks';
+import { DESIGN_PACKS, EMAIL_HERO_H, EMAIL_HERO_VERSION, EMAIL_HERO_W, EMAIL_KIT, EMAIL_KIT_VERSION } from './designPacks';
 import {
   cardEmailHtml,
   EMAIL_DESIGN_HERO,
+  EMAIL_DESIGN_KIT,
+  designGlass,
   EMAIL_DESIGNS,
   normalizeEmailDesign,
 } from '../../supabase/functions/card-publish/email.ts';
@@ -26,6 +28,12 @@ function jpegSize(path: string): { w: number; h: number } {
     i += 2 + len;
   }
   throw new Error(`no SOF marker in ${path}`);
+}
+
+/** PNG size from the IHDR chunk. */
+function pngSize(path: string): { w: number; h: number } {
+  const b = readFileSync(path);
+  return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
 }
 
 describe('design packs — every design, everywhere it appears', () => {
@@ -77,8 +85,25 @@ describe('design packs — every design, everywhere it appears', () => {
           presentation: { design: pack.id },
           assetBase: 'https://beamwall.app/email',
         });
-        expect(html).toContain(`https://beamwall.app/email/designs/${EMAIL_HERO_VERSION}/${pack.id}.jpg`);
+        // The design email wears the card's look: its scene field, glass caps and gateway hero.
+        for (const f of Object.values(pack.email.kit)) expect(html).toContain(`https://beamwall.app/email${f.replace(/^\/email/, '')}`);
+        expect(html).toContain(designGlass(pack.id).fill);
         expect(html).toContain(pack.email.colors.accent);
+      });
+
+      it('email: the design kit is painted, at 2x, and light enough for an inbox', () => {
+        const k = pack.email.kit;
+        const hint = `— run node scripts/render-email-design-kit.mjs ${pack.id}`;
+        for (const f of Object.values(k)) expect(existsSync(publicFile(f)), `${f} ${hint}`).toBe(true);
+        expect(jpegSize(publicFile(k.field))).toEqual({ w: EMAIL_KIT.fieldW * 2, h: EMAIL_KIT.fieldH * 2 });
+        expect(jpegSize(publicFile(k.gate))).toEqual({
+          w: (EMAIL_KIT.w - 40) * 2,
+          h: Math.round((EMAIL_KIT.gateH * (EMAIL_KIT.w - 40)) / EMAIL_KIT.w) * 2,
+        });
+        expect(pngSize(publicFile(k.top))).toEqual({ w: EMAIL_KIT.w * 2, h: EMAIL_KIT.capH * 2 });
+        expect(pngSize(publicFile(k.bottom))).toEqual({ w: EMAIL_KIT.w * 2, h: EMAIL_KIT.capH * 2 });
+        expect(statSync(publicFile(k.field)).size).toBeLessThan(300 * 1024);
+        expect(statSync(publicFile(k.gate)).size).toBeLessThan(250 * 1024);
       });
 
       it('film: the intro composition can play it, and the title card has colours', () => {
@@ -93,6 +118,7 @@ describe('design packs — every design, everywhere it appears', () => {
 
   it('the edge function mirrors the hero version and size', () => {
     expect(EMAIL_DESIGN_HERO).toEqual({ version: EMAIL_HERO_VERSION, w: EMAIL_HERO_W, h: EMAIL_HERO_H });
+    expect(EMAIL_DESIGN_KIT).toEqual({ version: EMAIL_KIT_VERSION, ...EMAIL_KIT });
     expect(Object.keys(EMAIL_DESIGNS).sort()).toEqual([...CARD_DESIGN_IDS].sort());
   });
 

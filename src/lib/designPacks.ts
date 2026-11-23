@@ -45,6 +45,16 @@ export const EMAIL_HERO_VERSION = 'v1';
 export const EMAIL_HERO_W = 600;
 export const EMAIL_HERO_H = 340;
 
+/**
+ * The design email kit: the card's own look in the inbox (scene field, the
+ * glass panel's caps, the locked gateway hero). Painted at 2x by
+ * scripts/render-email-design-kit.mjs into public/email/designs/<version>/<id>/.
+ * Same rule as the hero: never repaint a version in place, bump it.
+ */
+export const EMAIL_KIT_VERSION = 'v2';
+/** CSS px in the email: panel width, cap height, gateway hero height (at panel width), field size. */
+export const EMAIL_KIT = { w: 600, capH: 40, gateH: 480, fieldW: 650, fieldH: 1100 } as const;
+
 /** Where to frame the landscape hero inside the portrait scene (0 = top, 1 = bottom). */
 const EMAIL_FOCUS: Partial<Record<CardDesignId, number>> = {
   'garden-gate': 0.62,
@@ -81,6 +91,8 @@ export interface DesignPack {
   email: {
     /** Site-relative path of the hero still (served by the Netlify site). */
     hero: string;
+    /** The design email kit (site-relative paths): scene field, glass caps, gateway hero. */
+    kit: { field: string; top: string; bottom: string; gate: string };
     /** Vertical framing used when the hero was painted. */
     focusY: number;
     /** Colours round the hero: page background, panel, accent (buttons, rules), text. */
@@ -132,6 +144,12 @@ export function designPack(id: CardDesignId): DesignPack {
     card: { skin },
     email: {
       hero: `/email/designs/${EMAIL_HERO_VERSION}/${id}.jpg`,
+      kit: {
+        field: `/email/designs/${EMAIL_KIT_VERSION}/${id}/field.jpg`,
+        top: `/email/designs/${EMAIL_KIT_VERSION}/${id}/top.png`,
+        bottom: `/email/designs/${EMAIL_KIT_VERSION}/${id}/bottom.png`,
+        gate: `/email/designs/${EMAIL_KIT_VERSION}/${id}/gate.jpg`,
+      },
       focusY: EMAIL_FOCUS[id] ?? 0.55,
       colors: { page: p.bg, panel: p.bg, accent: p.accent, text: p.fg },
       kicker: KICKERS[id],

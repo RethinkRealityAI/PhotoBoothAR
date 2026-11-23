@@ -462,13 +462,20 @@ export default function SceneOpener({ card, design, reducedMotion, onDone, unloc
   return (
     <SceneStage design={design} backUrl={assets.back} data-scene-phase={phase}>
       {/* The scene behind the gateway */}
-      <div ref={backRef} className="absolute inset-0 will-change-transform" style={{ transformOrigin: '50% 55%' }}>
+      {/* Hidden until the gate is ready: the opened scene must never show
+          before the locked gateway that hides it. */}
+      <div
+        ref={backRef}
+        className="absolute inset-0 will-change-transform"
+        style={{ transformOrigin: '50% 55%', visibility: phase === 'loading' ? 'hidden' : undefined }}
+      >
         <img src={assets.back} alt="" draggable={false} className="h-full w-full object-cover" />
         <SceneLife design={design} reducedMotion={reducedMotion} />
       </div>
       <div ref={midRef} className="absolute inset-0 will-change-transform" style={{ transformOrigin: '50% 100%', opacity: 0 }}>
         <MidPair src={assets.mid} design={design} />
       </div>
+      {phase !== 'loading' && (
       <MotifLayer
         kind={design.motif.kind}
         colors={design.motif.colors}
@@ -476,6 +483,7 @@ export default function SceneOpener({ card, design, reducedMotion, onDone, unloc
         reducedMotion={reducedMotion}
         intensity={motifOn}
       />
+      )}
 
       {/* Light pouring through the opening */}
       <div
