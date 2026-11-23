@@ -32,7 +32,7 @@ describe('look catalogue', () => {
       expect(c.props.some((l) => l.ref === id), id).toBe(false);
     }
     const scenes = [...readyFilters(), ...powerScenes()].map((s) => s.id);
-    for (const id of ['neon-night', 'deco-glam', 'halo-light']) expect(scenes, id).not.toContain(id);
+    for (const id of ['neon-night', 'deco-glam', 'halo-light', 'wizard-duel']) expect(scenes, id).not.toContain(id);
   });
   it('never offers a library draft', () => {
     const draft = asExp({ name: 'WIP', kind: '3d_attachment', config: { library: { draft: true } } }, 'd1');
@@ -89,7 +89,10 @@ describe('rows the wizard writes are normal studio scenes', () => {
       expect(row, s.id).not.toBeNull();
       expect((row!.config as Record<string, unknown>).wizardRef).toBe(`starter:${s.id}`);
     }
-    expect(powerScenes().length).toBe(3);
+    // Wizard Duel retired from the picks (owner, 2026-11-23); a row already
+    // built from it must still resolve.
+    expect(powerScenes().map((s) => s.id)).toEqual(['hero-visor', 'power-surge']);
+    expect(starterRow('wizard-duel')).not.toBeNull();
   });
   it('a custom filter needs a name and two parts, and caps props', () => {
     const base = { name: 'Party', frameId: null, effectId: null, classics: [], library: [] };

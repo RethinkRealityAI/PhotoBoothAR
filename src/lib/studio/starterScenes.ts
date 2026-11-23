@@ -59,6 +59,12 @@ export interface StarterSticker {
 export interface StarterScene {
   id: string;
   name: string;
+  /**
+   * Retired from every host pick list (owner, 2026-11-23: low-fidelity looks
+   * leave public surfaces). Kept here so an event already built from it
+   * still resolves and renders. Hide, never delete.
+   */
+  retired?: true;
   /** One line the host reads before clicking — what this scene feels like. */
   blurb: string;
   /**
@@ -225,6 +231,7 @@ export const STARTER_SCENES: StarterScene[] = [
   {
     id: 'wizard-duel',
     name: 'Wizard Duel',
+    retired: true,
     blurb: 'A carved wand in your hand — pinch to stream sparkles from the gem.',
     preview: '/starters/wizard-duel.webp',
     swatch: ['#4a2c17', '#b388ff'],
@@ -370,12 +377,13 @@ export function scenePropIds(scene: StarterScene): string[] {
 }
 
 /**
- * The scenes a host is OFFERED: a scene wearing a retired prop (bundledProps
- * `retired`) leaves the gallery, since its preview photo shows that prop. It
- * stays in STARTER_SCENES so a scene already built from it still resolves.
+ * The scenes a host is OFFERED: a retired scene, or one wearing a retired prop
+ * (bundledProps `retired`), leaves the gallery, since its preview photo shows
+ * that prop. It stays in STARTER_SCENES so a scene already built from it still
+ * resolves.
  */
 export function offeredStarterScenes(): StarterScene[] {
-  return STARTER_SCENES.filter((s) => !scenePropIds(s).some(isRetiredProp));
+  return STARTER_SCENES.filter((s) => s.retired !== true && !scenePropIds(s).some(isRetiredProp));
 }
 
 /** Every bundled prop GLB a starter scene can pull in — the preload list. */
