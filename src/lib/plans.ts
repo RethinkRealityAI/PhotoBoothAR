@@ -196,19 +196,13 @@ export function formatRetention(retentionDays: number | null): string {
  */
 export const VIDEO_CLIP_BYTE_BUDGET = 24 * 1024 * 1024;
 const VIDEO_MAX_BPS = 5_000_000;
-/**
- * Ceiling for 1080x1920 recordings (platform booths): 2.25x the pixels of
- * 720x1280, so a 30 s clip gets more bits. Still inside the byte budget —
- * (6 Mbps + audio) x 30 s is ~22 MB — and longer clips stay budget-bound.
- */
-export const VIDEO_MAX_BPS_HD = 6_000_000;
 const VIDEO_AUDIO_BPS = 128_000;
 
 /** Video bitrate (bits/s) for a clip of up to `videoMaxSec` seconds. */
-export function videoBitsPerSecondFor(videoMaxSec: number, maxBps: number = VIDEO_MAX_BPS): number {
+export function videoBitsPerSecondFor(videoMaxSec: number): number {
   const sec = Number.isFinite(videoMaxSec) && videoMaxSec > 0 ? videoMaxSec : 30;
   const budget = Math.floor((VIDEO_CLIP_BYTE_BUDGET * 8) / sec) - VIDEO_AUDIO_BPS;
-  return Math.min(maxBps, budget);
+  return Math.min(VIDEO_MAX_BPS, budget);
 }
 
 /** "30-second video clips". */

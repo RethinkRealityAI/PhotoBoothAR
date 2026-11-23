@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ENTITLEMENTS, LEGACY_ENTITLEMENTS, VIDEO_CLIP_BYTE_BUDGET, FAIR_USE_LINE,
-  formatPostCap, formatRetention, formatVideoLength, videoBitsPerSecondFor, VIDEO_MAX_BPS_HD,
+  formatPostCap, formatRetention, formatVideoLength, videoBitsPerSecondFor,
 } from './plans';
 
 describe('plan copy formatters', () => {
@@ -82,14 +82,6 @@ describe('video clip length tiers (owner decision 2026-11-19)', () => {
       expect(VIDEO_CLIP_BYTE_BUDGET).toBeLessThan(BUCKET_LIMIT);
     }
     expect(videoBitsPerSecondFor(90)).toBeGreaterThan(2_000_000); // still watchable
-  });
-
-  it('1080p clips get the higher ceiling and still fit the 25 MB bucket', () => {
-    expect(videoBitsPerSecondFor(30, VIDEO_MAX_BPS_HD)).toBe(VIDEO_MAX_BPS_HD);
-    for (const e of Object.values(ENTITLEMENTS)) {
-      const bps = videoBitsPerSecondFor(e.videoMaxSec, VIDEO_MAX_BPS_HD);
-      expect(((bps + 128_000) * e.videoMaxSec) / 8).toBeLessThanOrEqual(VIDEO_CLIP_BYTE_BUDGET);
-    }
   });
 
   it('falls back to 30 s on a nonsense length instead of dividing by zero', () => {

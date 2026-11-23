@@ -90,8 +90,7 @@ import {
 import { normalizeGuestLettering } from '../lib/letteringFit';
 import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
 import { useEntitlements } from '../lib/entitlements';
-import { VIDEO_MAX_BPS_HD, videoBitsPerSecondFor } from '../lib/plans';
-import { photoDprMax } from '../lib/cameraQuality';
+import { videoBitsPerSecondFor } from '../lib/plans';
 import { dataUrlToBlob } from './booth/capture';
 import { challengeNeedsCheck, validateChallengePhoto } from '../lib/challengeValidation';
 import { reportError } from '../lib/errorReport';
@@ -267,30 +266,6 @@ const HAS_CONTAINER_UNITS = (() => {
     return false;
   }
 })();
-
-/**
- * Resolve once `el` has grown past `before` pixels wide and had one more frame
- * to draw at that size, or after ~300 ms (a phone already at its real DPR
- * never grows — the photo then uses the frame it has). Never rejects.
- */
-function waitForCanvasGrowth(el: HTMLCanvasElement | null | undefined, before: number): Promise<void> {
-  return new Promise((resolve) => {
-    if (!el || typeof requestAnimationFrame !== 'function') { resolve(); return; }
-    const start = performance.now();
-    let framesSinceGrowth = -1;
-    const step = () => {
-      if (framesSinceGrowth < 0 && el.width > before) framesSinceGrowth = 0;
-      else if (framesSinceGrowth >= 0) framesSinceGrowth++;
-      // Two frames after the resize: R3F has rendered into the new buffer.
-      if (framesSinceGrowth >= 2 || (framesSinceGrowth < 0 && performance.now() - start > 300)) {
-        resolve();
-        return;
-      }
-      requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  });
-}
 
 const POWERFX_ONLY_ANCHOR: AnchorConfig = {
   anchor: 'noseBridge',
@@ -718,19 +693,6 @@ export default function Booth() {
 
   // ── Derived flags ─────────────────────────────────────────────────────
   const isFront = facingMode === 'user';
-  /** R3F dpr range that makes the 3D layer as wide as the 1080px photo (see cameraQuality). */
-  const boothDpr = useMemo<[number, number]>(
-    () => [1, photoDprMax(typeof window !== 'undefined' ? window.innerWidth : 0)],
-    [],
-  );
-  /**
-   * The sharp 3D buffer is raised ONLY for the instant of a photo. Holding it
-   * for the whole live view (first attempt) made the viewfinder choppy on a
-   * real phone — ~2x the GPU fill every frame — so the live view stays at
-   * R3F's [1, 2] and capturePhoto boosts, waits for the bigger frame, snaps,
-   * and drops back.
-   */
-  const [sharp3D, setSharp3D] = useState(false);
   // Composite carries its 2D content in config.layers (never the singular
   // asset_url field, which the legacy mirror may repurpose for either family) —
   // so a composite frame "lights up" 2D by actually having a 2D-kind layer.
@@ -1297,18 +1259,8 @@ export default function Booth() {
     setPhase('flash');
     const stage = stageRef.current;
     if (!stage) { setPhase('camera'); return; }
-    // Sharp 3D for this one frame (platform, a 3D layer on screen): raise the
-    // buffer, wait until R3F has drawn at the new size, snap, drop back.
-    const boost = !isLegacyFaceSurface(source !== 'db') && (is3D || powerFxActive);
     try {
-      if (boost) {
-        const el = document.querySelector<HTMLCanvasElement>('#booth-3d-layer canvas');
-        const before = el?.width ?? 0;
-        setSharp3D(true);
-        await waitForCanvasGrowth(el, before);
-      }
       const dataUrl = await stage.capturePhoto();
-      if (boost) setSharp3D(false);
       // The shutter BUTTON already buzzes on press; this is the confirmation
       // that a frame actually landed — which is a different event entirely once
       // a timer or a strip puts seconds between the two.
@@ -1321,7 +1273,6 @@ export default function Booth() {
       setTimeout(() => setPhase('review'), 180);
     } catch (e) {
       console.error('[Booth] capture failed', e);
-      setSharp3D(false);
       haptic('error');
       setPhase('camera');
       resetStrip();
@@ -1381,15 +1332,6 @@ export default function Booth() {
   }
 
   // ── Video recording ───────────────────────────────────────────────────
-  /** Platform booths record at the 1080x1920 still size; legacy keeps 720x1280. */
-  const hiResVideo = source === 'db';
-  /** The buffer size the current/last clip was recorded at (upload metadata). */
-  const recordedSizeRef = useRef<{ width: number; height: number }>({ width: PREVIEW_W, height: PREVIEW_H });
-  /** Back to the light 720x1280 preview once a clip ends (no-op on legacy). */
-  const restorePreviewBuffer = () => {
-    if (hiResVideo) stageRef.current?.setRecordBuffer(false);
-  };
-
   function startRecording() {
     if (!recordingSupported()) {
       showBoothHint('Video recording isn’t supported in this browser');
@@ -1409,7 +1351,6 @@ export default function Booth() {
       console.error('[Booth] recording failed', e);
       rec.dispose();
       if (recorderRef.current === rec) recorderRef.current = null;
-      restorePreviewBuffer();
       setRecording(false);
       publishRecordingMs(0);
       setPhase('camera');
@@ -1417,15 +1358,10 @@ export default function Booth() {
     };
 
     try {
-      // Resize BEFORE captureStream so the clip is 1080p from its first frame.
-      recordedSizeRef.current = hiResVideo && stageRef.current
-        ? stageRef.current.setRecordBuffer(true)
-        : { width: canvas.width, height: canvas.height };
-      const hd = recordedSizeRef.current.width >= CAPTURE_W;
       const recStream = buildRecordStream(canvas, streamRef.current ?? undefined, 30);
       const rec = new StreamRecorder({
         maxMs: VIDEO_MAX_MS,
-        videoBitsPerSecond: videoBitsPerSecondFor(entitlements.videoMaxSec, hd ? VIDEO_MAX_BPS_HD : undefined),
+        videoBitsPerSecond: videoBitsPerSecondFor(entitlements.videoMaxSec),
         onTick: publishRecordingMs,
         onMaxReached: () => stopRecording(rec),
         onError: (e) => failRecording(rec, e),
@@ -1438,7 +1374,6 @@ export default function Booth() {
         failRecording(rec, e);
       } else {
         console.error('[Booth] recording failed to start', e);
-        restorePreviewBuffer();
         setRecording(false);
         publishRecordingMs(0);
         showBoothHint('Recording failed — try again');
@@ -1452,7 +1387,6 @@ export default function Booth() {
     const blob = await rec.stop();
     rec.dispose();
     recorderRef.current = null;
-    restorePreviewBuffer();
 
     const url = URL.createObjectURL(blob);
     recordVideoUrlRef.current = url;
@@ -1501,10 +1435,11 @@ export default function Booth() {
           guestName: guestName || undefined,
           experienceId: expId ?? null,
           challengeId: taggedChallenge?.id ?? null,
-          // Report the TRUE buffer: a video is captureStream() of the live
-          // canvas — 1080x1920 on platform booths, 720x1280 on legacy.
-          width: isVideo ? recordedSizeRef.current.width : CAPTURE_W,
-          height: isVideo ? recordedSizeRef.current.height : CAPTURE_H,
+          // Report the TRUE buffer: a video is captureStream() of the preview
+          // canvas (720x1280), not the 1080x1920 still buffer. Both are exactly
+          // 9:16 so nothing laid out wrong, but the stored metadata was false.
+          width: isVideo ? PREVIEW_W : CAPTURE_W,
+          height: isVideo ? PREVIEW_H : CAPTURE_H,
         }),
         sendTimeoutFor(blob),
         { post: null, error: 'network' },
@@ -2071,11 +2006,6 @@ export default function Booth() {
                     // Group selfies: head pieces on every face 8th Wall tracks.
                     // PLATFORM only, like `composited` (and a no-op outside 8th Wall).
                     multiFace={is3D && !isLegacyFaceSurface(source !== 'db')}
-                    // Sharper props in the saved photo: R3F's default 2x cap left
-                    // the 3D buffer ~780px wide on a 3x phone, stretched into the
-                    // 1080px still. Raised only while a photo is taken (sharp3D);
-                    // PLATFORM only; legacy keeps R3F's [1, 2].
-                    dpr={!isLegacyFaceSurface(source !== 'db') && sharp3D ? boothDpr : undefined}
                   />
                 )}
               </div>
