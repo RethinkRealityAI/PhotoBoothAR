@@ -1,0 +1,72 @@
+# The next-day keepsake: every hour, ask send-keepsakes which events are due
+# (the morning after their date, or 12h after the host ended them), render a
+# short film of each paid event's photos, upload it, and let send-keepsakes
+# email every guest who opted in at the booth. A film that fails never holds
+# the email back.
+#
+# Why GitHub Actions: this repo is public, so standard runners cost nothing,
+# and they already have Chrome — the one thing a HyperFrames render needs that
+# a Supabase edge function cannot run. See scripts/keepsake-worker.mjs.
+#
+# THE LOGS ARE PUBLIC. The worker prints counts and timings only, never an
+# event name, slug, URL or guest detail. Keep it that way.
+#
+# Setup (once, by the repo owner): Settings → Secrets and variables → Actions →
+# New repository secret KEEPSAKE_WORKER_SECRET — the SAME value as the
+# Supabase edge-function secret of that name. Without it the job is a no-op.
+#
+# Scheduled workflows only run from the default branch.
+name: Keepsake films
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One worker at a time. The database claim already prevents double sends; this
+# just stops two runners rendering side by side for nothing.
+concurrency:
+  group: keepsake-films
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KEEPSAKE_WORKER_SECRET: ${{ secrets.KEEPSAKE_WORKER_SECRET }}
+    steps:
+      # Until the secret exists the job ends here in seconds.
+      - name: Configured?
+        id: peek
+        run: |
+          if [ -z "$KEEPSAKE_WORKER_SECRET" ]; then
+            echo "KEEPSAKE_WORKER_SECRET is not set; skipping."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.peek.outputs.go == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.peek.outputs.go == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      # --ignore-scripts: hyperframes pulls onnxruntime-node, whose postinstall
+      # download the render never needs (same as the video pipeline locally).
+      - name: Install
+        if: steps.peek.outputs.go == 'true'
+        run: npm ci --ignore-scripts
+
+      - name: Render and send
+        if: steps.peek.outputs.go == 'true'
+        env:
+          HYPERFRAMES_BROWSER_PATH: /usr/bin/google-chrome
+        run: node scripts/keepsake-worker.mjs

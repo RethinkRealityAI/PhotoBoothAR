@@ -835,6 +835,7 @@ export default function Wall() {
       showChallenges={wallSettings.showChallenges}
       origin={`${origin}${basePath}`}
       joinUrl={joinUrl}
+      framed
     />
   );
 
@@ -920,6 +921,7 @@ export default function Wall() {
             onIndexChange={setSlideshowIndex}
             slideshowInterval={wallSettings.slideshowInterval ?? 6}
             ambient
+            framed
           />
         );
     }

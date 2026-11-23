@@ -31,6 +31,7 @@ const ALL_SEND_ERRORS: Record<KeepsakeSendError, true> = {
   event_still_live: true,
   recently_sent: true,
   preview_rate_limited: true,
+  send_cap_reached: true,
   invalid_email: true,
   invalid_body: true,
   email_not_configured: true,
@@ -187,6 +188,13 @@ describe('keepsakeSendMessage — never claim a delivery we cannot confirm', () 
     const msg = keepsakeSendMessage({ ok: false, sent: 0, error: 'email_not_configured' }).message;
     expect(msg).toContain('platform admin');
     expect(msg).toContain('no guest was emailed');
+  });
+
+  it('says the daily ceiling (051) sent nothing, for the send and the preview alike', () => {
+    const send = keepsakeSendMessage({ ok: false, sent: 0, error: 'send_cap_reached' }).message;
+    expect(send).toContain('nothing was sent');
+    expect(send).toContain('tomorrow');
+    expect(keepsakePreviewMessage({ ok: false, sent: 0, error: 'send_cap_reached' }, 'a@b.co').message).toBe(send);
   });
 
   it('refuses to guess after a network failure', () => {

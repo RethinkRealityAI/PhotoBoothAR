@@ -28,6 +28,9 @@ import { useEntitlements } from '../lib/entitlements';
 import { resolveScene } from '../lib/sceneThemes';
 import { wallFieldPhotos } from '../lib/scenePage';
 import { subscribeToPosts } from '../lib/db';
+import { FROM_WELCOME_STATE } from '../lib/guestFlow';
+import { PrivacyLine } from './booth/Welcome';
+import { isPlatformBooth, useViewportLock } from '../lib/boothViewport';
 import type { Post } from '../types';
 
 /** Platform events get the immersive page; coded legacy events keep the
@@ -44,9 +47,13 @@ export default function GuestWelcome() {
  * host may put a border round it all (PageBorder).
  */
 function SceneGuestWelcome() {
-  const { config, basePath, eventId } = useEvent();
+  const { config, basePath, eventId, source } = useEvent();
   const fromLanding = new URLSearchParams(useLocation().search).get('from') === 'beamy-qr';
   const { videoEnabled } = useEntitlements();
+  // The page scrolls inside its own scroller; pin the DOCUMENT so iOS's
+  // 100vh-vs-visible gap can't double-scroll it, and the booth opens from the
+  // top. Scroll lock only — pinch-zoom stays available here (WCAG 1.4.4).
+  useViewportLock(isPlatformBooth(source), false);
   const {
     wallSettings, fetchWallSettings,
     posts, fetchPosts, prependPost, updatePost, removePost,
@@ -234,6 +241,9 @@ function SceneGuestWelcome() {
             <BoothShowcase cards={showcase} overlay={<div className="lg:hidden">{pulse}</div>}>
               <BoothViewfinder
                 to={`${basePath}/booth`}
+                // The booth skips its own "Step inside" splash for this tap,
+                // so the camera line that splash carried is shown below.
+                linkState={FROM_WELCOME_STATE}
                 frameUrl={frameUrl}
                 previewUrl={newest?.image_url}
                 previewCrop={shot.crop}
@@ -241,10 +251,14 @@ function SceneGuestWelcome() {
                 previewAlt={newest ? (newest.guest_name ? `The newest photo, by ${newest.guest_name}` : 'The newest guest photo') : undefined}
               />
             </BoothShowcase>
+            <div className="mt-3 text-center lg:text-left">
+              <PrivacyLine />
+            </div>
           </div>
 
-          {/* Phones: Scan to join under the phone. */}
-          <div className="flex justify-center [grid-area:qr] lg:hidden">{scanToJoin}</div>
+          {/* Tablets: Scan to join under the phone. Never on a phone: the
+              guest is already holding the device the QR would open. */}
+          <div className="hidden justify-center [grid-area:qr] sm:flex lg:hidden">{scanToJoin}</div>
 
           <section className="flex min-w-0 flex-col items-start animate-rise-in [grid-area:rest]">
             {intro && <p className="mb-5 max-w-lg font-sans text-[15px] leading-relaxed sc-muted">{intro}</p>}

@@ -27,6 +27,7 @@ import type { Post } from '../../types';
 import PostImage from '../../components/ui/PostImage';
 import { useDialog } from '../../lib/useDialog';
 import { recapPhotoFileName } from '../../lib/eventRecap';
+import { K_BODY, K_EYEBROW, K_H2, K_SECONDARY } from './recapStyles';
 
 /* ── Saving ─────────────────────────────────────────────────────────── */
 
@@ -105,14 +106,14 @@ function Tile({
     <button
       type="button"
       onClick={() => onOpen(post)}
-      className="group relative block w-full overflow-hidden rounded-2xl border border-white/10 bg-black/30 transition-transform duration-300 hover:-translate-y-0.5 focus-visible:-translate-y-0.5"
+      className="group relative block w-full overflow-hidden rounded-2xl border border-[color:var(--k-line)] bg-black/30 shadow-[0_14px_30px_-22px_var(--k-shadow)] transition duration-300 hover:-translate-y-1 hover:border-[rgba(var(--k-accent-rgb),0.6)] hover:shadow-[0_22px_44px_-20px_rgba(var(--k-accent-rgb),0.55)] focus-visible:-translate-y-1 focus-visible:outline-2 focus-visible:outline-[color:var(--k-accent)] active:scale-[0.98]"
       style={{ aspectRatio: '3 / 4' }}
       aria-label={post.guest_name ? `Open ${post.guest_name}’s moment` : 'Open this moment'}
     >
       {isVideo ? (
         <video
           src={post.image_url}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
           preload="metadata"
           muted
           playsInline
@@ -124,9 +125,10 @@ function Tile({
           alt={post.guest_name ? `A moment by ${post.guest_name}` : 'A moment from the event'}
           displayWidth={displayWidth}
           eager={eager}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
         />
       )}
+      <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
       {isVideo && (
         <span className="pointer-events-none absolute bottom-2 left-2 rounded-md bg-black/60 px-1.5 py-0.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/80">
           Clip
@@ -222,11 +224,11 @@ export default function RecapAlbum({
       {ownPhotos.length > 0 && (
         <section data-reveal className="flex flex-col gap-3" aria-labelledby="recap-yours-heading">
           <header className="flex flex-col gap-1">
-            <p className="font-label uppercase tracking-luxe text-[10px] text-accent">Yours</p>
-            <h2 id="recap-yours-heading" className="font-serif italic text-2xl text-foil-static">
+            <p className={K_EYEBROW}>Yours</p>
+            <h2 id="recap-yours-heading" className={K_H2}>
               The ones you took
             </h2>
-            <p className="font-sans text-xs text-brand-muted/60 leading-relaxed">
+            <p className={K_BODY}>
               Saved on this device from the night. Tap one to see it big, or save it straight from here.
             </p>
           </header>
@@ -241,7 +243,7 @@ export default function RecapAlbum({
                   post={p}
                   filePrefix={filePrefix}
                   label="Save this photo"
-                  className="mt-2 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl glass font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 transition-colors hover:text-accent"
+                  className={`mt-2 w-full ${K_SECONDARY}`}
                 >
                   Save
                 </SaveLink>
@@ -251,12 +253,15 @@ export default function RecapAlbum({
         </section>
       )}
 
-      <section data-reveal className="flex flex-col gap-3" aria-labelledby="recap-album-heading">
+      <section id="photos" data-reveal className="scroll-mt-6 flex flex-col gap-3" aria-labelledby="recap-album-heading">
         <header className="flex flex-col gap-1">
-          <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">The album</p>
-          <h2 id="recap-album-heading" className="font-serif italic text-2xl text-foil-static">
+          <p className={K_EYEBROW}>The album</p>
+          <h2 id="recap-album-heading" className={K_H2}>
             Everything from the night
           </h2>
+          <p className={K_BODY}>
+            {photos.length.toLocaleString('en-US')} {photos.length === 1 ? 'moment' : 'moments'}. Tap any one to see it big and save it.
+          </p>
         </header>
         {/* Deliberately NOT [data-reveal-stagger]: that cascades every child at
             0.09s apart, which on a hundred-photo album would take nine seconds

@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { signUpWithEmail, signInWithGoogle, resendConfirmation } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
+import AuthShell from './AuthShell';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -23,6 +24,8 @@ export default function Signup() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [promoCode, setPromoCode] = useState('');
+  /** Most hosts have no code, so the field waits behind a small text button. */
+  const [showPromo, setShowPromo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -84,12 +87,12 @@ export default function Signup() {
     setResendState(err ? 'error' : 'sent');
   }
 
-  // See Login: a centred card taller than the viewport loses its own top.
-  // This one has four fields, so it is the likelier of the two to overflow.
+  // AuthShell scrolls and centres with my-auto (never items-center), so a
+  // card taller than the viewport keeps its top in reach.
   return (
-    <div className="h-full w-full app-bg flex items-start justify-center px-5 py-12 overflow-y-auto">
-      <div className="w-full max-w-sm my-auto animate-rise-in">
-        <div className="glass-strong rounded-3xl px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
+    <AuthShell page="signup">
+      <div className="w-full animate-rise-in">
+        <div className="glass-strong rounded-3xl px-6 py-7 sm:px-8 sm:py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
           <Link
             to="/"
             className="block text-center font-serif text-4xl font-semibold tracking-wide text-foil-static"
@@ -138,6 +141,9 @@ export default function Signup() {
                 <span className="text-brand-fg">{email.trim()}</span>. Click it to activate your
                 account — once confirmed, you&rsquo;ll go straight to your events.
               </p>
+              <p className="mt-3 text-sm leading-relaxed text-brand-muted/80">
+                Not there after a minute? Check spam or promotions — it comes from Beamwall.
+              </p>
               {promoCode.trim() !== '' && (
                 <p className="mt-3 text-sm leading-relaxed text-brand-muted/80">
                   Promo code <span className="text-accent">{promoCode.trim()}</span> will be
@@ -181,10 +187,27 @@ export default function Signup() {
                 Create your event
               </h1>
 
-              <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
+              <button
+                type="button"
+                onClick={handleGoogle}
+                disabled={googleLoading}
+                className="mt-8 w-full rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {googleLoading ? 'Redirecting…' : 'Continue with Google'}
+              </button>
+
+              <div className="my-6 flex items-center gap-3">
+                <div className="h-px flex-1 bg-white/10" />
+                <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/50">
+                  or
+                </span>
+                <div className="h-px flex-1 bg-white/10" />
+              </div>
+
+              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <label className="flex flex-col gap-1.5">
                   <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
-                    Display name
+                    Your name
                   </span>
                   <input
                     type="text"
@@ -248,20 +271,32 @@ export default function Signup() {
                   </span>
                 </label>
 
-                <label className="flex flex-col gap-1.5">
-                  <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
-                    Promo code <span className="text-brand-muted/40">(optional)</span>
-                  </span>
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    maxLength={40}
-                    value={promoCode}
-                    onChange={(e) => setPromoCode(e.target.value)}
-                    placeholder="Have a code? Enter it for bonus credits"
-                    className={inputClass}
-                  />
-                </label>
+                {showPromo ? (
+                  <label className="flex flex-col gap-1.5">
+                    <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
+                      Promo code <span className="text-brand-muted/40">(optional)</span>
+                    </span>
+                    <input
+                      type="text"
+                      autoFocus
+                      autoComplete="off"
+                      maxLength={40}
+                      value={promoCode}
+                      onChange={(e) => setPromoCode(e.target.value)}
+                      placeholder="Have a code? Enter it for bonus credits"
+                      className={inputClass}
+                    />
+                  </label>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowPromo(true)}
+                    aria-expanded={false}
+                    className="-my-1 inline-flex min-h-11 items-center self-start text-sm text-brand-muted/70 underline-offset-4 hover:text-brand-fg hover:underline"
+                  >
+                    Have a code?
+                  </button>
+                )}
 
                 {error && (
                   <p role="alert" className="text-sm text-red-400">
@@ -277,23 +312,6 @@ export default function Signup() {
                   {submitting ? 'Creating account…' : 'Create account'}
                 </button>
               </form>
-
-              <div className="my-6 flex items-center gap-3">
-                <div className="h-px flex-1 bg-white/10" />
-                <span className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/50">
-                  or
-                </span>
-                <div className="h-px flex-1 bg-white/10" />
-              </div>
-
-              <button
-                type="button"
-                onClick={handleGoogle}
-                disabled={googleLoading}
-                className="w-full rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {googleLoading ? 'Redirecting…' : 'Continue with Google'}
-              </button>
 
               <p className="mt-4 text-center text-[11px] leading-relaxed text-brand-muted/50">
                 By continuing you agree to the{' '}
@@ -317,6 +335,6 @@ export default function Signup() {
           )}
         </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }

@@ -65,7 +65,7 @@ export default function HostLayout() {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   usePageTitle(hostTitle(pathname));
 
   // Close on navigation, on a tap outside, and focus the first item on open.
@@ -164,7 +164,7 @@ export default function HostLayout() {
     );
   }
   if (!session) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: `${pathname}${search}` }} />;
   }
 
   const handleSignOut = async () => {
@@ -379,7 +379,10 @@ export default function HostLayout() {
       </aside>
 
       {/* Content */}
-      <main className="flex-1 relative overflow-y-auto">
+      {/* pb-24 keeps the last row scrollable clear of the floating assistant
+          button (it sat on top of "Manage" on a phone). Not on /host/concierge:
+          the button is hidden there and that page fills the height itself. */}
+      <main className={`flex-1 relative overflow-y-auto ${pathname.startsWith('/host/concierge') ? '' : 'pb-24'}`}>
         <ToastProvider>
           <Outlet />
         </ToastProvider>

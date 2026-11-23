@@ -95,6 +95,7 @@ const AdminCredits = lazy(() => import('./pages/admin/Credits'));
 const AdminUsers = lazy(() => import('./pages/admin/Users'));
 const AdminAudit = lazy(() => import('./pages/admin/Audit'));
 const AdminAdmins = lazy(() => import('./pages/admin/Admins'));
+const AdminReveals = lazy(() => import('./pages/admin/reveals/AdminReveals'));
 // Lazy: the Copilot tree (CopilotChat → studio glb helpers) statically pulls
 // the three/R3F stack — eager imports here would ship it to every marketing
 // visitor. Both components gate their own visibility to /host surfaces.
@@ -152,6 +153,26 @@ const BrandPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/brand/BrandPage'));
 
+/** Card design gallery (/card-designs, noindex): every illustrated keepsake
+ *  design, playable with a sample card. Same fold as the brand page. */
+const CardDesignGallery = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/cards/CardDesignGallery'));
+
+/** Beamwall's own marketing reveals: /reveal/:slug (Beamy guards the news),
+ *  /reveal/demo/:occasion (a preset, no database) and /reveal/preview (the
+ *  editor's iframe). Platform-only, same fold as the gallery. */
+const RevealPage = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/reveals/RevealPage'));
+const RevealPreview = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/reveals/RevealPreview'));
+/** The reveal editor: full-viewport like the setup wizard, its own admin gate. */
+const RevealEditor = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/admin/reveals/RevealEditor'));
+
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
 const DevStudioHarness = import.meta.env.DEV
@@ -162,6 +183,11 @@ const DevStudioHarness = import.meta.env.DEV
  *  so no part of it (or of three's GLTF/Draco path it pulls in) ships. */
 const DevAssetPrepTool = import.meta.env.DEV
   ? lazy(() => import('./dev/AssetPrepTool'))
+  : (() => null);
+
+/** DEV-only reveal editor harness (no database, no login), gated like the harness above. */
+const DevRevealEditorHarness = import.meta.env.DEV
+  ? lazy(() => import('./dev/RevealEditorHarness'))
   : (() => null);
 
 /** Set at build time for the legacy single-event deploys. */
@@ -296,6 +322,9 @@ export default function App() {
               {import.meta.env.DEV && (
                 <Route path="/dev/asset-prep" element={<Suspense fallback={null}><DevAssetPrepTool /></Suspense>} />
               )}
+              {import.meta.env.DEV && (
+                <Route path="/dev/reveal-editor" element={<Suspense fallback={null}><DevRevealEditorHarness /></Suspense>} />
+              )}
               <Route path="/e/:slug" element={<EventProvider><Outlet /></EventProvider>}>
                 {guestRoutes()}
                 {/* /e/:slug/admin/* falls through here — the studio moved to /host */}
@@ -325,6 +354,11 @@ export default function App() {
               <Route path="/try/:kit" element={<TryPage />} />
               <Route path="/beamy" element={<RedirectToHome />} />
               <Route path="/brand" element={<BrandPage />} />
+              <Route path="/card-designs" element={<CardDesignGallery />} />
+              <Route path="/reveal/preview" element={<RevealPreview />} />
+              <Route path="/reveal/demo/:occasion" element={<RevealPage />} />
+              <Route path="/reveal/:slug" element={<RevealPage />} />
+              <Route path="/admin/reveals/:id" element={<RevealEditor />} />
 
               {/* Host platform (session-gated) */}
               {/* The setup wizard: full-screen, its own session gate. A new
@@ -362,6 +396,7 @@ export default function App() {
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="audit" element={<AdminAudit />} />
                 <Route path="admins" element={<AdminAdmins />} />
+                <Route path="reveals" element={<AdminReveals />} />
               </Route>
 
               {/* Greeting cards: public viewer + token-gated contribute page */}

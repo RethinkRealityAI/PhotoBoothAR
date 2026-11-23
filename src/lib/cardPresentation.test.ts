@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  firstReadingPage,
   BEAMWALL_CARD_PALETTE,
   CARD_EMAIL_STYLE_IDS,
   CARD_EMAIL_STYLE_OPTIONS,
@@ -9,6 +10,7 @@ import {
   CARD_REVEAL_OPTIONS,
   DEFAULT_CARD_PRESENTATION,
   cardMonogram,
+  effectiveReveal,
   cardPalette,
   REVEAL_WEBGL_FALLBACK,
   normalizeCardPresentation,
@@ -44,7 +46,19 @@ describe('normalizeCardPresentation', () => {
   it('keeps valid choices and drops unknown keys', () => {
     expect(
       normalizeCardPresentation({ reveal: 'airplane', email: 'spotlight', look: 'event', extra: '<script>' }),
-    ).toEqual({ v: 1, reveal: 'airplane', email: 'spotlight', look: 'event' });
+    ).toEqual({ v: 1, reveal: 'airplane', email: 'spotlight', look: 'event', design: 'none', unlock: 'design' });
+  });
+
+  it('keeps the initials unlock and drops an unknown one (old rows open the design’s way)', () => {
+    expect(normalizeCardPresentation({ design: 'gala-night', unlock: 'initials' }).unlock).toBe('initials');
+    expect(normalizeCardPresentation({ unlock: 'retina-scan' }).unlock).toBe('design');
+    expect(normalizeCardPresentation({}).unlock).toBe('design');
+  });
+
+  it('keeps a known design and drops an unknown one (old rows have none)', () => {
+    expect(normalizeCardPresentation({ design: 'owambe' }).design).toBe('owambe');
+    expect(normalizeCardPresentation({ design: 'disco-inferno' }).design).toBe('none');
+    expect(normalizeCardPresentation({ reveal: 'ribbon' }).design).toBe('none');
   });
 
   it('each axis falls back independently', () => {
@@ -64,6 +78,30 @@ describe('playableReveal', () => {
   });
   it('with WebGL every reveal plays as chosen', () => {
     for (const id of CARD_REVEAL_IDS) expect(playableReveal(id, true)).toBe(id);
+  });
+});
+
+describe('effectiveReveal', () => {
+  it('a design plays its own scene opener, unless the host chose no opening', () => {
+    expect(effectiveReveal('envelope', 'none')).toBe('envelope');
+    expect(effectiveReveal('envelope', 'garden-gate')).toBe('scene');
+    expect(effectiveReveal('airplane', 'owambe')).toBe('scene');
+    expect(effectiveReveal('none', 'owambe')).toBe('none');
+  });
+});
+
+describe('parseCardViewOverrides — unlock', () => {
+  it('previews the initials, ignores anything else', () => {
+    expect(parseCardViewOverrides('?unlock=initials')).toEqual({ unlock: 'initials' });
+    expect(parseCardViewOverrides('?unlock=nope')).toEqual({});
+  });
+});
+
+describe('parseCardViewOverrides — design', () => {
+  it('previews a design, or explicitly none, and ignores junk', () => {
+    expect(parseCardViewOverrides('?design=moon-gate')).toEqual({ design: 'moon-gate' });
+    expect(parseCardViewOverrides('?design=none')).toEqual({ design: 'none' });
+    expect(parseCardViewOverrides('?design=%3Cscript%3E')).toEqual({});
   });
 });
 
@@ -135,5 +173,15 @@ describe('cardMonogram', () => {
     expect(cardMonogram(null, 'Happy birthday!')).toBe('H');
     expect(cardMonogram('', '')).toBe('✦');
     expect(cardMonogram('123', '!!')).toBe('✦');
+  });
+});
+
+describe('firstReadingPage', () => {
+  it('skips the cover after an opening when there is something to read', () => {
+    expect(firstReadingPage(true, 3)).toBe(1);
+  });
+  it('keeps the cover with no opening, or with nothing inside yet', () => {
+    expect(firstReadingPage(false, 3)).toBe(0);
+    expect(firstReadingPage(true, 0)).toBe(0);
   });
 });

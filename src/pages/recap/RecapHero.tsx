@@ -17,17 +17,15 @@
  * position IS the final state, so honouring the preference is simply declining
  * to build the timeline — there is no second code path to keep in sync.
  */
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import gsap from 'gsap';
 import type { Post } from '../../types';
 import PostImage from '../../components/ui/PostImage';
-
-/** How many prints the fan holds. Five reads as a handful; more turns the hero
- *  into a second album and pushes the name off a phone screen. */
-const HERO_PRINTS = 5;
-
-/** Resting angles, authored not generated — the fan has to look arranged. */
-const TILT = [-9, 5.5, -2.5, 7, -6];
+// How many prints the fan holds (five reads as a handful; more turns the hero
+// into a second album and pushes the name off a phone screen), their authored
+// resting tilts and stacking. Shared with the beam reveal, whose prints land on
+// exactly these.
+import { HERO_PRINTS, heroPrintTilt, heroPrintZ } from '../../lib/recapReveal';
 
 export default function RecapHero({
   eyebrow,
@@ -35,6 +33,8 @@ export default function RecapHero({
   countLine,
   photos,
   reducedMotion,
+  play,
+  actions,
 }: {
   eyebrow: string;
   title: string;
@@ -42,12 +42,18 @@ export default function RecapHero({
   /** The album, newest first; the first few become the fan. */
   photos: readonly Post[];
   reducedMotion: boolean;
+  /** False while the tap-to-open reveal covers the page — the hero waits for
+   *  it to hand off, then arrives, so the two read as one opening. Stays false
+   *  when the beam reveal LANDED its prints on this hero: it is already in place. */
+  play: boolean;
+  /** Small actions under the count (share). */
+  actions?: ReactNode;
 }) {
   const rootRef = useRef<HTMLElement>(null);
   const prints = photos.slice(0, HERO_PRINTS);
 
   useLayoutEffect(() => {
-    if (reducedMotion) return;
+    if (reducedMotion || !play) return;
     const root = rootRef.current;
     if (root === null) return;
     // gsap.context scopes every selector to this subtree and gives one
@@ -70,22 +76,29 @@ export default function RecapHero({
       );
     }, root);
     return () => ctx.revert();
-  }, [reducedMotion, prints.length]);
+  }, [reducedMotion, play, prints.length]);
 
   return (
-    <header ref={rootRef} className="flex flex-col items-center gap-5 pt-2 text-center">
-      <p data-hero-line className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
+    <header ref={rootRef} className="flex flex-col items-center gap-4 pt-4 text-center sm:pt-8">
+      <p data-hero-line data-hero-eyebrow className="font-label uppercase tracking-luxe text-[10px] text-[color:var(--k-accent-text)]">
         {eyebrow}
       </p>
-      <h1 data-hero-line className="font-serif italic text-4xl sm:text-5xl md:text-6xl leading-[1.05] text-foil-static">
+      <h1
+        data-hero-line
+        data-hero-title
+        className="max-w-3xl font-serif italic text-[2.6rem] leading-[1.02] text-[color:var(--k-ink)] sm:text-6xl md:text-7xl"
+        style={{ textShadow: '0 0 48px rgba(var(--k-accent-rgb),0.35)' }}
+      >
         {title}
       </h1>
-      <p data-hero-line className="font-sans text-xs tracking-wide text-brand-muted/60">
+      <p data-hero-line className="inline-flex items-center gap-2 font-sans text-xs tracking-wide text-[color:var(--k-muted)]">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[color:var(--k-glow)] shadow-[0_0_10px_rgba(var(--k-glow-rgb),0.9)]" />
         {countLine}
       </p>
+      {actions !== undefined && <div data-hero-line className="flex items-center gap-2">{actions}</div>}
 
       {prints.length > 0 && (
-        <ul className="mt-2 flex items-end justify-center -space-x-5 sm:-space-x-7" aria-hidden>
+        <ul className="mt-3 flex items-end justify-center -space-x-5 sm:-space-x-7" aria-hidden>
           {prints.map((p, i) => (
             <li
               key={p.id}
@@ -94,11 +107,11 @@ export default function RecapHero({
               // The gsap tween owns this element's transform; the resting tilt
               // lives on the child so the two never fight over the same
               // property.
-              style={{ zIndex: i === 2 ? 3 : 2 - Math.abs(i - 2) }}
+              style={{ zIndex: heroPrintZ(i) }}
             >
               <div
-                className="overflow-hidden rounded-2xl border border-white/12 bg-black/40 shadow-[0_18px_40px_-18px_rgba(0,0,0,0.9)]"
-                style={{ transform: `rotate(${TILT[i % TILT.length]}deg)`, aspectRatio: '3 / 4' }}
+                className="overflow-hidden rounded-2xl border border-[color:var(--k-line)] bg-black/40 shadow-[0_22px_44px_-18px_var(--k-shadow)]"
+                style={{ transform: `rotate(${heroPrintTilt(i)}deg)`, aspectRatio: '3 / 4' }}
               >
                 {p.media_type === 'video' ? (
                   <video src={p.image_url} className="h-full w-full object-cover" preload="metadata" muted playsInline />

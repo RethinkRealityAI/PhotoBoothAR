@@ -28,3 +28,18 @@ export function authRedirectUrl(path: string, loc: { protocol: string; hostname:
   const p = path.startsWith('/') ? path : `/${path}`;
   return `${authRedirectOrigin(loc)}${p}`;
 }
+
+/**
+ * Where to send someone after they sign in, given the page that bounced them
+ * to /login (router state `from`). Only host-area paths are honoured, so a
+ * crafted `from` can never become an open redirect ("//evil.com" is a
+ * protocol-relative URL, "/\evil.com" is one too in some browsers) or send a
+ * host into a guest page. Anything else falls back to the dashboard.
+ */
+export function safeReturnPath(from: unknown): string {
+  const fallback = '/host';
+  if (typeof from !== 'string') return fallback;
+  if (!/^\/(host|admin)(\/|$|\?)/.test(from)) return fallback;
+  if (/[\\\s]/.test(from) || from.startsWith('//')) return fallback;
+  return from;
+}

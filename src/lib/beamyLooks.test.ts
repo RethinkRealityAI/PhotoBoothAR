@@ -20,11 +20,13 @@ describe('beamyLooks', () => {
       if (l.prop !== undefined) expect(existsSync(resolve(__dirname, '../../public', `.${l.prop.url}`)), l.prop.url).toBe(true);
       if (l.kind === 'prop') expect(l.fit, l.id).toBeDefined();
     }
-    // Kept by the owner: the neon glasses and the antlers. Dropped (they read
-    // grey): the Santa hat, the Royal crown, and the material-less tiara.
+    // Kept by the owner: the antlers. Dropped (they read grey): the Santa hat,
+    // the Royal crown, and the material-less tiara. The neon glasses were
+    // retired from everything public on 2026-11-23 (owner: "tacky"); the gold
+    // masquerade took their slot.
     const urls = BEAMY_LOOKS.flatMap((l) => [l.url, l.prop?.url]);
-    for (const keep of ['neon-shades.glb', 'reindeer-antlers.glb']) expect(urls.some((u) => u?.endsWith(keep)), keep).toBe(true);
-    for (const gone of ['santa-hat.glb', 'royal-crown.glb', 'queens-tiara.glb', 'halo-ring.glb']) expect(urls.some((u) => u?.endsWith(gone)), gone).toBe(false);
+    for (const keep of ['beamy-masquerade.glb', 'reindeer-antlers.glb']) expect(urls.some((u) => u?.endsWith(keep)), keep).toBe(true);
+    for (const gone of ['santa-hat.glb', 'royal-crown.glb', 'queens-tiara.glb', 'halo-ring.glb', 'neon-shades.glb']) expect(urls.some((u) => u?.endsWith(gone)), gone).toBe(false);
     expect(new Set(BEAMY_LOOKS.map((l) => l.id)).size).toBe(BEAMY_LOOKS.length);
   });
 

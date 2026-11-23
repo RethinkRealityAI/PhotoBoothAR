@@ -28,6 +28,7 @@ import { useSession } from '../../lib/auth';
 import { fetchPostsResult } from '../../lib/db';
 import { uploadAsset } from '../../lib/db';
 import { sendKeepsakePreview, sendKeepsakes } from '../../lib/keepsakeContacts';
+import { KeepsakeEditor } from './keepsake/KeepsakeEditor';
 import {
   keepsakePreviewMessage,
   keepsakeSendMessage,
@@ -248,6 +249,9 @@ export default function ShareKit() {
         {/* Legacy coded events have no events row, so no uuid and no contacts
             table to mail — the panel simply is not theirs. */}
         {eventUuid !== null && (
+          <KeepsakeEditor eventUuid={eventUuid} eventName={config.copy.fullName} variant="panel" />
+        )}
+        {eventUuid !== null && (
           <KeepsakePanel
             eventUuid={eventUuid}
             eventSlug={eventId}
@@ -299,6 +303,9 @@ function KeepsakePanel({
   const [previewEmail, setPreviewEmail] = useState('');
   const myEmail = session?.user.email ?? '';
   const email = previewEmail !== '' ? previewEmail : myEmail;
+
+  // The next-day switch (config.keepsakes.autoSend) lives in KeepsakeEditor
+  // above, saved with the rest of the keepsake — one owner per value.
 
   const art = useMemo(
     () => ({ background: COLLAGE_BASE, accent: accentHexes[0] ?? '#E8C766', palette: accentHexes }),
@@ -375,8 +382,10 @@ function KeepsakePanel({
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/80">Keepsake email</h2>
         </div>
         <p className="font-sans text-xs text-brand-muted/60 leading-relaxed max-w-xl">
-          Guests who left an address at the booth get the album in their inbox — one email each,
-          with an unsubscribe link at the bottom. Nothing is sent until you press the button.
+          Guests who left an address at the booth get the album in their inbox the morning after
+          your event, automatically. On paid plans it comes with a short film of the night, made from
+          the booth photos. One email each, with an unsubscribe link at the bottom. Switch the
+          next-day email on or off in Design your keepsake, above.
         </p>
       </header>
 
@@ -416,13 +425,13 @@ function KeepsakePanel({
           className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)] transition active:scale-[0.98] disabled:opacity-40"
         >
           {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-          {sending ? 'Sending…' : 'Send keepsakes'}
+          {sending ? 'Sending…' : 'Send keepsakes now'}
         </button>
         {!isOver && (
           <p className="font-sans text-[11px] text-brand-muted/45 leading-relaxed">
             {isDraft
               ? 'Available once this event has run and you have ended it.'
-              : 'Available once you end the event — guests should get the album after the night, not during it.'}
+              : 'Available once you end the event. Guests should get the album after the night, not during it.'}
           </p>
         )}
       </div>

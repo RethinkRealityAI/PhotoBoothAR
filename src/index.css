@@ -19,6 +19,8 @@
    In the components layer so a Tailwind utility (sm:hidden, w-full…) on
    the same element wins over a wz- default. */
 @import "./styles/wizard.css" layer(components);
+/* The sign-in / sign-up greeter (auth-*). */
+@import "./styles/auth.css";
 
 @theme {
   /* Champagne gold scale */
@@ -839,4 +841,14 @@ select option:disabled {
 }
 @media (prefers-reduced-motion: reduce) {
   .wall-twinkle { animation-duration: 12s; }
+}
+
+/* Booth viewport lock (src/lib/boothViewport.ts sets the attribute while a
+   PLATFORM booth or welcome page is mounted; legacy builds never set it).
+   iOS Safari zooms the whole page when a field under 16px takes focus — the
+   review note, the name prompt and the keepsake email were 14px, so typing
+   one shoved the booth sideways. Unlayered on purpose so it out-ranks the
+   `text-sm` utility on those fields. */
+html[data-viewport-lock] :is(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select) {
+  font-size: 16px;
 }

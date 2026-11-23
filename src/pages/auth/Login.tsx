@@ -6,9 +6,11 @@
  * accent-gradient "Beamwall" wordmark) — this is the platform, not an event.
  */
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { signInWithEmail, signInWithGoogle, resendConfirmation } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
+import AuthShell from './AuthShell';
+import { safeReturnPath } from '../../lib/authRedirect';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -18,6 +20,9 @@ const inputClass =
 export default function Login() {
   usePageTitle('Sign in — Beamwall');
   const navigate = useNavigate();
+  // A signed-out deep link (a setup step, billing) bounced here with its path
+  // in router state; go back there, not to the dashboard.
+  const returnTo = safeReturnPath((useLocation().state as { from?: unknown } | null)?.from);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +53,7 @@ export default function Login() {
         }
         return;
       }
-      navigate('/host');
+      navigate(returnTo, { replace: true });
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {
@@ -81,13 +86,12 @@ export default function Login() {
     }
   }
 
-  // items-start + my-auto rather than items-center: inside an h-screen
-  // overflow-hidden shell, a centred card taller than the viewport pushes
-  // its own top out of reach and cannot be scrolled back to.
+  // AuthShell scrolls and centres with my-auto (never items-center), so a
+  // card taller than the viewport keeps its top in reach.
   return (
-    <div className="h-full w-full app-bg flex items-start justify-center px-5 py-12 overflow-y-auto">
-      <div className="w-full max-w-sm my-auto animate-rise-in">
-        <div className="glass-strong rounded-3xl px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
+    <AuthShell page="signin">
+      <div className="w-full animate-rise-in">
+        <div className="glass-strong rounded-3xl px-6 py-7 sm:px-8 sm:py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
           <Link
             to="/"
             className="block text-center font-serif text-4xl font-semibold tracking-wide text-foil-static"
@@ -100,7 +104,24 @@ export default function Login() {
             Sign in to your events
           </h1>
 
-          <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
+          <button
+            type="button"
+            onClick={handleGoogle}
+            disabled={googleLoading}
+            className="mt-8 w-full rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {googleLoading ? 'Redirecting…' : 'Continue with Google'}
+          </button>
+
+          <div className="my-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-white/10" />
+            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
+              or
+            </span>
+            <div className="h-px flex-1 bg-white/10" />
+          </div>
+
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1.5">
               <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
                 Email
@@ -178,23 +199,6 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="my-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-white/10" />
-            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
-              or
-            </span>
-            <div className="h-px flex-1 bg-white/10" />
-          </div>
-
-          <button
-            type="button"
-            onClick={handleGoogle}
-            disabled={googleLoading}
-            className="w-full rounded-full border border-white/15 bg-white/[0.04] px-6 py-3.5 font-label uppercase tracking-luxe text-[11px] font-semibold text-brand-fg transition hover:bg-white/[0.08] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {googleLoading ? 'Redirecting…' : 'Continue with Google'}
-          </button>
-
           <p className="mt-7 text-center text-sm text-brand-muted/70">
             New here?{' '}
             <Link to="/signup" className="text-accent underline-offset-4 hover:underline">
@@ -215,6 +219,6 @@ export default function Login() {
           </p>
         </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }
