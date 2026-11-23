@@ -91,7 +91,7 @@ function PostCard({ post, onRefresh, onDelete, onUpdate }: PostCardProps) {
         )}
         {/* Media type badge */}
         {post.media_type === 'video' && (
-          <div className="absolute top-2 right-2 text-[8px] font-label uppercase tracking-widest px-2 py-0.5 rounded-full bg-noir-800/80 text-blue-300">
+          <div className="absolute top-2 right-2 text-[10px] font-label uppercase tracking-widest px-2 py-0.5 rounded-full bg-noir-800/80 text-blue-300">
             Video
           </div>
         )}
@@ -99,12 +99,12 @@ function PostCard({ post, onRefresh, onDelete, onUpdate }: PostCardProps) {
           <div className="absolute inset-0 flex items-center justify-center bg-noir-900/60 backdrop-blur-sm">
             <div className="flex flex-col items-center gap-1">
               <EyeOff className="w-6 h-6 text-champagne/40" />
-              <span className="text-[9px] font-label uppercase tracking-widest text-champagne/40">Hidden</span>
+              <span className="text-[10px] font-label uppercase tracking-widest text-champagne/40">Hidden</span>
             </div>
           </div>
         )}
         {/* Status badge */}
-        <div className={`absolute top-2 left-2 text-[8px] font-label uppercase tracking-widest px-2 py-0.5 rounded-full ${post.hidden ? 'bg-noir-800/80 text-champagne/40' : 'bg-emerald-900/80 text-emerald-400'}`}>
+        <div className={`absolute top-2 left-2 text-[10px] font-label uppercase tracking-widest px-2 py-0.5 rounded-full ${post.hidden ? 'bg-noir-800/80 text-champagne/40' : 'bg-emerald-900/80 text-emerald-400'}`}>
           {post.hidden ? 'Hidden' : 'Visible'}
         </div>
       </div>
@@ -115,54 +115,62 @@ function PostCard({ post, onRefresh, onDelete, onUpdate }: PostCardProps) {
           <p className="font-sans text-xs text-ivory font-medium leading-tight truncate">
             {post.guest_name ?? 'Anonymous Guest'}
           </p>
-          <p className="font-sans text-[9px] text-champagne/40 mt-0.5">{timeAgo(post.created_at)}</p>
+          <p className="font-sans text-[10px] text-champagne/40 mt-0.5">{timeAgo(post.created_at)}</p>
         </div>
         {post.message && (
           <p className="font-sans text-[10px] text-champagne/60 italic line-clamp-2 leading-relaxed">
             "{post.message}"
           </p>
         )}
-        {/* Actions */}
-        <div className="flex gap-1.5 mt-1">
-          <button
-            onClick={toggleHidden}
-            disabled={busy}
-            className={`flex-1 flex items-center justify-center gap-1 py-2 rounded-xl text-[9px] font-label uppercase tracking-widest transition-colors ${
-              post.hidden
-                ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
-                : 'bg-red-500/15 text-red-400 hover:bg-red-500/25'
-            } disabled:opacity-40`}
-          >
-            {post.hidden ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-            {post.hidden ? 'Show' : 'Hide'}
-          </button>
-          {confirmDelete ? (
-            <div className="flex gap-0.5">
-              <button
-                onClick={handleDelete}
-                disabled={busy}
-                className="px-2 py-2 rounded-xl bg-red-500/25 text-red-400 hover:bg-red-500/40 transition-colors"
-              >
-                <Check className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="px-2 py-2 rounded-xl glass text-champagne/40 hover:text-ivory transition-colors"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
+        {/* Actions: every target ≥44px, text ≥12px. While a delete is being
+            confirmed the row turns into the confirmation (Delete + Cancel), so
+            the destructive tap gets its own words instead of a bare ✓ squeezed
+            beside Hide on a two-column phone grid. */}
+        {confirmDelete ? (
+          <div className="flex gap-1.5 mt-1" role="group" aria-label="Confirm delete">
             <button
               onClick={handleDelete}
               disabled={busy}
-              title="Delete"
-              className="px-2 py-2 glass rounded-xl text-champagne/30 hover:text-red-400 transition-colors disabled:opacity-30"
+              className="flex-1 min-h-11 flex items-center justify-center gap-1.5 rounded-xl bg-red-500/25 text-red-300 hover:bg-red-500/40 text-xs font-label uppercase tracking-wider transition-colors disabled:opacity-40"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Check className="w-4 h-4 shrink-0" aria-hidden />
+              Delete
             </button>
-          )}
-        </div>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              aria-label="Cancel delete"
+              title="Cancel"
+              className="min-h-11 min-w-11 flex items-center justify-center rounded-xl glass text-champagne/60 hover:text-ivory transition-colors"
+            >
+              <X className="w-4 h-4" aria-hidden />
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-1.5 mt-1">
+            <button
+              onClick={toggleHidden}
+              disabled={busy}
+              aria-label={post.hidden ? 'Show on the wall' : 'Hide from the wall'}
+              className={`flex-1 min-h-11 flex items-center justify-center gap-1.5 rounded-xl text-xs font-label uppercase tracking-wider transition-colors ${
+                post.hidden
+                  ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                  : 'bg-red-500/15 text-red-300 hover:bg-red-500/25'
+              } disabled:opacity-40`}
+            >
+              {post.hidden ? <Eye className="w-4 h-4 shrink-0" aria-hidden /> : <EyeOff className="w-4 h-4 shrink-0" aria-hidden />}
+              {post.hidden ? 'Show' : 'Hide'}
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={busy}
+              aria-label="Delete post"
+              title="Delete"
+              className="min-h-11 min-w-11 flex items-center justify-center glass rounded-xl text-champagne/50 hover:text-red-400 transition-colors disabled:opacity-30"
+            >
+              <Trash2 className="w-4 h-4" aria-hidden />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -241,7 +249,7 @@ export default function Moderation() {
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
-            <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/40 mb-1">AR Studio</p>
             <h1 className="font-serif italic text-3xl text-foil-static">Wall Moderation</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               Controls what guests see on the projected photo wall.
@@ -249,14 +257,16 @@ export default function Moderation() {
           </div>
           <div className="flex items-center gap-2">
             {/* Realtime indicator */}
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-label uppercase tracking-widest ${connected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-champagne/10 text-champagne/30'}`}>
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-label uppercase tracking-widest ${connected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-champagne/10 text-champagne/30'}`}>
               <Wifi className={`w-3 h-3 ${connected ? 'animate-pulse' : ''}`} />
               {connected ? 'Live' : 'Connecting…'}
             </div>
             <button
               onClick={load}
               disabled={loading}
-              className="p-2 glass rounded-xl text-champagne/40 hover:text-gold-300 transition-colors disabled:opacity-30"
+              aria-label="Refresh posts"
+              title="Refresh"
+              className="min-h-11 min-w-11 flex items-center justify-center glass rounded-xl text-champagne/40 hover:text-gold-300 transition-colors disabled:opacity-30"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -265,7 +275,7 @@ export default function Moderation() {
 
         {/* Stats bar */}
         {!loading && posts.length > 0 && (
-          <div className="flex items-center gap-4 p-4 glass rounded-2xl border border-gold-400/10">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3 p-4 glass rounded-2xl border border-gold-400/10">
             <div className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse-glow" />
               <span className="font-label uppercase tracking-widest text-[10px] text-champagne/60">

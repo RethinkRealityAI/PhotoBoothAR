@@ -1,57 +1,57 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://beamwall.netlify.app/</loc>
+    <loc>https://beamwall.app/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/signup</loc>
+    <loc>https://beamwall.app/signup</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/login</loc>
+    <loc>https://beamwall.app/login</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/guides</loc>
+    <loc>https://beamwall.app/guides</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/guides/first-event</loc>
+    <loc>https://beamwall.app/guides/first-event</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/guides/make-a-frame</loc>
+    <loc>https://beamwall.app/guides/make-a-frame</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/guides/make-3d-props</loc>
+    <loc>https://beamwall.app/guides/make-3d-props</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/guides/use-the-studio</loc>
+    <loc>https://beamwall.app/guides/use-the-studio</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/guides/run-the-night</loc>
+    <loc>https://beamwall.app/guides/run-the-night</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/privacy</loc>
+    <loc>https://beamwall.app/privacy</loc>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://beamwall.netlify.app/terms</loc>
+    <loc>https://beamwall.app/terms</loc>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>

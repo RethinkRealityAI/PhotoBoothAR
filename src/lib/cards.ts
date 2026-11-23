@@ -150,6 +150,7 @@ export type CardsError =
   | 'invalid_send_at'
   | 'delivery_in_progress'
   | 'features_unavailable'
+  | 'send_cap_reached'
   | 'internal'
   | 'network';
 

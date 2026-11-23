@@ -134,8 +134,11 @@ export function deliveryErrorCopy(code: string | null): string {
       return 'The email provider refused this address. Check it and schedule again.';
     case 'email_failed':
       return 'The last send attempt didn’t go through. We’re retrying automatically.';
+    case 'send_cap_reached':
+      return 'This card has hit today’s sending limit, so it wasn’t emailed. Schedule it again tomorrow.';
     case 'features_unavailable':
     case 'publish_failed':
+    case 'send_log_failed':
       return 'We hit a temporary problem and are retrying automatically.';
     default:
       return code ? 'Something went wrong delivering this card.' : '';

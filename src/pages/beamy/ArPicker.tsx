@@ -41,10 +41,10 @@
  * `stacked` covers phones and portrait tablets, where the switcher sits above
  * him; on laptops the page renders ArTabs under the story card.
  */
-import { useRef, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
 import { ChevronLeft, ChevronRight, CircleSlash, Heart, Music, PartyPopper, Snowflake, Sparkles, Spotlight, type LucideIcon } from 'lucide-react';
 import {
-  AR_CATEGORIES, AR_NOUN, NONE_TITLE, arStopIndex, arStops, arTitle, lookAction, lookThumb, selectedLooks,
+  AR_CATEGORIES, AR_NOUN, NONE_TITLE, arStopIndex, arStops, arTitle, frameImage, lookAction, lookThumb, selectedLooks,
   type ArFx, type ArSelection, type HomeLook, type LookCategory,
 } from '../../lib/beamyAssets';
 import type { ArFxKind } from '../../lib/arFx';
@@ -68,7 +68,7 @@ function Swatch({ color }: { color: string }) {
 }
 
 /** What a peek shows: the frame, an empty orb the stage fills with the prop, a swatch, an icon, or None. */
-function PeekFace({ stop, cat }: { stop: HomeLook | null; cat: LookCategory }) {
+function PeekFace({ stop, cat, load = true }: { stop: HomeLook | null; cat: LookCategory; load?: boolean }) {
   // None: a small glass chip, its label under it ("No frame", "No 3D prop" ...).
   if (stop === null) {
     return (
@@ -79,7 +79,15 @@ function PeekFace({ stop, cat }: { stop: HomeLook | null; cat: LookCategory }) {
     );
   }
   const a = lookAction(stop);
-  if (a.kind === 'frame') return <img src={a.url} alt="" draggable={false} />;
+  if (a.kind === 'frame') {
+    // Every stop stays mounted (and the stage is fixed, so loading="lazy"
+    // sees it as on screen): the 1-2 MB PNGs cost the first load ~8 MB for a
+    // step most visitors never reach. No src until the picker is primed, and
+    // then the webp twin (worn size ~250px on a phone, ~370px on a laptop).
+    if (!load) return <img alt="" draggable={false} />;
+    const f = frameImage(a.url);
+    return <img src={f.src} srcSet={f.srcSet} sizes="(min-width: 1024px) 370px, 260px" decoding="async" alt="" draggable={false} />;
+  }
   if (a.kind === 'prop') return <span className="bw-ar-orb" data-prop aria-hidden />;
   if (a.kind === 'tint') return <span className="bw-ar-orb" aria-hidden><Swatch color={a.color} /></span>;
   if (a.kind === 'media') return <span className="bw-ar-orb" aria-hidden><img src={lookThumb(stop) ?? a.url} alt="" draggable={false} /></span>;
@@ -104,7 +112,7 @@ const railPlace = (d: number) => String(Math.max(-RAIL_REACH - 1, Math.min(RAIL_
  * CSS transition: the incoming stop glides in from its peek while the
  * outgoing one glides out to the other side (brand.css .bw-ar-item).
  */
-function Track({ cat, stops, cur, show, noun, onWear, rail = false }: {
+function Track({ cat, stops, cur, show, noun, onWear, rail = false, load = true }: {
   cat: LookCategory;
   stops: (HomeLook | null)[];
   cur: number;
@@ -114,6 +122,8 @@ function Track({ cat, stops, cur, show, noun, onWear, rail = false }: {
   onWear: (c: LookCategory, stop: HomeLook | null) => void;
   /** The rail above him: a row of stops, the worn one in the middle and shown too. */
   rail?: boolean;
+  /** Fetch the frame art yet (ArPicker's sticky `primed`). */
+  load?: boolean;
 }) {
   const n = stops.length;
   return (
@@ -141,7 +151,7 @@ function Track({ cat, stops, cur, show, noun, onWear, rail = false }: {
             aria-label={s === null ? `Take the ${noun} off` : `Try ${s.name}`}
             onClick={peek ? () => onWear(cat, s) : undefined}
           >
-            <PeekFace stop={s} cat={cat} />
+            <PeekFace stop={s} cat={cat} load={load} />
           </button>
         );
       })}
@@ -167,7 +177,7 @@ export function ArTabs({ sel, tab, onTab, className = '' }: { sel: ArSelection; 
   );
 }
 
-export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stacked, carRef, fx, reduced }: {
+export default function ArPicker({ looks, sel, tab, onTab, onWear, active, prime = false, stacked, carRef, fx, reduced }: {
   /** The picker's looks, in category order (lib/beamyAssets arOrder). */
   looks: HomeLook[];
   /** What he wears: one look id per category. */
@@ -178,6 +188,9 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
   /** Wear a carousel stop in its category (null = take that category off). */
   onWear: (c: LookCategory, stop: HomeLook | null) => void;
   active: boolean;
+  /** The visitor is heading this way (the story is on screen): start fetching
+   *  the frame art. Sticky, like `active` itself once reached. */
+  prime?: boolean;
   /** Phones and portrait tablets: the switcher sits above him, in here. Laptops: the page puts ArTabs under the story card. */
   stacked: boolean;
   /** The carousel box; the page lays it on the fixed AR stage (lib/beamyAssets arStage). */
@@ -186,6 +199,8 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
   fx: ArFxKind | null;
   reduced: boolean;
 }) {
+  const [primed, setPrimed] = useState(false);
+  if ((prime || active) && !primed) setPrimed(true);
   const worn = selectedLooks(sel, looks);
   // This tab's carousel: None first, then its looks; the stop he wears is current.
   const stops = arStops(looks, tab);
@@ -246,7 +261,7 @@ export default function ArPicker({ looks, sel, tab, onTab, onWear, active, stack
         onPointerUp={onUp}
         onPointerCancel={() => { swipe.current = null; }}
       >
-        <Track cat="frame" stops={frameStops} cur={frameCur} show={tab === 'frame'} noun={AR_NOUN.frame} onWear={wear} />
+        <Track cat="frame" stops={frameStops} cur={frameCur} show={tab === 'frame'} noun={AR_NOUN.frame} onWear={wear} load={primed} />
         {/* The effect, drawn round him and over the frame (never takes a tap). */}
         {fx !== null && <ArFxCanvas key={fx} kind={fx} reduced={reduced} className="bw-ar-fx" />}
         {/* Above the frame: the rail (props, filters, effects), then the title.

@@ -8,6 +8,10 @@ import { isLikelyInAppBrowser } from '../../lib/camera';
 import ReportIssueButton from '../support/ReportIssueButton';
 import { useStore } from '../../store';
 import { useEvent } from '../../events/EventContext';
+import { noCameraBody } from '../../lib/boothCameraGate';
+
+/** Frozen legacy single-event builds keep their original wording. */
+const IS_LEGACY_BUILD = (((import.meta.env.VITE_EVENT as string | undefined) ?? '')).trim() !== '';
 
 interface Props {
   error: CameraErrorType;
@@ -63,7 +67,7 @@ export default function CameraErrorScreen({ error, onRetry }: Props) {
   const body = isPermission
     ? permissionHelp
     : isNotFound
-    ? 'No camera was detected on this device. Please connect a camera and try again.'
+    ? noCameraBody(IS_LEGACY_BUILD)
     : isWebview
     ? webviewHelp
     : error === 'NotReadableError'

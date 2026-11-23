@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
-  describeDelivery, formatDelivery, inputValuesFor, relativeWhen, scheduleInstant, scheduleProblem,
+  deliveryErrorCopy, describeDelivery, formatDelivery, inputValuesFor, relativeWhen, scheduleInstant, scheduleProblem,
   timeZoneChoices, MIN_LEAD_MS, MAX_LEAD_MS, type DeliveryFields,
 } from './cardDelivery';
+
+describe('deliveryErrorCopy — the 051 send ceiling', () => {
+  it('names the daily limit instead of promising a retry that cannot happen today', () => {
+    const msg = deliveryErrorCopy('send_cap_reached');
+    expect(msg).toContain('sending limit');
+    expect(msg).toContain('tomorrow');
+    expect(msg).not.toContain('retrying');
+  });
+
+  it('treats a send-log hiccup as the temporary, retried problem it is', () => {
+    expect(deliveryErrorCopy('send_log_failed')).toBe(deliveryErrorCopy('features_unavailable'));
+    expect(deliveryErrorCopy('send_log_failed')).toContain('retrying automatically');
+  });
+});
 
 const NONE: DeliveryFields = {
   deliver_at: null, deliver_time_zone: null, delivery_state: null, delivery_error: null, delivered_at: null,
