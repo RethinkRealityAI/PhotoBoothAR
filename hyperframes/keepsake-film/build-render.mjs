@@ -7,7 +7,7 @@
  * this container) — so a data-driven film must receive its data as a global
  * injected into the bundle BEFORE the init script runs.
  *
- * This helper copies index.html + gsap.min.js into an output dir and replaces
+ * This helper copies index.html + gsap.min.js + fonts/ into an output dir and replaces
  * the empty `<script id="kf-payload-data">` slot with the payload assignment.
  * The card-render edge function performs the equivalent injection when it
  * submits the bundle to the HeyGen HyperFrames Cloud Render API.
@@ -17,7 +17,7 @@
  * Then:
  *   npx hyperframes render <outDir> --output out.mp4
  */
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, cpSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,6 +41,9 @@ export function bakeBundle(payload, outDir) {
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, 'index.html'), html);
   copyFileSync(join(HERE, 'gsap.min.js'), join(outDir, 'gsap.min.js'));
+  // Vendored fonts (Cormorant Garamond + Jost, OFL) — the composition's
+  // @font-face rules point at fonts/; without them it falls back to Georgia.
+  if (existsSync(join(HERE, 'fonts'))) cpSync(join(HERE, 'fonts'), join(outDir, 'fonts'), { recursive: true });
   return join(outDir, 'index.html');
 }
 

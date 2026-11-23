@@ -29,6 +29,13 @@ export interface RuntimeEvent {
   planTier: string;
   config: EventConfig;
   source: 'code' | 'db';
+  /** events.starts_at (ISO) for DB events. Optional so coded/legacy events and
+   *  every existing caller are untouched; read by the post-event album's
+   *  "{when}" copy token. */
+  startsAt?: string | null;
+  /** Raw `events.config.keepsakes` (unvalidated). Readers MUST pass it through
+   *  normalizeKeepsakeSettings — it is whatever the row holds. */
+  keepsakes?: unknown;
 }
 
 /** The three grandfathered coded events (direct-write RLS still allows them). */
@@ -54,6 +61,7 @@ interface EventRow {
   status: string;
   config: Record<string, unknown> | null;
   plan_tier: string | null;
+  starts_at?: string | null;
 }
 
 function str(v: unknown): string | undefined {
@@ -192,7 +200,7 @@ export async function loadEventConfig(slug: string): Promise<EventLoad> {
 
   const { data, error } = await supabase
     .from('events')
-    .select('id, slug, name, event_type, status, config, plan_tier')
+    .select('id, slug, name, event_type, status, config, plan_tier, starts_at')
     .eq('slug', slug)
     .maybeSingle();
   if (error) {
@@ -210,6 +218,8 @@ export async function loadEventConfig(slug: string): Promise<EventLoad> {
       planTier: row.plan_tier ?? 'free',
       config: buildRuntimeConfig(row),
       source: 'db',
+      startsAt: typeof row.starts_at === 'string' ? row.starts_at : null,
+      keepsakes: row.config?.keepsakes,
     },
     error: null,
   };

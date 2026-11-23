@@ -2,7 +2,13 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The keepsake collage block — pick a template, watch it draw, save the PNG.
+ * The keepsake collage PREVIEW — a canvas that draws the chosen template, plus
+ * an imperative `save()` the Take-home section's one download button calls.
+ *
+ * The template picker and the button used to live in here; the owner asked for
+ * the album's take-home order to be "choices, then the button, then the
+ * preview", so they moved up to RecapTakeHome and this became a controlled
+ * component (template in, save() out).
  *
  * ZERO MARGINAL COST is the design constraint, not an implementation detail. A
  * recap link goes to every guest at an event, so a server-rendered collage would
@@ -16,12 +22,11 @@
  * template must feel instant and re-fetching a dozen photos over venue wifi
  * would make it feel like a page load.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import { Loader2 } from 'lucide-react';
 import type { Post } from '../../types';
 import {
   COLLAGE_BASE,
-  COLLAGE_BLURBS,
   COLLAGE_HEIGHT,
   COLLAGE_LABELS,
   COLLAGE_TEMPLATES,
@@ -38,30 +43,39 @@ import {
 } from '../../lib/recapCollage';
 import { stillPhotos } from '../../lib/eventRecap';
 
-type LoadPhase = 'loading' | 'ready' | 'empty';
+export type CollagePhase = 'loading' | 'ready' | 'empty';
+
+export interface CollageHandle {
+  /** Build and download the full-size PNG. Resolves to an error line for the
+   *  guest, or null when the file was handed over. */
+  save: () => Promise<string | null>;
+}
 
 export default function RecapCollageCard({
+  ref,
   photos,
   ownIds,
+  template,
   title,
   subtitle,
-  accentHexes,
+  palette,
   filePrefix,
+  onPhase,
 }: {
+  ref?: Ref<CollageHandle>;
   /** The album, newest first. Clips are filtered out here, not by the caller. */
   photos: readonly Post[];
   /** This device's own post ids — they are placed first and never cut. */
   ownIds: ReadonlySet<string>;
+  template: CollageTemplate;
   title: string;
   subtitle?: string;
-  /** events.config.accentHexes, [0] dominant. Drives the card's ambience. */
-  accentHexes: readonly string[];
+  /** Ambience colours, [0] dominant (the keepsake theme's accent + glow). */
+  palette: readonly string[];
   filePrefix: string;
+  onPhase?: (phase: CollagePhase, count: number) => void;
 }) {
-  const [template, setTemplate] = useState<CollageTemplate>('mosaic');
-  const [phase, setPhase] = useState<LoadPhase>('loading');
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<CollagePhase>('loading');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** Decoded photos by post id. A `null` value means "tried and failed" — the
    *  slot paints as an empty frame rather than holding the whole collage up. */
@@ -85,17 +99,19 @@ export default function RecapCollageCard({
     [superset, ownIds, template],
   );
 
+  useEffect(() => { onPhase?.(phase, chosen.length); }, [onPhase, phase, chosen.length]);
+
   const art: CollageArt = useMemo(() => {
-    const palette = accentHexes.filter((h) => typeof h === 'string' && h.trim() !== '');
+    const clean = palette.filter((h) => typeof h === 'string' && h.trim() !== '');
     return {
       background: COLLAGE_BASE,
-      accent: palette[0] ?? '#E8C766',
-      palette: palette.length > 0 ? [...palette] : undefined,
+      accent: clean[0] ?? '#E8C766',
+      palette: clean.length > 0 ? [...clean] : undefined,
       title,
       subtitle,
       mark: 'beamwall',
     };
-  }, [accentHexes, title, subtitle]);
+  }, [palette, title, subtitle]);
 
   // Decode once, for every template. Runs again only if the album itself
   // changes — switching template never re-fetches a byte.
@@ -151,10 +167,9 @@ export default function RecapCollageCard({
     return () => ro.disconnect();
   }, [repaint]);
 
-  async function download() {
-    setSaving(true);
-    setSaveError(null);
-    try {
+  useImperativeHandle(ref, () => ({
+    async save() {
+      if (phase !== 'ready') return 'Your collage is still being made — give it a moment.';
       const layout = collageLayout(
         chosen.length, COLLAGE_WIDTH, COLLAGE_HEIGHT, template, chosen.map((p) => p.id),
       );
@@ -165,8 +180,7 @@ export default function RecapCollageCard({
         // The two real failures: no 2D context, or a canvas tainted because a
         // photo's host answered without CORS headers. Both mean "no file", and
         // saying so beats handing over a broken download.
-        setSaveError('We couldn’t build the file on this device. Try a different browser, or save the photos one by one below.');
-        return;
+        return 'We couldn’t build the file on this device. Try a different browser, or save the photos one by one below.';
       }
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -174,86 +188,27 @@ export default function RecapCollageCard({
       a.download = collageFileName(filePrefix, template);
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
-    } finally {
-      setSaving(false);
-    }
-  }
+      return null;
+    },
+  }), [phase, chosen, template, art, filePrefix]);
 
   if (phase === 'empty') return null;
 
   return (
-    <section className="flex flex-col gap-4" aria-labelledby="recap-keepsake-heading">
-      <header className="flex flex-col gap-1">
-        <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">Keepsake</p>
-        <h2 id="recap-keepsake-heading" className="font-serif italic text-2xl text-foil-static">
-          Take the whole night with you
-        </h2>
-        <p className="font-sans text-xs text-brand-muted/60 leading-relaxed max-w-md">
-          One picture, {chosen.length} moments, made on your phone. Pick a look and save it.
-        </p>
-      </header>
-
-      <div
-        role="radiogroup"
-        aria-label="Collage style"
-        className="grid grid-cols-3 gap-2"
-      >
-        {COLLAGE_TEMPLATES.map((t) => {
-          const on = t === template;
-          return (
-            <button
-              key={t}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              onClick={() => setTemplate(t)}
-              className={`min-h-11 rounded-2xl px-3 py-2.5 text-left transition-colors ${
-                on
-                  ? 'liquid-glass border border-accent/40'
-                  : 'glass border border-white/10 hover:border-accent/25'
-              }`}
-            >
-              <span className={`block font-label uppercase tracking-luxe text-[10px] ${on ? 'text-accent' : 'text-brand-muted/70'}`}>
-                {COLLAGE_LABELS[t]}
-              </span>
-              <span className="mt-0.5 block font-sans text-[10px] leading-tight text-brand-muted/45">
-                {COLLAGE_BLURBS[t]}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="relative rounded-3xl overflow-hidden liquid-glass p-2.5">
-        <canvas
-          ref={canvasRef}
-          className="block w-full rounded-2xl"
-          style={{ aspectRatio: `${COLLAGE_WIDTH} / ${COLLAGE_HEIGHT}` }}
-          aria-label={`${COLLAGE_LABELS[template]} collage preview of ${chosen.length} photos`}
-          role="img"
-        />
-        {phase === 'loading' && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Loader2 className="w-6 h-6 animate-spin text-accent" aria-hidden />
-            <span className="sr-only">Building your keepsake</span>
-          </div>
-        )}
-      </div>
-
-      <button
-        type="button"
-        onClick={() => void download()}
-        disabled={phase !== 'ready' || saving}
-        className="flex min-h-12 items-center justify-center gap-2 rounded-full bg-foil px-6 font-label uppercase tracking-luxe text-[11px] text-[color:var(--on-accent)] transition active:scale-[0.98] disabled:opacity-50"
-      >
-        {saving
-          ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
-          : <Download className="w-4 h-4" aria-hidden />}
-        {saving ? 'Saving…' : 'Download keepsake'}
-      </button>
-      {saveError !== null && (
-        <p role="alert" className="font-sans text-[11px] leading-relaxed text-amber-300/90">{saveError}</p>
+    <div className="relative overflow-hidden rounded-[1.75rem] border border-[color:var(--k-line)] bg-[rgba(var(--k-ink-rgb),0.06)] p-2 shadow-[0_40px_80px_-40px_var(--k-shadow)]">
+      <canvas
+        ref={canvasRef}
+        className="block w-full rounded-[1.35rem]"
+        style={{ aspectRatio: `${COLLAGE_WIDTH} / ${COLLAGE_HEIGHT}` }}
+        aria-label={`${COLLAGE_LABELS[template]} collage preview of ${chosen.length} photos`}
+        role="img"
+      />
+      {phase === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-[color:var(--k-accent)]" aria-hidden />
+          <span className="sr-only">Building your keepsake</span>
+        </div>
       )}
-    </section>
+    </div>
   );
 }
