@@ -89,3 +89,21 @@ describe('handRig.detectHandsNow', () => {
     expect(rig.getLatestHandFrame()?.hands).toHaveLength(1);
   });
 });
+
+describe('handRig.handDetectInterval', () => {
+  it('keeps the 66ms cadence while a hand is tracked, on both surfaces', () => {
+    expect(rig.handDetectInterval(0, true)).toBe(66);
+    expect(rig.handDetectInterval(0, false)).toBe(66);
+  });
+
+  it('platform: drops to the slow palm search after 4 misses', () => {
+    expect(rig.handDetectInterval(3, true)).toBe(66);
+    expect(rig.handDetectInterval(4, true)).toBe(rig.PLATFORM_IDLE_DETECT_INTERVAL_MS);
+    expect(rig.PLATFORM_IDLE_DETECT_INTERVAL_MS).toBe(400);
+  });
+
+  it('legacy: unchanged 150ms after 8 misses', () => {
+    expect(rig.handDetectInterval(7, false)).toBe(66);
+    expect(rig.handDetectInterval(8, false)).toBe(150);
+  });
+});

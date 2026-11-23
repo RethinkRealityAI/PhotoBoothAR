@@ -26,6 +26,31 @@ import {
 import { trackingReadoutEnabled } from '../../lib/faceEngine/engineSelect';
 import { TrackingStatsRing, type TrackingStats } from '../../lib/faceEngine/trackingStats';
 import { setRawPoseTap } from '../../lib/faceRig';
+import { formatGranted, formatMax } from '../../lib/cameraQuality';
+
+/** The booth/studio camera element, read straight from the DOM (no prop threading). */
+function cameraVideo(): HTMLVideoElement | null {
+  const byId = document.getElementById('booth-video');
+  if (byId instanceof HTMLVideoElement && byId.srcObject) return byId;
+  for (const v of Array.from(document.querySelectorAll('video'))) if (v.srcObject) return v;
+  return null;
+}
+
+/** "cam 1080×1920 @30 · max 3840×2160 @60" for the tester — what the camera actually granted. */
+function readCamera(): string | null {
+  const v = cameraVideo();
+  const src = v?.srcObject;
+  if (!v || !(src instanceof MediaStream)) return null;
+  const track = src.getVideoTracks()[0];
+  if (!track) return null;
+  let granted: string | null = null;
+  let max: string | null = null;
+  try { granted = formatGranted(track.getSettings()); } catch { granted = null; }
+  try { max = typeof track.getCapabilities === 'function' ? formatMax(track.getCapabilities()) : null; } catch { max = null; }
+  granted ??= formatGranted({ width: v.videoWidth, height: v.videoHeight });
+  if (granted === null) return null;
+  return max !== null ? `${granted} · max ${max}` : granted;
+}
 
 function readoutEnabled(): boolean {
   if (IS_LEGACY_BUILD || typeof window === 'undefined') return false;
@@ -42,6 +67,8 @@ export default function TrackingReadout() {
   const [stats, setStats] = useState<TrackingStats | null>(null);
   /** Multi-face: [faces tracked now, max] — null when the engine tracks one face only. */
   const [faces, setFaces] = useState<[number, number] | null>(null);
+  /** Camera granted size/fps (+ the device max where the browser reports it). */
+  const [camera, setCamera] = useState<string | null>(null);
 
   // Fresh numbers per engine: an engine switch restarts the window, so a
   // reading never mixes two engines' samples.
@@ -61,6 +88,7 @@ export default function TrackingReadout() {
       // The primary counts while it produced a sample in the last second.
       const extras = getExtraFaces().filter((e) => now - e.t < 1000).length;
       setFaces(slots === 0 ? null : [(st.detectionsPerSec ?? 0) > 0 ? 1 + extras : 0, slots + 1]);
+      setCamera(readCamera());
     }, 500);
     return () => {
       window.clearInterval(id);
@@ -89,6 +117,7 @@ export default function TrackingReadout() {
         <span className="text-brand-muted"> ({info.frameLockSource})</span>
       </div>
       {info.error !== null && <div className="text-brand-muted">error: {info.error}</div>}
+      {camera !== null && <div className="tabular-nums">cam: <b>{camera}</b></div>}
       {faces !== null && <div className="tabular-nums">faces: <b>{faces[0]}</b>/{faces[1]}</div>}
       <div className="tabular-nums">
         {fmt(stats?.detectionsPerSec ?? null, 1)} det/s · pos ±{fmt(stats?.posJitterCm ?? null, 2)} cm · rot ±{fmt(stats?.rotJitterDeg ?? null, 2)}°
