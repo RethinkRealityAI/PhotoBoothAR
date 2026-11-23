@@ -223,7 +223,7 @@ function SceneGuestWelcome() {
               linkState={FROM_WELCOME_STATE}
               frameUrl={screen.frame}
               previewUrl={screen.photo}
-              widthClass="w-[min(70vw,300px)] lg:w-[min(34vw,calc((100svh-210px)*0.5625))]"
+              widthClass="w-[min(70vw,300px)] lg:w-[min(34vw,calc((100svh-226px)*0.5625))]"
             />
             {/* Desktop carries this line in the footer, so the phone's bottom
                 stays level with the action cards. */}
@@ -262,7 +262,7 @@ function SceneGuestWelcome() {
         </main>
 
         <footer className="flex flex-col items-center gap-x-8 lg:flex-row lg:items-center lg:justify-between">
-          <div className="hidden max-w-[560px] lg:block">
+          <div className="hidden max-w-[760px] lg:block [&_p]:max-w-none">
             <PrivacyLine />
           </div>
           {slug !== null && (
