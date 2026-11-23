@@ -11,9 +11,13 @@
  *    saccades, and detectForVideo blocks the main thread.
  *  - Never on the same rAF tick as a face inference (FACE_LOCKOUT_MS) — the
  *    pair is ~25-30ms of block on a mid phone, a visible frame drop.
- *  - Back off to 150ms after several consecutive empty results: "no hand" is
- *    the EXPENSIVE state (the 192×192 palm detector is graph-gated off while
- *    tracking holds, and runs on every call once it's lost).
+ *  - Back off to IDLE_DETECT_INTERVAL_MS after a few consecutive empty
+ *    results: "no hand" is the EXPENSIVE state (the 192×192 palm detector is
+ *    graph-gated off while tracking holds, and runs on every call once it's
+ *    lost). On the platform this is 400ms after 4 misses — at 150ms the palm
+ *    search ran ~7×/s beside 8th Wall and froze the frame-locked feed on fast
+ *    moves (phone test, Nov 2026). A hand raised into view is found within
+ *    ~0.4s and the 66ms cadence resumes at once. Legacy keeps 150ms / 8.
  */
 
 import { getHandLandmarker } from './handTracking';
@@ -33,6 +37,16 @@ const HAND_DETECT_INTERVAL_MS = 66;
 const IDLE_DETECT_INTERVAL_MS = 150;
 /** Consecutive empty results before dropping to the idle cadence. */
 const IDLE_AFTER_MISSES = 8;
+/** Platform idle cadence / miss count (see header). */
+export const PLATFORM_IDLE_DETECT_INTERVAL_MS = 400;
+export const PLATFORM_IDLE_AFTER_MISSES = 4;
+
+/** Detection interval for the current miss streak — pure, so the policy is tested. */
+export function handDetectInterval(misses: number, platform: boolean): number {
+  const idleAfter = platform ? PLATFORM_IDLE_AFTER_MISSES : IDLE_AFTER_MISSES;
+  if (misses < idleAfter) return HAND_DETECT_INTERVAL_MS;
+  return platform ? PLATFORM_IDLE_DETECT_INTERVAL_MS : IDLE_DETECT_INTERVAL_MS;
+}
 /** Never run hand inference within this window after a face inference. */
 const FACE_LOCKOUT_MS = 10;
 
@@ -114,7 +128,7 @@ export function detectHandsNow(video: HTMLVideoElement): void {
   // measured from the face inference's START, so it had always expired).
   const platform = !isLegacyFaceSession();
   if (!platform && now - lastFaceDetectMs() < FACE_LOCKOUT_MS) return;
-  const interval = _misses >= IDLE_AFTER_MISSES ? IDLE_DETECT_INTERVAL_MS : HAND_DETECT_INTERVAL_MS;
+  const interval = handDetectInterval(_misses, platform);
   if (!shouldDetect(_gate, now, video.currentTime, { minIntervalMs: interval })) return;
   // Not claimed → someone already ran a blocking inference this frame; retry
   // next frame with the gate untouched (same idiom as mediapipeEngine).

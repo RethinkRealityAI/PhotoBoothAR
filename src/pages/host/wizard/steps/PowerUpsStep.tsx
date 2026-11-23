@@ -4,7 +4,9 @@
  *
  * Step 4 (optional) — a little magic. Two kinds:
  *
- *   Gestures     a gesture sets off an effect whatever look the guest has on
+ *   Gestures     a face gesture sets off an effect whatever look the guest has
+ *                on; a hand gesture only on looks that already track a hand
+ *                (Booth `needsHands` — keeps the hand model off face-only looks)
  *                (stored as preset ids in events.config.powerUps; the booth
  *                merges them into its trigger engine — lib/wizard/powerUps).
  *   Power gear   ready-made filters with their own blasts (visor, wand,
@@ -100,7 +102,7 @@ export default function PowerUpsStep() {
               </button>
             </div>
             {tab === 'gestures' && (<>
-            <p className="mt-3 text-[13px] text-white/65">A smile or a hand sign sets off an effect, whatever look a guest has on. Turn on as many as you like.</p>
+            <p className="mt-3 text-[13px] text-white/65">A smile or an open mouth sets off an effect, whatever look a guest has on. Hand signs work on looks that track a hand, like the wand or gauntlet. Turn on as many as you like.</p>
             <ul className="mt-4 grid sm:grid-cols-2 gap-2.5">
               {POWER_UP_PRESETS.map((p) => {
                 const active = on.includes(p.id);
@@ -113,7 +115,7 @@ export default function PowerUpsStep() {
                       <span className="flex-1 min-w-0">
                         <span className="flex items-center gap-1.5 text-[14.5px] font-semibold"><G className="h-4 w-4 text-white/70" aria-hidden /> {p.gesture}</span>
                         <span className="block text-[13px] text-white/75">{p.effect}</span>
-                        {p.usesHands && <span className="block mt-0.5 text-[11.5px] text-white/50">Uses hand tracking</span>}
+                        {p.usesHands && <span className="block mt-0.5 text-[11.5px] text-white/50">Only on hand looks</span>}
                         <span className="mt-2 flex gap-2">
                           <button
                             type="button"

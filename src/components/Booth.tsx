@@ -769,6 +769,19 @@ export default function Booth() {
     [source, attachExp, frameExp, effectExp, eventPowerUps],
   );
   const hasTriggers = triggers.length > 0;
+  /**
+   * The selected LOOK's own triggers, without the event-wide power-ups. Hand
+   * tracking is gated on these (see needsHands): a wizard event with hand
+   * power-ups switched on used to start the hand landmarker for EVERY look,
+   * and that second blocking CPU model beside 8th Wall froze the frame-locked
+   * feed on fast camera moves (phone test, Nov 2026). Event hand gestures now
+   * ride along only on looks that already track a hand; face-gesture
+   * power-ups (smile, open mouth) still work on every look.
+   */
+  const lookTriggers = useMemo<TriggerConfig[]>(
+    () => (source !== 'db' ? [] : collectTriggers([attachExp, frameExp, effectExp])),
+    [source, attachExp, frameExp, effectExp],
+  );
 
   // ── Face-tracking engine (per filter) ─────────────────────────────────
   // The SELECTED filter picks the engine (config.tracking, validated), with
@@ -1064,9 +1077,9 @@ export default function Booth() {
   // AND bandwidth.
   const needsHands = useMemo(
     () =>
-      hasHandSource(triggers) ||
+      hasHandSource(lookTriggers) ||
       (rawAttachLayers ?? []).some((l) => l.kind === '3d_attachment' && isHandAnchorId(l.handAnchor)),
-    [triggers, rawAttachLayers],
+    [lookTriggers, rawAttachLayers],
   );
   /** The hand tracker FAILED to start (handTracking.getHandTrackerError). */
   const [handTrackerFailed, setHandTrackerFailed] = useState(false);
