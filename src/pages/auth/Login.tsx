@@ -9,6 +9,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { signInWithEmail, signInWithGoogle, resendConfirmation } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
+import AuthShell from './AuthShell';
 import { safeReturnPath } from '../../lib/authRedirect';
 
 const inputClass =
@@ -85,13 +86,12 @@ export default function Login() {
     }
   }
 
-  // items-start + my-auto rather than items-center: inside an h-screen
-  // overflow-hidden shell, a centred card taller than the viewport pushes
-  // its own top out of reach and cannot be scrolled back to.
+  // AuthShell scrolls and centres with my-auto (never items-center), so a
+  // card taller than the viewport keeps its top in reach.
   return (
-    <div className="h-full w-full app-bg flex items-start justify-center px-5 py-12 overflow-y-auto">
-      <div className="w-full max-w-sm my-auto animate-rise-in">
-        <div className="glass-strong rounded-3xl px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
+    <AuthShell page="signin">
+      <div className="w-full animate-rise-in">
+        <div className="glass-strong rounded-3xl px-6 py-7 sm:px-8 sm:py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
           <Link
             to="/"
             className="block text-center font-serif text-4xl font-semibold tracking-wide text-foil-static"
@@ -219,6 +219,6 @@ export default function Login() {
           </p>
         </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }

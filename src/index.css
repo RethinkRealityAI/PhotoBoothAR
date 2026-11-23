@@ -19,6 +19,8 @@
    In the components layer so a Tailwind utility (sm:hidden, w-full…) on
    the same element wins over a wz- default. */
 @import "./styles/wizard.css" layer(components);
+/* The sign-in / sign-up greeter (auth-*). */
+@import "./styles/auth.css";
 
 @theme {
   /* Champagne gold scale */
