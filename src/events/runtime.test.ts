@@ -52,6 +52,15 @@ describe('buildRuntimeConfig — the brand look', () => {
   });
 });
 
+describe('buildRuntimeConfig — splash phone picture', () => {
+  it('carries a root-relative or public-storage picture, drops anything else', () => {
+    expect(buildRuntimeConfig(row({ boothScreen: '/events/x/wall/1.jpg' })).boothScreen).toBe('/events/x/wall/1.jpg');
+    expect('boothScreen' in buildRuntimeConfig(row({}))).toBe(false);
+    expect('boothScreen' in buildRuntimeConfig(row({ boothScreen: 'javascript:alert(1)' }))).toBe(false);
+    expect('boothScreen' in buildRuntimeConfig(row({ boothScreen: '//evil.example/a.jpg' }))).toBe(false);
+  });
+});
+
 describe('buildRuntimeConfig — guest-page scene', () => {
   it('absent or invalid scene leaves the key off (today\'s background)', () => {
     expect('scene' in buildRuntimeConfig(row({}))).toBe(false);

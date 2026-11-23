@@ -65,7 +65,6 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
   const latest = useMemo(() => recentWallPhotos(posts, 4), [posts]);
   // The event's frame on a stand-in guest, never a wall photo.
   const screen = useBoothScreen();
-  const moments = posts.length;
   const at = (delay: number) =>
     reduced ? { delay: 0, duration: 0.2 } : { delay, duration: 0.5, ease: [0.16, 1, 0.3, 1] as const };
   return (
@@ -98,16 +97,6 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
             >
               {eventName}
             </motion.h1>
-            <motion.p
-              className="sc-chip relative mt-4 inline-flex min-h-10 items-center gap-2.5 rounded-full px-4 font-sans text-[14px] font-semibold"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={at(0.16)}
-            >
-              <span className="sc-rim" aria-hidden><span /></span>
-              <span aria-hidden className="sc-live-dot h-2.5 w-2.5 rounded-full" style={{ background: 'var(--sc-accent)', boxShadow: '0 0 12px var(--sc-accent)' }} />
-              {moments > 0 ? `${moments} ${moments === 1 ? 'moment' : 'moments'} on the wall` : 'Be the first on the wall'}
-            </motion.p>
 
             {latest.length > 0 && (
               <motion.ul

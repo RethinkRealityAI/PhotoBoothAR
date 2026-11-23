@@ -55,9 +55,13 @@ export default function BoothViewfinder({
       </span>
     </span>
   );
+  // The way in: one accent CTA with the travelling glimmer rim. No round
+  // shutter on the full-size phone; the compact miniature keeps its own.
   const pill = (
-    <span className="rounded-full bg-white/90 px-4 py-1.5 font-sans text-[14px] font-semibold text-[#1A1740] shadow-[0_8px_24px_-10px_rgba(0,0,0,0.6)]">
-      {shutterLabel}
+    <span className="vf-cta inline-flex min-h-12 items-center gap-2 rounded-full px-6 font-sans text-[16px] font-bold">
+      <span className="sc-rim" aria-hidden><span /></span>
+      <Camera className="relative h-[18px] w-[18px]" aria-hidden />
+      <span className="relative">{shutterLabel}</span>
     </span>
   );
   return (
@@ -100,10 +104,12 @@ export default function BoothViewfinder({
           {frameUrl && (
             <img src={frameUrl} alt="" decoding="async" className="absolute inset-0 h-full w-full object-fill" />
           )}
-          {/* Focus brackets: this is a camera. */}
-          <div className="vf-brackets absolute inset-[14%]" aria-hidden>
-            <span /><span /><span /><span />
-          </div>
+          {/* Focus brackets (the miniature only: the full phone stays clean). */}
+          {compact && (
+            <div className="vf-brackets absolute inset-[14%]" aria-hidden>
+              <span /><span /><span /><span />
+            </div>
+          )}
           <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/55 to-transparent" aria-hidden />
           {compact ? (
             <span aria-hidden className="absolute inset-x-0 bottom-2 mx-auto flex w-max flex-col items-center">
@@ -113,9 +119,8 @@ export default function BoothViewfinder({
             <button
               type="button"
               onClick={onShutter}
-              className="vf-shutter group absolute inset-x-0 bottom-4 mx-auto flex w-max flex-col items-center gap-2"
+              className="vf-shutter group absolute inset-x-0 bottom-5 mx-auto flex w-max flex-col items-center"
             >
-              {shutter}
               {pill}
             </button>
           ) : (
@@ -123,9 +128,8 @@ export default function BoothViewfinder({
               to={to}
               state={linkState}
               aria-label={shutterLabel}
-              className="vf-shutter group absolute inset-x-0 bottom-4 mx-auto flex w-max flex-col items-center gap-2"
+              className="vf-shutter group absolute inset-x-0 bottom-5 mx-auto flex w-max flex-col items-center"
             >
-              {shutter}
               {pill}
             </Link>
           )}

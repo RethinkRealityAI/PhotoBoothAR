@@ -150,6 +150,7 @@ export function useBoothShowcase(max = 6): ShowcaseCard[] {
 /** The splash pages' phone screen: the event's frame on a stand-in guest,
  *  or a finished booth look (scenePage.boothScreen). Never a wall photo. */
 export function useBoothScreen(): BoothScreen {
+  const { config } = useEvent();
   const frameUrl = useHeroFrameUrl();
-  return useMemo(() => boothScreen(frameUrl, BOOTH_STANDIN), [frameUrl]);
+  return useMemo(() => boothScreen(frameUrl, BOOTH_STANDIN, config.boothScreen), [frameUrl, config.boothScreen]);
 }
