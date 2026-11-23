@@ -406,6 +406,30 @@ export function heroFrameUrl(catalog: readonly Experience[], openingId: string |
   return (opening ?? own)?.asset_url ?? undefined;
 }
 
+/** What the splash pages' phone screen shows: never a guest's photo. */
+export interface BoothScreen {
+  /** The picture on the screen. */
+  photo: string;
+  /** The event's frame drawn over it, when the event has one. */
+  frame?: string;
+}
+
+/** The look the phone wears when the event has no frame of its own: a
+ *  shipped preview of the Confetti Party starter (inset frame + the HD
+ *  royal crown on a guest), so the screen still shows a real booth look. */
+export const BOOTH_SCREEN_FALLBACK = '/starters/confetti-party.webp';
+
+/**
+ * The welcome page's and booth splash's phone screen. With a frame
+ * (heroFrameUrl) it is a stand-in guest wearing the event's own frame;
+ * without one, a finished booth look. Live-wall photos never appear here:
+ * a guest's shot inside a marketing-style phone read as noise, and could be
+ * anything a guest posted.
+ */
+export function boothScreen(frameUrl: string | undefined, standin: string): BoothScreen {
+  return frameUrl ? { photo: standin, frame: frameUrl } : { photo: BOOTH_SCREEN_FALLBACK };
+}
+
 /* ── Booth showcase (the cards floating round the welcome page's phone) ── */
 
 export type ShowcaseKind = 'frame' | 'prop' | 'filter';

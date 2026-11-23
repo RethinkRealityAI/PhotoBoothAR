@@ -17,6 +17,7 @@ import eventWedding from '../../assets/landing/event-wedding.webp';
 import eventGala from '../../assets/landing/event-gala.webp';
 import eventBirthday from '../../assets/landing/event-birthday.webp';
 import boothPortrait from '../../assets/landing/booth-portrait.webp';
+import boothStandin from '../../assets/landing/booth-standin.webp';
 const SAMPLE_URLS = [
   heroWedding, heroGala, heroBirthday, heroConference, heroTradeshow, heroActivation,
   eventWedding, eventGala, eventBirthday, boothPortrait,
@@ -48,3 +49,7 @@ export const WALL_FIELD_SAMPLES: readonly Post[] = samplePosts(10);
 
 /** The stand-in guest a bare frame is drawn over in the booth showcase. */
 export const SHOWCASE_STANDIN: string = boothPortrait;
+
+/** The stand-in guest on the splash pages' phone screen, under the event's
+ *  own frame: a clean portrait with headroom, nothing on the head or face. */
+export const BOOTH_STANDIN: string = boothStandin;
