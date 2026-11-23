@@ -15,19 +15,22 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { RefreshCw, Sparkles, X } from 'lucide-react';
+import { Ban, Check, RefreshCw, Sparkles, X } from 'lucide-react';
 import LookThumb, { CATEGORY_ICON } from './LookThumb';
 import { useStore } from '../../store';
 import { isPristine, type DeckSection, type DeckSelection } from '../../lib/boothDeck';
 import {
   activeLookIds,
   buildLookStrip,
+  categoryIsClear,
+  clearCategoryAction,
   lookChips,
   looksForChip,
   lookTapAction,
   runLookAction,
   type LookChip,
   type LookHandlers,
+  LOOK_NONE_LABEL,
 } from '../../lib/lookStrip';
 import { haptic } from '../../lib/haptics';
 
@@ -129,6 +132,7 @@ export default function LooksSheet({
               <div role="tablist" aria-label="Look categories" className="flex shrink-0 gap-2 overflow-x-auto px-5 pb-3 pt-1 hide-scrollbar">
                 {chips.map((c) => {
                   const on = c.key === current;
+                  const ChipIcon = c.key === 'all' ? null : CATEGORY_ICON[c.key];
                   return (
                     <button
                       key={c.key}
@@ -141,6 +145,7 @@ export default function LooksSheet({
                       }`}
                       style={on ? { boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb),0.6)' } : undefined}
                     >
+                      {ChipIcon && <ChipIcon aria-hidden className="h-3.5 w-3.5" strokeWidth={1.9} />}
                       {c.label}
                       <span className="font-sans text-[12px] tabular-nums text-brand-muted/70">{c.count}</span>
                     </button>
@@ -209,6 +214,37 @@ export default function LooksSheet({
                       </h3>
                     )}
                     <div className="grid grid-cols-4 gap-x-2.5 gap-y-3.5">
+                      {/* "None" leads every section: take THIS category off
+                          and keep the rest of the combined look. */}
+                      {(() => {
+                        const clear = categoryIsClear(g.category, selection);
+                        return (
+                          <button
+                            type="button"
+                            aria-pressed={clear}
+                            onClick={() => { haptic('select'); runLookAction(clearCategoryAction(g.category), handlers); }}
+                            className="group flex min-w-0 flex-col items-center gap-1.5 text-center"
+                          >
+                            <span
+                              className="pressable relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl"
+                              style={{
+                                background: 'rgba(9, 11, 20, 0.5)',
+                                boxShadow: clear
+                                  ? '0 0 0 2px var(--color-accent), 0 0 20px -4px rgba(var(--accent-rgb),0.85)'
+                                  : 'inset 0 0 0 1px rgba(255,255,255,0.14)',
+                              }}
+                            >
+                              <Ban aria-hidden className="h-5 w-5 text-brand-muted/80" />
+                            </span>
+                            <span
+                              className="line-clamp-2 w-full font-sans text-[12px] leading-tight"
+                              style={{ color: clear ? 'var(--color-brand-fg)' : 'rgba(205,210,235,0.85)', fontWeight: clear ? 600 : 400 }}
+                            >
+                              {LOOK_NONE_LABEL[g.category]}
+                            </span>
+                          </button>
+                        );
+                      })()}
                       {g.items.map((item) => {
                         const on = activeIds.has(item.exp.id);
                         const pending = on && (pendingIds?.has(item.exp.id) ?? false);
@@ -231,6 +267,15 @@ export default function LooksSheet({
                               }}
                             >
                               <LookThumb item={item} />
+                              {on && !pending && (
+                                <span
+                                  aria-hidden
+                                  className="pointer-events-none absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full"
+                                  style={{ background: 'var(--color-accent)', boxShadow: '0 1px 4px rgba(0,0,0,0.5)' }}
+                                >
+                                  <Check className="h-3 w-3 text-[color:var(--on-accent)]" strokeWidth={3} />
+                                </span>
+                              )}
                               {pending && (
                                 <span
                                   className={`pointer-events-none absolute inset-0 m-auto h-6 w-6 rounded-full ${reduced ? '' : 'animate-spin'}`}
@@ -240,7 +285,7 @@ export default function LooksSheet({
                             </span>
                             <span
                               className="line-clamp-2 w-full font-sans text-[12px] leading-tight"
-                              style={{ color: on ? 'var(--color-brand-fg)' : 'rgba(205,210,235,0.75)', fontWeight: on ? 600 : 400 }}
+                              style={{ color: on ? 'var(--color-brand-fg)' : 'rgba(205,210,235,0.85)', fontWeight: on ? 600 : 400 }}
                             >
                               {item.exp.name}
                             </span>

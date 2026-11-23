@@ -23,6 +23,10 @@
  */
 import { useEffect, useState } from 'react';
 import { pixelWidth, transformedUrl } from '../../lib/mediaUrl';
+import { useOptionalEvent } from '../../events/EventContext';
+
+/** Legacy single-event builds keep their shipped URLs byte-for-byte. */
+const IS_LEGACY_BUILD = (((import.meta.env.VITE_EVENT as string | undefined) ?? '')).trim() !== '';
 
 export interface PostImageProps {
   src: string;
@@ -41,7 +45,15 @@ export default function PostImage({
   src, alt, className, style, displayWidth, eager = false, draggable, onClick,
 }: PostImageProps) {
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-  const optimized = transformedUrl(src, { width: pixelWidth(displayWidth, dpr) });
+  // `resize=cover` with only a width keeps the ORIGINAL height: a 1080×1920
+  // capture asked for at 720 wide came back 720×1920 (sides cropped, aspect
+  // 0.375), and the 9:16 tile then cover-cropped its top and bottom — frame
+  // art along the bottom edge vanished on the wall. `contain` with only a
+  // width scales the whole photo (720×1280). Platform events only; legacy
+  // builds and coded events keep the URL they shipped with.
+  const event = useOptionalEvent();
+  const platform = event?.source === 'db' && !IS_LEGACY_BUILD;
+  const optimized = transformedUrl(src, { width: pixelWidth(displayWidth, dpr), resize: platform ? 'contain' : 'cover' });
   // `failed` is keyed on src: a re-used component instance showing a DIFFERENT
   // photo must get a fresh attempt, or one bad image would permanently downgrade
   // every later one that lands in the same slot.

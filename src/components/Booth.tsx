@@ -14,9 +14,9 @@
 import {
   useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo, useSyncExternalStore,
 } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ChevronUp, Hand, Images, RotateCcw, ScanFace, Sparkles, Upload } from 'lucide-react';
+import { AlertCircle, ChevronUp, Hand, Images, RotateCcw, ScanFace, Sparkles, Upload, X } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
@@ -47,6 +47,9 @@ import ChallengeCheck from './booth/ChallengeCheck';
 import SendOff from './booth/SendOff';
 import SendFailed from './booth/SendFailed';
 import Onboarding, { useOnboarding } from './booth/Onboarding';
+import {
+  CAMERA_HINT_COPY, cameraHintSeen, markCameraHintSeen, safeLocalStorage, skipBoothSplash,
+} from '../lib/guestFlow';
 import ChallengeSelector from './booth/ChallengeSelector';
 
 // Foundation APIs
@@ -112,6 +115,7 @@ import type { Transform2D, Experience, ExperienceLayer, AnchorConfig, Challenge 
 import { layerToPiece } from '../lib/studio/draftMapping';
 import { applyGuestColor, guestColorSlot } from '../lib/guestPalette';
 import { effectiveOpeningLookId } from '../lib/openingLook';
+import { isPlatformBooth, useViewportLock } from '../lib/boothViewport';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -278,6 +282,11 @@ export default function Booth() {
   const { id: routeExperienceId } = useParams<{ id?: string }>();
   const { eventId, config: eventConfig, basePath, source } = useEvent();
   const entitlements = useEntitlements();
+  // Platform booths hold the phone's real visible viewport: no page scroll,
+  // no pinch or double-tap zoom, 16px fields (src/lib/boothViewport.ts).
+  // Legacy builds/events keep the document exactly as shipped.
+  const platformBooth = isPlatformBooth(source);
+  useViewportLock(platformBooth, true);
 
   // Studio settings (head occlusion + size). Only platform (db) events opt in;
   // legacy/code events keep their exact shipped rendering.
@@ -316,7 +325,14 @@ export default function Booth() {
 
   // ── Onboarding ────────────────────────────────────────────────────────
   const { showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
-  const [onboardingVisible, setOnboardingVisible] = useState(showOnboarding);
+  // Platform events replace the five-slide intro with ONE dismissible line
+  // over the live camera (cameraHint below); legacy keeps the intro as shipped.
+  const [onboardingVisible, setOnboardingVisible] = useState(source === 'db' ? false : showOnboarding);
+  const [cameraHint, setCameraHint] = useState(() => source === 'db' && !cameraHintSeen(safeLocalStorage()));
+  const dismissCameraHint = useCallback(() => {
+    setCameraHint(false);
+    markCameraHintSeen(safeLocalStorage());
+  }, []);
 
   // Challenge-awareness for the onboarding's optional last step. Fetched only
   // while the (once-per-device) onboarding is actually on screen, so no build
@@ -329,7 +345,14 @@ export default function Booth() {
   }, [onboardingVisible, challengesLoaded, fetchChallenges]);
 
   // ── Camera ────────────────────────────────────────────────────────────
-  const [started, setStarted] = useState(false);
+  // A platform guest who tapped the welcome page's booth CTA already saw the
+  // camera line there, so the "Step inside" splash is skipped and the camera
+  // starts on mount. That is the same start path the splash's tap uses: the
+  // stream is requested from useCameraStream's effect, never synchronously in
+  // a tap handler, so no browser gesture requirement changes. Opening /booth
+  // directly (and every legacy event) still gets the splash.
+  const location = useLocation();
+  const [started, setStarted] = useState(() => skipBoothSplash(source === 'db', location.state));
   const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
 
   // Video capture is entitlement-gated. If the flag resolves after the guest
@@ -1208,6 +1231,7 @@ export default function Booth() {
   const handleShutterPress = useCallback(() => {
     if (phase !== 'camera') return;
     if (mediaMode === 'video' && recording) return; // handled by stop button
+    if (cameraHint) dismissCameraHint();
     // A browser will only unblock WebAudio inside a REAL user gesture, and this
     // is the only one the countdown gets — prime the shared context here or the
     // ticks are silent for the whole session.
@@ -1237,7 +1261,7 @@ export default function Booth() {
         capturePhoto();
       }
     }
-  }, [phase, mediaMode, recording, timerSec, needsGuestName, askName, stripMode, resetStrip]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, mediaMode, recording, timerSec, needsGuestName, askName, stripMode, resetStrip, cameraHint, dismissCameraHint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCountdownComplete = useCallback(() => {
     if (mediaMode === 'video') {
@@ -1768,9 +1792,27 @@ export default function Booth() {
     </div>
   );
 
+  // The first-run camera hint is on screen only over a live camera; the first
+  // tap anywhere (or a capture, in handleShutterPress) puts it away for good.
+  const cameraHintShown = cameraHint && started && !error && ready && phase === 'camera' && !uiHidden;
+  useEffect(() => {
+    if (!cameraHintShown) return;
+    const onTap = () => dismissCameraHint();
+    window.addEventListener('pointerdown', onTap, { capture: true, once: true });
+    return () => window.removeEventListener('pointerdown', onTap, { capture: true });
+  }, [cameraHintShown, dismissCameraHint]);
+
   // ── Render ─────────────────────────────────────────────────────────────
   return (
-    <div className="absolute inset-0 flex flex-col overflow-hidden app-bg select-none">
+    <div
+      className={platformBooth
+        // `fixed inset-0` tracks iOS's DYNAMIC viewport (toolbars in or out),
+        // where the AppShell's 100vh is the large one; pan-only touch-action
+        // kills pinch/double-tap zoom in every engine that honours it, with
+        // useViewportLock's listeners covering iOS Safari.
+        ? 'fixed inset-0 flex flex-col overflow-hidden overscroll-none app-bg select-none [touch-action:pan-x_pan-y] [-webkit-tap-highlight-color:transparent]'
+        : 'absolute inset-0 flex flex-col overflow-hidden app-bg select-none'}
+    >
       <EventBackground density={44} sparkle={0.7} />
       {/* Tester-only (?faceEngine= / ?trackdebug); renders nothing otherwise. */}
       <TrackingReadout />
@@ -1912,11 +1954,19 @@ export default function Booth() {
               rather than a collapsed (zero-height) stage. */}
           <div
             ref={stageAreaRef}
-            className="flex-1 relative min-h-0 flex items-center justify-center px-2 pb-1"
+            // Platform phones: the 9:16 stage runs edge to edge from the top of
+            // the screen (camera-app style) and the space left over gathers at
+            // the bottom, under the deck, instead of two dead bands top and
+            // bottom. From `sm` up it is centred and inset as before.
+            className={platformBooth
+              ? 'flex-1 relative min-h-0 flex items-start justify-center sm:items-center sm:px-2 sm:pb-1'
+              : 'flex-1 relative min-h-0 flex items-center justify-center px-2 pb-1'}
             style={{ containerType: 'size' }}
           >
             <div
-              className="relative h-full aspect-[9/16] max-w-full rounded-[1.4rem] overflow-hidden ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900 touch-pan-y"
+              className={platformBooth
+                ? 'relative h-full aspect-[9/16] max-w-full rounded-b-[1.6rem] sm:rounded-[1.4rem] overflow-hidden sm:ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900 touch-pan-y'
+                : 'relative h-full aspect-[9/16] max-w-full rounded-[1.4rem] overflow-hidden ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900 touch-pan-y'}
               style={
                 HAS_CONTAINER_UNITS || fallbackStage === null
                   ? { height: 'min(100cqh, calc(100cqw * 16 / 9))' }
@@ -2018,7 +2068,36 @@ export default function Booth() {
                   guest keeps. `opacity-0` rather than `hidden` because the
                   component hardcodes `display: block`. */}
               {hasTriggers && <TriggerEffects ref={triggerFxRef} className="absolute inset-0 w-full h-full pointer-events-none opacity-0" />}
-              <div className="absolute top-4 inset-x-0 z-30 flex flex-col items-center gap-2 pointer-events-none">
+              <div
+                className="absolute top-4 inset-x-0 z-30 flex flex-col items-center gap-2 pointer-events-none"
+                // The platform stage now starts at the top of the screen, so
+                // the hints clear the floating top bar (safe area + 44px row).
+                style={platformBooth ? { top: 'calc(env(safe-area-inset-top, 0px) + 4.25rem)' } : undefined}
+              >
+                {/* First-run hint (platform only — replaces the five-slide intro). */}
+                <AnimatePresence>
+                  {cameraHintShown && (
+                    <motion.div
+                      key="camera-hint"
+                      role="status"
+                      initial={{ opacity: 0, y: reducedMotionPref ? 0 : -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: reducedMotionPref ? 0 : -8 }}
+                      transition={{ duration: 0.25 }}
+                      className="pointer-events-auto mx-3 flex max-w-[22rem] items-center gap-1 rounded-2xl glass-strong border border-gold-400/25 py-1 pl-4 pr-1"
+                    >
+                      <span className="font-sans text-[13px] leading-snug text-ivory">{CAMERA_HINT_COPY}</span>
+                      <button
+                        type="button"
+                        onClick={dismissCameraHint}
+                        aria-label="Dismiss tip"
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-champagne/80 hover:text-ivory"
+                      >
+                        <X className="h-4 w-4" aria-hidden />
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 {/* Photo strip — which panel we're on, between shots. Without
                     this the camera silently reappears for a second and a half
                     and the guest cannot tell whether the strip is still going. */}
@@ -2151,7 +2230,7 @@ export default function Booth() {
                 colorSlot={colorSlot}
                 guestHex={guestHex}
                 onGuestHex={setGuestHex}
-                hintEnabled={!onboardingVisible && !moreOpen}
+                hintEnabled={!onboardingVisible && !cameraHintShown && !moreOpen}
               />
             </div>
           )}
@@ -2215,11 +2294,18 @@ export default function Booth() {
         {phase === 'flash' && (
           <motion.div
             key="flash"
-            className="absolute inset-0 z-50 bg-white"
-            initial={{ opacity: 1 }}
+            aria-hidden
+            // DOM only: capturePhoto renders to its own offscreen 1080x1920
+            // canvas (StageCanvas), so the flash can never reach the photo.
+            // Platform: a camera-style pop that eases out, and a gentle wash
+            // instead of a full white strobe for guests who ask for less motion.
+            className={platformBooth ? 'pointer-events-none absolute inset-0 z-50 bg-white' : 'absolute inset-0 z-50 bg-white'}
+            initial={{ opacity: platformBooth && reducedMotionPref ? 0.4 : 1 }}
             animate={{ opacity: 0 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.35 }}
+            transition={platformBooth
+              ? { duration: reducedMotionPref ? 0.25 : 0.5, ease: [0.22, 1, 0.36, 1] }
+              : { duration: 0.35 }}
           />
         )}
       </AnimatePresence>

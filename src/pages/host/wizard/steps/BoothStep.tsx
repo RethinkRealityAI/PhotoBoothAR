@@ -51,8 +51,7 @@ import {
 } from '../../../../lib/sceneThemes';
 import type { WallSettings } from '../../../../types';
 import { wallImageProblem } from '../../../../components/admin/WallDesignPanel';
-import { StepHeading } from '../chrome';
-import PreviewSheet, { useIsDesktop } from '../PreviewSheet';
+import { StepPanel, StepShell, TabPanel, WizardTabs } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
 import { useWizard } from '../wizardContext';
 import { SAMPLE_SHOTS } from '../WelcomePreview';
@@ -245,7 +244,6 @@ export default function BoothStep() {
   const [draft, setDraft] = useState<WallDraft | null>(null);
   const [failed, setFailed] = useState(false);
   const [tab, setTab] = useState<Tab>('style');
-  const desktop = useIsDesktop();
   const [beamSignal, setBeamSignal] = useState(0);
   const [upload, setUpload] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const fileInput = useRef<HTMLInputElement>(null);
@@ -541,22 +539,22 @@ export default function BoothStep() {
   };
 
   const controls = (
-    <section className="liquid-glass rounded-[28px] p-5 sm:p-6 wz-enter">
-      <StepHeading step="booth" />
-      <div className="wz-tabs wz-tabs-even wz-tabs-6 mb-5" role="tablist" aria-label="Live wall settings">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" role="tab" id={`wall-tab-${t.id}`} aria-controls="wall-tabpanel" aria-selected={tab === t.id} className="wz-tab" onClick={() => setTab(t.id)}>
-            {t.short ? <><span className="sm:hidden">{t.short}</span><span className="hidden sm:inline">{t.label}</span></> : t.label}
-          </button>
-        ))}
-      </div>
-      <div id="wall-tabpanel" role="tabpanel" aria-labelledby={`wall-tab-${tab}`}>
+    <StepPanel
+      step="booth"
+      tabs={<WizardTabs<Tab> idBase="wall" label="Live wall settings" className="wz-tabs-even wz-tabs-6" value={tab} onChange={setTab} tabs={TABS} />}
+      notice={failed ? (
+        <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">
+          We couldn’t load your live wall settings. Check your connection, then come back to this step. You can carry on meanwhile.
+        </p>
+      ) : undefined}
+    >
+      <TabPanel idBase="wall" value={tab}>
         {draft ? panel() : <div className="h-40 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" /></div>}
-      </div>
-    </section>
+      </TabPanel>
+    </StepPanel>
   );
   const previewNode = (
-    <>
+    <div className="flex flex-col gap-3 w-full">
           {previewSettings ? (
             <LiveWallFrame slug={ev.slug} settings={previewSettings} beamSignal={beamSignal} />
           ) : (
@@ -568,24 +566,8 @@ export default function BoothStep() {
               <Sparkles className="h-4 w-4" aria-hidden /> Beam a photo
             </button>
           </div>
-    </>
+    </div>
   );
 
-  return (
-    <>
-      {failed && (
-        <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">
-          We couldn’t load your live wall settings. Check your connection, then come back to this step. You can carry on meanwhile.
-        </p>
-      )}
-      {desktop ? (
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-6 xl:gap-7 items-start">
-          <div className="flex flex-col gap-5 min-w-0">{controls}</div>
-          <div className="lg:sticky lg:top-[76px] flex flex-col gap-3 wz-enter" style={{ animationDelay: '80ms' }}>{previewNode}</div>
-        </div>
-      ) : (
-        <PreviewSheet label={stepDef('booth').title} preview={<div className="flex flex-col gap-3">{previewNode}</div>}>{controls}</PreviewSheet>
-      )}
-    </>
-  );
+  return <StepShell panel={controls} preview={previewNode} previewKind="wide" sheetLabel={stepDef('booth').title} />;
 }

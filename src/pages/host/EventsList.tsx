@@ -24,6 +24,12 @@ import { supabase } from '../../lib/supabase';
 import StatusPill from '../../components/ui/StatusPill';
 import { useToast } from '../../components/ui/Toast';
 import { copyText } from '../../lib/clipboard';
+import SpotlightTour from '../../components/ui/SpotlightTour';
+import FirstPhotoMoment from '../../components/host/FirstPhotoMoment';
+import { coverWithPost, firstPhotoWatchSlugs, isCelebratablePost } from '../../lib/firstPhoto';
+import { subscribeToPosts } from '../../lib/db';
+import type { Post } from '../../types';
+import { DASHBOARD_TOUR, TOUR_CACHE_KEY, TOUR_METADATA_KEY, TOUR_START_DELAY_MS, parseTourOutcome, shouldShowTour, tourOutcomeFromMetadata, type TourOutcome } from '../../lib/onboardingTour';
 
 function CopyLinkButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -349,6 +355,13 @@ export default function EventsList() {
   const [sort, setSort] = useState<SortKey>('event-date');
   const [shown, setShown] = useState(PAGE);
   const [firstName, setFirstName] = useState<string | null>(null);
+  /** The dashboard tour: its outcome from the account (undefined until the
+   *  session user is read), the device cache, and whether it is on screen. */
+  const [tourMeta, setTourMeta] = useState<TourOutcome | null | undefined>(undefined);
+  const [tourCached, setTourCached] = useState<TourOutcome | null>(() => {
+    try { return parseTourOutcome(localStorage.getItem(TOUR_CACHE_KEY)); } catch { return null; }
+  });
+  const [tourOpen, setTourOpen] = useState(false);
   const [showGuide, setShowGuide] = useState(() => {
     try { return !localStorage.getItem(HOST_ONBOARDED_KEY); } catch { return false; }
   });
@@ -395,8 +408,59 @@ export default function EventsList() {
   // "Good evening, Dapo": the first name from the account, never the email.
   useEffect(() => {
     let alive = true;
-    supabase.auth.getUser().then(({ data }) => { if (alive) setFirstName(firstNameOf(data.user?.user_metadata)); }).catch(() => {});
+    supabase.auth.getUser().then(({ data }) => {
+      if (!alive) return;
+      setFirstName(firstNameOf(data.user?.user_metadata));
+      setTourMeta(tourOutcomeFromMetadata(data.user?.user_metadata));
+    }).catch(() => { if (alive) setTourMeta(null); });
     return () => { alive = false; };
+  }, []);
+
+  // Once a live event exists, walk the host through the dashboard once —
+  // after a beat, so the covers and the assistant button have mounted.
+  const tourDue = !loading && events !== null && tourMeta !== undefined && shouldShowTour({
+    eventStatuses: events.map((e) => e.status),
+    metadataOutcome: tourMeta,
+    cachedOutcome: tourCached,
+  });
+  useEffect(() => {
+    if (!tourDue) return;
+    const t = window.setTimeout(() => setTourOpen(true), TOUR_START_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [tourDue]);
+
+  // "Your first guest photo just landed": watch live events that have no
+  // photos yet (a KNOWN zero from the cover read) and celebrate the first
+  // one. The event leaves the watch list as soon as its count is 1, so the
+  // subscription closes itself and the moment fires once.
+  const [firstPhoto, setFirstPhoto] = useState<{ ev: HostEventRow; post: Post } | null>(null);
+  const watchKey = events
+    ? firstPhotoWatchSlugs(events.map((e) => ({ id: e.id, slug: e.slug, status: e.status, count: covers[e.id]?.count }))).join('|')
+    : '';
+  useEffect(() => {
+    if (!watchKey || !events) return;
+    const offs = watchKey.split('|').map((slug) => {
+      const ev = events.find((e) => e.slug === slug);
+      return subscribeToPosts(slug, {
+        onInsert: (post) => {
+          if (!ev || !isCelebratablePost(post)) return;
+          setCovers((c) => ({ ...c, [ev.id]: coverWithPost(c[ev.id], post) }));
+          setFirstPhoto((cur) => cur ?? { ev, post });
+        },
+      });
+    });
+    return () => { offs.forEach((off) => off()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchKey]);
+
+  /** Saved to the account (follows the host to other devices) and cached on
+   *  this one. Neither write may block or throw: the tour is a nicety. */
+  const finishTour = useCallback((outcome: TourOutcome | null) => {
+    setTourOpen(false);
+    if (outcome === null) return;
+    setTourCached(outcome);
+    try { localStorage.setItem(TOUR_CACHE_KEY, outcome); } catch { /* private mode — non-fatal */ }
+    void supabase.auth.updateUser({ data: { [TOUR_METADATA_KEY]: outcome } }).catch(() => {});
   }, []);
 
   const pickView = (v: 'grid' | 'list') => {
@@ -574,12 +638,15 @@ export default function EventsList() {
   const hasEvents = newest !== null;
   const anyLive = (events ?? []).some((e) => e.status === 'live');
   const guideSteps = [
-    { n: '1', title: 'Create your event', rest: 'describe it, or fill it in yourself', done: hasEvents, to: '/host/new' },
+    { n: '1', title: 'Create your event', rest: 'a few quick steps, saved as you go', done: hasEvents, to: '/host/new' },
     { n: '2', title: 'Go live & share the QR', rest: 'guests need no app', done: anyLive, to: newest ? `/host/events/${newest.id}/share` : '/host/new' },
     { n: '3', title: 'Make it yours (optional)', rest: 'frames, filters, 3D props & challenges', done: false, to: newest ? `/host/events/${newest.id}/library` : '/host/new' },
   ];
   const guidePct = Math.round((([hasEvents, anyLive].filter(Boolean).length) / 2) * 100);
   const guideDone = hasEvents && anyLive;
+
+  /** Loaded, and the host has no events at all: the first-run welcome. */
+  const isEmpty = !loading && events !== null && events.length === 0;
 
   const welcomeUrlOf = (ev: HostEventRow) => `${origin}/e/${ev.slug}/welcome`;
 
@@ -805,6 +872,17 @@ export default function EventsList() {
     // pb-24 on phones: the Copilot FAB is fixed at bottom-6 right-6 and 56px
     // square, so it sat on top of the last card's actions at 390px.
     <div className="p-5 pb-24 md:p-10 md:pb-12 max-w-6xl mx-auto">
+      {tourOpen && <SpotlightTour steps={DASHBOARD_TOUR} onFinish={finishTour} />}
+      {firstPhoto && (
+        <FirstPhotoMoment
+          eventName={firstPhoto.ev.name}
+          slug={firstPhoto.ev.slug}
+          imageUrl={firstPhoto.post.image_url}
+          mediaType={firstPhoto.post.media_type}
+          guestName={firstPhoto.post.guest_name}
+          onClose={() => setFirstPhoto(null)}
+        />
+      )}
       <header className="relative mb-7 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[15px] text-brand-muted">
@@ -821,9 +899,21 @@ export default function EventsList() {
           <p className="mt-2 text-[14px] text-brand-muted">
             {loading ? 'Loading…' : events === null ? '' : summary.length > 0 ? summary.join(' · ') : active.length === 0 && archived.length > 0 ? 'Everything here is archived' : ''}
           </p>
+          {!loading && anyLive && !tourOpen && (
+            <button
+              type="button"
+              onClick={() => setTourOpen(true)}
+              className="-ml-1 mt-1 inline-flex min-h-11 items-center px-1 text-[13px] text-brand-muted underline-offset-4 hover:text-brand-fg hover:underline"
+            >
+              Replay the dashboard tour
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <img src={beamyCutout} alt="" aria-hidden className="pointer-events-none hidden md:block h-20 w-auto -mb-2 drop-shadow-[0_12px_20px_rgba(10,8,40,0.45)]" />
+          {/* The first-run welcome below carries its own Beamy — one per screen. */}
+          {!isEmpty && (
+            <img src={beamyCutout} alt="" aria-hidden className="pointer-events-none hidden md:block h-20 w-auto -mb-2 drop-shadow-[0_12px_20px_rgba(10,8,40,0.45)]" />
+          )}
           <button
             onClick={load}
             disabled={loading}
@@ -834,7 +924,7 @@ export default function EventsList() {
           </button>
           {/* The empty state has its own (single) primary CTA — two "New
               event" buttons on one screen is one too many. */}
-          {!(events !== null && events.length === 0 && !loading) && (
+          {!isEmpty && (
             <Link to="/host/new" className="bg-foil pressable flex items-center gap-2 rounded-full px-5 min-h-11 text-[14px] font-semibold transition">
               <Plus className="w-4 h-4" /> New event
             </Link>
@@ -926,13 +1016,14 @@ export default function EventsList() {
       ) : events.length === 0 ? (
         <div className="liquid-glass rounded-[28px] px-6 py-10 sm:p-12 text-center max-w-xl mx-auto">
           <img src={beamyCutout} alt="" aria-hidden className="mx-auto mb-4 h-32 w-auto drop-shadow-[0_16px_26px_rgba(10,8,40,0.5)]" />
-          <h2 className="font-serif text-[30px] leading-tight text-brand-fg mb-2">Create your first event</h2>
+          <h2 className="font-serif text-[30px] leading-tight text-brand-fg mb-2">
+            Welcome to Beamwall{firstName ? `, ${firstName}` : ''}
+          </h2>
           <p className="text-[15px] text-brand-muted leading-relaxed mb-8">
-            Describe the night or fill it in yourself, pick the frames guests can use, then go live and share
-            the QR. About a minute, no design skills needed.
+            Your first event takes about 5 minutes. Everything saves as you go.
           </p>
           <Link to="/host/new" className="bg-foil pressable inline-flex items-center gap-2 whitespace-nowrap rounded-full px-7 min-h-12 text-[15px] font-semibold transition active:scale-[0.98]">
-            <Plus className="w-4 h-4" /> Create your event
+            <Plus className="w-4 h-4" /> Create my first event
           </Link>
         </div>
       ) : (
@@ -965,11 +1056,16 @@ export default function EventsList() {
                 </div>
                 {notes(spotlight)}
                 <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
-                  {renderAction(spotlight, 'lg')}
-                  <Link to={`/host/events/${spotlight.id}`} className="glass pressable inline-flex min-h-12 items-center gap-2 rounded-full px-5 text-[15px] font-medium text-brand-fg">
+                  {nextAction(spotlight) === 'share' ? (
+                    <span data-tour="share" className="inline-flex">{renderAction(spotlight, 'lg')}</span>
+                  ) : renderAction(spotlight, 'lg')}
+                  <Link data-tour="manage" to={`/host/events/${spotlight.id}`} className="glass pressable inline-flex min-h-12 items-center gap-2 rounded-full px-5 text-[15px] font-medium text-brand-fg">
                     <Settings2 className="w-4 h-4" /> Manage
                   </Link>
                   <CopyLinkButton text={welcomeUrlOf(spotlight)} />
+                  {/* Same QR button the cards carry when their main action is
+                      not the share itself — and the tour's first stop. */}
+                  {nextAction(spotlight) !== 'share' && <span data-tour="share" className="inline-flex">{qrButton(spotlight)}</span>}
                   <EventMenu label={`More for ${spotlight.name}`} items={menuItems(spotlight)} />
                 </div>
               </div>

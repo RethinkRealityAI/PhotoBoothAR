@@ -23,6 +23,7 @@ export default function BoothViewfinder({
   onShutter,
   shutterLabel = 'Step into the booth',
   widthClass,
+  linkState,
 }: {
   /** Where the shutter goes (a link), unless `onShutter` is given. */
   to: string;
@@ -41,6 +42,9 @@ export default function BoothViewfinder({
   shutterLabel?: string;
   /** Overrides the device's default width. */
   widthClass?: string;
+  /** Router state the shutter link navigates with (the welcome page tells
+   *  the booth the guest already saw the camera line — lib/guestFlow.ts). */
+  linkState?: unknown;
 }) {
   const shutter = (
     <span className={`relative flex items-center justify-center ${compact ? 'h-7 w-7' : 'h-[72px] w-[72px]'}`}>
@@ -117,6 +121,7 @@ export default function BoothViewfinder({
           ) : (
             <Link
               to={to}
+              state={linkState}
               aria-label={shutterLabel}
               className="vf-shutter group absolute inset-x-0 bottom-4 mx-auto flex w-max flex-col items-center gap-2"
             >

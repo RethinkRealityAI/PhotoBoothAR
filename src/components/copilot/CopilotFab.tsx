@@ -56,6 +56,7 @@ export default function CopilotFab() {
           onClick={open}
           title="Beamwall Copilot"
           aria-label="Open the Beamwall Copilot"
+          data-tour="assistant"
           /* The 1.5rem anchor put the button ON the iOS home indicator, where
              the system swipe wins the touch — max() keeps it clear on notched
              phones and is a no-op everywhere else. */

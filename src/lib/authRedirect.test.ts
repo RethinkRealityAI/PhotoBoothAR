@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { authRedirectOrigin, authRedirectUrl, CANONICAL_ORIGIN } from './authRedirect';
+import { authRedirectOrigin, authRedirectUrl, CANONICAL_ORIGIN, safeReturnPath } from './authRedirect';
 
 const at = (url: string) => {
   const u = new URL(url);
@@ -29,5 +29,20 @@ describe('authRedirect', () => {
 
   it('normalises a path without a leading slash', () => {
     expect(authRedirectUrl('reset-password', at('https://beamwall.app/'))).toBe('https://beamwall.app/reset-password');
+  });
+});
+
+describe('safeReturnPath', () => {
+  it('returns host-area deep links unchanged', () => {
+    expect(safeReturnPath('/host/setup/abc/looks')).toBe('/host/setup/abc/looks');
+    expect(safeReturnPath('/host/billing?tab=credits')).toBe('/host/billing?tab=credits');
+    expect(safeReturnPath('/admin/support')).toBe('/admin/support');
+    expect(safeReturnPath('/host')).toBe('/host');
+  });
+
+  it('falls back to the dashboard for anything else', () => {
+    for (const bad of [undefined, null, 42, '', '/', '/e/party/booth', '//evil.com/host', '/\\evil.com', 'https://evil.com/host', '/hosting', '/host /x', '/login']) {
+      expect(safeReturnPath(bad)).toBe('/host');
+    }
   });
 });

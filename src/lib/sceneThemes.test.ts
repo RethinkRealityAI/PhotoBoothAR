@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_WALL_LOOK,
   DEFAULT_SCENE_TEMPLATE_ID,
   SCENE_PALETTES,
   SCENE_TEMPLATES,
@@ -239,7 +240,10 @@ describe('wall styling (2026-11-20)', () => {
       // Every style survives a save/load round trip.
       expect(wallLookEquals(normalizeWallLook(JSON.parse(JSON.stringify(next))), next)).toBe(true);
     }
-    expect(matchingWallStyle(normalizeWallLook(undefined))).toBeUndefined();
+    // A brand-new wall (nothing saved) is a named style, not "Your own mix".
+    expect(matchingWallStyle(normalizeWallLook(undefined))?.id).toBe('classic');
+    expect(matchingWallStyle(normalizeWallLook(undefined, true))?.id).toBe('classic');
+    expect(matchingWallStyle(DEFAULT_WALL_LOOK)?.id).toBe('classic');
     expect(new Set(WALL_STYLES.map((s) => s.id)).size).toBe(WALL_STYLES.length);
   });
   it('glow colour falls back to the accent', () => {

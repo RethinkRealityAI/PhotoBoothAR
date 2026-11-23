@@ -643,3 +643,117 @@
 .wz-tabs-even.wz-tabs-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .wz-tabs-even.wz-tabs-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 @media (max-width: 479.98px) { .wz-tabs-even.wz-tabs-6 .wz-tab { font-size: 12.5px; padding: 0 2px; } }
+
+/* ── One panel per step (2026-11-21, owner: "it should all be just one main
+   component … the size of the main component is consistent across each
+   section") ─────────────────────────────────────────────────────────────
+   StepPanel = .wz-panel (title row, tab row, body). StepShell = .wz-shell:
+   on desktop it fills the row between the header and the footer; the panel
+   takes what the preview leaves, and only the panel's body scrolls. The
+   preview column is sized from the shell's OWN height (container units), so
+   the phone is as big as the screen allows and never pushes the page into a
+   scroll. */
+.wz-panel { display: flex; flex-direction: column; min-width: 0; }
+.wz-panel-head { padding: 20px 20px 12px; }
+.wz-panel-tabs { padding: 0 20px 14px; }
+.wz-panel-body { padding: 2px 20px 20px; min-height: 0; }
+@media (min-width: 640px) {
+  .wz-panel-head { padding: 22px 24px 14px; }
+  .wz-panel-tabs { padding: 0 24px 16px; }
+  .wz-panel-body { padding: 2px 24px 24px; }
+}
+/* Inside the phone drawer the panel is plain: the drawer pads it. */
+.wz-sheet-body .wz-panel-tabs { padding: 0 0 14px; }
+.wz-sheet-body .wz-panel-body { padding: 0; }
+.wz-sheet-body .wz-panel-head { padding: 0; }
+
+@media (min-width: 1024px) {
+  .wz-shell {
+    container-type: size;
+    height: 100%;
+    min-height: 560px;
+  }
+  .wz-shell-grid {
+    display: grid;
+    height: 100%;
+    gap: 24px;
+    grid-template-rows: minmax(0, 1fr);
+    /* Phone (9 / 19.5) with a caption line under it, or the try-on stage
+       (9 / 16) with its camera button and caption: the narrower of the two
+       fits either in the height, so the panel is the same width on every
+       portrait-preview step. */
+    grid-template-columns:
+      minmax(0, 1fr)
+      min(calc((100cqh - 64px) * 0.4615), calc((100cqh - 132px) * 0.5625), 40cqw, 460px);
+  }
+  .wz-shell-grid[data-preview='wide'] { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+  .wz-shell-panel { display: flex; min-height: 0; min-width: 0; }
+  .wz-shell-panel > .wz-panel { flex: 1; min-height: 0; height: 100%; overflow: hidden; }
+  .wz-shell-preview {
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+  }
+  .wz-shell .wz-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  }
+  /* The panel body already scrolls: no box-in-a-box on desktop. */
+  .wz-shell .wz-panel-body .wz-scrollgrid {
+    max-height: none;
+    overflow: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+/* Touch targets: every tab is at least 44px tall. */
+.wz-tab { min-height: 44px; }
+@media (max-width: 1023.98px) {
+  .wz-pill { min-height: 44px; }
+  /* 16px stops iOS zooming into the field on focus. */
+  .wz-select select { min-height: 44px; font-size: 16px; }
+}
+
+/* Challenges: a scannable pick list, not cards. */
+.wz-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  text-align: left;
+  transition: background-color 140ms ease;
+}
+.wz-pick:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+.wz-pick:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+.wz-pick[aria-checked='true'] { background: rgba(255, 255, 255, 0.12); }
+.wz-pick-box {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.6);
+  color: transparent;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.wz-pick[aria-checked='true'] .wz-pick-box { background: #fff; color: var(--bw-on-accent); box-shadow: none; }
+.wz-list { border-radius: 20px; background: rgba(15, 13, 51, 0.2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); padding: 4px; }
+.wz-list > li + li { border-top: 1px solid rgba(255, 255, 255, 0.07); }
+.wz-card-inset { border-radius: 22px; background: rgba(15, 13, 51, 0.26); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); padding: 18px; }
+@media (min-width: 640px) { .wz-card-inset { padding: 20px 22px; } }
+.wz-sheet-body .wz-card-inset { padding: 16px; }
+@media (prefers-reduced-motion: reduce) { .wz-pick, .wz-pick-box { transition: none; } }
+.wz-tabs-even.wz-tabs-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wz-sheet-toggle { min-height: 44px; }

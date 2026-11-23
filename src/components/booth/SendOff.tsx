@@ -29,6 +29,8 @@ import {
   keepsakeOptInMessage,
   hasKeepsakeOptIn,
 } from '../../lib/keepsakeContacts';
+import { sendOffFooterLines } from '../../lib/guestFlow';
+import { isPlatformBooth } from '../../lib/boothViewport';
 
 interface Props {
   dataUrl: string;
@@ -129,6 +131,83 @@ function GoldBeam({ play }: { play: boolean }) {
   );
 }
 
+/**
+ * "Watch it land" — the platform success moment. A miniature live wall (a
+ * glass panel of quiet tiles) with the guest's own shot flying up from below
+ * into its slot and settling with one soft glow, captioned "It's on the live
+ * wall". Pure client-side: the photo is the data URL already in memory, the
+ * wall is illustration, and nothing here touches the network. Under reduced
+ * motion the shot simply fades in, already in place.
+ */
+function WallLanding({ dataUrl, isVideo, reduced }: { dataUrl: string; isVideo: boolean; reduced: boolean }) {
+  const SLOT = 1; // centre of the top row
+  return (
+    <div className="relative flex flex-col items-center gap-3">
+      <div
+        role="img"
+        aria-label={`Your ${isVideo ? 'video' : 'photo'} on the live wall`}
+        className="relative grid w-[168px] grid-cols-3 gap-1.5 rounded-2xl p-2"
+        style={{
+          background: 'rgba(9,11,20,0.6)',
+          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 16px 40px -18px rgba(0,0,0,0.8)',
+        }}
+      >
+        {Array.from({ length: 6 }, (_, i) =>
+          i === SLOT ? (
+            <div
+              key={i}
+              className="relative aspect-[3/4] rounded-md"
+              style={{ background: 'rgba(var(--accent-rgb),0.12)', boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb),0.45)' }}
+            >
+              <motion.div
+                initial={reduced ? { opacity: 0 } : { opacity: 0, y: 150, scale: 2.4, rotate: -6 }}
+                animate={{ opacity: 1, y: 0, scale: 1, rotate: 0 }}
+                transition={{ delay: 0.12, duration: reduced ? 0.3 : 0.95, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute inset-0 overflow-hidden rounded-md"
+                style={{ boxShadow: '0 6px 18px -6px rgba(0,0,0,0.8)' }}
+              >
+                {isVideo ? (
+                  <div className="flex h-full w-full items-center justify-center bg-noir-800/80">
+                    <Film className="h-4 w-4 text-gold-300/80" aria-hidden />
+                  </div>
+                ) : (
+                  <img src={dataUrl} alt="" className="h-full w-full object-cover" />
+                )}
+              </motion.div>
+              {!reduced && (
+                <motion.span
+                  aria-hidden
+                  initial={{ opacity: 0, scale: 1 }}
+                  animate={{ opacity: [0, 0.95, 0], scale: [1, 1.18, 1.32] }}
+                  transition={{ delay: 1, duration: 0.9, ease: 'easeOut' }}
+                  className="pointer-events-none absolute inset-0 rounded-md"
+                  style={{ boxShadow: '0 0 0 2px var(--color-accent), 0 0 18px rgba(var(--accent-rgb),0.85)' }}
+                />
+              )}
+            </div>
+          ) : (
+            <div
+              key={i}
+              aria-hidden
+              className="aspect-[3/4] rounded-md"
+              style={{ background: 'rgba(255,255,255,0.07)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }}
+            />
+          ),
+        )}
+      </div>
+      <motion.p
+        initial={{ opacity: 0, y: reduced ? 0 : 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: reduced ? 0.2 : 1.05, duration: 0.45 }}
+        className="flex items-center gap-1.5 font-sans text-[13px] font-medium text-champagne/85"
+      >
+        <LayoutGrid className="h-3.5 w-3.5 text-gold-300" aria-hidden />
+        It&rsquo;s on the live wall
+      </motion.p>
+    </div>
+  );
+}
+
 /** Gold motes that drift gently up after the dissolve — soft ambient afterglow.
  *  Infinite repeat, so it goes fully still under prefers-reduced-motion
  *  (same pattern as Countdown.tsx). */
@@ -173,6 +252,8 @@ function GoldMotes({ play }: { play: boolean }) {
 export default function SendOff({ dataUrl, mediaType = 'image', uploading, success, pendingApproval = false, onTakeAnother }: Props) {
   const { config, basePath, eventId, source } = useEvent();
   const reduced = useReducedMotion() ?? false;
+  /** This lane's refinements (wall landing, scrollable success) — platform only. */
+  const platform = isPlatformBooth(source);
   const copy = useStore((s) => s.copy);
   const GOLD_COLORS = config.accentHexes.slice(0, 3);
   const GOLD_DEEP = config.accentHexes;
@@ -421,12 +502,40 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
             // home indicator. pb-safe-bottom COMPOSES with the design padding
             // via --safe-bottom (src/index.css) — a bare env() would win the
             // cascade and zero the gap on every non-notch device.
-            className="relative flex flex-col items-center gap-8 px-8 pb-safe-bottom [--safe-bottom:0rem] text-center"
+            // Platform: on a short phone (375x667) the stack is taller than the
+            // screen, and a centred overflow cut BOTH ends off with no way to
+            // reach them. Capped at the screen and scrolling inside itself, it
+            // still centres when it fits and scrolls from the top when not.
+            className={platform
+              ? 'relative flex max-h-full w-full flex-col items-center gap-7 overflow-y-auto overscroll-contain px-8 pt-safe-top [--safe-top:2rem] pb-safe-bottom [--safe-bottom:2rem] text-center hide-scrollbar'
+              : 'relative flex flex-col items-center gap-8 px-8 pb-safe-bottom [--safe-bottom:0rem] text-center'}
           >
             {/* Gentle ongoing ambient sparkle behind the emblem */}
             <GoldMotes play />
 
-            {/* Animated SCAGO emblem in a glowing foil halo */}
+            {/* Platform events: the photo they just sent, small, in place of
+                the emblem (a video gets a neutral film tile). Legacy keeps the
+                emblem below exactly as shipped. */}
+            {platform && !pendingApproval ? (
+              <WallLanding dataUrl={dataUrl} isVideo={isVideo} reduced={reduced} />
+            ) : source === 'db' ? (
+              <motion.div
+                initial={reduced ? { opacity: 0 } : { scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.1, duration: reduced ? 0.2 : 0.6, ease: [0.16, 1, 0.3, 1] }}
+                className="relative aspect-[9/16] w-20 overflow-hidden rounded-xl glow-accent"
+                style={{ border: '1px solid rgba(var(--accent-rgb),0.35)' }}
+              >
+                {isVideo ? (
+                  <div className="flex h-full w-full items-center justify-center bg-noir-800/80">
+                    <Film className="h-7 w-7 text-gold-300/70" aria-hidden />
+                  </div>
+                ) : (
+                  <img src={dataUrl} alt="The photo you just sent" className="h-full w-full object-cover" />
+                )}
+              </motion.div>
+            ) : (
+            /* Animated SCAGO emblem in a glowing foil halo */
             <motion.div
               initial={{ scale: 0.6, opacity: 0, rotate: -12 }}
               animate={{ scale: 1, opacity: 1, rotate: 0 }}
@@ -437,6 +546,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               <div className="absolute inset-[3px] rounded-full bg-noir-900/90" />
               <Emblem size={66} className="relative" />
             </motion.div>
+            )}
 
             <div className="space-y-3">
               {/* Tasteful staggered reveal of "Sent!" */}
@@ -457,7 +567,7 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                 {pendingApproval
                   ? `Your ${isVideo ? 'video' : 'photo'} was sent to the hosts for review — it joins the live wall once approved.`
                   : `Your ${isVideo ? 'video' : 'photo'} is on its way to the live wall.`}
-                {copy.thankYou}
+                {copy.thankYou ? ` ${copy.thankYou}` : null}
               </motion.p>
             </div>
 
@@ -549,8 +659,22 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               transition={{ delay: 0.9, duration: 0.6 }}
               className="flex flex-col items-center gap-0.5"
             >
-              <p className="font-label text-[10px] uppercase tracking-luxe text-gold-300/60">{copy.eyebrow}</p>
-              <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">{copy.eventName}</p>
+              {source === 'db' ? (
+                // The platform eyebrow defaults to the event name: say it once.
+                sendOffFooterLines(copy.eyebrow, copy.eventName).map((line, i) => (
+                  <p
+                    key={i}
+                    className={`font-label text-[10px] uppercase tracking-luxe ${i === 0 ? 'text-gold-300/60' : 'text-champagne/45'}`}
+                  >
+                    {line}
+                  </p>
+                ))
+              ) : (
+                <>
+                  <p className="font-label text-[10px] uppercase tracking-luxe text-gold-300/60">{copy.eyebrow}</p>
+                  <p className="font-label text-[9px] uppercase tracking-luxe text-champagne/30">{copy.eventName}</p>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
