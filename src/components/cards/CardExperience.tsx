@@ -364,6 +364,10 @@ export default function CardExperience({
           className="absolute inset-0 z-20 transition-opacity ease-out"
           style={{
             opacity: phase === 'handoff' ? 0 : 1,
+            // Opaque from the first frame: while the opener's code and gate art
+            // load, the opened scene and card waiting underneath must not show
+            // through (they read as a spoiler flash before the locked gate).
+            backgroundColor: design && revealId === 'scene' ? design.palette.bg : undefined,
             transitionDuration: `${premount ? SCENE_FADE_MS : REVEAL_FADE_MS}ms`,
             transitionTimingFunction: premount ? 'cubic-bezier(0.4, 0, 0.2, 1)' : undefined,
             pointerEvents: phase === 'handoff' ? 'none' : undefined,

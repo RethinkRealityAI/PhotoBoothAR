@@ -111,6 +111,31 @@ export function emailDesignHeroUrl(base: string | null | undefined, id: string):
   return `${emailAssetBase(base)}/designs/${EMAIL_DESIGN_HERO.version}/${id}.jpg`;
 }
 
+/**
+ * The design email kit (v2): the card's own look in the inbox. Per design,
+ * painted by scripts/render-email-design-kit.mjs at 2x into
+ * public/email/designs/<version>/<id>/:
+ *   field.jpg   the design's scene with its foreground cut-outs, behind everything
+ *   top.png     the glass panel's rounded top: frosted fill, the card's rim
+ *   bottom.png  its rounded bottom
+ *   gate.jpg    the locked gateway (what the recipient opens), with the
+ *               card's paper cut-outs in its corners
+ * The panel's middle is live CSS in exactly the colours of designGlass(), so
+ * it meets the painted caps without a seam. MIRROR of EMAIL_KIT_* in
+ * src/lib/designPacks.ts (parity-tested). Never repaint a version in place.
+ */
+export const EMAIL_DESIGN_KIT = { version: 'v2', w: 600, capH: 40, gateH: 480, fieldW: 650, fieldH: 1100 } as const;
+
+/** The frosted panel's colours: the scene's own colour, mostly opaque, and the card's accent rim. */
+export function designGlass(id: string): { fill: string; solid: string; rim: string } {
+  const d = EMAIL_DESIGNS[id];
+  return { fill: rgba(d.bg, 0.82), solid: d.bg, rim: rgba(d.accent, 0.6) };
+}
+
+export function emailDesignKitUrl(base: string | null | undefined, id: string, file: 'field.jpg' | 'top.png' | 'bottom.png' | 'gate.jpg'): string {
+  return `${emailAssetBase(base)}/designs/${EMAIL_DESIGN_KIT.version}/${id}/${file}`;
+}
+
 /** The theme snapshot's string vars (src/lib/cardTheme.ts shape). */
 function themeVars(theme: unknown): Record<string, string> {
   const obj = theme && typeof theme === 'object' && !Array.isArray(theme)
@@ -725,25 +750,62 @@ function artSealedBody(p: EmailPalette, c: Ctx, base: string): string {
 }
 
 /**
- * A card design's email: the design's own scene as the hero (linked to the
- * card), its kicker in the accent, then title, intro, photos and the button,
- * all in the design's colours. Blocked images leave a tile in the scene's
- * colour with the kicker as its alt text; the button never depends on art.
+ * A card design's email, dressed like the card itself: the design's scene is
+ * the page (see cardEmailHtml), the content sits on the card's frosted glass
+ * panel with its accent rim, and the hero is the locked gateway the recipient
+ * is about to open, with the card's paper cut-outs in its corners. Blocked
+ * images leave the panel in the scene's colour with every word and the
+ * button intact; the button never depends on art.
  */
 function designBody(p: EmailPalette, c: Ctx, base: string, id: string): string {
   const d = EMAIL_DESIGNS[id];
-  const { w, h } = EMAIL_DESIGN_HERO;
-  const hero = `<a href="${escapeHtml(c.url)}" style="display:block;text-decoration:none;"><img src="${escapeHtml(emailDesignHeroUrl(base, id))}" width="${w}" height="${h}" alt="${escapeHtml(d.kicker)}" style="display:block;width:100%;max-width:${w}px;height:auto;border:0;outline:none;border-radius:20px;background-color:${p.surface};font-family:${SANS};font-size:15px;color:${p.fg};"></a>`;
+  const g = designGlass(id);
+  const k = EMAIL_DESIGN_KIT;
+  const cap = (file: 'top.png' | 'bottom.png') =>
+    `<tr><td style="font-size:0;line-height:0;"><img src="${escapeHtml(emailDesignKitUrl(base, id, file))}" width="${k.w}" height="${k.capH}" alt="" style="display:block;width:100%;max-width:${k.w}px;height:auto;border:0;outline:none;"></td></tr>`;
+  const gate = `<a href="${escapeHtml(c.url)}" style="display:block;text-decoration:none;"><img src="${escapeHtml(emailDesignKitUrl(base, id, 'gate.jpg'))}" width="${k.w - 40}" height="${Math.round(k.gateH * (k.w - 40) / k.w)}" alt="${escapeHtml(d.kicker)}" style="display:block;width:100%;max-width:${k.w - 40}px;height:auto;border:1px solid ${g.rim};outline:none;border-radius:24px;background-color:${g.solid};font-family:${SANS};font-size:15px;color:${p.fg};"></a>`;
   const kicker = `<div style="font-family:${SANS};font-size:13px;line-height:18px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${p.accent};">${escapeHtml(d.kicker)}</div>`;
   const inner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-    <tr><td style="padding:0;font-size:0;line-height:0;">${hero}</td></tr>
+    <tr><td style="padding:0;font-size:0;line-height:0;">${gate}</td></tr>
     <tr><td align="center" style="padding:30px 8px 12px;">${kicker}</td></tr>
     <tr><td align="center" style="padding:0 8px;">${titleHtml(p, c.title, 42)}</td></tr>
-    <tr><td align="center" style="padding:16px 8px ${c.photos.length > 0 ? 32 : 34}px;">${intro(p, c.intro)}</td></tr>
-    ${c.photos.length > 0 ? `<tr><td style="padding:0 6px 34px;">${mosaic(p, c.photos)}</td></tr>` : ''}
-    <tr><td align="center">${button(p, c.url, 'Open your card')}</td></tr>
+    <tr><td align="center" style="padding:16px 8px ${c.photos.length > 0 ? 30 : 34}px;">${intro(p, c.intro)}</td></tr>
+    ${c.photos.length > 0 ? `<tr><td style="padding:0 0 34px;">${glassMosaic(g, c.photos)}</td></tr>` : ''}
+    <tr><td align="center">${glassButton(p, g, c.url, 'Open your card')}</td></tr>
   </table>`;
-  return doubleRule(p, inner, { pad: '12px 12px 40px', fill: true });
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    ${cap('top.png')}
+    <tr><td class="bw-in" bgcolor="${g.solid}" style="background-color:${g.fill};border-left:1px solid ${g.rim};border-right:1px solid ${g.rim};padding:0 20px 6px;">${inner}</td></tr>
+    ${cap('bottom.png')}
+  </table>`;
+}
+
+/** The card's photo frames: rounded, with the accent rim round each. */
+function glassMosaic(g: { solid: string; rim: string }, photos: Photo[]): string {
+  const tile = (ph: Photo, h: number, cls: string) =>
+    `<div role="img" aria-label="${escapeHtml(ph.label)}" class="${cls}" style="height:${h}px;border-radius:20px;border:1px solid ${g.rim};background-color:${g.solid};background-image:url('${escapeHtml(ph.url)}');background-size:cover;background-position:center;">&nbsp;</div>`;
+  if (photos.length === 1) return tile(photos[0], 330, 'bw-lead1');
+  const side = photos.slice(1, 3);
+  const sideCells = side.length === 1
+    ? `<td width="38%" valign="top" style="padding:0 0 0 6px;">${tile(side[0], 300, 'bw-lead')}</td>`
+    : `<td width="38%" valign="top" style="padding:0 0 0 6px;">
+        ${tile(side[0], 147, 'bw-side')}
+        <div style="height:6px;line-height:6px;font-size:0;">&nbsp;</div>
+        ${tile(side[1], 147, 'bw-side')}
+      </td>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td width="62%" valign="top" style="padding:0 6px 0 0;">${tile(photos[0], 300, 'bw-lead')}</td>
+    ${sideCells}
+  </tr></table>`;
+}
+
+/** The card's glass call-to-action: the accent pill inside a thin glass ring. */
+function glassButton(p: EmailPalette, g: { rim: string }, url: string, label: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr>
+    <td style="padding:5px;border-radius:999px;border:1px solid ${g.rim};background-color:${rgba(p.accent, 0.12)};">
+      ${button(p, url, label)}
+    </td>
+  </tr></table>`;
 }
 
 /** The email palette for a design: its scene colours, as solid hexes. */
@@ -807,7 +869,12 @@ export function cardEmailHtml(input: CardEmailInput): string {
   // sized from the top: where a client renders the body background (Apple
   // Mail, iOS) it continues the field seamlessly below a short email instead
   // of the wrapper's crop leaving a hard edge.
-  const field = art
+  const field = design
+    ? (() => {
+      const f = escapeHtml(emailDesignKitUrl(base, design, 'field.jpg'));
+      return { attr: ` background="${f}"`, style: `background-image:url('${f}');background-repeat:no-repeat;background-position:center top;background-size:cover;` };
+    })()
+    : art
     ? (() => {
       const f = escapeHtml(emailArtUrl(base, EMAIL_ART.field.file));
       return { attr: ` background="${f}"`, style: `background-image:url('${f}');background-repeat:no-repeat;background-position:center top;background-size:100% auto;` };
@@ -838,7 +905,7 @@ export function cardEmailHtml(input: CardEmailInput): string {
       }
     </style>
   </head>
-  <body style="margin:0;padding:0;background-color:${p.bg};${art ? field.style : ''}-webkit-text-size-adjust:100%;">
+  <body style="margin:0;padding:0;background-color:${p.bg};${art || design ? field.style : ''}-webkit-text-size-adjust:100%;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(preheader)}&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${p.bg}" style="background-color:${p.bg};">
       <tr><td align="center" class="bw-pad"${field.attr} style="padding:44px 20px 44px;${field.style}">
