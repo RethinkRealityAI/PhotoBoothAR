@@ -11,8 +11,13 @@
  * more looks.
  *
  * Now, one decision at a time and nothing hidden that matters:
- *   · one swipeable strip of EVERY look (frames → 3D → effects), snapping, with
- *     the next tile peeking past a faded edge so it reads as "there's more";
+ *   · four tabs over the circles — Frames · Props · Paint · Effects
+ *     (lib/lookTerms) — that open on the tab holding the applied look, so
+ *     there is always a row of looks on screen and the guest always knows
+ *     which kind they are in (Dapo, 2026-11-23). Empty tabs are hidden; a dot
+ *     marks a tab whose look is on;
+ *   · one swipeable row of that tab's looks, snapping, with the next tile
+ *     peeking past a faded edge so it reads as "there's more";
  *   · the look that just went on is named in a small glass pill that fades;
  *   · a labelled "More looks" pill beside the shutter opens the full sheet with
  *     category chips (LooksSheet);
@@ -23,31 +28,34 @@
  *
  * Platform events only. Legacy events keep BoothControlDeck untouched.
  */
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ArrowLeftRight, Ban, LayoutGrid, Sparkles } from 'lucide-react';
 import FilterThumb from './FilterThumb';
-import LookThumb, { CATEGORY_ICON } from './LookThumb';
+import LookThumb from './LookThumb';
 import { CaptureModePill } from './BoothCaptureControls';
 import { isPristine, type DeckSection, type DeckSelection } from '../../lib/boothDeck';
 import {
   activeLookIds,
   buildLookStrip,
-  categoryBreaks,
   centeredScrollLeft,
+  defaultLookTab,
   isSwipeUp,
   changedLook,
   lookHintSeen,
+  lookTabs,
   lookTapAction,
   markLookHintSeen,
   runLookAction,
   shouldShowLookHint,
-  LOOK_CATEGORY_LABEL,
+  tabOfLook,
+  tabsInUse,
   LOOK_HINT_DELAY_MS,
   LOOK_HINT_MS,
   LOOK_NAME_MS,
   type LookHandlers,
 } from '../../lib/lookStrip';
+import { LOOK_TAB_SHORT, type LookTab } from '../../lib/lookTerms';
 import { haptic } from '../../lib/haptics';
 import type { GuestColorSlot } from '../../lib/guestPalette';
 
@@ -135,21 +143,8 @@ function Tile({
   );
 }
 
-function CategoryBadge({ category }: { category: keyof typeof CATEGORY_ICON }) {
-  const Icon = CATEGORY_ICON[category];
-  return (
-    <span
-      aria-hidden
-      className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full"
-      style={{ background: 'rgba(9,11,20,0.9)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.28)' }}
-    >
-      <Icon className="h-3 w-3 text-brand-fg/90" strokeWidth={2} />
-    </span>
-  );
-}
-
-/** A quiet rule between groups (built-ins · frames · 3D · effects): the strip
- *  stays one swipe, but the groups read as groups. Centred on the tile row. */
+/** A quiet rule between the built-in tiles (None, Sparkle) and the tab's own
+ *  looks. Centred on the tile row. */
 function Divider() {
   return <span aria-hidden className="mt-[18px] h-6 w-px shrink-0 self-start rounded-full bg-white/25" />;
 }
@@ -193,8 +188,20 @@ export default function BoothLookDeck({
   const reduced = useReducedMotion() ?? false;
   const strip = useMemo(() => buildLookStrip(sections), [sections]);
   const activeIds = useMemo(() => activeLookIds(strip, selection), [strip, selection]);
-  const breaks = useMemo(() => categoryBreaks(strip), [strip]);
   const handlers: LookHandlers = { onSelectEffect, onSelectFrame, onSelectAttachment };
+
+  // ── Tabs. Until the guest picks one (or a look goes on elsewhere) the deck
+  // follows the applied look, so an event default arriving late still opens
+  // on its own tab. A picked tab that vanishes (catalog changed) falls back.
+  const tabs = useMemo(() => lookTabs(strip), [strip]);
+  const [pickedTab, setPickedTab] = useState<LookTab | null>(null);
+  const tab: LookTab = pickedTab !== null && tabs.some((t) => t.id === pickedTab)
+    ? pickedTab
+    : defaultLookTab(strip, selection);
+  const visible = useMemo(() => strip.filter((i) => i.tab === tab), [strip, tab]);
+  const inUse = useMemo(() => tabsInUse(strip, selection, sparkles), [strip, selection, sparkles]);
+  /** A look to centre once its tab has rendered (set when a switch is needed). */
+  const focusRef = useRef<string | null>(null);
 
   // Swipe UP on the strip opens "More looks" — the camera-app gesture, on top
   // of the labelled button (which stays the obvious way in).
@@ -221,10 +228,28 @@ export default function BoothLookDeck({
     prevSelRef.current = selection;
     if (change === null) return;
     setNamed({ key: Date.now(), text: change.on ? change.name : `${change.name} off` });
-    if (change.on) centre(change.id);
+    if (change.on) {
+      // A look put on from the sheet (or a default arriving) shows its tab.
+      const home = tabOfLook(strip, change.id);
+      if (home !== null && home !== tab) {
+        focusRef.current = change.id;
+        setPickedTab(home);
+      } else {
+        centre(change.id);
+      }
+    }
     // centre reads refs only; strip/selection are the real inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strip, selection]);
+
+  // A tab switch starts its row at the beginning — or on the look that caused it.
+  useEffect(() => {
+    const focus = focusRef.current;
+    focusRef.current = null;
+    if (focus !== null) { centre(focus); return; }
+    scrollerRef.current?.scrollTo({ left: 0, behavior: 'auto' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
   useEffect(() => {
     if (named === null) return;
     const t = window.setTimeout(() => setNamed(null), LOOK_NAME_MS);
@@ -236,7 +261,7 @@ export default function BoothLookDeck({
   useEffect(() => {
     if (centredOnceRef.current || activeIds.size === 0) return;
     centredOnceRef.current = true;
-    const first = strip.find((i) => activeIds.has(i.exp.id));
+    const first = visible.find((i) => activeIds.has(i.exp.id));
     if (first) {
       const scroller = scrollerRef.current;
       const tile = tileRefs.current.get(first.exp.id);
@@ -244,7 +269,7 @@ export default function BoothLookDeck({
         scroller.scrollLeft = centeredScrollLeft(tile.offsetLeft, tile.offsetWidth, scroller.clientWidth, scroller.scrollWidth);
       }
     }
-  }, [activeIds, strip]);
+  }, [activeIds, visible]);
 
   // ── First-run hint: once per device, one nudge, then never again.
   const [hint, setHint] = useState(false);
@@ -252,7 +277,7 @@ export default function BoothLookDeck({
   useEffect(() => {
     if (!hintEnabled || hintDoneRef.current) return;
     const storage = safeStorage();
-    if (!shouldShowLookHint(lookHintSeen(storage), strip.length)) return;
+    if (!shouldShowLookHint(lookHintSeen(storage), visible.length)) return;
     const t = window.setTimeout(() => {
       hintDoneRef.current = true;
       markLookHintSeen(storage);
@@ -266,7 +291,7 @@ export default function BoothLookDeck({
       }
     }, LOOK_HINT_DELAY_MS);
     return () => window.clearTimeout(t);
-  }, [hintEnabled, strip.length, reduced]);
+  }, [hintEnabled, visible.length, reduced]);
   useEffect(() => {
     if (!hint) return;
     const t = window.setTimeout(() => setHint(false), LOOK_HINT_MS);
@@ -348,10 +373,71 @@ export default function BoothLookDeck({
           </AnimatePresence>
         </div>
 
+        {/* Tabs: which KIND of look the row below holds. Hidden when there is
+            only one kind (an event with nothing but effects). */}
+        {tabs.length > 1 && (
+          <div role="tablist" aria-label="Kinds of looks" className="flex items-center justify-center gap-0.5 px-3">
+            {tabs.map((t) => {
+              const on = t.id === tab;
+              const dot = !on && inUse.has(t.id);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  id={`look-tab-${t.id}`}
+                  aria-selected={on}
+                  aria-controls="look-row"
+                  onClick={() => {
+                    if (on) return;
+                    haptic('select');
+                    setHint(false);
+                    setPickedTab(t.id);
+                  }}
+                  className="relative flex min-h-11 items-center px-1 font-sans text-[14px] leading-none"
+                >
+                  <span
+                    className="relative flex h-8 items-center rounded-full px-3.5 transition-colors"
+                    style={{
+                      color: on ? 'var(--color-brand-fg)' : 'rgba(232,235,250,0.78)',
+                      fontWeight: on ? 650 : 500,
+                      textShadow: on ? undefined : '0 1px 3px rgba(0,0,0,0.75)',
+                    }}
+                  >
+                    {on && (
+                      <motion.span
+                        aria-hidden
+                        layoutId="look-tab-pill"
+                        transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 38 }}
+                        className="absolute inset-0 rounded-full"
+                        style={{
+                          background: 'rgba(5,6,11,0.62)',
+                          boxShadow: 'inset 0 0 0 1.5px rgba(var(--accent-rgb),0.75), 0 2px 10px -3px rgba(0,0,0,0.7)',
+                        }}
+                      />
+                    )}
+                    <span className="relative">{t.label}</span>
+                    {dot && (
+                      <span
+                        aria-hidden
+                        className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full"
+                        style={{ background: 'var(--color-accent)', boxShadow: '0 0 0 1.5px rgba(5,6,11,0.7)' }}
+                      />
+                    )}
+                  </span>
+                  {dot && <span className="sr-only"> (has a look on)</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div
           ref={scrollerRef}
-          role="group"
-          aria-label="Looks"
+          id="look-row"
+          role={tabs.length > 1 ? 'tabpanel' : 'group'}
+          aria-labelledby={tabs.length > 1 ? `look-tab-${tab}` : undefined}
+          aria-label={tabs.length > 1 ? undefined : 'Looks'}
           onPointerDown={(e) => { setHint(false); swipeRef.current = { x: e.clientX, y: e.clientY }; }}
           onPointerUp={(e) => {
             const start = swipeRef.current;
@@ -383,6 +469,7 @@ export default function BoothLookDeck({
               <Ban className="h-4 w-4 text-brand-muted/70" />
             </FilterThumb>
           </Tile>
+          {tab === 'effects' && (
           <Tile
             active={sparkles}
             label="Sparkle"
@@ -397,23 +484,22 @@ export default function BoothLookDeck({
               <Sparkles className="h-5 w-5 text-brand-fg/85" />
             </span>
           </Tile>
-          {strip.length > 0 && <Divider />}
+          )}
+          {visible.length > 0 && <Divider />}
 
-          {strip.map((item) => {
+          {visible.map((item) => {
             const on = activeIds.has(item.exp.id);
             return (
-              <Fragment key={item.exp.id}>
-              {breaks.has(item.exp.id) && <Divider />}
               <Tile
+                key={item.exp.id}
                 tileRef={(el) => {
                   if (el) tileRefs.current.set(item.exp.id, el);
                   else tileRefs.current.delete(item.exp.id);
                 }}
                 active={on}
                 label={item.label}
-                ariaLabel={`${item.exp.name} (${LOOK_CATEGORY_LABEL[item.category]})`}
+                ariaLabel={`${item.exp.name} (${LOOK_TAB_SHORT[item.tab]})`}
                 pending={on && (pendingIds?.has(item.exp.id) ?? false)}
-                badge={<CategoryBadge category={item.category} />}
                 onClick={() => {
                   haptic('select');
                   setHint(false);
@@ -422,7 +508,6 @@ export default function BoothLookDeck({
               >
                 <LookThumb item={item} />
               </Tile>
-              </Fragment>
             );
           })}
           {/* Trailing gutter so the last tile can snap clear of the faded edge. */}

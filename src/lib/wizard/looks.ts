@@ -43,19 +43,16 @@ import { createOverlay, deriveKind, initialDraft, type StudioDraft, type StudioO
 import { draftToPayload, existingUrlResolver, experienceToDraft } from '../studio/draftMapping';
 import type { TriggerConfig } from '../studio/triggers';
 import type { FramePalette } from '../borders';
+import { LOOK_TABS, type LookTab } from '../lookTerms';
 
 /** No id matches this, so an allow-list holding only it shows nothing. */
 export const NO_LOOKS = '__none__';
 
-export type LookCategory = 'frames' | 'props' | 'paint' | 'effects';
+/** The wizard's tabs ARE the booth's tabs (lib/lookTerms) — one vocabulary. */
+export type LookCategory = LookTab;
 
 /** `short` is the phone label, so all four tabs fit one row without scrolling. */
-export const LOOK_CATEGORIES: readonly { id: LookCategory; label: string; short: string; noun: string }[] = [
-  { id: 'frames', label: 'Frames', short: 'Frames', noun: 'frame' },
-  { id: 'props', label: '3D props', short: 'Props', noun: 'prop' },
-  { id: 'paint', label: 'Face paint', short: 'Paint', noun: 'face paint' },
-  { id: 'effects', label: 'Effects', short: 'Effects', noun: 'effect' },
-];
+export const LOOK_CATEGORIES: readonly { id: LookCategory; label: string; short: string; noun: string }[] = LOOK_TABS;
 
 export type LookSource = 'frame' | 'effect' | 'library' | 'classic' | 'paint';
 
@@ -559,11 +556,11 @@ export const CUSTOM_FILTER_MAX_PROPS = 4;
 
 /** Why a custom filter cannot be saved yet, or null when it can. */
 export function customFilterError(spec: CustomFilterSpec): string | null {
-  if (spec.name.trim() === '') return 'Give your filter a name.';
+  if (spec.name.trim() === '') return 'Give your combo a name.';
   if (spec.name.trim().length > 40) return 'Keep the name under 40 letters.';
   const parts = (spec.frameId ? 1 : 0) + (spec.effectId ? 1 : 0) + (spec.paintId ? 1 : 0) + spec.classics.length + spec.library.length;
-  if (parts < 2) return 'A filter combines at least two things. Pick a frame, props, face paint or an effect.';
-  if (spec.classics.length + spec.library.length > CUSTOM_FILTER_MAX_PROPS) return `Up to ${CUSTOM_FILTER_MAX_PROPS} props per filter.`;
+  if (parts < 2) return 'A combo mixes at least two things. Pick a frame, props, face paint or an effect.';
+  if (spec.classics.length + spec.library.length > CUSTOM_FILTER_MAX_PROPS) return `Up to ${CUSTOM_FILTER_MAX_PROPS} props per combo.`;
   return null;
 }
 
@@ -597,7 +594,7 @@ export function composeDraft(spec: Omit<CustomFilterSpec, 'name'> & { name?: str
   const shaderId = spec.effectId ?? 'none';
   const draft: StudioDraft = {
     ...initialDraft('shader'),
-    name: spec.name?.trim() || 'My filter',
+    name: spec.name?.trim() || 'My combo',
     objects,
     selectedId: objects[0]?.id ?? null,
     shaderId,

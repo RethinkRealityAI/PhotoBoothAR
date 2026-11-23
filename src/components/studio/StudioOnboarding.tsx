@@ -20,7 +20,7 @@ import triggersImg from '../../assets/studio/studio-triggers.jpg';
  *  (also reused by FeatureHelpModal's "modes" topic — no single screenshot
  *  can represent all three views, so both surfaces use this icon card set). */
 export const MODES = [
-  { Icon: Layers, label: '2D', caption: 'Lay out frames, stickers & filters flat on the photo.' },
+  { Icon: Layers, label: '2D', caption: 'Lay out frames, stickers & effects flat on the photo.' },
   { Icon: Box, label: '3D', caption: 'Place face-tracked props in the live 3D scene.' },
   { Icon: Eye, label: 'Preview', caption: 'See what a guest sees — then tap Test on phone to try it with your own face.' },
 ];
@@ -62,25 +62,25 @@ const STEPS: Step[] = [
   {
     eyebrow: 'Your studio',
     title: 'Design your look',
-    body: 'Every frame, sticker, filter and 3D prop lives in one library — drop any onto your scene, or upload your own — PNG/SVG frames & stickers, GLB 3D props — from the Uploads section, or tap “AI Generate Frame” to create a new one, on brand, in seconds.',
+    body: 'Every frame, sticker, effect and prop lives in one library — drop any onto your scene, or upload your own — PNG/SVG frames & stickers, GLB 3D props — from the Uploads section, or tap “AI Generate Frame” to create a new one, on brand, in seconds.',
     image: libraryImg,
   },
   {
     eyebrow: 'One scene, three views',
     title: '2D, 3D & Preview',
-    body: 'Switch the canvas between modes at the top: 2D for flat frames & filters, 3D to place face-tracked props, and Preview to see the finished result exactly as a guest will — all one scene.',
+    body: 'Switch the canvas between modes at the top: 2D for flat frames & effects, 3D to place face-tracked props, and Preview to see the finished result exactly as a guest will — all one scene.',
     modes: true,
   },
   {
     eyebrow: 'AI Director',
     title: 'Describe it — the AI builds it',
-    body: 'Tell the Director the vibe and it designs a matching frame, filter and head-piece as one scene. Preview each piece first; you only spend credits on what you keep.',
+    body: 'Tell the Director the vibe and it designs a matching frame, effect and prop as one scene. Preview each piece first; you only spend credits on what you keep.',
     image: directorImg,
   },
   {
     eyebrow: 'Effects & magic',
     title: 'Bring it to life',
-    body: 'Layer cinematic filters, then add Magic Triggers so a guest’s smile, wink or open mouth sets off effects live in the booth.',
+    body: 'Layer cinematic effects, then add Magic Triggers so a guest’s smile, wink or open mouth sets off effects live in the booth.',
     image: triggersImg,
   },
   {

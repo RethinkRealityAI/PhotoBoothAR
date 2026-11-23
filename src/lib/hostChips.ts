@@ -138,7 +138,7 @@ export function quickChipsFor(input: {
       });
     }
     if (missing.has('filter')) {
-      chips.push({ id: 'filter', label: 'Filter', run: { kind: 'open', action: { tool: 'set_filter', proposal: { shaderId: DEFAULT_FILTER_ID } } } });
+      chips.push({ id: 'filter', label: 'Effect', run: { kind: 'open', action: { tool: 'set_filter', proposal: { shaderId: DEFAULT_FILTER_ID } } } });
     }
     if (missing.has('prop')) {
       chips.push({ id: 'prop', label: '3D prop', run: { kind: 'open', action: { tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: DEFAULT_PIECE_ID } } } });

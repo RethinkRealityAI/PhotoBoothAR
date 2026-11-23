@@ -31,7 +31,7 @@ export default function StudioLocked({ eventSlug }: { eventSlug: string }) {
           The Studio is an add-on for teams and large organisations
         </h1>
         <p className="font-sans text-sm leading-relaxed text-brand-muted">
-          You don’t need it to run a great event — pick ready-made frames and filters for your booth,
+          You don’t need it to run a great event — pick ready-made looks for your booth,
           or have AI make a frame that matches your colours in about a minute.
         </p>
         <div className="flex flex-col w-full gap-2 pt-2">

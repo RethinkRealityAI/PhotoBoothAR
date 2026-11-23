@@ -51,7 +51,7 @@ const LooksPicker = lazy(() => import('../host/LooksPicker'));
 
 /** Host-facing names for the platform picker — no "shader", "experience". */
 const PLAIN_KIND: Record<string, string> = {
-  '2d_filter': 'Sticker', border: 'Frame', shader: 'Filter', '3d_attachment': '3D prop', composite: 'Look',
+  '2d_filter': 'Sticker', border: 'Frame', shader: 'Effect', '3d_attachment': 'Prop', composite: 'Combo',
 };
 
 function kindLabel(kind: string, plain = false): { label: string; color: string } {
@@ -721,7 +721,7 @@ export default function Library({
       </h2>
       <p className={blurbClass}>
         {platform
-          ? 'Frames and filters from Beamwall — add any of them to your booth, and remove them any time.'
+          ? 'Frames, props and effects from Beamwall — add any of them to your booth, and remove them any time.'
           : "Curated experiences from the Beamwall library — add them to this event's booth."}
       </p>
       {catalogLoading ? skeleton(4, 'h-48') : listedGlobals.length === 0 ? (
@@ -893,7 +893,7 @@ export default function Library({
               {platform ? 'Your booth' : 'AR Studio'}
             </p>
             <h1 className="font-serif italic text-3xl text-foil-static">
-              {platform ? 'Frames & filters' : 'Experiences Library'}
+              {platform ? 'Looks' : 'Experiences Library'}
             </h1>
             <p className={`font-sans mt-1 ${platform ? 'text-sm text-champagne/55' : 'text-xs text-champagne/45'}`}>
               {platform

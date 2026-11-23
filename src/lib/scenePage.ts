@@ -413,8 +413,8 @@ export type ShowcaseKind = 'frame' | 'prop' | 'filter';
 /** What a showcase card's tag says. */
 export const SHOWCASE_LABEL: Record<ShowcaseKind, string> = {
   frame: 'Frame',
-  prop: '3D prop',
-  filter: 'Filter',
+  prop: 'Prop',
+  filter: 'Effect',
 };
 
 export interface ShowcaseCard {

@@ -104,8 +104,8 @@ export function computeChecklist(facts: ChecklistFacts, mode: ChecklistMode): Ch
   }
   return [
     { id: 'frame', label: 'Add a frame', done: facts.frame },
-    { id: 'filter', label: 'Add a filter', done: facts.filter },
-    { id: 'prop', label: 'Add a 3D prop', done: facts.prop },
+    { id: 'filter', label: 'Add an effect', done: facts.filter },
+    { id: 'prop', label: 'Add a prop', done: facts.prop },
     { id: 'challenges', label: 'Add challenges', done: facts.challenges > 0 },
     { id: 'live', label: 'Go live', done: facts.live },
   ];

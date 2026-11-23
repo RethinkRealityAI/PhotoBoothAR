@@ -446,7 +446,7 @@ export default function EventStudio() {
   const allTabs: { key: StudioTabKey; to: string; label: string; icon: typeof LayoutGrid; end: boolean }[] = [
     { key: 'dashboard', to: base, label: 'Dashboard', icon: LayoutGrid, end: true },
     { key: 'studio', to: `${base}/studio`, label: 'Studio', icon: Wand2, end: false },
-    { key: 'experiences', to: `${base}/library`, label: 'Frames & filters', icon: ImageIcon, end: false },
+    { key: 'experiences', to: `${base}/library`, label: 'Looks', icon: ImageIcon, end: false },
     { key: 'assets', to: `${base}/assets`, label: 'Assets', icon: FolderOpen, end: false },
     { key: 'wall', to: `${base}/moderation`, label: 'Wall', icon: ShieldCheck, end: false },
     { key: 'challenges', to: `${base}/challenges`, label: 'Challenges', icon: Trophy, end: false },

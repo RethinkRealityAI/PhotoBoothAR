@@ -9,40 +9,64 @@
  * is the LAST orb of a horizontally-scrolling row — at 390px it is the 14th
  * item and sits off-screen, so nothing tells a guest there are more looks.
  *
- * Platform events get one flat strip instead: every look in one swipeable row
- * (frames first — they are what the host designed — then 3D pieces, then the
- * built-in effects), plus a labelled "More looks" sheet with category chips.
- * Looks stay COMBINABLE exactly as before: one frame + one 3D piece + one
- * effect, because a tile toggles only its own category. Which tile is lit,
+ * Platform events get four tabs over one row of circles — Frames · Props ·
+ * Paint · Effects (lib/lookTerms; Dapo, 2026-11-23: one long strip gave no
+ * sense of which kind you were in). The deck opens on the tab holding the
+ * applied look, so a guest never has to pick a tab before seeing one. A
+ * labelled "More looks" sheet keeps the full catalogue with the same chips.
+ * Looks stay COMBINABLE exactly as before: one frame + one 3D piece (a prop OR
+ * face paint — they share the slot) + one effect, because a tile toggles only
+ * its own slot. Which tile is lit,
  * what a tap does, what the name pill announces and which chips the sheet
  * offers are all decided here so they can be tested without a camera.
  */
 import type { Experience } from '../types';
 import type { DeckCategory, DeckOption, DeckSection, DeckSelection } from './boothDeck';
+import { LOOK_TABS, type LookTab } from './lookTerms';
 
 /** Strip order: the host's own frames lead, generic effects come last. */
 export const LOOK_ORDER: readonly DeckCategory[] = ['frame', 'prop', 'effect'];
 
-/** Category names as a guest reads them (chips, headings, tile badges). */
-export const LOOK_CATEGORY_LABEL: Record<DeckCategory, string> = {
-  frame: 'Frames',
-  prop: '3D',
-  effect: 'Effects',
-};
-
 export interface LookItem extends DeckOption {
+  /** The booth SLOT it fills (one frame + one 3D piece + one effect). */
   category: DeckCategory;
+  /** The TAB a guest finds it under (lib/lookTerms). Face paint fills the 3D
+   *  slot but has its own tab: it sits on the skin, it is not worn. */
+  tab: LookTab;
 }
 
-/** Every look in strip order. Empty sections contribute nothing. */
+/**
+ * A 3D-slot look is face paint when every visible layer is a face-paint layer
+ * (the wizard and Studio save a design as one such layer). A scene that mixes
+ * paint with a worn prop is led by the prop, so it lives under Props.
+ */
+export function isPaintLook(exp: Experience): boolean {
+  const layers = (exp.config?.layers ?? []).filter((l) => l.hidden !== true);
+  return layers.length > 0 && layers.every((l) => l.facePaint !== undefined);
+}
+
+/** Which tab a look belongs under. Combined scenes stay with their frame. */
+export function lookTabOf(category: DeckCategory, exp: Experience): LookTab {
+  if (category === 'frame') return 'frames';
+  if (category === 'effect') return 'effects';
+  return isPaintLook(exp) ? 'paint' : 'props';
+}
+
+const TAB_INDEX: Record<LookTab, number> = Object.fromEntries(LOOK_TABS.map((t, i) => [t.id, i])) as Record<LookTab, number>;
+
+/** Every look in tab order (Frames · Props · Paint · Effects). Empty sections contribute nothing. */
 export function buildLookStrip(sections: readonly DeckSection[]): LookItem[] {
   const out: LookItem[] = [];
   for (const key of LOOK_ORDER) {
     const section = sections.find((s) => s.key === key);
     if (!section) continue;
-    for (const o of section.options) out.push({ ...o, category: key });
+    for (const o of section.options) out.push({ ...o, category: key, tab: lookTabOf(key, o.exp) });
   }
-  return out;
+  // Stable: paint moves after props, everything else keeps its catalog order.
+  return out
+    .map((item, i) => ({ item, i }))
+    .sort((a, b) => TAB_INDEX[a.item.tab] - TAB_INDEX[b.item.tab] || a.i - b.i)
+    .map((x) => x.item);
 }
 
 /**
@@ -140,28 +164,65 @@ export function runLookAction(action: LookAction, h: LookHandlers): void {
   else h.onSelectAttachment(action.exp);
 }
 
-export type LookChip = 'all' | DeckCategory;
+export type LookChip = 'all' | LookTab;
 
-/** The sheet's category chips. "All" only when there is more than one category. */
+/** The sheet's tab chips. "All" only when there is more than one tab. */
 export function lookChips(strip: readonly LookItem[]): { key: LookChip; label: string; count: number }[] {
   const chips: { key: LookChip; label: string; count: number }[] = [];
-  for (const c of LOOK_ORDER) {
-    const count = strip.filter((i) => i.category === c).length;
-    if (count > 0) chips.push({ key: c, label: LOOK_CATEGORY_LABEL[c], count });
+  for (const t of LOOK_TABS) {
+    const count = strip.filter((i) => i.tab === t.id).length;
+    if (count > 0) chips.push({ key: t.id, label: t.short, count });
   }
   if (chips.length > 1) chips.unshift({ key: 'all', label: 'All', count: strip.length });
   return chips;
 }
 
-/** The sheet's groups for a chip — "All" keeps one heading per category. */
+/** The sheet's groups for a chip — "All" keeps one heading per tab. */
 export function looksForChip(
   strip: readonly LookItem[],
   chip: LookChip,
-): { category: DeckCategory; label: string; items: LookItem[] }[] {
-  const cats = chip === 'all' ? LOOK_ORDER : LOOK_ORDER.filter((c) => c === chip);
-  return cats
-    .map((c) => ({ category: c, label: LOOK_CATEGORY_LABEL[c], items: strip.filter((i) => i.category === c) }))
+): { tab: LookTab; label: string; items: LookItem[] }[] {
+  const tabs = chip === 'all' ? LOOK_TABS : LOOK_TABS.filter((t) => t.id === chip);
+  return tabs
+    .map((t) => ({ tab: t.id, label: t.short, items: strip.filter((i) => i.tab === t.id) }))
     .filter((g) => g.items.length > 0);
+}
+
+/* ── The deck's tabs ──────────────────────────────────────────────────── */
+
+/**
+ * The tabs the deck shows above its circles, in order, each with its count.
+ * An empty tab is hidden — except Effects, which always holds Sparkle.
+ */
+export function lookTabs(strip: readonly LookItem[]): { id: LookTab; label: string; count: number }[] {
+  return LOOK_TABS
+    .map((t) => ({ id: t.id, label: t.short, count: strip.filter((i) => i.tab === t.id).length }))
+    .filter((t) => t.count > 0 || t.id === 'effects');
+}
+
+/** The tabs holding something that is on right now — each gets a dot. */
+export function tabsInUse(strip: readonly LookItem[], sel: DeckSelection, sparkles: boolean): Set<LookTab> {
+  const ids = activeLookIds(strip, sel);
+  const out = new Set<LookTab>();
+  for (const i of strip) if (ids.has(i.exp.id)) out.add(i.tab);
+  if (sparkles) out.add('effects');
+  return out;
+}
+
+/**
+ * The tab the deck opens on: where the applied look lives (an event default
+ * or a shared /experience link lands looking at what is on), else the first
+ * tab — the host's frames when there are any.
+ */
+export function defaultLookTab(strip: readonly LookItem[], sel: DeckSelection): LookTab {
+  const ids = activeLookIds(strip, sel);
+  const on = strip.find((i) => ids.has(i.exp.id));
+  return on?.tab ?? lookTabs(strip)[0]?.id ?? 'effects';
+}
+
+/** The tab a look lives under, by experience id; null when it is not in the strip. */
+export function tabOfLook(strip: readonly LookItem[], id: string): LookTab | null {
+  return strip.find((i) => i.exp.id === id)?.tab ?? null;
 }
 
 /**
@@ -218,28 +279,31 @@ export function shouldShowLookHint(seen: boolean, lookCount: number): boolean {
 
 /* ── Per-category "None" + strip organisation ─────────────────────────── */
 
-/** What each category's "None" tile says in the "More looks" sheet. */
-export const LOOK_NONE_LABEL: Record<DeckCategory, string> = {
-  frame: 'No frame',
-  prop: 'No 3D',
-  effect: 'No effect',
+/** What each tab's "None" tile says in the "More looks" sheet. */
+export const LOOK_NONE_LABEL: Record<LookTab, string> = {
+  frames: 'No frame',
+  props: 'No prop',
+  paint: 'No paint',
+  effects: 'No effect',
 };
 
-/**
- * A category's "None" tile: take THAT category off and leave the others on —
- * the strip's global "None" clears everything, the sheet's are per section.
- */
-export function clearCategoryAction(category: DeckCategory): LookAction {
-  return category === 'effect'
-    ? { category: 'effect', shaderId: 'none', exp: null }
-    : { category, exp: null };
+/** True when nothing under `tab` is applied (its "None" tile lights). Sparkle
+ *  is a separate switch, so it does not count against Effects' None. */
+export function tabIsClear(tab: LookTab, strip: readonly LookItem[], sel: DeckSelection): boolean {
+  const ids = activeLookIds(strip, sel);
+  return !strip.some((i) => i.tab === tab && ids.has(i.exp.id));
 }
 
-/** True when nothing of `category` is applied (its "None" tile lights). */
-export function categoryIsClear(category: DeckCategory, sel: DeckSelection): boolean {
-  if (category === 'frame') return sel.frameId === null;
-  if (category === 'prop') return sel.attachmentId === null;
-  return sel.effectId === 'none';
+/**
+ * A tab's "None" tile: take THAT tab's look off and leave the others on — the
+ * strip's global "None" clears everything. Null when the tab is already clear:
+ * Props and Paint share the 3D slot, so "No paint" must never take a prop off.
+ */
+export function clearTabAction(tab: LookTab, strip: readonly LookItem[], sel: DeckSelection): LookAction | null {
+  if (tabIsClear(tab, strip, sel)) return null;
+  if (tab === 'frames') return { category: 'frame', exp: null };
+  if (tab === 'effects') return { category: 'effect', shaderId: 'none', exp: null };
+  return { category: 'prop', exp: null };
 }
 
 /**

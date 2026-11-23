@@ -83,7 +83,7 @@ export const HOTSPOT_SHOTS: Record<HotspotShotKey, HotspotShot> = {
         x: 0.867, y: 0.032, side: 'left',
         label: 'AI Director',
         title: 'Describe it — the AI builds it',
-        body: 'Tell the Director the vibe and it designs a matching frame, filter and head-piece as one scene. You preview each piece and only keep what you love.',
+        body: 'Tell the Director the vibe and it designs a matching frame, effect and prop as one scene. You preview each piece and only keep what you love.',
       },
       {
         id: 'save',
@@ -97,7 +97,7 @@ export const HOTSPOT_SHOTS: Record<HotspotShotKey, HotspotShot> = {
         x: 0.104, y: 0.172, side: 'right',
         label: 'Find fast',
         title: 'Search and filter chips',
-        body: 'Everything lives in one library. The chips — Frames, Stickers, Filters, 3D — narrow it, and the active chip also decides what kind of thing your next upload becomes.',
+        body: 'Everything lives in one library. The chips — Frames, Stickers, Effects, Props — narrow it, and the active chip also decides what kind of thing your next upload becomes.',
       },
       {
         id: 'upload',
@@ -125,14 +125,14 @@ export const HOTSPOT_SHOTS: Record<HotspotShotKey, HotspotShot> = {
         x: 0.105, y: 0.780, side: 'right',
         label: 'The library',
         title: 'Built-in frames and props',
-        body: 'Ready-made frames, stickers, filters and 3D head pieces. Tap any tile to add it to the scene — its settings open in the panel on the right.',
+        body: 'Ready-made frames, stickers, effects and props. Tap any tile to add it to the scene — its settings open in the panel on the right.',
       },
       {
         id: 'modes',
         x: 0.499, y: 0.118, side: 'right',
         label: 'Three views',
         title: '2D, 3D and Preview',
-        body: 'One scene, three views. 2D places flat frames and filters, 3D anchors face-tracked props, and Preview shows the finished result exactly as a guest will see it.',
+        body: 'One scene, three views. 2D places flat frames and effects, 3D anchors face-tracked props, and Preview shows the finished result exactly as a guest will see it.',
       },
       {
         id: 'starters',
@@ -622,12 +622,12 @@ const MAKE_A_FRAME: GuideDoc = {
       steps: [
         {
           title: 'Pick a ready-made one',
-          body: 'Open your event and go to the Frames & filters tab. At the top, Pick your frames & filters shows the frames that come with every event: tap one to switch it on or off for guests, press Open with this on the one the booth should start with, and Save. Above them, Ready-made looks adds complete designs from Beamwall, best fit for your event first — tap one to add it to your booth straight away, tap again to take it off. Nothing to design, nothing to upload. This is the two-minute route.',
+          body: 'Open your event and go to the Looks tab. At the top, Pick your looks shows the frames that come with every event: tap one to switch it on or off for guests, press Open with this on the one the booth should start with, and Save. Above them, Ready-made looks adds complete designs from Beamwall, best fit for your event first — tap one to add it to your booth straight away, tap again to take it off. Nothing to design, nothing to upload. This is the two-minute route.',
           tip: 'Even if you plan to make your own, add one first so your booth is never empty while you experiment.',
         },
         {
           title: 'Make one with AI, in the same tab',
-          body: `In Frames & filters, just below the picker, Make a frame with AI needs no writing at all: Pick a look (one is already chosen from your occasion), pick your colours, leave Add the event name on to have your names and date drawn in, and press Generate. It comes back cut out and shown on a phone with the booth’s buttons outlined — press Use as booth frame and guests get it, opening first. Prefer your own words? Describe it yourself swaps to a free-text box. The Generate button says free while your event still has free frames (the first 3 on every event), then shows the price. Teams with the Studio add-on get the full version inside the Studio: ${GUIDE_COUNTS.frameArchetypes} layouts — Border, Full scene, Two faces, Corners or Banner — and lettering styles for your names.`,
+          body: `In Looks, just below the picker, Make a frame with AI needs no writing at all: Pick a look (one is already chosen from your occasion), pick your colours, leave Add the event name on to have your names and date drawn in, and press Generate. It comes back cut out and shown on a phone with the booth’s buttons outlined — press Use as booth frame and guests get it, opening first. Prefer your own words? Describe it yourself swaps to a free-text box. The Generate button says free while your event still has free frames (the first 3 on every event), then shows the price. Teams with the Studio add-on get the full version inside the Studio: ${GUIDE_COUNTS.frameArchetypes} layouts — Border, Full scene, Two faces, Corners or Banner — and lettering styles for your names.`,
           tip: 'Name a colour and a style in the description — "ivory and gold, art-deco" gets you much further than "wedding".',
         },
         {
@@ -637,7 +637,7 @@ const MAKE_A_FRAME: GuideDoc = {
         },
         {
           title: 'Bring a designer’s file, or import from Higgsfield',
-          body: 'Made it on Higgsfield, or anywhere that gives you a public image link? Paste the link into the import page and it lands in your event’s Frames & filters, ready to switch on (up to 10 MB, PNG, JPEG or WebP). Uploading a file straight from your computer — PNG, JPG, WEBP or SVG — happens in the Studio’s Assets tab, which comes with the Studio add-on; there the chip you have selected decides whether it becomes a frame or a sticker.',
+          body: 'Made it on Higgsfield, or anywhere that gives you a public image link? Paste the link into the import page and it lands in your event’s Looks, ready to switch on (up to 10 MB, PNG, JPEG or WebP). Uploading a file straight from your computer — PNG, JPG, WEBP or SVG — happens in the Studio’s Assets tab, which comes with the Studio add-on; there the chip you have selected decides whether it becomes a frame or a sticker.',
         },
       ],
     },
@@ -753,7 +753,7 @@ const MAKE_3D_PROPS: GuideDoc = {
       body: [
         'A 3D prop is an object that sticks to your guest as they move: a crown on the head, a visor over the eyes, a gauntlet on the hand. It tracks their face in real time, so it stays put when they laugh, lean in or pull a friend into the shot.',
         'This is the part guests film themselves doing. A frame gets a photo; a prop gets a video of someone discovering they have antlers.',
-        'Props are built in the Studio, which is an add-on for teams and large organisations. No Studio? Ask the Copilot to put a ready-made head piece or filter on your booth — it proposes, you confirm.',
+        'Props are built in the Studio, which is an add-on for teams and large organisations. No Studio? Ask the Copilot to put a ready-made prop or effect on your booth — it proposes, you confirm.',
         'With the Studio there are four ways to get one, and the first two cost you nothing at all.',
       ],
     },
@@ -821,7 +821,7 @@ const MAKE_3D_PROPS: GuideDoc = {
       kind: 'prose',
       title: 'Make it react',
       body: [
-        `Props get much better when they do something. Magic Triggers watch your guest and fire an effect when they make a gesture: there are ${GUIDE_COUNTS.triggerSources} cues to choose from — smile, open mouth, wink, brow raise, closed fist, open palm, pinch, peace sign and hand-to-temple — and ${GUIDE_COUNTS.triggerActions} things they can set off: a Burst of confetti, an energy Blast, a Reveal that makes a hidden object appear, an Animate that shakes or spins a piece, and a Filter pulse that flashes the whole look.`,
+        `Props get much better when they do something. Magic Triggers watch your guest and fire an effect when they make a gesture: there are ${GUIDE_COUNTS.triggerSources} cues to choose from — smile, open mouth, wink, brow raise, closed fist, open palm, pinch, peace sign and hand-to-temple — and ${GUIDE_COUNTS.triggerActions} things they can set off: a Burst of confetti, an energy Blast, a Reveal that makes a hidden object appear, an Animate that shakes or spins a piece, and an Effect pulse that flashes the whole look.`,
         `You can have up to ${GUIDE_COUNTS.maxTriggers} of these in one scene, and each one waits about 2.5 seconds before it can fire again, so a guest holding a grin does not machine-gun the effect.`,
         `Four Power-Ups build the fancy versions for you. Power FX pairs a visor, wand or gauntlet with a gesture-fired energy blast that erupts from the prop itself. 3D Name Jewelry turns a name into a necklace, earrings or floating text. All four write ordinary objects back into your scene, so you can keep editing them afterwards. A scene holds up to ${GUIDE_COUNTS.maxObjects} pieces on top of its frame.`,
         `Face Paint is the third: living paint that sits on your guest's actual skin, so it stretches when they smile and stays put when they turn. Pick a look — Game Day stripes, Flag Cheeks, Eye Black, Glitter Freckles, Hearts, Stars, Tiger or Sugar Skull, or one of the party looks: Butterfly, Hero Mask, Rainbow, Lightning Bolt, Unicorn, Cat or Neon Festival — and it starts in your event colours. For the holidays there's a Christmas set too: Candy Cane, Rudolph, Snowflakes, Frost Queen and Gingerbread, which start in their classic festive colours. Unicorn, Neon Festival, Snowflakes and Frost Queen even twinkle on your guest's face, and hold still for anyone who has turned motion off on their phone. Every look is yours to adjust: change any colour, soften it with Paint strength, or stamp your own logo on the left cheek, right cheek, both cheeks or forehead. Press Test on my face to see it on you in the 3D Live view. It reads the right way round in the mirror and in the saved photo. Face paint uses our advanced face tracker. On the few phones that can't run it, guests still get the rest of your scene, just without the paint.`,
@@ -861,7 +861,7 @@ const USE_THE_STUDIO: GuideDoc = {
       kind: 'prose',
       body: [
         'Everything about one event lives behind one link. Open an event and you get a row of tabs across the top; each one owns a different part of the night, and nothing you do in one is lost when you move to another.',
-        'The Studio and its Assets tab are an add-on for teams and large organisations who design their own frames and props. Every host gets the rest — including Frames & filters, where you pick ready-made designs or make a frame with AI. On a phone the tabs scroll sideways, with your event’s name above them.',
+        'The Studio and its Assets tab are an add-on for teams and large organisations who design their own frames and props. Every host gets the rest — including Looks, where you pick ready-made designs or make a frame with AI. On a phone the tabs scroll sideways, with your event’s name above them.',
         'Inside the Studio, the middle of the screen is the stage — a live preview of exactly what a guest sees. Left of it is your library of frames, stickers, filters and props. Right of it are the settings for whatever you have selected.',
       ],
     },
@@ -876,8 +876,8 @@ const USE_THE_STUDIO: GuideDoc = {
       title: 'What each tab is for',
       body: [
         'Dashboard — the state of your event at a glance: whether it is live, how many photos have come in, your guest link and the QR code to print.',
-        'Studio (add-on) — where you design. Switch the canvas between 2D for flat frames and filters, 3D for face-tracked props, and Preview to see the finished thing exactly as a guest will. It is one scene in all three views.',
-        'Frames & filters — everything guests can pick in the booth. The picker at the top holds ready-made looks from Beamwall (best fit for your event first) and the frames and filters included with every event; below it, a quick AI frame, your own pieces and the booth order — each switched On for guests or Off.',
+        'Studio (add-on) — where you design. Switch the canvas between 2D for flat frames and effects, 3D for face-tracked props, and Preview to see the finished thing exactly as a guest will. It is one scene in all three views.',
+        'Looks — everything guests can pick in the booth, under four tabs: Frames, Props, Paint and Effects. The picker at the top holds ready-made looks from Beamwall (best fit for your event first) and the frames and effects included with every event; below it, a quick AI frame, your own pieces and the booth order — each switched On for guests or Off.',
         'Assets (add-on) — your uploads and your AI generations. Frames, stickers and 3D files all land here, and the chip you have active decides which kind an upload becomes.',
         'Wall — the big screen. Choose how photos arrive and how they are laid out, and get the link you open on the projector.',
         'Challenges — little missions for guests, worth points, optionally checked by AI from the photo itself, with a running count of how many passed.',
@@ -927,7 +927,7 @@ const USE_THE_STUDIO: GuideDoc = {
         {
           label: 'Tabs in an event',
           value: `${GUIDE_COUNTS.studioTabs}`,
-          why: 'Dashboard, Studio, Frames & filters, Assets, Wall, Challenges, Cards and Share. Studio and Assets come with the Studio add-on; Cards appears on Premium and above.',
+          why: 'Dashboard, Studio, Looks, Assets, Wall, Challenges, Cards and Share. Studio and Assets come with the Studio add-on; Cards appears on Premium and above.',
         },
         {
           label: 'Pieces in one scene',
@@ -1004,11 +1004,11 @@ const FIRST_EVENT: GuideDoc = {
         {
           title: 'Pick the looks and filters',
           body: 'On Looks, the tabs are Frames, 3D props, Face paint and Effects. Narrow a tab with the occasion menu (wedding, birthday, party and more) and the quick pills, then tap anything to offer it to guests — it goes straight onto the preview so you can see it on a face. Add all or Clear works on whatever is showing. Below that, Filters bundle a whole look into one tap: switch on a ready-made filter, or press Make your own filter, name it, and pick a frame, up to four props, a face paint and an effect, all on one screen. Open with this chooses the filter the booth starts on. Power-ups adds gestures that work with every look — a smile showers sparkles, an open mouth pops confetti, and hand gestures set off hearts, fireworks or a beam — each with a Preview button so you can see it first.',
-          tip: 'Want a frame with your names on it? Make a frame with AI in your event’s Frames & filters does it in about a minute — your first 3 are free.',
+          tip: 'Want a frame with your names on it? Make a frame with AI in your event’s Looks does it in about a minute — your first 3 are free.',
         },
         {
           title: 'Work the checklist',
-          body: 'Your event dashboard shows a short list: name it, choose the look, add frames & effects, take a test photo. Each item links straight to the screen that finishes it — frames open Frames & filters — and it ticks itself off as you go. No design skills needed.',
+          body: 'Your event dashboard shows a short list: name it, choose the look, add frames & effects, take a test photo. Each item links straight to the screen that finishes it — frames open Looks — and it ticks itself off as you go. No design skills needed.',
         },
         {
           title: 'Take a test photo yourself',
@@ -1047,8 +1047,8 @@ const FIRST_EVENT: GuideDoc = {
       kind: 'prose',
       title: 'What guests see in the booth',
       body: [
-        'Inside the booth, every frame, 3D prop and effect you left switched on sits in one strip above the shutter. Guests swipe it and tap a look to try it on, and the next one always peeks in from the edge so it is obvious there are more. Looks combine, so a frame and a crown can go on together.',
-        'Beside the shutter is a More looks button. It opens everything at once, sorted into frames, 3D and effects, which is the quickest way through a big set. The first time a guest opens the booth they get a one-off nudge to swipe, and never again on that phone.',
+        'Inside the booth, every look you left switched on sits above the shutter under four tabs: Frames, Props, Paint and Effects. A tab only shows when your event has something in it, and the booth opens on the tab that holds the look already on. Guests tap a tab, swipe its row and tap a look to try it on; the next one always peeks in from the edge so it is obvious there are more. Looks combine, so a frame, a crown and an effect can go on together. Props and face paint share one spot on the face, so picking one swaps out the other.',
+        'Beside the shutter is a More looks button. It opens everything at once with the same Frames, Props, Paint and Effects chips, which is the quickest way through a big set. The first time a guest opens the booth they get a one-off nudge to swipe, and never again on that phone.',
       ],
     },
     {
@@ -1382,7 +1382,7 @@ export const GUIDE_COVERAGE: {
   studioTabs: {
     dashboard: { guide: 'use-the-studio', note: 'What each tab is for — Dashboard; the checklist is walked in first-event.' },
     studio: { guide: 'use-the-studio', note: 'What each tab is for — Studio (add-on); the 2D/3D/Preview split and the editor hotspots.' },
-    experiences: { guide: 'make-a-frame', note: 'Four ways to get your frame — Pick a ready-made one and Make one with AI, both in the Frames & filters tab.' },
+    experiences: { guide: 'make-a-frame', note: 'Four ways to get your frame — Pick a ready-made one and Make one with AI, both in the Looks tab.' },
     assets: { guide: 'make-a-frame', note: 'Four ways to get your frame — the Studio add-on upload path, and the frame-or-sticker chip.' },
     wall: { guide: 'run-the-night', note: 'Set up the wall — the five modes (Gallery, Carousel, Slideshow, Leaderboard, Projection), Give the wall its own look (Wall design: layouts incl. Grid 3/4/5, transitions, backdrops, light or dark) and the projector link.' },
     challenges: { guide: 'run-the-night', note: 'Challenges give people a reason to keep going, including the AI photo check and its checked/passed counts.' },
@@ -1417,6 +1417,6 @@ export const GUIDE_COVERAGE: {
     cardsPremiumRender: { guide: 'run-the-night', note: 'Keepsake cards / What things cost — the ≈30-credit film render.' },
     projectionMode: { guide: 'run-the-night', note: 'Set up the wall — Projection mode for an actual projector.' },
     retentionDays: { guide: 'run-the-night', note: 'After the event — how long each plan keeps photos, the Dashboard date, Download everything and the reminder email.' },
-    studio: { guide: 'use-the-studio', note: 'Opening prose — the Studio and Assets tabs are an add-on for teams and large organisations; every host gets Frames & filters.' },
+    studio: { guide: 'use-the-studio', note: 'Opening prose — the Studio and Assets tabs are an add-on for teams and large organisations; every host gets Looks.' },
   },
 };

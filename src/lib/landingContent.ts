@@ -141,7 +141,7 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
     titlePre: 'Every guest’s phone becomes',
     titleHighlight: 'your event photo booth',
     tagline:
-      'Guests scan one QR code to snap photos with frames and filters in your event’s colours — no app to download — and every shot beams onto a live photo wall. Set up in minutes; nothing to design.',
+      'Guests scan one QR code to snap photos with frames, props and effects in your event’s colours — no app to download — and every shot beams onto a live photo wall. Set up in minutes; nothing to design.',
     // One action, one name: the header pill and the closing CTA say the same.
     primaryCta: 'Create your free event',
     secondaryCta: 'Try the live demo',
@@ -164,7 +164,7 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
   howSteps: [
     {
       title: 'Create your event',
-      body: 'Name your event and pick a colour theme — or upload your invitation or poster and we’ll pull the details and colours from it. Then choose ready-made frames and filters to match.',
+      body: 'Name your event and pick a colour theme — or upload your invitation or poster and we’ll pull the details and colours from it. Then choose ready-made looks to match.',
     },
     {
       title: 'Share one QR code',
@@ -233,11 +233,11 @@ export const DEFAULT_LANDING_CONTENT: LandingContent = {
     },
     {
       q: 'How long does it take to set up?',
-      a: 'Minutes. Pick a theme or upload your invitation, choose ready-made frames and filters, and share the QR code. There’s nothing to design.',
+      a: 'Minutes. Pick a theme or upload your invitation, choose ready-made looks, and share the QR code. There’s nothing to design.',
     },
     {
       q: 'Do I need to design anything?',
-      a: 'No. Pick a theme or upload your invitation, choose from ready-made frames and filters, and you’re live.',
+      a: 'No. Pick a theme or upload your invitation, choose from ready-made looks, and you’re live.',
     },
     {
       q: 'What if the venue wifi is patchy?',
