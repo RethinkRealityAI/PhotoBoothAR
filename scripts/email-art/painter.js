@@ -897,7 +897,10 @@
    * ring once per loop. The email lays live link text over it; its bgcolor
    * fallback is the same white, so blocked images still show the pill.
    */
-  function paintButton({ frames, width = 600, height = 168 }) {
+  function paintButton({ frames, width = 600, height = 168, panel = null, pill = '#FFFFFF', stops = null }) {
+    // panel / pill / stops: optional theming (the marketing reveal emails,
+    // scripts/render-reveal-email-art.mjs). Absent = the keepsake button, unchanged.
+    const PANEL_ = panel ? hex(panel) : PANEL;
     const out_ = [];
     const px = 44, py = 30, pw = width - 2 * px, ph = height - 2 * py;
     const gap = 9;
@@ -907,14 +910,14 @@
     const conic = (u) => {
       const [X, Y] = ring.at(u * ring.total);
       const ang = (Math.atan2(Y - cy, (X - cx) * (ph / pw) * 1.6) * 180) / Math.PI + 90; // 0 = up
-      return spectrum(((((ang - 210) % 360) + 360) % 360) / 360, [
+      return spectrum(((((ang - 210) % 360) + 360) % 360) / 360, stops ?? [
         [0, '#FFFFFF'], [0.25, '#A5ABFF'], [0.4, '#FFFFFF'], [0.55, '#FFC56B'], [0.75, '#C9CCFF'], [1, '#FFFFFF'],
       ]);
     };
     for (let f = 0; f < frames; f++) {
       const c = cnv(width, height);
       const x = ctx(c);
-      x.fillStyle = `rgb(${PANEL.join(',')})`;
+      x.fillStyle = `rgb(${PANEL_.join(',')})`;
       x.fillRect(0, 0, width, height);
       // warm bloom behind the whole button, breathing gently
       const breath = 0.85 + 0.15 * Math.cos((f / frames) * Math.PI * 2);
@@ -932,7 +935,7 @@
       x.shadowColor = 'rgba(8,6,30,0.55)';
       x.shadowBlur = 14;
       x.shadowOffsetY = 5;
-      x.fillStyle = '#FFFFFF';
+      x.fillStyle = pill;
       x.beginPath();
       x.roundRect(px, py, pw, ph, ph / 2);
       x.fill();

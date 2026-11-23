@@ -76,6 +76,12 @@
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
 
+# Marketing reveals (/reveal/<slug>): sent by email, never indexed.
+[[headers]]
+  for = "/reveal/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
 # Reps' public booking pages (/book/<ref>, migration 042): sent one-to-one,
 # never indexed.
 [[headers]]
