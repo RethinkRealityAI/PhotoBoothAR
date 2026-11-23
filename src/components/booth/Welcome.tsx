@@ -20,7 +20,7 @@ import LiveWallField from '../theme/LiveWallField';
 import { WALL_FIELD_SAMPLES } from '../theme/samplePhotos';
 import BoothViewfinder from '../theme/BoothViewfinder';
 import PageBorder from '../theme/PageBorder';
-import { useBoothShot, useHeroFrameUrl } from '../theme/useBoothShot';
+import { useBoothScreen } from '../theme/useBoothShot';
 import EventBackground from '../ui/EventBackground';
 import PostImage from '../ui/PostImage';
 import { recentWallPhotos, wallFieldPhotos } from '../../lib/scenePage';
@@ -63,8 +63,8 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
   // Until the first photo lands the wall shows stand-ins, never bare glass.
   const fieldPhotos = wallPhotos.length > 0 ? wallPhotos : WALL_FIELD_SAMPLES;
   const latest = useMemo(() => recentWallPhotos(posts, 4), [posts]);
-  const shot = useBoothShot(wallPhotos);
-  const frameUrl = useHeroFrameUrl();
+  // The event's frame on a stand-in guest, never a wall photo.
+  const screen = useBoothScreen();
   const moments = posts.length;
   const at = (delay: number) =>
     reduced ? { delay: 0, duration: 0.2 } : { delay, duration: 0.5, ease: [0.16, 1, 0.3, 1] as const };
@@ -144,9 +144,8 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
               to=""
               onShutter={onStart}
               shutterLabel="Step inside"
-              frameUrl={frameUrl}
-              previewUrl={shot.post?.image_url}
-              previewCrop={shot.crop}
+              frameUrl={screen.frame}
+              previewUrl={screen.photo}
               widthClass="w-[min(58vw,calc(44svh*0.5625),300px)] lg:w-[min(24vw,calc(62vh*0.5625),330px)]"
             />
           </motion.div>
