@@ -33,6 +33,9 @@ export interface PowerGearDef {
   defaultSource: TriggerSource;
   defaultStyle: BeamStyle;
   swatch: [string, string];
+  /** Retired from the gear shelf (owner, 2026-11-23). Stays listed so a spec
+   *  or scene already naming it still resolves. */
+  retired?: true;
 }
 
 /**
@@ -67,6 +70,7 @@ export const POWER_GEAR: readonly PowerGearDef[] = [
   {
     id: 'wizard-wand',
     name: 'Wizard Wand',
+    retired: true,
     blurb: 'Held in the hand — pinch to stream sparkles',
     kind: 'library',
     refId: 'wizard-wand',
@@ -99,7 +103,7 @@ export const POWER_GEAR: readonly PowerGearDef[] = [
 /** Gear whose asset actually exists right now. `libraryIds` = the ids present
  *  in LIBRARY_ASSETS (passed in so this module stays import-light and pure). */
 export function availableGear(libraryIds: readonly string[]): PowerGearDef[] {
-  return POWER_GEAR.filter((g) => g.kind === 'headpiece' || libraryIds.includes(g.refId));
+  return POWER_GEAR.filter((g) => g.retired !== true && (g.kind === 'headpiece' || libraryIds.includes(g.refId)));
 }
 
 export const POWER_PALETTE: readonly { hex: string; label: string }[] = [
