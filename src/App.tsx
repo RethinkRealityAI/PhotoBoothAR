@@ -22,6 +22,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation }
 import EventProvider, { useEvent } from './events/EventContext';
 import { EVENT_ID } from './events/active';
 import ErrorBoundary from './components/ui/ErrorBoundary';
+import { lazyRoute } from './lib/lazyRoute';
 import { useNoIndex } from './pages/sales/components/pageMeta';
 
 /** The previous homepage (/classic) keeps its pre-rollout look: brand v2's
@@ -45,57 +46,57 @@ import Legal from './pages/legal/Legal';
 // bundles never ship to someone who only lands on the marketing page. The
 // other eager path into three (events registry → coded-event Background) is
 // cut too: those configs mark Background as React.lazy (see events/types.ts).
-const Booth = lazy(() => import('./components/Booth'));
-const GuestWelcome = lazy(() => import('./components/GuestWelcome'));
-const Wall = lazy(() => import('./components/Wall'));
-const MyPhotos = lazy(() => import('./components/MyPhotos'));
-const ChallengesPage = lazy(() => import('./components/ChallengesPage'));
-const JoinBooth = lazy(() => import('./components/JoinBooth'));
-const UploadToWall = lazy(() => import('./components/UploadToWall'));
-const AdminGate = lazy(() => import('./components/admin/AdminGate'));
-const Dashboard = lazy(() => import('./components/admin/Dashboard'));
-const Library = lazy(() => import('./components/admin/Library'));
-const Assets = lazy(() => import('./components/admin/Assets'));
-const StudioShell = lazy(() => import('./components/studio/StudioShell'));
-const StudioRedirect = lazy(() =>
+const Booth = lazyRoute(() => import('./components/Booth'));
+const GuestWelcome = lazyRoute(() => import('./components/GuestWelcome'));
+const Wall = lazyRoute(() => import('./components/Wall'));
+const MyPhotos = lazyRoute(() => import('./components/MyPhotos'));
+const ChallengesPage = lazyRoute(() => import('./components/ChallengesPage'));
+const JoinBooth = lazyRoute(() => import('./components/JoinBooth'));
+const UploadToWall = lazyRoute(() => import('./components/UploadToWall'));
+const AdminGate = lazyRoute(() => import('./components/admin/AdminGate'));
+const Dashboard = lazyRoute(() => import('./components/admin/Dashboard'));
+const Library = lazyRoute(() => import('./components/admin/Library'));
+const Assets = lazyRoute(() => import('./components/admin/Assets'));
+const StudioShell = lazyRoute(() => import('./components/studio/StudioShell'));
+const StudioRedirect = lazyRoute(() =>
   import('./components/studio/StudioShell').then((m) => ({ default: m.StudioRedirect })),
 );
-const Moderation = lazy(() => import('./components/admin/Moderation'));
-const Settings = lazy(() => import('./components/admin/Settings'));
-const Branding = lazy(() => import('./components/admin/Branding'));
-const Challenges = lazy(() => import('./components/admin/Challenges'));
-const HostLayout = lazy(() => import('./pages/host/HostLayout'));
-const EventsList = lazy(() => import('./pages/host/EventsList'));
-const NewEvent = lazy(() => import('./pages/host/NewEvent'));
-const EventWizard = lazy(() => import('./pages/host/wizard/EventWizard'));
-const Concierge = lazy(() => import('./pages/host/Concierge'));
-const Billing = lazy(() => import('./pages/host/Billing'));
-const HostSupport = lazy(() => import('./pages/host/Support'));
-const HostImport = lazy(() => import('./pages/host/HostImport'));
-const EventStudio = lazy(() => import('./pages/host/EventStudio'));
-const ManagerConsole = lazy(() => import('./pages/manager/ManagerConsole'));
-const CardViewer = lazy(() => import('./pages/cards/CardViewer'));
-const CardContribute = lazy(() => import('./pages/cards/CardContribute'));
-const EventRecap = lazy(() => import('./pages/recap/EventRecap'));
-const BeamDemoPhone = lazy(() => import('./pages/BeamDemoPhone'));
-const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
-const AdminOverview = lazy(() => import('./pages/admin/Overview'));
-const AdminCustomers = lazy(() => import('./pages/admin/Customers'));
-const AdminCustomerDetail = lazy(() => import('./pages/admin/CustomerDetail'));
-const AdminEvents = lazy(() => import('./pages/admin/Events'));
-const AdminSupport = lazy(() => import('./pages/admin/Support'));
-const AdminFeatures = lazy(() => import('./pages/admin/Features'));
-const AdminLanding = lazy(() => import('./pages/admin/Landing'));
-const AdminHomeAssets = lazy(() => import('./pages/admin/HomeAssets'));
-const AdminCatalog = lazy(() => import('./pages/admin/Catalog'));
-const AdminSharedLibrary = lazy(() => import('./pages/admin/SharedLibrary'));
-const AdminLibraryImport = lazy(() => import('./pages/admin/LibraryImport'));
-const AdminPayments = lazy(() => import('./pages/admin/Payments'));
-const AdminCredits = lazy(() => import('./pages/admin/Credits'));
-const AdminUsers = lazy(() => import('./pages/admin/Users'));
-const AdminAudit = lazy(() => import('./pages/admin/Audit'));
-const AdminAdmins = lazy(() => import('./pages/admin/Admins'));
-const AdminReveals = lazy(() => import('./pages/admin/reveals/AdminReveals'));
+const Moderation = lazyRoute(() => import('./components/admin/Moderation'));
+const Settings = lazyRoute(() => import('./components/admin/Settings'));
+const Branding = lazyRoute(() => import('./components/admin/Branding'));
+const Challenges = lazyRoute(() => import('./components/admin/Challenges'));
+const HostLayout = lazyRoute(() => import('./pages/host/HostLayout'));
+const EventsList = lazyRoute(() => import('./pages/host/EventsList'));
+const NewEvent = lazyRoute(() => import('./pages/host/NewEvent'));
+const EventWizard = lazyRoute(() => import('./pages/host/wizard/EventWizard'));
+const Concierge = lazyRoute(() => import('./pages/host/Concierge'));
+const Billing = lazyRoute(() => import('./pages/host/Billing'));
+const HostSupport = lazyRoute(() => import('./pages/host/Support'));
+const HostImport = lazyRoute(() => import('./pages/host/HostImport'));
+const EventStudio = lazyRoute(() => import('./pages/host/EventStudio'));
+const ManagerConsole = lazyRoute(() => import('./pages/manager/ManagerConsole'));
+const CardViewer = lazyRoute(() => import('./pages/cards/CardViewer'));
+const CardContribute = lazyRoute(() => import('./pages/cards/CardContribute'));
+const EventRecap = lazyRoute(() => import('./pages/recap/EventRecap'));
+const BeamDemoPhone = lazyRoute(() => import('./pages/BeamDemoPhone'));
+const AdminLayout = lazyRoute(() => import('./pages/admin/AdminLayout'));
+const AdminOverview = lazyRoute(() => import('./pages/admin/Overview'));
+const AdminCustomers = lazyRoute(() => import('./pages/admin/Customers'));
+const AdminCustomerDetail = lazyRoute(() => import('./pages/admin/CustomerDetail'));
+const AdminEvents = lazyRoute(() => import('./pages/admin/Events'));
+const AdminSupport = lazyRoute(() => import('./pages/admin/Support'));
+const AdminFeatures = lazyRoute(() => import('./pages/admin/Features'));
+const AdminLanding = lazyRoute(() => import('./pages/admin/Landing'));
+const AdminHomeAssets = lazyRoute(() => import('./pages/admin/HomeAssets'));
+const AdminCatalog = lazyRoute(() => import('./pages/admin/Catalog'));
+const AdminSharedLibrary = lazyRoute(() => import('./pages/admin/SharedLibrary'));
+const AdminLibraryImport = lazyRoute(() => import('./pages/admin/LibraryImport'));
+const AdminPayments = lazyRoute(() => import('./pages/admin/Payments'));
+const AdminCredits = lazyRoute(() => import('./pages/admin/Credits'));
+const AdminUsers = lazyRoute(() => import('./pages/admin/Users'));
+const AdminAudit = lazyRoute(() => import('./pages/admin/Audit'));
+const AdminAdmins = lazyRoute(() => import('./pages/admin/Admins'));
+const AdminReveals = lazyRoute(() => import('./pages/admin/reveals/AdminReveals'));
 // Lazy: the Copilot tree (CopilotChat → studio glb helpers) statically pulls
 // the three/R3F stack — eager imports here would ship it to every marketing
 // visitor. Both components gate their own visibility to /host surfaces.
@@ -113,7 +114,7 @@ const SupportDialog = lazy(() => import('./components/support/SupportDialog'));
  */
 const Guides = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
-  : lazy(() => import('./pages/Guides'));
+  : lazyRoute(() => import('./pages/Guides'));
 
 /**
  * Internal partnerships hub (hidden link) + prospect-facing pitch decks.
@@ -124,34 +125,40 @@ const Guides = import.meta.env.VITE_EVENT
  */
 const SalesHub = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
-  : lazy(() => import('./pages/sales/SalesHub'));
+  : lazyRoute(() => import('./pages/sales/SalesHub'));
 /** The sales CRM as its own full page (sign-in + RLS, migrations 041/042). */
 const SalesCrmPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
-  : lazy(() => import('./pages/sales/CrmPage'));
+  : lazyRoute(() => import('./pages/sales/CrmPage'));
 const PitchPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
-  : lazy(() => import('./pages/sales/PitchPage'));
+  : lazyRoute(() => import('./pages/sales/PitchPage'));
 /** A rep's public booking page (migration 042). Same legacy fold. */
 const BookPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
-  : lazy(() => import('./pages/sales/BookPage'));
+  : lazyRoute(() => import('./pages/sales/BookPage'));
 /** Themed hands-on booth for the decks' demo slide (/try/:kit). Same fold. */
 const TryPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
-  : lazy(() => import('./pages/sales/TryPage'));
+  : lazyRoute(() => import('./pages/sales/TryPage'));
 /** The homepage ("/"): Beamy's tour of the platform, brand v2. Same fold. */
 const BeamyPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
-  : lazy(() => import('./pages/beamy/BeamyPage'));
+  : lazyRoute(() => import('./pages/beamy/BeamyPage'));
 /** The previous homepage, kept at /classic (noindex, unlinked). Same fold. */
 const Landing = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
-  : lazy(() => import('./pages/Landing'));
+  : lazyRoute(() => import('./pages/Landing'));
+/** Unknown platform paths: a branded not-found page (plausible guesses such
+ *  as /pricing redirect to the real page). Same fold — legacy builds keep their
+ *  redirect to "/". */
+const NotFound = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazyRoute(() => import('./pages/NotFound'));
 /** Brand v2 living style guide (/brand, noindex). Same fold. */
 const BrandPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
-  : lazy(() => import('./pages/brand/BrandPage'));
+  : lazyRoute(() => import('./pages/brand/BrandPage'));
 
 /** Card design gallery (/card-designs, noindex): every illustrated keepsake
  *  design, playable with a sample card. Same fold as the brand page. */
@@ -425,7 +432,7 @@ export default function App() {
               <Route path="/gallery" element={<RedirectToDefaultEvent />} />
               <Route path="/join" element={<RedirectToDefaultEvent />} />
 
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFound />} />
             </>
           )}
         </Routes>
@@ -433,11 +440,17 @@ export default function App() {
         {/* Platform Copilot — one global mount so it persists across the
             /host rail pages AND the event studio (sibling route trees).
             Runtime mode only; visibility is gated inside the components. */}
+        {/* Its own silent boundary: these chunks load on EVERY page, guest
+            pages included, so a failed Copilot chunk (e.g. a tab left open
+            across a deploy) must never replace a guest's booth with the
+            app-wide error screen. */}
         {!LEGACY_EVENT && (
-          <Suspense fallback={null}>
-            <CopilotFab />
-            <CopilotPanel />
-          </Suspense>
+          <ErrorBoundary label="copilot" silent>
+            <Suspense fallback={null}>
+              <CopilotFab />
+              <CopilotPanel />
+            </Suspense>
+          </ErrorBoundary>
         )}
         </ErrorBoundary>
 

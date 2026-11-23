@@ -84,7 +84,7 @@ interface Props {
 const TRIGGER_CHIP_MS = 1600;
 
 const MODE_TABS = [
-  { id: '2d' as const, label: '2D', icon: Layers, hint: 'Frames, stickers & filters' },
+  { id: '2d' as const, label: '2D', icon: Layers, hint: 'Frames, stickers & effects' },
   { id: '3d' as const, label: '3D', icon: Boxes, hint: 'AR pieces that ride the head and hands' },
   { id: 'preview' as const, label: 'Preview', icon: Eye, hint: 'See it exactly as guests will' },
 ];
@@ -627,7 +627,7 @@ export default function StudioStage({
                 <Tooltip
                   key={t.id}
                   label={t.label}
-                  hint={disabled ? 'Add a frame, sticker, filter or prop first' : t.hint}
+                  hint={disabled ? 'Add a frame, sticker, effect or prop first' : t.hint}
                   side="bottom"
                 >
                   <button

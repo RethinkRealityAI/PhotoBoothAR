@@ -41,3 +41,60 @@ export function shouldReloadForStaleChunk(pathname: string, lastReloadAt: number
   if (lastReloadAt !== null && Number.isFinite(lastReloadAt) && now - lastReloadAt < STALE_RELOAD_COOLDOWN_MS) return false;
   return true;
 }
+
+/** sessionStorage key holding the time of the last automatic reload. Shared by
+ *  the `vite:preloadError` listener (main.tsx) and lazy routes (lazyRoute.ts),
+ *  so both honour ONE cooldown and can never ping-pong each other. */
+export const STALE_RELOAD_KEY = 'pbar.staleReloadAt';
+
+/** What loading a lazy ROUTE chunk needs from the browser — injected so the
+ *  decision is testable in node. */
+export interface StaleReloadDeps {
+  now: () => number;
+  /** Last automatic reload time, or null (never / unreadable storage). */
+  readLastReload: () => number | null;
+  markReload: (at: number) => void;
+  reload: () => void;
+}
+
+/** A promise that never settles: the page is reloading, so the route's
+ *  Suspense spinner is the right thing to show until it does. */
+const PENDING_RELOAD = new Promise<never>(() => {});
+
+/**
+ * Load a lazy ROUTE component; when its chunk is gone because a deploy
+ * replaced this build, reload the page once instead of crashing into the
+ * error boundary.
+ *
+ * Route chunks may reload on EVERY surface, guest pages included — unlike the
+ * window-level listener's guest exclusion (shouldReloadForStaleChunk), which
+ * protects in-page chunks (3D, reveals) loading under a live booth. When a
+ * route chunk fails, the previous route has already unmounted and the new one
+ * cannot render at all, so a reload loses nothing the error screen's own
+ * Reload button would not.
+ *
+ * - resolves `undefined`: the window listener already cancelled the error and
+ *   is reloading (Vite's helper then returns undefined) — wait, don't hand
+ *   React.lazy an undefined module (that throws and flashes the error screen).
+ * - a stale error outside the cooldown: mark, reload, wait.
+ * - anything else, or inside the cooldown: rethrow to the error boundary.
+ */
+export async function loadWithStaleReload<T>(
+  factory: () => Promise<T | undefined>,
+  deps: StaleReloadDeps,
+): Promise<T> {
+  let mod: T | undefined;
+  try {
+    mod = await factory();
+  } catch (e) {
+    if (!isStaleChunkError(e)) throw e;
+    const now = deps.now();
+    const last = deps.readLastReload();
+    if (last !== null && Number.isFinite(last) && now - last < STALE_RELOAD_COOLDOWN_MS) throw e;
+    deps.markReload(now);
+    deps.reload();
+    return PENDING_RELOAD;
+  }
+  if (mod === undefined) return PENDING_RELOAD;
+  return mod;
+}

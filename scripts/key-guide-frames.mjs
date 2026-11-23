@@ -8,6 +8,9 @@
  *         (vendored there by the fetch-remote-assets workflow).
  * Output: public/guides/frames/<id>.png        (real alpha, 1080×1920)
  *         public/guides/frames/thumb/<id>.webp (540w, real alpha)
+ *         public/guides/frames/web/<id>.webp   (1080w, real alpha — the
+ *           display copy the homepage shows instead of the 1-2 MB PNG; the
+ *           PNG stays the download)
  *
  * The thumbs used to be flattened onto the page's own near-black — which made
  * every face window render as a black void, indistinguishable from black
@@ -43,6 +46,7 @@ const MANIFEST = join(repo, 'scripts', 'guide-frames.json');
 const RAW_DIR = join(repo, 'src', 'assets', 'guides', '_raw');
 const OUT_DIR = join(repo, 'public', 'guides', 'frames');
 const THUMB_DIR = join(OUT_DIR, 'thumb');
+const WEB_DIR = join(OUT_DIR, 'web');
 const W = 1080;
 const H = 1920;
 
@@ -87,6 +91,15 @@ function writeThumb(srcPng, outWebp) {
   ]);
 }
 
+/** The display copy: full 1080w, same codec + quality as the thumb (~10x
+ *  smaller than the lossless PNG). Re-derived every run, like the thumb. */
+function writeWeb(srcPng, outWebp) {
+  run(FFMPEG, [
+    '-v', 'error', '-y', '-i', srcPng,
+    '-frames:v', '1', '-update', '1', '-c:v', 'libwebp', '-q:v', '82', outWebp,
+  ]);
+}
+
 async function loadChromaKey() {
   const esbuild = await import('esbuild');
   const outfile = join(tmpdir(), `chroma-key-bundle-${process.pid}.mjs`);
@@ -112,6 +125,7 @@ if (frames.length === 0) {
 
 const { processFrameImage, MIN_KEYED_FRACTION } = await loadChromaKey();
 mkdirSync(THUMB_DIR, { recursive: true });
+mkdirSync(WEB_DIR, { recursive: true });
 
 const failures = [];
 let keyed = 0;
@@ -131,6 +145,7 @@ for (const { id, raw } of frames) {
     // fetch-remote-assets), and it means a recipe change here reaches every
     // shipped thumb on the next run instead of only the next new frame.
     writeThumb(outPng, outThumb);
+    writeWeb(outPng, join(WEB_DIR, `${id}.webp`));
     skipped++;
     continue;
   }
@@ -162,6 +177,7 @@ for (const { id, raw } of frames) {
       '-frames:v', '1', '-update', '1', outPng,
     ], Buffer.from(image.data.buffer, image.data.byteOffset, image.data.length));
     writeThumb(outPng, outThumb);
+    writeWeb(outPng, join(WEB_DIR, `${id}.webp`));
     // Success — every variant of this id has served its purpose.
     if (existsSync(RAW_DIR)) {
       for (const f of readdirSync(RAW_DIR)) {

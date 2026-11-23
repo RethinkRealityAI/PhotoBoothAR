@@ -22,42 +22,9 @@ import beamyImg from '../../../assets/sales/beamy.webp';
 import { DOWNLOAD_ROWS } from './ChoicePanels';
 import type { TrackPreview } from './useTrackPreview';
 
-/* Layout + preview animations. Unlayered on purpose: it must beat the
-   layered wizard.css rules it adjusts (.wz-tab is 40px; targets here are 44). */
+/* The preview's animations. (The editor's layout and its step bar are the
+   shared StageCard's, in wizard.css.) */
 export const KEEPSAKE_EDITOR_CSS = `
-.ks-ed{display:flex;flex-direction:column;gap:12px;height:min(calc(100dvh - 7rem),780px);min-height:540px}
-.ks-grid{flex:1;min-height:0;display:grid;gap:12px;grid-template-columns:minmax(0,1fr);grid-template-rows:clamp(170px,27dvh,240px) auto minmax(0,1fr);grid-template-areas:"preview" "tabs" "panel"}
-.ks-grid.ks-steps-on{grid-template-rows:clamp(160px,24dvh,220px) auto minmax(0,1fr) auto;grid-template-areas:"preview" "tabs" "panel" "steps"}
-.ks-area-preview{grid-area:preview;min-height:0}
-.ks-area-tabs{grid-area:tabs;min-width:0}
-.ks-area-panel{grid-area:panel;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:2px 4px 8px 2px;scrollbar-width:thin}
-/* The panel scrolls, so it clips: a glass card's outer halo (--pf-card-glow, platform.css) was cut off at its edges and read as a hard-edged box behind the inputs (owner, 2026-11-21). The lit rim stays. */
-.ks-area-panel :is(.glass,.glass-strong,.liquid-glass){--pf-card-glow:0 0 #0000 !important}
-.ks-area-steps{grid-area:steps}
-.ks-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));width:100%;overflow:visible;border-radius:20px}
-.ks-tabs .wz-tab{position:relative;min-height:52px;min-width:0;padding:4px 2px;gap:2px;flex-direction:column;justify-content:center;font-size:11px;line-height:1.15;border-radius:16px}
-.ks-tabs .wz-tab:focus-visible{outline:2px solid #fff;outline-offset:2px}
-@media (max-width:420px){.ks-tabs .wz-tab{font-size:10.5px;padding:4px 1px;letter-spacing:-0.01em}.ks-tabs .wz-tab>.truncate{white-space:normal;text-overflow:clip;text-align:center}}
-.ks-dot{position:absolute;top:6px;right:8px;width:7px;height:7px;border-radius:999px;background:var(--bw-core,#FFC56B);box-shadow:0 0 0 2px rgba(15,13,51,.55)}
-.ks-steps>li{display:flex;min-width:0}
-.ks-steps>li>.wz-tab{flex:1 1 auto;width:100%}
-.ks-tabs .wz-tab[aria-current='step']{background:#fff;color:var(--bw-on-accent)}
-.ks-tabs .wz-tab[aria-disabled='true']{opacity:.5;cursor:default}
-.ks-num{display:inline-grid;place-items:center;flex:none;width:20px;height:20px;border-radius:999px;font-size:11px;font-weight:700;line-height:1;background:rgba(255,255,255,.16)}
-.wz-tab[aria-current='step'] .ks-num{background:var(--bw-on-accent,#1A1740);color:#fff}
-.ks-num.is-done{background:var(--bw-core,#FFC56B);color:#1A1740}
-@media (min-width:1024px){
-  .ks-ed{height:min(calc(100dvh - 4rem),760px)}
-  .ks-grid,.ks-grid.ks-steps-on{gap:14px 24px;grid-template-columns:minmax(0,1fr) 21rem;grid-template-rows:auto minmax(0,1fr);grid-template-areas:"tabs preview" "panel preview"}
-  /* Six steps need the full width to keep their labels whole ("Take-home"
-     truncated at ~88px each in the options column), so the bar spans both
-     columns and the preview sits beside the options below it. */
-  .ks-grid.ks-steps-on{grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"tabs tabs" "panel preview" "steps preview"}
-  .ks-tabs{display:flex;border-radius:999px}
-  .ks-tabs .wz-tab{flex:1 1 auto;min-height:44px;flex-direction:row;gap:6px;font-size:13px;padding:0 8px;border-radius:999px}
-  .ks-steps>li{flex:1 1 auto}
-  .ks-dot{top:5px;right:6px}
-}
 .ks-anim{animation-iteration-count:infinite;animation-timing-function:ease-in-out}
 @keyframes ks-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
 @keyframes ks-album-in{0%,36%{opacity:0;transform:scale(.96)}48%,100%{opacity:1;transform:none}}

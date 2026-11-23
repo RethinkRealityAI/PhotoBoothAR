@@ -292,7 +292,12 @@ export interface AdminTicketFilters {
 }
 
 export function adminListTickets(filters: AdminTicketFilters) {
-  return supportApi<{ tickets: SupportTicket[]; hasMore: boolean }>('admin_list_tickets', { ...filters });
+  // `total` = how many tickets match the filter (support-api sends it on the
+  // same request; null when PostgREST could not count). Optional because
+  // nothing guarantees an older deploy sends it.
+  return supportApi<{ tickets: SupportTicket[]; hasMore: boolean; total?: number | null }>(
+    'admin_list_tickets', { ...filters },
+  );
 }
 
 export function adminGetTicket(ticketId: string) {

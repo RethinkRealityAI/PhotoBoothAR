@@ -11,7 +11,7 @@ const snap = (over: Partial<EventSnapshot> = {}): EventSnapshot => ({
 describe('build checklist (copilot)', () => {
   it('keeps the five verbatim labels and marks nothing done on an empty draft', () => {
     const items = computeChecklist(checklistFromSnapshot(snap()), 'build');
-    expect(items.map((i) => i.label)).toEqual(['Add a frame', 'Add a filter', 'Add a 3D prop', 'Add challenges', 'Go live']);
+    expect(items.map((i) => i.label)).toEqual(['Add a frame', 'Add an effect', 'Add a prop', 'Add challenges', 'Go live']);
     expect(items.every((i) => !i.done)).toBe(true);
     expect(missingIds(items)).toEqual(['frame', 'filter', 'prop', 'challenges', 'live']);
   });

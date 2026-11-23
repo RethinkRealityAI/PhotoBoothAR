@@ -1085,7 +1085,7 @@ export default function CopilotChat({
     return {
       ...result,
       summary:
-        'The Scene Director comes with the Studio add-on, which this event doesn’t have — opening a page with what you can use instead: ready-made frames & filters, or an AI frame in about a minute.',
+        'The Scene Director comes with the Studio add-on, which this event doesn’t have — opening a page with what you can use instead: ready-made looks, or an AI frame in about a minute.',
     };
   };
 

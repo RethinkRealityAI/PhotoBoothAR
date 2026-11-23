@@ -19,9 +19,8 @@ import ReportIssueButton from './support/ReportIssueButton';
 import LiveWallField from './theme/LiveWallField';
 import { WALL_FIELD_SAMPLES } from './theme/samplePhotos';
 import BoothViewfinder from './theme/BoothViewfinder';
-import BoothShowcase from './theme/BoothShowcase';
 import PageBorder from './theme/PageBorder';
-import { useBoothShot, useBoothShowcase, useHeroFrameUrl } from './theme/useBoothShot';
+import { useBoothScreen } from './theme/useBoothShot';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import { useEntitlements } from '../lib/entitlements';
@@ -106,11 +105,9 @@ function SceneGuestWelcome() {
   const wallPhotos = useMemo(() => wallFieldPhotos(posts), [posts]);
   // Until the first photo lands the wall shows stand-ins, never bare glass.
   const fieldPhotos = wallPhotos.length > 0 ? wallPhotos : WALL_FIELD_SAMPLES;
-  // One booth screen: the newest single shot (a strip shows its first panel).
-  const shot = useBoothShot(wallPhotos);
-  const newest = shot.post;
-  const frameUrl = useHeroFrameUrl();
-  const showcase = useBoothShowcase(6);
+  // The phone shows the event's frame on a stand-in guest (or a finished
+  // look), never a wall photo: the wall behind already shows the room.
+  const screen = useBoothScreen();
   // The host's own words only: the page no longer explains itself by default.
   const intro =
     typeof config.copy.welcomeIntro === 'string' && config.copy.welcomeIntro.trim() !== ''
@@ -236,22 +233,22 @@ function SceneGuestWelcome() {
             <div className="mt-6 hidden w-full lg:block">{scanToJoin}</div>
           </section>
 
-          {/* ── The booth, previewed, with the event's looks round it ── */}
+          {/* ── The booth, previewed ── */}
           <div className="flex min-w-0 flex-col items-center animate-rise-in [grid-area:vf] lg:justify-center lg:self-center">
-            <BoothShowcase cards={showcase} overlay={<div className="lg:hidden">{pulse}</div>}>
+            <div className="relative">
               <BoothViewfinder
                 to={`${basePath}/booth`}
                 // The booth skips its own "Step inside" splash for this tap,
                 // so the camera line that splash carried is shown below.
                 linkState={FROM_WELCOME_STATE}
-                frameUrl={frameUrl}
-                previewUrl={newest?.image_url}
-                previewCrop={shot.crop}
-                widthClass="w-[min(62vw,280px)] lg:w-[min(24vw,310px)]"
-                previewAlt={newest ? (newest.guest_name ? `The newest photo, by ${newest.guest_name}` : 'The newest guest photo') : undefined}
+                frameUrl={screen.frame}
+                previewUrl={screen.photo}
+                widthClass="w-[min(64vw,280px)] lg:w-[min(25vw,330px)]"
               />
-            </BoothShowcase>
-            <div className="mt-3 text-center lg:text-left">
+              {/* Phones: the room's pulse sits over the top of the screen. */}
+              <div className="absolute inset-x-0 top-4 z-20 flex justify-center lg:hidden">{pulse}</div>
+            </div>
+            <div className="mt-4 text-center lg:text-left">
               <PrivacyLine />
             </div>
           </div>
@@ -412,8 +409,8 @@ function LegacyGuestWelcome() {
                 photos-only plan must not promise video. Legacy sites resolve
                 LEGACY_ENTITLEMENTS (video on), so their copy is unchanged. */}
             {videoEnabled
-              ? <>Try on live filters, frames &amp; 3D pieces — snap a photo or video.</>
-              : <>Try on live filters, frames &amp; 3D pieces — and snap a photo.</>}
+              ? <>Try on frames, props, face paint &amp; effects — snap a photo or video.</>
+              : <>Try on frames, props, face paint &amp; effects — and snap a photo.</>}
             {posts.length > 0 && (
               <>
                 {' '}

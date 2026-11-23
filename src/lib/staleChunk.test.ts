@@ -43,3 +43,68 @@ describe('shouldReloadForStaleChunk', () => {
     expect(shouldReloadForStaleChunk('/admin', Number.NaN, 5)).toBe(true);
   });
 });
+
+import { loadWithStaleReload, type StaleReloadDeps } from './staleChunk';
+
+function fakeDeps(lastReloadAt: number | null, now = 100_000) {
+  const calls = { reloads: 0, marked: [] as number[] };
+  const deps: StaleReloadDeps = {
+    now: () => now,
+    readLastReload: () => lastReloadAt,
+    markReload: (at) => { calls.marked.push(at); },
+    reload: () => { calls.reloads += 1; },
+  };
+  return { deps, calls };
+}
+
+/** Resolves to 'pending' when `p` has not settled after a macrotask. */
+async function settledOrPending<T>(p: Promise<T>): Promise<'pending' | { ok: T } | { err: unknown }> {
+  const tick = new Promise<'pending'>((r) => setTimeout(() => r('pending'), 10));
+  return Promise.race([p.then((ok) => ({ ok }), (err) => ({ err })), tick]);
+}
+
+describe('loadWithStaleReload (lazy route chunks)', () => {
+  const stale = new TypeError('Failed to fetch dynamically imported module: https://beamwall.app/assets/BeamyPage-abc.js');
+
+  it('passes a loaded module straight through', async () => {
+    const { deps, calls } = fakeDeps(null);
+    const mod = { default: 'Page' };
+    expect(await settledOrPending(loadWithStaleReload(async () => mod, deps))).toEqual({ ok: mod });
+    expect(calls.reloads).toBe(0);
+  });
+
+  it('reloads once on a stale chunk and keeps the route waiting (no error flash)', async () => {
+    const { deps, calls } = fakeDeps(null, 123_456);
+    expect(await settledOrPending(loadWithStaleReload(() => Promise.reject(stale), deps))).toBe('pending');
+    expect(calls.reloads).toBe(1);
+    expect(calls.marked).toEqual([123_456]);
+  });
+
+  it('does not loop: a second stale failure inside the cooldown reaches the error boundary', async () => {
+    const { deps, calls } = fakeDeps(100_000 - 1_000, 100_000);
+    expect(await settledOrPending(loadWithStaleReload(() => Promise.reject(stale), deps))).toEqual({ err: stale });
+    expect(calls.reloads).toBe(0);
+  });
+
+  it('reloads again once the cooldown has passed, and treats unreadable storage as never', async () => {
+    const after = fakeDeps(100_000 - STALE_RELOAD_COOLDOWN_MS, 100_000);
+    expect(await settledOrPending(loadWithStaleReload(() => Promise.reject(stale), after.deps))).toBe('pending');
+    expect(after.calls.reloads).toBe(1);
+    const nan = fakeDeps(Number.NaN);
+    expect(await settledOrPending(loadWithStaleReload(() => Promise.reject(stale), nan.deps))).toBe('pending');
+    expect(nan.calls.reloads).toBe(1);
+  });
+
+  it('never reloads for an ordinary bug', async () => {
+    const { deps, calls } = fakeDeps(null);
+    const bug = new Error('boom');
+    expect(await settledOrPending(loadWithStaleReload(() => Promise.reject(bug), deps))).toEqual({ err: bug });
+    expect(calls.reloads).toBe(0);
+  });
+
+  it('waits when the window listener already cancelled the error and is reloading', async () => {
+    const { deps, calls } = fakeDeps(null);
+    expect(await settledOrPending(loadWithStaleReload(async () => undefined, deps))).toBe('pending');
+    expect(calls.reloads).toBe(0);
+  });
+});

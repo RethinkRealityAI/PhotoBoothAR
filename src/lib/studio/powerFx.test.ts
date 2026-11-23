@@ -37,6 +37,11 @@ describe('POWER_GEAR', () => {
     expect(withVisor.some((g) => g.id === 'cyclops-visor')).toBe(true);
     expect(withVisor.some((g) => g.id === 'wizard-wand')).toBe(false);
   });
+
+  it('never offers retired gear, even when its asset is registered', () => {
+    expect(availableGear(['wizard-wand']).some((g) => g.id === 'wizard-wand')).toBe(false);
+    expect(POWER_GEAR.some((g) => g.id === 'wizard-wand')).toBe(true);
+  });
 });
 
 describe('spec + validation', () => {

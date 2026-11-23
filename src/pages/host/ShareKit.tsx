@@ -144,7 +144,7 @@ export default function ShareKit() {
 
   const surfaces: Surface[] = [
     { path: '/welcome', title: 'Event Welcome', guestLine: 'Start here — everything the event offers, one scan away.', icon: Info },
-    { path: '/booth', title: 'AR Photo Booth', guestLine: 'Snap photos & videos with live AR filters and frames.', icon: Camera },
+    { path: '/booth', title: 'AR Photo Booth', guestLine: 'Snap photos & videos with live AR frames, props and effects.', icon: Camera },
     { path: '/wall', title: 'Live Photo Wall', guestLine: 'Watch everyone’s moments appear on screen in real time.', icon: Images },
     { path: '/upload', title: 'Share a Photo', guestLine: 'Send any photo from your camera roll to the wall.', icon: UploadCloud },
     ...(wallSettings.showChallenges

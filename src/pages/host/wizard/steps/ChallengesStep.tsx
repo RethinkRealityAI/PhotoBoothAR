@@ -20,7 +20,7 @@ import { normalizeValidation } from '../../../../lib/challengeValidation';
 import { createChallenge, deleteChallenge, fetchChallengesResult } from '../../../../lib/db';
 import { occasionById } from '../../../../lib/wizard/occasions';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
-import { StepPanel, StepShell, TabPanel, WizardTabs } from '../chrome';
+import { StepShell, TabPanel, WizardTabs } from '../chrome';
 import { useWizard } from '../wizardContext';
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -204,19 +204,11 @@ export default function ChallengesStep() {
   );
 
   const panel = (
-    <StepPanel
-      step="challenges"
-      hint="Check out existing challenges or create your own."
-      aside={rows !== null && rows.length > 0 ? <span className="rounded-full bg-white/12 px-3 py-1 text-[12.5px] font-medium">{rows.length} on</span> : undefined}
-      tabs={tabs}
-      notice={failed ? <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">We couldn’t load your challenges. Check your connection and reload this step.</p> : undefined}
-    >
       <TabPanel idBase="wz-challenges" value={tab}>
         {rows === null
           ? <div className="h-32 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" /></div>
           : tab === 'suggested' ? suggestedPanel : ownPanel}
       </TabPanel>
-    </StepPanel>
   );
 
   /* What a guest sees: the mission list in the booth. */
@@ -240,5 +232,17 @@ export default function ChallengesStep() {
     </div>
   );
 
-  return <StepShell panel={panel} preview={preview} sheetLabel={stepDef('challenges').title} />;
+  return (
+    <StepShell
+      step="challenges"
+      hint="Check out existing challenges or create your own."
+      aside={rows !== null && rows.length > 0 ? <span className="rounded-full bg-white/12 px-3 py-1 text-[12.5px] font-medium">{rows.length} on</span> : undefined}
+      tabs={tabs}
+      notice={failed ? <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">We couldn’t load your challenges. Check your connection and reload this step.</p> : undefined}
+      preview={preview}
+      sheetLabel={stepDef('challenges').title}
+    >
+      {panel}
+    </StepShell>
+  );
 }

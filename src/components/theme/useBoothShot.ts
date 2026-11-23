@@ -16,11 +16,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Post } from '../../types';
 import { transformedUrl } from '../../lib/mediaUrl';
-import { boothShowcase, heroFrameUrl, type ShowcaseCard, STRIP_SAMPLE_H, STRIP_SAMPLE_W, stripPanelCrop, stripShots } from '../../lib/scenePage';
+import { boothScreen, type BoothScreen, boothShowcase, heroFrameUrl, type ShowcaseCard, STRIP_SAMPLE_H, STRIP_SAMPLE_W, stripPanelCrop, stripShots } from '../../lib/scenePage';
 import { buildCatalog } from '../../lib/catalog';
 import { effectiveOpeningLookId } from '../../lib/openingLook';
 import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
+import { BOOTH_STANDIN } from './samplePhotos';
 
 /** Newest photos checked before giving up and cropping a strip. */
 const MAX_CANDIDATES = 6;
@@ -144,4 +145,11 @@ export function useHeroFrameUrl(): string | undefined {
 export function useBoothShowcase(max = 6): ShowcaseCard[] {
   const catalog = useBoothCatalog();
   return useMemo(() => boothShowcase(catalog, max), [catalog, max]);
+}
+
+/** The splash pages' phone screen: the event's frame on a stand-in guest,
+ *  or a finished booth look (scenePage.boothScreen). Never a wall photo. */
+export function useBoothScreen(): BoothScreen {
+  const frameUrl = useHeroFrameUrl();
+  return useMemo(() => boothScreen(frameUrl, BOOTH_STANDIN), [frameUrl]);
 }

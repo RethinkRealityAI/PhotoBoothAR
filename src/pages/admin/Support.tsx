@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowLeft, Bug, Inbox, Loader2, Lock, Mail, MailX, Send,
+  AlertTriangle, ArrowLeft, Bug, Inbox, Loader2, Lock, Mail, MailX, Search, Send,
 } from 'lucide-react';
 import StatusPill from '../../components/ui/StatusPill';
 import LoadError from '../../components/ui/LoadError';
@@ -32,15 +32,18 @@ import {
   adminListTickets, adminGetTicket, adminReply, adminSetStatus, adminSetPriority,
   adminMarkRead, type AdminTicketDetail, type SupportTicket,
 } from '../../lib/support';
+import {
+  INBOX_STATUS_FILTERS, CLEARED_FILTERS, activeFilterLabels, filtersAreCleared, inboxEmptyKind,
+  keepForFilter, serverQueryIsUnfiltered, serverStatusFor,
+  type InboxFilters, type InboxStatusFilter,
+} from '../../lib/supportInbox';
 
-const STATUS_FILTERS: Array<{ id: string; label: string }> = [
-  { id: 'open', label: 'Needs action' },
-  { id: 'new', label: 'New' },
-  { id: 'waiting_on_us', label: 'On us' },
-  { id: 'waiting_on_customer', label: 'On them' },
-  { id: 'resolved', label: 'Resolved' },
-  { id: 'closed', label: 'Closed' },
-  { id: '', label: 'All' },
+/** Where reports come from: the SupportDialog mounts (support_tickets.source). */
+const REPORT_SOURCES: Array<{ who: string; where: string }> = [
+  { who: 'Hosts', where: 'Support in the dashboard rail, and Report a problem in the Event Studio' },
+  { who: 'Guests', where: 'Report a problem in the booth menu, the welcome page and the camera or send error screens' },
+  { who: 'Event managers', where: 'Report a problem in the manager console' },
+  { who: 'Anyone', where: 'The landing page footer, and the crash screen if the app breaks' },
 ];
 
 const SETTABLE_STATUS: SupportStatus[] = ['open', 'waiting_on_customer', 'waiting_on_us', 'resolved', 'closed'];
@@ -61,7 +64,7 @@ export default function AdminSupport() {
   const [params, setParams] = useSearchParams();
   const selectedId = params.get('t');
 
-  const [status, setStatus] = useState('open');
+  const [status, setStatus] = useState<InboxStatusFilter>('needs_action');
   const [category, setCategory] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
 
@@ -71,8 +74,10 @@ export default function AdminSupport() {
   // table of customers, an old ticket is exactly the thing an operator comes
   // here to find. support-api caps a page at 200 regardless of what we ask for.
   const fetchPage = useCallback(async (q: ListQuery) => {
+    // serverStatusFor: 'Needs action' asks for every status and is narrowed
+    // below (see src/lib/supportInbox.ts for why the server cannot do it).
     const { data, error } = await adminListTickets({
-      status, category, unreadOnly, search: q.search, limit: q.limit, offset: q.offset,
+      status: serverStatusFor(status), category, unreadOnly, search: q.search, limit: q.limit, offset: q.offset,
     });
     return { rows: data?.tickets ?? [], hasMore: data?.hasMore ?? false, error };
   }, [status, category, unreadOnly]);
@@ -168,7 +173,40 @@ export default function AdminSupport() {
     reload();
   }
 
-  const state = listState({ count: list.rows.length, loaded: !list.loading, failed: list.error !== null });
+  const filters: InboxFilters = { status, category, unreadOnly, search: list.query };
+  const visibleRows = list.rows.filter((t) => keepForFilter(status, t.status));
+  const state = listState({ count: visibleRows.length, loaded: !list.loading, failed: list.error !== null });
+
+  // "Is there ANY ticket?" — only asked when filters hid everything and the
+  // server query itself was filtered (an unfiltered empty answer already says
+  // no). One row of the All query; its `total` is the count. A failed probe
+  // stays null, and the empty state then avoids claiming either way.
+  const [anyTickets, setAnyTickets] = useState<boolean | null>(null);
+  const needProbe = state === 'empty' && !serverQueryIsUnfiltered(filters);
+  useEffect(() => {
+    if (!needProbe) return;
+    let alive = true;
+    void adminListTickets({ status: '', limit: 1 }).then(({ data, error }) => {
+      if (!alive) return;
+      if (error !== null || data === null) { setAnyTickets(null); return; }
+      const total = data.total ?? null;
+      setAnyTickets(total !== null ? total > 0 : data.tickets.length > 0);
+    });
+    return () => { alive = false; };
+  }, [needProbe]);
+
+  const emptyKind = inboxEmptyKind({
+    filters, serverRows: list.rows.length, serverHasMore: list.hasMore, anyTickets,
+  });
+  const activeLabels = activeFilterLabels(filters, (id) => categoryDef(id).label);
+  const clearFilters = () => {
+    setStatus(CLEARED_FILTERS.status);
+    setCategory(CLEARED_FILTERS.category);
+    setUnreadOnly(CLEARED_FILTERS.unreadOnly);
+    list.setQuery(CLEARED_FILTERS.search);
+  };
+  // The reader pane only earns its column when there is something to read.
+  const showReader = selectedId !== null || state === 'ready' || state === 'loading';
   const chip = 'pressable rounded-full px-3 py-1.5 min-h-9 font-label uppercase tracking-luxe text-[10px] border transition-colors';
   const chipOn = 'bg-[color:var(--color-accent)]/15 border-[color:var(--color-accent)]/50 text-brand-fg';
   const chipOff = 'bg-white/[0.03] border-white/10 text-brand-muted/60 hover:text-brand-fg';
@@ -183,42 +221,57 @@ export default function AdminSupport() {
           </p>
         </header>
 
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          {STATUS_FILTERS.map((f) => (
-            <button key={f.id} onClick={() => setStatus(f.id)}
-              className={`${chip} ${status === f.id ? chipOn : chipOff}`}>
-              {f.label}
-            </button>
-          ))}
-          <span className="w-px h-5 bg-white/10 mx-1" />
-          <button onClick={() => setUnreadOnly((v) => !v)}
-            className={`${chip} ${unreadOnly ? chipOn : chipOff}`}>
-            Unread only
-          </button>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            aria-label="Filter by category"
-            className="rounded-full bg-white/[0.03] border border-white/10 px-3 min-h-9 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70"
-          >
-            <option value="">All types</option>
-            {SUPPORT_CATEGORIES.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
+        {/* Two rows on purpose: the status chips are one decision ("which
+            queue"), the rest narrow within it. On one row the search box was
+            whatever width was left over and clipped its own placeholder. */}
+        <div className="flex flex-col gap-2.5 mb-4">
+          <div role="group" aria-label="Ticket status" className="flex flex-wrap items-center gap-2">
+            {INBOX_STATUS_FILTERS.map((f) => (
+              <button key={f.id} onClick={() => setStatus(f.id)}
+                aria-pressed={status === f.id}
+                title={f.id === 'needs_action' ? 'New, reopened, or waiting on us — not tickets waiting on the customer' : undefined}
+                className={`${chip} ${status === f.id ? chipOn : chipOff}`}>
+                {f.label}
+              </button>
             ))}
-          </select>
-          <input
-            value={list.query}
-            onChange={(e) => list.setQuery(e.target.value)}
-            placeholder="Search ref, subject, email…"
-            className="ml-auto rounded-xl bg-white/[0.04] border border-white/10 px-3.5 min-h-9 text-sm text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-[color:var(--color-accent)]/50"
-          />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => setUnreadOnly((v) => !v)}
+              aria-pressed={unreadOnly}
+              className={`${chip} ${unreadOnly ? chipOn : chipOff}`}>
+              Unread only
+            </button>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              aria-label="Filter by category"
+              className="rounded-full bg-white/[0.03] border border-white/10 px-3 min-h-9 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70"
+            >
+              <option value="">All types</option>
+              {SUPPORT_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+            <label className="relative flex-1 basis-full sm:basis-64 min-w-0 sm:min-w-[16rem] sm:max-w-md sm:ml-auto">
+              <span className="sr-only">Search tickets</span>
+              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted/40" />
+              <input
+                type="search"
+                value={list.query}
+                onChange={(e) => list.setQuery(e.target.value)}
+                placeholder="Search ref, subject, email…"
+                aria-label="Search tickets by reference, subject, email or event"
+                className="w-full rounded-xl bg-white/[0.04] border border-white/10 pl-9 pr-3.5 min-h-10 text-sm text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-[color:var(--color-accent)]/50"
+              />
+            </label>
+          </div>
         </div>
 
         {list.error !== null && (
           <LoadError what="tickets" code={list.error} onRetry={reload} />
         )}
 
-        <div className="grid lg:grid-cols-[380px_1fr] gap-4">
+        <div className={`grid gap-4 ${showReader ? 'lg:grid-cols-[380px_1fr]' : ''}`}>
           {/* ── Inbox ── */}
           <div className={`space-y-2 ${selectedId !== null ? 'hidden lg:block' : ''}`}>
             {state === 'loading' && (
@@ -226,15 +279,54 @@ export default function AdminSupport() {
                 <div className="w-6 h-6 rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)] animate-spin" />
               </div>
             )}
-            {state === 'empty' && (
-              <div className="liquid-glass rounded-2xl p-8 text-center">
-                <Inbox className="w-7 h-7 mx-auto text-brand-muted/30 mb-3" />
-                <p className="font-sans text-sm text-brand-muted/60">
-                  Nothing matching that filter.
+            {state === 'empty' && emptyKind === 'none-ever' && (
+              <div className="liquid-glass rounded-2xl p-6 md:p-10 max-w-2xl mx-auto">
+                <Inbox className="w-8 h-8 text-[color:var(--color-accent)]/70 mb-4" aria-hidden />
+                <h2 className="font-serif text-xl text-brand-fg">No tickets yet</h2>
+                <p className="font-sans text-sm text-brand-muted/70 mt-2 leading-relaxed">
+                  When someone reports a problem, it shows up here with their account,
+                  the event, and any errors their browser hit around that time.
+                </p>
+                <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50 mt-6 mb-2.5">
+                  Where people report from
+                </p>
+                <ul className="space-y-2">
+                  {REPORT_SOURCES.map((s) => (
+                    <li key={s.who} className="flex gap-3 font-sans text-sm leading-snug">
+                      <span className="shrink-0 w-28 text-brand-fg/85">{s.who}</span>
+                      <span className="text-brand-muted/70">{s.where}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="font-sans text-xs text-brand-muted/55 mt-6 pt-4 border-t border-white/[0.07] leading-relaxed">
+                  <Mail className="inline w-3.5 h-3.5 mr-1.5 -mt-0.5" aria-hidden />
+                  Each new ticket also sends an email to the support address set in the
+                  {' '}<code className="text-brand-muted/80">SUPPORT_NOTIFY_EMAIL</code> secret,
+                  if email sending is set up.
                 </p>
               </div>
             )}
-            {state === 'ready' && list.rows.map((t) => (
+            {state === 'empty' && emptyKind !== 'none-ever' && (
+              <div className={`liquid-glass rounded-2xl p-8 text-center ${showReader ? '' : 'max-w-2xl mx-auto'}`}>
+                <Inbox className="w-7 h-7 mx-auto text-brand-muted/30 mb-3" aria-hidden />
+                <p className="font-sans text-sm text-brand-fg/85">
+                  {list.hasMore ? 'Nothing in the newest tickets matches ' : 'No tickets match '}
+                  {activeLabels.length > 0 ? activeLabels.join(' · ') : 'these filters'}.
+                </p>
+                <p className="font-sans text-xs text-brand-muted/55 mt-1.5">
+                  {emptyKind === 'filtered'
+                    ? 'Other tickets exist. They are hidden by these filters.'
+                    : 'These filters may be hiding tickets.'}
+                </p>
+                {!filtersAreCleared(filters) && (
+                  <button onClick={clearFilters}
+                    className="pressable mt-4 inline-flex items-center justify-center rounded-xl px-5 min-h-11 bg-white/[0.06] border border-white/10 font-label uppercase tracking-luxe text-[10px] text-brand-fg hover:bg-white/[0.1]">
+                    Show all tickets
+                  </button>
+                )}
+              </div>
+            )}
+            {state === 'ready' && visibleRows.map((t) => (
               <button key={t.id} onClick={() => select(t.id)}
                 className={`pressable w-full text-left rounded-2xl p-3.5 border transition-colors ${
                   t.id === selectedId
@@ -262,12 +354,12 @@ export default function AdminSupport() {
               hasMore={list.hasMore}
               loading={list.loadingMore}
               onMore={list.loadMore}
-              note={listFootnote(list.rows.length, list.hasMore, 'ticket')}
+              note={listFootnote(visibleRows.length, list.hasMore, 'ticket')}
             />
           </div>
 
           {/* ── Detail ── */}
-          <div className={selectedId === null ? 'hidden lg:block' : ''}>
+          {showReader && <div className={selectedId === null ? 'hidden lg:block' : ''}>
             {selectedId !== null && (
               <button onClick={() => select(null)}
                 className="pressable lg:hidden mb-3 inline-flex items-center gap-2 rounded-xl px-3 min-h-11 bg-white/[0.04] text-brand-muted/70 font-label uppercase tracking-luxe text-[10px]">
@@ -428,7 +520,7 @@ export default function AdminSupport() {
                 </div>
               </div>
             )}
-          </div>
+          </div>}
         </div>
       </div>
     </div>

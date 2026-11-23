@@ -15,8 +15,9 @@
 
     <!-- No hard-coded canonical / og:url: this one HTML file serves EVERY SPA
          route, so a fixed "/" told crawlers that /guides, /privacy, /terms
-         and the rest were all duplicates of the homepage. Without them each
-         URL is its own canonical. -->
+         and the rest were all duplicates of the homepage. The public pages
+         set their own canonical (https://beamwall.app/...) while mounted via
+         usePageMeta (src/lib/usePageTitle.ts). -->
 
     <!-- Fonts: SELF-HOSTED (public/fonts/, latin + latin-ext woff2 vendored
          from the exact css2 set this file used to fetch from Google at
@@ -35,13 +36,21 @@
     <meta property="og:title" content="Beamwall · Your immersive photo booth" />
     <meta property="og:description" content="Every guest phone becomes the booth. Guests scan, snap in AR, and every shot beams to your live wall. Free to start." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://beamwall.netlify.app/og.jpg" />
+    <meta property="og:image" content="https://beamwall.app/og.jpg" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="720" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://beamwall.netlify.app/og.jpg" />
+    <meta name="twitter:image" content="https://beamwall.app/og.jpg" />
 
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235B8CFF'/%3E%3Cstop offset='1' stop-color='%237C6CF7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='15' fill='%2305060B' stroke='url(%23g)' stroke-width='1.5'/%3E%3Ctext x='16' y='22' font-family='Georgia,serif' font-size='18' font-style='italic' text-anchor='middle' fill='url(%23g)'%3EB%3C/text%3E%3C/svg%3E" />
+    <!-- Real files (public/), so /favicon.ico (fetched by crawlers and old
+         browsers without asking) and the manifest are no longer answered by
+         the SPA fallback with index.html. Art = the previous inline icon:
+         favicon.svg is that SVG verbatim, the PNGs/ICO are renders of it.
+         Keep exactly ONE rel="icon": EventContext.setFavicon swaps the first
+         one for an event's own icon, and a second would win over it. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
 
     <title>Beamwall · Your immersive photo booth</title>
 
@@ -55,25 +64,25 @@
       "@graph": [
         {
           "@type": "Organization",
-          "@id": "https://beamwall.netlify.app/#org",
+          "@id": "https://beamwall.app/#org",
           "name": "Beamwall",
-          "url": "https://beamwall.netlify.app/",
+          "url": "https://beamwall.app/",
           "email": "dapo@rethinkreality.ai"
         },
         {
           "@type": "SoftwareApplication",
           "name": "Beamwall",
-          "url": "https://beamwall.netlify.app/",
+          "url": "https://beamwall.app/",
           "applicationCategory": "MultimediaApplication",
           "operatingSystem": "Web browser (iOS Safari, Android Chrome, desktop)",
           "description": "Self-serve event photo booth, live photo wall, photo challenges and keepsake cards. Hosts pick a theme or upload their invitation and choose ready-made frames and filters; guests scan one QR code and snap photos in their browser — no app to download — while every shot beams onto a live photo wall.",
-          "image": "https://beamwall.netlify.app/og.jpg",
-          "publisher": { "@id": "https://beamwall.netlify.app/#org" },
+          "image": "https://beamwall.app/og.jpg",
+          "publisher": { "@id": "https://beamwall.app/#org" },
           "offers": [
             { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD", "description": "1 live event, up to 25 photos, photos kept for 7 days, 3 free AI frames per event, small Beamwall watermark on photos." },
             { "@type": "Offer", "name": "Essentials", "price": "49", "priceCurrency": "USD", "description": "Per event. Up to 500 photos & videos, video capture, no watermark, photos kept for 90 days, plus 20 AI credits." },
             { "@type": "Offer", "name": "Premium", "price": "99", "priceCurrency": "USD", "description": "Per event. Unlimited photos & videos, keepsake cards, photos kept for 365 days, plus 100 AI credits." },
-            { "@type": "Offer", "name": "Deluxe", "price": "169", "priceCurrency": "USD", "description": "Per event. Everything in Premium plus a keepsake highlight film and premium card renders, photos kept for 365 days." },
+            { "@type": "Offer", "name": "Deluxe", "price": "169", "priceCurrency": "USD", "description": "Per event. Everything in Premium plus 90-second video clips, a keepsake highlight film and premium card renders, photos kept for 2 years." },
             { "@type": "Offer", "name": "Beamwall Pro", "price": "79", "priceCurrency": "USD", "description": "Per month. Premium on every event, plus 300 AI credits a month." }
           ]
         }

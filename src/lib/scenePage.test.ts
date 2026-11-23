@@ -4,6 +4,8 @@ import { stripLayout } from './photoStrip';
 import {
   draftTone,
   heroFrameUrl,
+  boothScreen,
+  BOOTH_SCREEN_FALLBACK,
   withPageBorder,
   wallFieldSlots,
   wallFieldTileCentre,
@@ -234,6 +236,16 @@ describe('heroFrameUrl', () => {
     expect(heroFrameUrl([a], null)).toBeUndefined();
     expect(heroFrameUrl([f, bad], null)).toBeUndefined();
     expect(heroFrameUrl([exp({ id: 'p', kind: 'border', asset_url: '//evil.com/a.png' })], null)).toBeUndefined();
+  });
+});
+
+describe('boothScreen', () => {
+  it('puts the event frame over the stand-in guest', () => {
+    expect(boothScreen('/frames/b.png', '/standin.webp')).toEqual({ photo: '/standin.webp', frame: '/frames/b.png' });
+  });
+  it('shows a finished look, with no frame on top, when the event has no frame', () => {
+    expect(boothScreen(undefined, '/standin.webp')).toEqual({ photo: BOOTH_SCREEN_FALLBACK });
+    expect(boothScreen('', '/standin.webp')).toEqual({ photo: BOOTH_SCREEN_FALLBACK });
   });
 });
 

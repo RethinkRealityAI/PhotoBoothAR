@@ -44,6 +44,9 @@ interface Props {
    *  crash in a closed dialog would paint an error panel across the whole app.
    *  The error is still reported — it is the UI that stays silent. */
   silent?: boolean;
+  /** Called once a crash is caught (after it is reported), so the owner can
+   *  switch to its own fallback, e.g. the homepage's no-3D layout. */
+  onCatch?: () => void;
   children: ReactNode;
 }
 
@@ -65,6 +68,7 @@ export default class ErrorBoundary extends Component<Props, State> {
       boundary: this.props.label,
       componentStack: info.componentStack?.slice(0, 2_000) ?? null,
     });
+    this.props.onCatch?.();
   }
 
   /** Open the report dialog already describing what crashed, so the user is not

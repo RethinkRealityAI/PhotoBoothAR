@@ -640,7 +640,7 @@ export default function EventsList() {
   const guideSteps = [
     { n: '1', title: 'Create your event', rest: 'a few quick steps, saved as you go', done: hasEvents, to: '/host/new' },
     { n: '2', title: 'Go live & share the QR', rest: 'guests need no app', done: anyLive, to: newest ? `/host/events/${newest.id}/share` : '/host/new' },
-    { n: '3', title: 'Make it yours (optional)', rest: 'frames, filters, 3D props & challenges', done: false, to: newest ? `/host/events/${newest.id}/library` : '/host/new' },
+    { n: '3', title: 'Make it yours (optional)', rest: 'frames, props, effects & challenges', done: false, to: newest ? `/host/events/${newest.id}/library` : '/host/new' },
   ];
   const guidePct = Math.round((([hasEvents, anyLive].filter(Boolean).length) / 2) * 100);
   const guideDone = hasEvents && anyLive;

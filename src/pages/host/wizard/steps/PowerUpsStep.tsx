@@ -4,14 +4,16 @@
  *
  * Step 4 (optional) — a little magic. Two kinds:
  *
- *   Gestures     a gesture sets off an effect whatever look the guest has on
+ *   Gestures     a face gesture sets off an effect whatever look the guest has
+ *                on; a hand gesture only on looks that already track a hand
+ *                (Booth `needsHands` — keeps the hand model off face-only looks)
  *                (stored as preset ids in events.config.powerUps; the booth
  *                merges them into its trigger engine — lib/wizard/powerUps).
  *   Power gear   ready-made filters with their own blasts (visor, wand,
  *                gauntlet), added like any other filter.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Eye, Hand, Heart, Laugh, Loader2, PartyPopper, Smile, Sparkles, Zap, type LucideIcon } from 'lucide-react';
+import { Check, Eye, Hand, Heart, Laugh, Loader2, PartyPopper, Shield, Smile, Sparkles, Zap, type LucideIcon } from 'lucide-react';
 import TriggerEffects, { type TriggerEffectsHandle } from '../../../../components/booth/TriggerEffects';
 import { fetchExperiences } from '../../../../lib/db';
 import { setOpeningLook } from '../../../../lib/host';
@@ -20,8 +22,10 @@ import type { Experience } from '../../../../types';
 import { composeDraft, powerScenes, starterRow, wizardRefOf } from '../../../../lib/wizard/looks';
 import { POWER_UP_PRESETS, normalizePowerUps, powerUpsConfig, togglePowerUp, type PowerUpId, type PowerUpPreset } from '../../../../lib/wizard/powerUps';
 import { addFilterRow, removeFilterRow } from '../../../../lib/wizard/wizardApi';
-import { StepPanel, StepShell, TabPanel, WizardTabs } from '../chrome';
+import { StepShell } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
+import { POWERUPS_SUBSTEPS } from '../../../../lib/wizard/subSteps';
+import { useSubSteps } from '../useSubSteps';
 import { useWizard } from '../wizardContext';
 import { useAutosave } from '../useAutosave';
 import LookStage from '../LookStage';
@@ -47,7 +51,9 @@ export default function PowerUpsStep() {
   const [rows, setRows] = useState<Experience[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [stageScene, setStageScene] = useState<string | null>(null);
-  const [tab, setTab] = useState<'gestures' | 'gear'>('gestures');
+  // Gestures and Power gear are separate decisions: guided sub-steps.
+  const sub = useSubSteps('powerups', POWERUPS_SUBSTEPS, { gestures: Hand, gear: Shield });
+  const tab = sub.current;
 
   useEffect(() => { void fetchExperiences(ev.slug).then(setRows); }, [ev.slug]);
 
@@ -86,26 +92,11 @@ export default function PowerUpsStep() {
   };
 
   const gearOn = rows ? powerScenes().filter((s) => rows.some((r) => wizardRefOf(r) === `starter:${s.id}`)).length : 0;
+  const counts = <span className="rounded-full bg-white/12 px-3 py-1 text-[12.5px] font-medium" aria-live="polite">{on.length} gesture{on.length === 1 ? '' : 's'} · {gearOn} gear on</span>;
   const controls = (
-          <StepPanel
-            step="powerups"
-            tabs={(
-              <WizardTabs<'gestures' | 'gear'>
-                idBase="wz-powerups"
-                label="Power-ups"
-                className="wz-tabs-even wz-tabs-2"
-                value={tab}
-                onChange={setTab}
-                tabs={[
-                  { id: 'gestures', label: 'Gestures', count: on.length },
-                  { id: 'gear', label: 'Power gear', count: gearOn },
-                ]}
-              />
-            )}
-          >
-            <TabPanel idBase="wz-powerups" value={tab}>
+            <div {...sub.panelProps} className="outline-none">
             {tab === 'gestures' && (<>
-            <p className="text-[13px] text-white/65">A smile or a hand sign sets off an effect, whatever look a guest has on. Turn on as many as you like.</p>
+            <p className="text-[13px] text-white/65">A smile or an open mouth sets off an effect, whatever look a guest has on. Hand signs work on looks that track a hand, like the gauntlet. Turn on as many as you like.</p>
             <ul className="mt-4 grid sm:grid-cols-2 gap-2.5">
               {POWER_UP_PRESETS.map((p) => {
                 const active = on.includes(p.id);
@@ -118,7 +109,7 @@ export default function PowerUpsStep() {
                       <span className="flex-1 min-w-0">
                         <span className="flex items-center gap-1.5 text-[14.5px] font-semibold"><G className="h-4 w-4 text-white/70" aria-hidden /> {p.gesture}</span>
                         <span className="block text-[13px] text-white/75">{p.effect}</span>
-                        {p.usesHands && <span className="block mt-0.5 text-[11.5px] text-white/50">Uses hand tracking</span>}
+                        {p.usesHands && <span className="block mt-0.5 text-[11.5px] text-white/50">Only on hand looks</span>}
                         <span className="mt-2 flex gap-2">
                           <button
                             type="button"
@@ -140,8 +131,7 @@ export default function PowerUpsStep() {
             </ul>
             </>)}
             {tab === 'gear' && (<>
-            <p className="text-[13px] text-white/65">Superhero filters with their own blasts. They join your filters.</p>
-            <div className="mt-4 wz-shelf">
+            <div className="wz-shelf">
               {powerScenes().map((s) => {
                 const active = rows?.some((r) => wizardRefOf(r) === `starter:${s.id}`) ?? false;
                 return (
@@ -154,8 +144,7 @@ export default function PowerUpsStep() {
               })}
             </div>
             </>)}
-            </TabPanel>
-          </StepPanel>
+            </div>
   );
   const previewNode = (
     <div className="flex flex-col items-center w-full">
@@ -166,5 +155,9 @@ export default function PowerUpsStep() {
     </div>
   );
 
-  return <StepShell panel={controls} preview={previewNode} sheetLabel={stepDef('powerups').title} />;
+  return (
+    <StepShell step="powerups" hint={sub.hint} aside={counts} tabs={sub.bar} nav={sub.nav} preview={previewNode} previewKind="stage" sheetLabel={stepDef('powerups').title}>
+      {controls}
+    </StepShell>
+  );
 }

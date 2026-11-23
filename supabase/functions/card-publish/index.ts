@@ -35,8 +35,11 @@
  *             active org Pro subscription, or grandfathered legacy slug) else
  *             403 upgrade_required; sets status 'published' + published_at.
  * unpublish → back to status 'collecting' (published_at cleared).
- * send_email→ requires a published/rendered card + a valid recipient_email;
- *             sends via Resend (RESEND_API_KEY secret; absent → 503
+ * send_email→ requires a published/rendered card + a valid recipient_email +
+ *             cardsStandard (re-checked here, fail closed) + room under the
+ *             database send ceiling (051: 5/card, 50/org per 24h → 429
+ *             send_cap_reached; the scheduled path stamps delivery_error
+ *             'send_cap_reached' instead); sends via Resend (RESEND_API_KEY secret; absent → 503
  *             email_not_configured). From: CARDS_FROM_EMAIL (default
  *             'Beamwall <cards@beamwall.app>'); viewer link base:
  *             PUBLIC_SITE_URL (default: 'https://beamwall.app' — the
@@ -54,6 +57,7 @@
  * 403 → { error: 'forbidden' | 'upgrade_required' }
  * 404 → { error: 'card_not_found' }
  * 409 → { error: 'delivery_in_progress' } (unschedule while a send is running)
+ * 429 → { error: 'send_cap_reached' } (send_email over the 051 ceiling)
  * 500 → { error: 'internal' }
  * 502 → { error: 'email_failed' }
  * 503 → { error: 'email_not_configured' }
@@ -261,6 +265,23 @@ async function cardsStandardFor(sb: Sb, card: CardForEmail): Promise<'yes' | 'no
   return (features as Record<string, unknown> | null)?.cardsStandard === true ? 'yes' : 'no';
 }
 
+/**
+ * Reserve one card email against the database ceiling (migration 051's
+ * email_send_log: 5 sends per card and 50 per org per rolling 24h). Called
+ * immediately BEFORE Resend, by the manual send and the scheduled delivery
+ * alike, so the ceiling holds across isolates. 'cap' = the trigger refused;
+ * anything else throws — callers fail CLOSED, because an abuse ceiling that
+ * steps aside on an error is not one.
+ */
+async function reserveCardSend(sb: Sb, card: CardForEmail): Promise<'ok' | 'cap'> {
+  const { error } = await sb
+    .from('email_send_log')
+    .insert({ kind: 'card', org_id: card.org_id, ref: card.id });
+  if (!error) return 'ok';
+  if ((error.message ?? '').includes('email_send_cap')) return 'cap';
+  throw error;
+}
+
 /* ------------------------------------------------------------------ */
 /* Scheduled delivery                                                  */
 /* ------------------------------------------------------------------ */
@@ -351,6 +372,18 @@ async function deliverOne(
   if (ent === 'unavailable') return retry('features_unavailable');
   if (ent === 'no') {
     await settle({ delivery_state: 'failed', delivery_error: 'upgrade_required', delivery_retry_at: null });
+    return 'failed';
+  }
+
+  let reserved: 'ok' | 'cap';
+  try {
+    reserved = await reserveCardSend(sb, card);
+  } catch (e) {
+    console.error('[card-publish] deliver send-log reserve failed', card.id, e);
+    return retry('send_log_failed');
+  }
+  if (reserved === 'cap') {
+    await settle({ delivery_state: 'failed', delivery_error: 'send_cap_reached', delivery_retry_at: null });
     return 'failed';
   }
 
@@ -599,8 +632,19 @@ Deno.serve(async (req: Request) => {
     }
     const recipient = validRecipient(card as CardForEmail);
     if (!recipient) return json(400, { error: 'invalid_recipient' });
+    // Entitlement, re-checked at the moment of sending (audit H3). Publish
+    // checks it, but a card's status could be written to 'published' without
+    // going through publish before migration 051 closed that, and a plan can
+    // lapse between publish and send. Fail CLOSED, like publish and schedule.
+    const sendEnt = await cardsStandardFor(sb, card as CardForEmail);
+    if (sendEnt === 'unavailable') return json(503, { error: 'features_unavailable' });
+    if (sendEnt === 'no') return json(403, { error: 'upgrade_required' });
     const resendKey = Deno.env.get('RESEND_API_KEY');
     if (!resendKey) return json(503, { error: 'email_not_configured' });
+    // The database ceiling (051), reserved before Resend is called.
+    if ((await reserveCardSend(sb, card as CardForEmail)) === 'cap') {
+      return json(429, { error: 'send_cap_reached' });
+    }
 
     const sent = await sendCardViaResend(sb, card as CardForEmail, recipient, resendKey);
     if (!sent.ok) return json(502, { error: 'email_failed' });

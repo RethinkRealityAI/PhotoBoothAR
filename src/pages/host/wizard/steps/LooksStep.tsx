@@ -35,7 +35,7 @@ import {
 import {
   addFilterRow, applyPicks, currentPicks, fetchLooksData, removeFilterRow, type LooksData,
 } from '../../../../lib/wizard/wizardApi';
-import { StepPanel, StepShell, TabPanel, WizardTabs, type TabDef } from '../chrome';
+import { StepShell, TabPanel, WizardTabs, type TabDef } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
 import { useWizard } from '../wizardContext';
 import LookStage from '../LookStage';
@@ -258,10 +258,10 @@ function FilterBuilder({ catalog, libRows, value, onChange, onSave, onCancel, sa
       <div className="flex items-start gap-3">
         <span className="grid place-items-center h-10 w-10 rounded-full bg-white/12 shrink-0"><Wand2 className="h-5 w-5" aria-hidden /></span>
         <div className="min-w-0 flex-1">
-          <p className="wz-display text-[19px] leading-tight">Make your own filter</p>
-          <p className="mt-0.5 text-[13px] text-white/70">Combine a frame, 3D props, face paint and an effect into one tap. Everything you pick shows on the preview.</p>
+          <p className="wz-display text-[19px] leading-tight">Make your own combo</p>
+          <p className="mt-0.5 text-[13px] text-white/70">Combine a frame, props, face paint and an effect into one tap. Everything you pick shows on the preview.</p>
         </div>
-        <button type="button" onClick={onCancel} className="grid place-items-center h-10 w-10 rounded-full hover:bg-white/10 shrink-0" aria-label="Close the filter builder"><X className="h-5 w-5" /></button>
+        <button type="button" onClick={onCancel} className="grid place-items-center h-10 w-10 rounded-full hover:bg-white/10 shrink-0" aria-label="Close the combo builder"><X className="h-5 w-5" /></button>
       </div>
       <label htmlFor="wz-fname" className="wz-label mt-4">Name</label>
       <input id="wz-fname" className="wz-input" maxLength={40} placeholder="Party royalty" value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} />
@@ -276,7 +276,7 @@ function FilterBuilder({ catalog, libRows, value, onChange, onSave, onCancel, sa
       <div className="mt-4 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="pressable rounded-full px-4 min-h-11 text-[14px]">Cancel</button>
         <button type="button" onClick={onSave} disabled={saving} className="pressable bg-foil inline-flex items-center gap-2 rounded-full px-5 min-h-11 text-[14px] font-semibold disabled:opacity-60">
-          {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />} Save filter
+          {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />} Save combo
         </button>
       </div>
     </div>
@@ -503,7 +503,7 @@ export default function LooksStep() {
   const onBuilderChange = (b: Builder) => {
     setBuilder(b);
     setBuilderError(null);
-    setStage({ kind: 'filter', id: 'builder', name: b.name.trim() || 'Your filter', draft: composeDraft(builderSpec(b)) });
+    setStage({ kind: 'filter', id: 'builder', name: b.name.trim() || 'Your combo', draft: composeDraft(builderSpec(b)) });
   };
 
   const saveBuilder = async () => {
@@ -533,14 +533,13 @@ export default function LooksStep() {
   if (!data || !catalog || !picks) {
     return (
       <StepShell
+        step="looks"
         sheetLabel={stepDef('looks').title}
-        panel={(
-          <StepPanel step="looks">
-            <div className="h-64 grid place-items-center"><Loader2 className="h-6 w-6 animate-spin" aria-label="Loading the looks" /></div>
-          </StepPanel>
-        )}
+        previewKind="stage"
         preview={<div className="wz-stage w-[min(100%,220px)] lg:w-full" aria-hidden />}
-      />
+      >
+        <div className="h-64 grid place-items-center"><Loader2 className="h-6 w-6 animate-spin" aria-label="Loading the looks" /></div>
+      </StepShell>
     );
   }
 
@@ -556,7 +555,7 @@ export default function LooksStep() {
       const n = countPicked(picks, catalog[c.id]);
       return { id: c.id, label: c.label, short: c.short, count: n, ariaLabel: `${c.label}, ${n} on` };
     }),
-    { id: 'filters', label: 'Filters', count: filters.length, ariaLabel: `Filters, ${filters.length} on` },
+    { id: 'filters', label: 'Combos', count: filters.length, ariaLabel: `Combos, ${filters.length} on` },
   ];
   const view: FilterView = filterView ?? (filters.length > 0 ? 'booth' : 'add');
   const startBuilder = () => onBuilderChange({
@@ -572,10 +571,7 @@ export default function LooksStep() {
     if (v === 'own' && builder === null) startBuilder();
   };
 
-  const controls = (
-          <StepPanel
-            step="looks"
-            tabs={(
+  const lookTabs = (
               <WizardTabs<LookCategory | 'filters'>
                 idBase="wz-looks"
                 label="Look type"
@@ -584,14 +580,15 @@ export default function LooksStep() {
                 onChange={(id) => (id === 'filters' ? setOnFilters(true) : switchTab(id))}
                 tabs={mainTabs}
               />
-            )}
-            notice={loadFailed ? (
+  );
+  const notice = loadFailed ? (
               <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14px] flex flex-wrap items-center gap-3">
                 We couldn’t load the shared library, so only the built-in looks are showing.
                 <button type="button" onClick={() => void load()} className="underline underline-offset-2 min-h-11">Try again</button>
               </p>
-            ) : undefined}
-          >
+  ) : undefined;
+  const controls = (
+          <>
             <TabPanel idBase="wz-looks" value={mainTab}>
             {!onFilters && (<>
             <div>
@@ -650,7 +647,7 @@ export default function LooksStep() {
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <WizardTabs<FilterView>
                 idBase="wz-filters"
-                label="Filters"
+                label="Combos"
                 className="wz-tabs-even wz-tabs-3 sm:!inline-grid sm:!w-auto"
                 value={view}
                 onChange={pickView}
@@ -666,7 +663,7 @@ export default function LooksStep() {
             <TabPanel idBase="wz-filters" value={view} className="mt-4">
             {view === 'booth' && (filters.length === 0 ? (
               <div className="rounded-[20px] bg-white/6 px-5 py-8 text-center">
-                <p className="text-[14.5px]">No filters on your booth yet.</p>
+                <p className="text-[14.5px]">No combos on your booth yet.</p>
                 <div className="mt-3 flex flex-wrap justify-center gap-2">
                   <button type="button" onClick={() => pickView('add')} className="pressable liquid-glass-raised rounded-full px-4 min-h-11 text-[14px]">Add a ready-made one</button>
                   <button type="button" onClick={() => pickView('own')} className="pressable liquid-glass-raised rounded-full px-4 min-h-11 text-[14px]">Make your own</button>
@@ -765,8 +762,8 @@ export default function LooksStep() {
               >
                 <span className="grid place-items-center h-11 w-11 rounded-full bg-white text-[#1A1740] shrink-0"><Plus className="h-5 w-5" aria-hidden /></span>
                 <span>
-                  <span className="block text-[15.5px] font-semibold">Make your own filter</span>
-                  <span className="block text-[13px] text-white/70">Combine a frame, 3D props, face paint and an effect into one tap. Starts from what’s on the preview.</span>
+                  <span className="block text-[15.5px] font-semibold">Make your own combo</span>
+                  <span className="block text-[13px] text-white/70">Combine a frame, props, face paint and an effect into one tap. Starts from what’s on the preview.</span>
                 </span>
               </button>
             ))}
@@ -774,7 +771,7 @@ export default function LooksStep() {
             </>)}
             </TabPanel>
             {note && <p role="status" className="mt-3 text-[13px] text-[#FFE1A8]">{note}</p>}
-          </StepPanel>
+          </>
   );
   const previewNode = (
     <div className="flex flex-col items-center w-full">
@@ -785,7 +782,11 @@ export default function LooksStep() {
     </div>
   );
 
-  return <StepShell panel={controls} preview={previewNode} sheetLabel={stepDef('looks').title} />;
+  return (
+    <StepShell step="looks" tabs={lookTabs} notice={notice} preview={previewNode} previewKind="stage" sheetLabel={stepDef('looks').title}>
+      {controls}
+    </StepShell>
+  );
 }
 
 /** Bundled prop names for the Launch summary. */

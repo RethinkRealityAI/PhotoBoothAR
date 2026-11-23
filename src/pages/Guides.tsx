@@ -24,7 +24,7 @@ import { applyReducedReveals, applyReveals } from '../components/landing/scrollR
 import GuideDetail from '../components/guides/GuideDetail';
 import GuideHub from '../components/guides/GuideHub';
 import { GUIDES, isGuideSlug } from '../lib/guidesContent';
-import { usePageTitle } from '../lib/usePageTitle';
+import { usePageMeta, usePageTitle } from '../lib/usePageTitle';
 
 export default function Guides() {
   const { slug } = useParams();
@@ -39,6 +39,13 @@ export default function Guides() {
     doc === null
       ? 'Guides · Beamwall'
       : `${doc.title} · Beamwall guides`,
+  );
+  // An unknown slug renders the hub, so it canonicalises to the hub.
+  usePageMeta(
+    doc === null ? '/guides' : `/guides/${doc.slug}`,
+    doc === null
+      ? 'Visual Beamwall guides for hosts: run your first event, make a frame, add 3D props and get the most out of your night.'
+      : doc.hook,
   );
 
   // Scroll choreography, matching Landing: [data-reveal] slides in,

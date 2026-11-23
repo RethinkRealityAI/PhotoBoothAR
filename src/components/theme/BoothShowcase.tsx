@@ -18,8 +18,8 @@ import { SHOWCASE_LABEL, showcaseKinds, type ShowcaseCard } from '../../lib/scen
 const SLOTS = ['bs-l1', 'bs-r1', 'bs-l2', 'bs-r2', 'bs-l3', 'bs-r3'] as const;
 
 const CAPTION: Record<ShowcaseCard['kind'], string> = {
-  filter: 'Filters',
-  prop: '3D props',
+  filter: 'Effects',
+  prop: 'Props',
   frame: 'Frames',
 };
 

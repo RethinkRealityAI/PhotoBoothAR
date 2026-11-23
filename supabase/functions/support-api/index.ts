@@ -404,8 +404,16 @@ async function createTicket(
   );
   if (!notify.sent) console.error('[support-api] operator notify failed', notify.error);
 
+  // The acknowledgement goes ONLY to a signed-in host, whose address is their
+  // verified account email (overwritten from the JWT above, never the body).
+  // A guest's reporterEmail is whatever the request typed, so acknowledging it
+  // made this endpoint an anonymous relay: any address, any subject line, under
+  // our sending domain (audit H2). The guest's ticket still lands, the operator
+  // is still notified, and an operator's reply still reaches the address they
+  // left — a human chooses to send that one. `emailed` stays false, and
+  // SupportDialog then says "We'll get back to you" instead of promising a copy.
   let emailed = false;
-  if (reporterEmail !== '') {
+  if (user !== null && (user.email ?? '').trim() !== '') {
     const ack = await sendMail(
       reporterEmail,
       `We've got your report (${ref})`,

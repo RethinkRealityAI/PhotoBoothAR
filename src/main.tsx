@@ -32,15 +32,16 @@ createRoot(document.getElementById('root')!).render(
 // admin and marketing pages reload once to pick up the new build. Guest event
 // pages are left to their own fallbacks (see shouldReloadForStaleChunk).
 // Platform builds only — the frozen legacy-event builds are untouched.
+// Route components additionally reload on guest pages (lib/lazyRoute.ts); both
+// paths share one sessionStorage cooldown, so they cannot loop each other.
 import { shouldReloadForStaleChunk } from './lib/staleChunk';
+import { markStaleReload, readLastStaleReload } from './lib/lazyRoute';
 
 if (!((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim()) {
-  const KEY = 'pbar.staleReloadAt';
   window.addEventListener('vite:preloadError', (event) => {
-    let last: number | null = null;
-    try { const v = sessionStorage.getItem(KEY); last = v === null ? null : Number(v); } catch { /* private mode */ }
-    if (!shouldReloadForStaleChunk(window.location.pathname, last, Date.now())) return; // the import throws as before
-    try { sessionStorage.setItem(KEY, String(Date.now())); } catch { /* private mode: cooldown is per load */ }
+    const now = Date.now();
+    if (!shouldReloadForStaleChunk(window.location.pathname, readLastStaleReload(), now)) return; // the import throws as before
+    markStaleReload(now);
     event.preventDefault();
     window.location.reload();
   });

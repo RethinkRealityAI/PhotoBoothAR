@@ -10,15 +10,17 @@
  * fallback for when the live engine cannot run. No gradient fills: the brand
  * keeps gradients off controls, and the live preview carries the identity.
  */
-import { Box, Square, Wand2 } from 'lucide-react';
+import { Box, Palette, Square, Wand2 } from 'lucide-react';
 import FilterThumb from './FilterThumb';
 import type { LookItem } from '../../lib/lookStrip';
-import type { DeckCategory } from '../../lib/boothDeck';
+import type { LookTab } from '../../lib/lookTerms';
 
-export const CATEGORY_ICON: Record<DeckCategory, typeof Square> = {
-  frame: Square,
-  prop: Box,
-  effect: Wand2,
+/** One icon per tab (lib/lookTerms) — chips, sheet headings, fallbacks. */
+export const TAB_ICON: Record<LookTab, typeof Square> = {
+  frames: Square,
+  props: Box,
+  paint: Palette,
+  effects: Wand2,
 };
 
 /** Fills its (relative, overflow-hidden) parent. */
@@ -47,7 +49,7 @@ export default function LookThumb({ item }: { item: LookItem }) {
       />
     );
   }
-  const Icon = CATEGORY_ICON[category];
+  const Icon = TAB_ICON[item.tab];
   return (
     <span
       className="flex h-full w-full items-center justify-center"

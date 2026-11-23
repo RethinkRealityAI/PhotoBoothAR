@@ -179,7 +179,7 @@ export default function PowerFxBuilder({ dispatch, draft, onClose, lighting = DE
   const capMessage = triggersFull
     ? `This scene already has ${MAX_TRIGGERS} magic triggers — remove one to add a blast.`
     : sceneFull
-      ? 'This scene is full — remove a sticker or 3D piece to add gear.'
+      ? 'This scene is full — remove a sticker or prop to add gear.'
       : null;
   // Any conflict resets when the host picks different gear.
   useEffect(() => { setConflict(null); }, [spec.gearId]);

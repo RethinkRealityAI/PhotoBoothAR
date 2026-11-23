@@ -18,7 +18,7 @@
  * thrown.
  */
 
-export type WizardStepId = 'basics' | 'invite' | 'booth' | 'looks' | 'powerups' | 'challenges' | 'launch';
+export type WizardStepId = 'basics' | 'invite' | 'booth' | 'looks' | 'powerups' | 'challenges' | 'keepsake' | 'launch';
 
 export interface WizardStepDef {
   id: WizardStepId;
@@ -39,6 +39,11 @@ export const WIZARD_STEPS: readonly WizardStepDef[] = [
   { id: 'powerups', label: 'Power-ups', title: 'Power-ups', blurb: 'Gestures that set off effects, and superhero gear.', optional: true },
   { id: 'challenges', label: 'Challenges', title: 'Challenges', blurb: 'Photo missions that keep the booth busy all night.', optional: true },
   { id: 'booth', label: 'Live wall', title: 'Live wall', blurb: 'Guests’ photos, live on a TV or projector at your event.', optional: false },
+  // After the night: what every guest gets the morning after. It follows the
+  // live wall because that is the order a guest lives it (scan, booth, wall,
+  // then the album), and it sits before Launch so going live is still the
+  // last thing a host does. It has working defaults, so it can be skipped.
+  { id: 'keepsake', label: 'Keepsake', title: 'Keepsake', blurb: 'The album every guest gets the morning after.', optional: true },
   { id: 'launch', label: 'Launch', title: 'Ready when you are', blurb: 'Check it over, go live and share your QR.', optional: false },
 ] as const;
 
@@ -148,7 +153,7 @@ export function progressFraction(p: WizardProgress | null): number {
  * The rail's "Your setup N%": the host's account counts as the first step
  * already done (endowed progress — a journey that starts part-way along
  * gets finished more often than one that starts at zero, and signing up IS
- * real work they did). 0 steps done = 14%, never 0%; a finished setup = 100%.
+ * real work they did). 0 steps done = 13%, never 0%; a finished setup = 100%.
  */
 export function setupPercent(p: WizardProgress | null): number {
   if (p?.completedAt) return 100;

@@ -6,11 +6,14 @@
  */
 import { useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, CloudOff, Loader2, X, type LucideIcon } from 'lucide-react';
+import {
+  ArrowLeft, ArrowRight, CalendarDays, Check, CloudOff, Gift, Image as ImageIcon, Loader2, Monitor, Rocket, Sparkles, Trophy, X, Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import { WIZARD_STEPS, setupPercent, stepDef, stepIndex, type WizardProgress, type WizardStepId } from '../../../lib/wizard/wizardModel';
 import { tabIndexForKey } from '../../../lib/wizard/tabKeys';
 import type { SaveState } from './wizardContext';
-import PreviewSheet, { useIsDesktop } from './PreviewSheet';
+import StageCard, { StepBar, type PreviewKind } from './StageCard';
 
 /* ── Chrome shared by create mode and setup mode ───────────────────── */
 
@@ -33,84 +36,87 @@ function SaveChip({ state }: { state: SaveState }) {
   );
 }
 
+/** Each stage's icon in the card's stage bar. */
+export const STEP_ICON: Record<WizardStepId, LucideIcon> = {
+  basics: CalendarDays,
+  invite: ImageIcon,
+  looks: Sparkles,
+  powerups: Zap,
+  challenges: Trophy,
+  booth: Monitor,
+  keepsake: Gift,
+  launch: Rocket,
+};
+
+/**
+ * The stage bar across the top of every step's card (desktop): numbered, a
+ * tick on each finished stage, the current one lit, and the setup percentage
+ * at its end (it starts ahead: the account counts as a step already done).
+ * `reachable` false = the map only (before the event exists).
+ */
+export function StageBar({ current, progress, reachable = true, onPick }: {
+  current: WizardStepId;
+  progress: WizardProgress | null;
+  reachable?: boolean;
+  onPick: (id: WizardStepId) => void;
+}) {
+  const pct = setupPercent(progress);
+  return (
+    <div className="flex items-center gap-3">
+      <StepBar<WizardStepId>
+        idBase="wz-stage"
+        label="Setup steps"
+        className="min-w-0 flex-1"
+        mode="steps"
+        current={current}
+        showIcons="always"
+        items={WIZARD_STEPS.map((s) => ({
+          id: s.id,
+          label: s.label,
+          Icon: STEP_ICON[s.id],
+          done: progress?.done.includes(s.id) ?? false,
+          reachable: reachable || s.id === current,
+          note: s.optional ? ', optional' : undefined,
+        }))}
+        onPick={(id) => onPick(id)}
+      />
+      <p className="shrink-0 text-[12px] font-medium text-white/70" aria-label={`Your setup is ${pct}% done`}>
+        <span aria-hidden>{pct}%</span>
+      </p>
+    </div>
+  );
+}
+
+/** Phone: where am I, and how far to go (the card's stage bar is desktop-only). */
 export function Rail({ current, progress, canVisit, onPick }: {
   current: WizardStepId;
   progress: WizardProgress | null;
   canVisit: boolean;
   onPick: (id: WizardStepId) => void;
 }) {
-  // Starts ahead: the account is shown as the first step already done.
-  const pct = setupPercent(progress);
   return (
-    <>
-      {/* Desktop: the whole journey, always visible. */}
-      <nav aria-label="Setup steps" className="hidden lg:block">
-        <div className="sticky top-[76px]"><div className="liquid-glass rounded-[24px] p-2">
-          <div className="px-2.5 pt-2 pb-2.5">
-            <div className="flex items-baseline justify-between">
-              <p className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-white/60">Your setup</p>
-              <p className="text-[11.5px] text-white/60">{pct}%</p>
-            </div>
-            <div className="mt-1.5 h-1 rounded-full bg-white/15 overflow-hidden" aria-hidden>
-              <div className="h-full rounded-full bg-white transition-[width] duration-500" style={{ width: `${pct}%` }} />
-            </div>
-          </div>
-          <ol className="flex flex-col gap-0.5">
-            <li>
-              <div className="wz-rail-step wz-rail-static">
-                <span className="wz-rail-dot is-done" aria-hidden><Check className="h-4 w-4" strokeWidth={3} /></span>
-                <span className="flex-1 min-w-0 truncate">Account created</span>
-                <span className="sr-only"> (done)</span>
-              </div>
-            </li>
-            {WIZARD_STEPS.map((s, i) => {
-              const done = progress?.done.includes(s.id) ?? false;
-              return (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    className="wz-rail-step"
-                    aria-current={s.id === current ? 'step' : undefined}
-                    disabled={!canVisit && s.id !== current}
-                    onClick={() => onPick(s.id)}
-                  >
-                    <span className={`wz-rail-dot ${done && s.id !== current ? 'is-done' : ''}`} aria-hidden>
-                      {done && s.id !== current ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
-                    </span>
-                    <span className="flex-1 min-w-0 truncate">{s.label}</span>
-                    {s.optional && <span className="text-[10.5px] text-white/45">Optional</span>}
-                    <span className="sr-only">{done ? ' (done)' : ''}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </div></div>
-      </nav>
-      {/* Phone: where am I, and how far to go. */}
-      <div className="lg:hidden">
-        <div className="flex items-center gap-1.5" aria-hidden>
-          {/* The account: a step already done, so the bar never starts empty. */}
-          <span className="h-1.5 flex-1 rounded-full bg-[#5FD9A8]" />
-          {WIZARD_STEPS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              tabIndex={-1}
-              disabled={!canVisit}
-              onClick={() => onPick(s.id)}
-              className={`h-1.5 flex-1 rounded-full transition-colors ${
-                s.id === current ? 'bg-white' : progress?.done.includes(s.id) ? 'bg-[#5FD9A8]' : 'bg-white/18'
-              }`}
-            />
-          ))}
-        </div>
-        <p className="mt-2 text-[12.5px] text-white/70">
-          Step {stepIndex(current) + 1} of {WIZARD_STEPS.length} · {stepDef(current).label}
-          {stepDef(current).optional ? ' · optional' : ''}
-        </p>
+    <div className="lg:hidden">
+      <div className="flex items-center gap-1.5" aria-hidden>
+        {/* The account: a step already done, so the bar never starts empty. */}
+        <span className="h-1.5 flex-1 rounded-full bg-[#5FD9A8]" />
+        {WIZARD_STEPS.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            tabIndex={-1}
+            disabled={!canVisit}
+            onClick={() => onPick(s.id)}
+            className={`h-1.5 flex-1 rounded-full transition-colors ${
+              s.id === current ? 'bg-white' : progress?.done.includes(s.id) ? 'bg-[#5FD9A8]' : 'bg-white/18'
+            }`}
+          />
+        ))}
       </div>
-    </>
+      <p className="mt-2 text-[12.5px] text-white/70">
+        Step {stepIndex(current) + 1} of {WIZARD_STEPS.length} · {stepDef(current).label}
+        {stepDef(current).optional ? ' · optional' : ''}
+      </p>
+    </div>
   );
 }
 
@@ -144,9 +150,9 @@ export function WizardFrame({ eventName, saveState, rail, footer, children }: {
           </div>
         </div>
       </header>
-      {/* Desktop: one row that fills the screen, so a step's panel and
-          preview take the whole height between the header and the footer. */}
-      <div className="flex-1 mx-auto w-full max-w-[1560px] px-4 lg:px-6 lg:grid lg:grid-cols-[196px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] lg:gap-6 xl:gap-7 pb-6 lg:pb-4 lg:pt-1">
+      {/* Desktop: the step's ONE card fills the screen between the header
+          and the footer (its stage bar replaces the old side rail). */}
+      <div className="flex-1 mx-auto w-full max-w-[1560px] px-4 lg:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] pb-6 lg:pb-4 lg:pt-1">
         {rail}
         <main className="min-w-0 mt-4 lg:mt-0">{children}</main>
       </div>
@@ -294,78 +300,55 @@ export function TabPanel<T extends string>({ idBase, value, className, children 
   );
 }
 
-/* ── The step shell: ONE panel and its preview ─────────────────────── */
+/* ── The step shell: ONE card, its stages and its preview ─────────── */
 
 /**
- * The step's single glass panel: a compact title row, an optional tab row,
- * then the body. On desktop it fills the room between the header and the
- * footer and only its body scrolls; inside the phone drawer it is plain.
+ * A wizard step's card (StageCard): the stage bar on top (from the wizard),
+ * a compact title row, an optional bar of tabs or sub-steps, the options,
+ * an optional Back / Next row, and the live preview embedded beside them.
+ * Phones: the preview on top with the options in the drag-up drawer
+ * (`sheet`), or the card then the preview (`stack`).
+ *
+ *   phone  a portrait phone preview      stage  the 3D try-on stage (wider)
+ *   wide   the live wall (the larger half)
  */
-export function StepPanel({ step, hint, aside, headExtra, tabs, notice, children, label }: {
+export function StepShell({
+  step, hint, aside, headExtra, tabs, notice, nav, label, children, preview, previewKind = 'phone', mobile = 'sheet', sheetLabel,
+}: {
   step: WizardStepId;
   hint?: ReactNode;
   /** A line under the title row (e.g. the assistant link on Basics). */
   headExtra?: ReactNode;
   aside?: ReactNode;
+  /** Tabs or the sub-step bar, under the title row. */
   tabs?: ReactNode;
-  /** An alert shown above the body (a failed load…). */
+  /** An alert shown above the options (a failed load…). */
   notice?: ReactNode;
-  /** The panel's accessible name when it is not the step title. */
+  /** Back / Next for guided sub-steps. */
+  nav?: ReactNode;
+  /** The card's accessible name when it is not the step title. */
   label?: string;
   children: ReactNode;
-}) {
-  return (
-    <section
-      className="wz-panel liquid-glass rounded-[28px] wz-enter"
-      aria-labelledby={label ? undefined : `wz-h-${step}`}
-      aria-label={label}
-    >
-      <div className="wz-panel-head">
-        <StepHeading step={step} hint={hint} aside={aside}>{headExtra}</StepHeading>
-      </div>
-      {tabs && <div className="wz-panel-tabs">{tabs}</div>}
-      <div className="wz-panel-body">
-        {notice}
-        {children}
-      </div>
-    </section>
-  );
-}
-
-/**
- * Lays a step out. Desktop: the panel (same size on every step) beside a
- * preview column sized from the height available, so the phone is as big as
- * the screen allows and the page never scrolls. Phone: the drawer over a
- * pinned preview (`sheet`), or the panel then the preview (`stack`).
- *
- *   phone  a portrait preview (phone or try-on stage) in a column fitted to it
- *   wide   a landscape preview (the live wall) that takes the wider half
- */
-export function StepShell({ panel, preview, previewKind = 'phone', mobile = 'sheet', sheetLabel }: {
-  panel: ReactNode;
   preview: ReactNode;
-  previewKind?: 'phone' | 'wide';
+  previewKind?: PreviewKind;
   mobile?: 'sheet' | 'stack';
   /** The phone drawer's title. */
   sheetLabel: string;
 }) {
-  const desktop = useIsDesktop();
-  if (!desktop) {
-    if (mobile === 'sheet') return <PreviewSheet label={sheetLabel} preview={preview}>{panel}</PreviewSheet>;
-    return (
-      <div className="grid grid-cols-1 gap-6">
-        {panel}
-        <div className="wz-enter flex flex-col items-center gap-3" style={{ animationDelay: '80ms' }}>{preview}</div>
-      </div>
-    );
-  }
   return (
-    <div className="wz-shell">
-      <div className="wz-shell-grid" data-preview={previewKind}>
-        <div className="wz-shell-panel">{panel}</div>
-        <div className="wz-shell-preview wz-enter" style={{ animationDelay: '80ms' }}>{preview}</div>
-      </div>
-    </div>
+    <StageCard
+      label={label}
+      labelledBy={label ? undefined : `wz-h-${step}`}
+      head={<StepHeading step={step} hint={hint} aside={aside}>{headExtra}</StepHeading>}
+      bar={tabs}
+      nav={nav}
+      preview={preview}
+      previewKind={previewKind}
+      phone={mobile}
+      sheetLabel={sheetLabel}
+    >
+      {notice}
+      {children}
+    </StageCard>
   );
 }
-
