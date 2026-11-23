@@ -1796,7 +1796,8 @@ export default function BeamyPage() {
 
   /* ── Try it ────────────────────────────────────────────────────────── */
   const tryWall = (
-    <div ref={tryWallRef} className="bw-wall-mount" style={{ ['--wall-yaw' as string]: phone ? '0deg' : '-6deg' }}>
+    // Flat, no pointer tilt: angled, this wall read as squished (owner, 2026-11-23).
+    <div ref={tryWallRef} className="bw-wall-mount" style={{ transform: 'none' }}>
       <LiveWall pool={PHOTO_POOL} pins={shotPins} dim={false} compact={phone} centreRef={tryTileRef} ripple={0} seed={seed + 7} />
     </div>
   );
@@ -1828,7 +1829,7 @@ export default function BeamyPage() {
             <div data-slot="try" data-max="340" aria-hidden className="relative h-[80%] min-h-0 w-full" />
           </div>
           <div className="bw-in flex min-h-0 items-center" style={i(1)}>
-            <div style={{ width: 'min(440px, 32vw)' }}>{tryWall}</div>
+            <div style={{ width: 'min(506px, 37vw)' }}>{tryWall}</div>
           </div>
         </div>
       )}
