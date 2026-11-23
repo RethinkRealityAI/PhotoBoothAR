@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEMO_KITS, DEMO_KIT_IDS, FRAME_THEMES, demoKit, tryPath } from './demoKits';
 import { SHADER_MAP } from './shaders';
-import { HEAD_PIECE_MAP } from './headPieces';
+import { BUNDLED_PROP_MAP } from './studio/bundledProps';
 
 const pub = (p: string) => resolve(__dirname, '../../public', p.replace(/^\//, ''));
 
@@ -17,10 +17,17 @@ describe('demo kits', () => {
     }
   });
 
-  it('every effect and prop is a real built-in', () => {
+  it('every effect is a real built-in and every prop an offered HD bundled prop', () => {
     for (const k of Object.values(DEMO_KITS)) {
       for (const e of k.effects) expect(SHADER_MAP[e.id], `${k.id}:${e.id}`).toBeDefined();
-      for (const p of k.props) expect(HEAD_PIECE_MAP[p.id], `${k.id}:${p.id}`).toBeDefined();
+      for (const p of k.props) {
+        const prop = BUNDLED_PROP_MAP[p.id];
+        expect(prop, `${k.id}:${p.id}`).toBeDefined();
+        // Prospects judge us on these booths: never a retired piece.
+        expect(prop.retired, `${k.id}:${p.id} is retired`).toBeUndefined();
+        expect(p.thumb, `${k.id}:${p.id}`).toBe(prop.thumb);
+        expect(existsSync(pub(p.thumb as string)), p.thumb).toBe(true);
+      }
       expect(k.frames.length).toBeGreaterThan(0);
     }
   });

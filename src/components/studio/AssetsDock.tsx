@@ -41,7 +41,7 @@ import { ArrowRight, Boxes, Check, ChevronDown, ChevronRight, Crown, Eye, FileSt
 import { FILTER_SHADERS, SHADER_MAP, defaultParams } from '../../lib/shaders';
 import { BUILTIN_BORDERS, toDataUrl } from '../../lib/borders';
 import { HEAD_PIECES, HEAD_PIECE_MAP } from '../../lib/headPieces';
-import { BUNDLED_PROPS, propAnchorConfig, supersededPieceIds } from '../../lib/studio/bundledProps';
+import { offeredBundledProps, propAnchorConfig, supersededPieceIds } from '../../lib/studio/bundledProps';
 import { uploadAsset, listAssetsResult, fetchExperiencesResult } from '../../lib/db';
 import { captureGlbThumbnail, measureGlbFitScale, useGlbThumb } from '../../lib/studio/glbThumb';
 import type { LightingPresetId } from '../../lib/studio/lighting';
@@ -783,7 +783,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
    * three times too large (measured against the tracked face).
    */
   const bundledPropTiles = useCallback((): Tile[] =>
-    BUNDLED_PROPS.filter((p) => matchQuery(p.name)).map((p) => {
+    offeredBundledProps().filter((p) => matchQuery(p.name)).map((p) => {
       const key = `bundled:${p.id}`;
       const drag: DragPayload = { target: 'model', label: p.name, previewUrl: p.thumb, assetUrl: p.url };
       return {
@@ -895,12 +895,12 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
     [q, placedRefs, pendingKey, dispatch, guardSlotAdd], // eslint-disable-line react-hooks/exhaustive-deps -- matchQuery closes over q
   );
 
-  // A procedural piece a bundled GLB has replaced is not offered here any more:
-  // two identically-named tiles ("Royal Crown" twice) gave the host no way to
-  // pick the good one. Shelf-only — the piece still renders in every scene that
-  // already references it.
+  // A procedural piece a bundled GLB has replaced, or one retired below the
+  // quality bar, is not offered here any more: two identically-named tiles
+  // ("Royal Crown" twice) gave the host no way to pick the good one. Shelf-only
+  // — the piece still renders in every scene that already references it.
   const headPieceTiles = useCallback((): Tile[] =>
-    HEAD_PIECES.filter((p) => !supersededPieceIds().has(p.id) && matchQuery(p.name)).map((p) => {
+    HEAD_PIECES.filter((p) => p.retired !== true && !supersededPieceIds().has(p.id) && matchQuery(p.name)).map((p) => {
       const key = `piece:${p.id}`;
       return {
         key,

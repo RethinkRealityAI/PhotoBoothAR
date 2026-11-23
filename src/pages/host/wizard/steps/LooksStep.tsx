@@ -320,10 +320,11 @@ export default function LooksStep() {
     setData(d);
     const p = currentPicks(evRef.current, d);
     setPicks(p);
-    // Start the stage the way a guest would see it: a frame, a hat, shades.
+    // Start the stage the way a guest would see it: a frame and a crown (the
+    // neon shades that used to sit beside it were retired 2026-11-23).
     const cat = buildLookCatalog(d.library, d.categoryNames);
     const frame = cat.frames.find((l) => isPicked(p, l)) ?? cat.frames[0] ?? null;
-    const props = ['prop-royal-crown', 'prop-neon-shades']
+    const props = ['prop-royal-crown']
       .map((id) => cat.props.find((l) => l.source === 'classic' && l.ref === id))
       .filter((l): l is WizardLook => l !== undefined);
     setStage({ kind: 'pick', tryOn: { ...NO_TRY_ON, frame, props } });

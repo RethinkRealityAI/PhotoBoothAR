@@ -67,6 +67,13 @@ export interface BundledProp {
   occlude?: true;
   /** Shelf grouping for seasonal sets (e.g. 'christmas'); absent = evergreen. */
   collection?: 'christmas';
+  /**
+   * Below the quality bar for anything a host or prospect is OFFERED (2026-11-23
+   * showcase cleanup: thin wire tiara, plain ring, neon shutter shades). Kept in
+   * this list so every saved scene and live event that already uses it still
+   * renders; only the pick-lists (offeredBundledProps) and showcases drop it.
+   */
+  retired?: true;
 }
 
 export const BUNDLED_PROPS: readonly BundledProp[] = [
@@ -81,9 +88,13 @@ export const BUNDLED_PROPS: readonly BundledProp[] = [
     rotation: [0, 0, 0],
     scale: 5.5,
     supersedes: 'royal-crown',
+    // Its back band sits behind the head: without the occluder the far inside
+    // of the crown shows through the forehead (seen on the /try demo).
+    occlude: true,
   },
   {
     id: 'prop-queens-tiara',
+    retired: true,
     name: "Queen's Tiara",
     url: '/models/props/queens-tiara.glb',
     thumb: '/models/props/queens-tiara.webp',
@@ -96,6 +107,7 @@ export const BUNDLED_PROPS: readonly BundledProp[] = [
   },
   {
     id: 'prop-halo-ring',
+    retired: true,
     name: 'Halo Ring',
     url: '/models/props/halo-ring.glb',
     thumb: '/models/props/halo-ring.webp',
@@ -108,6 +120,7 @@ export const BUNDLED_PROPS: readonly BundledProp[] = [
   },
   {
     id: 'prop-neon-shades',
+    retired: true,
     name: 'Neon Shades',
     url: '/models/props/neon-shades.glb',
     thumb: '/models/props/neon-shades.webp',
@@ -249,6 +262,16 @@ export const BUNDLED_PROPS: readonly BundledProp[] = [
 export const BUNDLED_PROP_MAP: Record<string, BundledProp> = Object.fromEntries(
   BUNDLED_PROPS.map((p) => [p.id, p]),
 );
+
+/** The props a host may pick: everything except the retired ones. */
+export function offeredBundledProps(): BundledProp[] {
+  return BUNDLED_PROPS.filter((p) => p.retired !== true);
+}
+
+/** True for a prop that still renders but is no longer offered anywhere. */
+export function isRetiredProp(id: string): boolean {
+  return BUNDLED_PROP_MAP[id]?.retired === true;
+}
 
 /** Every bundled prop GLB, for cache warming. */
 export function bundledPropUrls(): string[] {

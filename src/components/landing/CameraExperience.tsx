@@ -23,14 +23,14 @@
 import {
   useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode,
 } from 'react';
-import { Ban, Crown, Glasses, Sparkles, X } from 'lucide-react';
+import { Ban, Sparkles, X } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
 import StageCanvas, { type StageCanvasHandle } from '../booth/StageCanvas';
 import Overlay3D from '../booth/Overlay3D';
 import { dataUrlToBlob } from '../booth/capture';
 import { toDataUrl } from '../../lib/borders';
 import { SHADER_MAP } from '../../lib/shaders';
-import { HEAD_PIECE_MAP } from '../../lib/headPieces';
+import { BUNDLED_PROP_MAP, propAnchorConfig } from '../../lib/studio/bundledProps';
 import {
   getActiveFaceEngineInfo, initFaceEngine, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
 } from '../../lib/faceEngine';
@@ -98,10 +98,12 @@ const FILTERS: Choice[] = [
   { id: 'aurora-lumina', name: 'Aurora', hue: '#34D399' },
   { id: 'neon-pulse', name: 'Neon', hue: '#E879F9' },
 ];
+// HD bundled props only (studio/bundledProps): this camera IS the homepage
+// and pitch-deck demo, so it never offers a procedural or retired piece.
 const PROPS: Choice[] = [
-  { id: 'neon-shades', name: 'Shades', hue: '#7C6CF7' },
-  { id: 'queen-tiara', name: 'Tiara', hue: '#38BDF8' },
-  { id: 'cheek-stars', name: 'Sparkle', hue: '#FB923C' },
+  { id: 'prop-royal-crown', name: 'Crown', hue: '#D4AF37', thumb: '/models/props/royal-crown.webp' },
+  { id: 'prop-snowflake-tiara', name: 'Tiara', hue: '#C8D7EA', thumb: '/models/props/snowflake-tiara.webp' },
+  { id: 'prop-reindeer-antlers', name: 'Antlers', hue: '#B45309', thumb: '/models/props/reindeer-antlers.webp' },
 ];
 
 const CATEGORIES: { key: Category; label: string; options: Choice[] }[] = [
@@ -120,13 +122,6 @@ const FRAME_URLS: Record<string, string> = Object.fromEntries(
 export function lookFrameUrl(look: string | null): string | null {
   return look === null ? FRAME_URLS.beam ?? null : demoKit(look).frames[0]?.src ?? null;
 }
-
-const PROP_ICONS: Record<string, typeof Glasses> = {
-  'neon-shades': Glasses,
-  'queen-tiara': Crown,
-  'royal-crown': Crown,
-  'cheek-stars': Sparkles,
-};
 
 /* ── In-camera orb (FilterOrbs idiom, beam-branded + phone-scaled) ────── */
 
@@ -190,8 +185,10 @@ function OrbThumb({ category, choice }: { category: Category; choice: Choice }) 
       </span>
     );
   }
-  const Icon = PROP_ICONS[choice.id] ?? Sparkles;
-  return <Icon className="h-5 w-5" style={{ color: choice.hue }} />;
+  if (choice.thumb !== undefined) {
+    return <img src={choice.thumb} alt="" draggable={false} className="h-full w-full object-cover" />;
+  }
+  return <Sparkles className="h-5 w-5" style={{ color: choice.hue }} />;
 }
 
 /* ── Component ────────────────────────────────────────────────────────── */
@@ -419,7 +416,13 @@ export default function CameraExperience({
     setShot(null); // the host takes over the ceremony
   }, [shot, onBeam]);
 
-  const anchor = propId !== null ? HEAD_PIECE_MAP[propId]?.config : null;
+  const prop = propId !== null ? BUNDLED_PROP_MAP[propId] ?? null : null;
+  // v1 placement, exactly as the props were tuned against the tracked face.
+  const anchor = useMemo(() => (prop !== null ? { anchor: prop.anchor, ...propAnchorConfig(prop) } : null), [prop]);
+  const propPieces = useMemo(
+    () => (prop !== null && anchor !== null ? [{ assetUrl: prop.url, anchor, finish: prop.finish, occlude: prop.occlude === true }] : null),
+    [prop, anchor],
+  );
   // Curated demo effects are real built-ins; fall back to none if renamed.
   const activeEffect = effectId !== null && SHADER_MAP[effectId] ? effectId : 'none';
   const selectedOf: Record<Category, string | null> = { frame: frameId, effect: effectId, prop: propId };
@@ -490,10 +493,10 @@ export default function CameraExperience({
                 </span>
               </div>
             )}
-            {propId !== null && anchor && (
+            {anchor !== null && propPieces !== null && (
               // composited: StageCanvas draws this canvas (threeCanvasId below),
               // so the live copy is hidden — 3D drawn once, in photo order.
-              <Overlay3D proceduralId={propId} anchor={anchor} videoId={videoId} mirror={mirror} composited />
+              <Overlay3D pieces={propPieces} anchor={anchor} videoId={videoId} mirror={mirror} composited />
             )}
             <StageCanvas
               ref={stageRef}
