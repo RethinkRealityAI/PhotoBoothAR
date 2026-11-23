@@ -50,10 +50,12 @@ export interface Audience {
 }
 
 const crown: BeamyProp = { url: '/models/props/royal-crown.glb', name: 'Royal crown' };
-const tiara: BeamyProp = { url: '/models/props/queens-tiara.glb', name: 'Tiara' };
+// HD pieces only (2026-11-23 showcase cleanup retired the wire tiara, the
+// plain halo ring and the neon shutter shades from everything public).
+const tiara: BeamyProp = { url: '/models/props/snowflake-tiara.glb', name: 'Tiara' };
 const santa: BeamyProp = { url: '/models/props/santa-hat.glb', name: 'Santa hat' };
-const halo: BeamyProp = { url: '/models/props/halo-ring.glb', name: 'Halo' };
-const shades: BeamyProp = { url: '/models/props/neon-shades.glb', name: 'Neon shades' };
+const halo: BeamyProp = { url: '/models/props/top-hat.glb', name: 'Top hat' };
+const shades: BeamyProp = { url: '/models/props/aviator-glasses.glb', name: 'Aviators' };
 
 export const AUDIENCES: Audience[] = [
   {

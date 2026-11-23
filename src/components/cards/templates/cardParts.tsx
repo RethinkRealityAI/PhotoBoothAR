@@ -38,6 +38,7 @@ import {
   uniqueContributors,
 } from '../../../lib/cardTemplates';
 import { cardMonogram } from '../../../lib/cardPresentation';
+import { useSkinFrameStyle } from '../designSkin';
 import { ShimmerRim } from './cardChrome';
 
 /* ------------------------------------------------------------------ */
@@ -173,11 +174,14 @@ export function CardVideo({
   className = '',
   fit = 'cover',
   compact = false,
+  style,
 }: {
   c: CardViewContribution;
   className?: string;
   fit?: 'cover' | 'contain';
   compact?: boolean;
+  /** Frame overrides (a card design's photo shape). */
+  style?: React.CSSProperties;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [state, setState] = useState<'idle' | 'playing' | 'paused' | 'ended'>('idle');
@@ -216,7 +220,7 @@ export function CardVideo({
   const big = compact ? 56 : 72;
 
   return (
-    <div className={`relative overflow-hidden ${className}`}>
+    <div className={`relative overflow-hidden ${className}`} style={style}>
       {/* Designed poster under the video: shows until a frame decodes. */}
       <div
         className="absolute inset-0 flex flex-col items-center justify-end gap-1 pb-5 text-center"
@@ -315,15 +319,18 @@ export function CardPhoto({
   reducedMotion,
   className = '',
   imgClassName = '',
+  style,
 }: {
   c: CardViewContribution;
   reducedMotion: boolean;
   className?: string;
   imgClassName?: string;
+  /** Frame overrides (a card design's photo shape). */
+  style?: React.CSSProperties;
 }) {
   if (!c.url) return null;
   return (
-    <div className={`relative overflow-hidden ${className}`}>
+    <div className={`relative overflow-hidden ${className}`} style={style}>
       <motion.img
         src={c.url}
         alt={c.contributorName ? `Photo from ${c.contributorName}` : 'Photo'}
@@ -349,9 +356,11 @@ export function ContributionMedia({
   reducedMotion: boolean;
   className?: string;
 }) {
+  // A card design reshapes the frame (arch, oval, deco mat… lib/designSkins.ts).
+  const skinStyle = useSkinFrameStyle();
   const frame = `rounded-[1.4rem] shadow-[0_22px_50px_-18px_rgba(10,8,40,0.75),0_0_0_1px_rgba(255,255,255,0.14)] ${className}`;
-  if (c.mediaType === 'photo') return <CardPhoto c={c} reducedMotion={reducedMotion} className={frame} />;
-  if (c.mediaType === 'video') return <CardVideo c={c} className={frame} />;
+  if (c.mediaType === 'photo') return <CardPhoto c={c} reducedMotion={reducedMotion} className={frame} style={skinStyle} />;
+  if (c.mediaType === 'video') return <CardVideo c={c} className={frame} style={skinStyle} />;
   return null;
 }
 
@@ -1047,7 +1056,7 @@ export function Pager({
   className?: string;
 }) {
   return (
-    <nav className={`flex items-center justify-center gap-4 ${className}`} aria-label="Card pages">
+    <nav className={`relative z-20 flex items-center justify-center gap-4 ${className}`} aria-label="Card pages">
       {onPrev && <GlassArrow dir="prev" onClick={onPrev} disabled={page === 0} label={`Previous ${noun}`} />}
       {total <= 12 ? (
         <div className="flex items-center gap-1.5" aria-label={`${noun} ${page + 1} of ${total}`} role="img">

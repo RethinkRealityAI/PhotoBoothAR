@@ -191,12 +191,13 @@ export const STORY_COPY = {
 /**
  * When and how guests get their keepsake: the ONE place this promise lives,
  * so the owner's final wording is a one-line swap. Kept honest to what ships:
- * sending is a host button after the event (send-keepsakes), not a timed job,
- * so nothing here names a day or says it sends itself.
+ * the keepsake autopilot (send-keepsakes `due`/`finish` + the hourly film job)
+ * emails every opted-in guest their album the morning after, and only PAID
+ * events get the film, so the line says both (owner-approved 2026-11-21).
  */
 export const KEEPSAKE_PROMISE = {
   /** The How it works step body (80 chars max, no dashes). */
-  step: 'Guests get their keepsake film after the event, a link they can keep and share.',
+  step: 'Next morning, guests get a digital album by email, and a film on paid plans.',
   /** What Beamy says over the keepsake film (his speech bubble on its tab). */
   beamy: 'Aww, I’m keeping this one forever.',
 } as const;

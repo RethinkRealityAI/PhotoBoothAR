@@ -19,7 +19,7 @@
 import { useState } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { Plus, Sparkles } from 'lucide-react';
-import { STARTER_SCENES, buildStarterDraft, starterPropUrl } from '../../lib/studio/starterScenes';
+import { buildStarterDraft, offeredStarterScenes, starterPropUrl } from '../../lib/studio/starterScenes';
 import { preloadModel } from '../../lib/glbCache';
 import type { StudioDraft } from '../../lib/studio/state';
 
@@ -88,7 +88,7 @@ export default function StarterGallery({ onPick, onOpenAssets }: Props) {
             scrolling on a phone-sized stage. The build-your-own tile fills the
             last row's remaining span, so the grid closes as a rectangle. */}
         <div className="grid grid-cols-3 gap-2">
-          {STARTER_SCENES.map((s, i) => {
+          {offeredStarterScenes().map((s, i) => {
             const draft = buildStarterDraft(s.id);
             // A preset whose assets somehow did not resolve is hidden rather
             // than offered as a card that loads an empty scene.

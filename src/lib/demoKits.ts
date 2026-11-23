@@ -5,7 +5,9 @@
  * Themed "try it" kits for the sales decks' live demo (/try/:kit). Each kit is
  * a curated set of real platform assets: 2D frames from the public guide pack
  * (public/guides/frames, transparent 1080×1920), built-in shader effects and
- * procedural 3D head pieces. Pure data, so a test can check every id resolves.
+ * the HD bundled 3D props (studio/bundledProps — never a procedural piece or
+ * a retired prop: these booths are what prospects judge us on). Pure data, so
+ * a test can check every id resolves.
  *
  * Nothing a prospect captures in a kit leaves their device: the demo never
  * posts, uploads or stores a photo.
@@ -26,6 +28,8 @@ export interface DemoKitChoice {
   id: string;
   name: string;
   hue: string;
+  /** Small preview for the orb (props: the model's own product shot). */
+  thumb?: string;
 }
 
 export interface DemoKit {
@@ -37,9 +41,17 @@ export interface DemoKit {
   frames: DemoKitFrame[];
   /** SHADER_MAP ids. */
   effects: DemoKitChoice[];
-  /** HEAD_PIECE_MAP ids. */
+  /** BUNDLED_PROP_MAP ids (studio/bundledProps). */
   props: DemoKitChoice[];
 }
+
+/** A bundled HD prop as an orb choice; its product shot is the orb thumb. */
+const P = (id: string, name: string, hue: string): DemoKitChoice => ({
+  id: `prop-${id}`,
+  name,
+  hue,
+  thumb: `/models/props/${id}.webp`,
+});
 
 const F = (id: string, name: string, hue: string): DemoKitFrame => ({
   id,
@@ -66,9 +78,8 @@ export const DEMO_KITS: Record<string, DemoKit> = {
       { id: 'velvet-film', name: 'Film', hue: '#E879F9' },
     ],
     props: [
-      { id: 'queen-tiara', name: 'Tiara', hue: '#38BDF8' },
-      { id: 'royal-crown', name: 'Crown', hue: '#D4AF37' },
-      { id: 'cheek-stars', name: 'Sparkle', hue: '#FB923C' },
+      P('snowflake-tiara', 'Tiara', '#C8D7EA'),
+      P('royal-crown', 'Crown', '#D4AF37'),
     ],
   },
   christmas: {
@@ -87,9 +98,9 @@ export const DEMO_KITS: Record<string, DemoKit> = {
       { id: 'aurora-lumina', name: 'Aurora', hue: '#34D399' },
     ],
     props: [
-      { id: 'royal-crown', name: 'Crown', hue: '#D4AF37' },
-      { id: 'neon-shades', name: 'Shades', hue: '#7C6CF7' },
-      { id: 'cheek-stars', name: 'Sparkle', hue: '#FB923C' },
+      P('santa-hat', 'Santa', '#D7142F'),
+      P('reindeer-antlers', 'Antlers', '#B45309'),
+      P('elf-hat', 'Elf', '#1F6B34'),
     ],
   },
   party: {
@@ -108,9 +119,8 @@ export const DEMO_KITS: Record<string, DemoKit> = {
       { id: 'laser-sparkle', name: 'Laser', hue: '#22D3EE' },
     ],
     props: [
-      { id: 'neon-shades', name: 'Shades', hue: '#7C6CF7' },
-      { id: 'royal-crown', name: 'Crown', hue: '#D4AF37' },
-      { id: 'cheek-stars', name: 'Sparkle', hue: '#FB923C' },
+      P('royal-crown', 'Crown', '#D4AF37'),
+      P('snowflake-tiara', 'Tiara', '#C8D7EA'),
     ],
   },
 };

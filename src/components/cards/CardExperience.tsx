@@ -20,11 +20,12 @@
  * the same on /c (no EventProvider) and inside the host studio's platform
  * chrome (where :root belongs to the studio and must not be repainted).
  */
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type UIEvent } from 'react';
 import { ChevronDown, Play, RotateCcw } from 'lucide-react';
 import type { CardViewContribution, CardViewData } from '../../lib/cards';
 import {
   cardPalette,
+  effectiveReveal, firstReadingPage,
   normalizeCardPresentation,
   playableReveal,
   resolveCardLook,
@@ -37,6 +38,14 @@ import { clampIndex } from './templates/types';
 import { revealComponent } from './reveals/registry';
 import { REVEAL_HANDOFF_MS } from './reveals/types';
 import { hasWebGL } from '../carousel/PhotoCarousel';
+import { cardDesign, designAssets, designCssVars } from '../../lib/cardDesigns';
+import SceneBackdrop from './scenes/SceneBackdrop';
+import { MidPair } from './scenes/sceneParts';
+import { designSkin } from '../../lib/designSkins';
+import { DesignSkinContext } from './designSkin';
+
+/** A design's opening is its own lazy chunk, like every other reveal. */
+const SceneOpener = lazy(() => import('./scenes/SceneOpener'));
 
 type Phase = 'reveal' | 'handoff' | 'card';
 
@@ -44,6 +53,19 @@ type Phase = 'reveal' | 'handoff' | 'card';
  *  inside REVEAL_HANDOFF_MS, so the two never cross at full strength. */
 const REVEAL_FADE_MS = 300;
 const REVEAL_CARD_DELAY_MS = 220;
+
+/**
+ * A design's scene hands over more slowly: its last frame IS the backdrop the
+ * card sits on, so the opener dissolves into it while the card rises in from
+ * just below. The card is mounted (hidden) under the opener from the start,
+ * so nothing loads or lays out during the hand-off — that load was the stutter.
+ */
+const SCENE_HANDOFF_MS = 1250;
+const SCENE_FADE_MS = 800;
+const SCENE_CARD_DELAY_MS = 160;
+const SCENE_RISE_MS = 1050;
+/** A long, soft settle (easeOutExpo-like): fast start, no visible stop. */
+const SETTLE = 'cubic-bezier(0.16, 1, 0.3, 1)';
 
 export interface CardExperienceProps {
   card: CardViewData;
@@ -125,47 +147,77 @@ export default function CardExperience({
 }: CardExperienceProps) {
   const presentation = normalizeCardPresentation(card.presentation);
   const theme = useMemo(() => normalizeCardTheme(card.theme), [card.theme]);
+  // An illustrated design brings its own opening and colours (lib/cardDesigns.ts).
+  const designChoice = overrides?.design ?? presentation.design;
+  const design = designChoice === 'none' ? null : cardDesign(designChoice);
+  const opening = effectiveReveal(overrides?.reveal ?? presentation.reveal, designChoice);
   const look = resolveCardLook(overrides?.look ?? presentation.look, theme?.vars);
-  const palette = cardPalette(look, theme?.vars);
-  const revealId = playableReveal(overrides?.reveal ?? presentation.reveal, hasWebGL());
-  const Reveal = revealComponent(revealId);
+  const palette = design
+    ? { bg: design.palette.bg, fg: design.palette.fg, accent: design.palette.accent, accentRgb: design.palette.accentRgb }
+    : cardPalette(look, theme?.vars);
+  const revealId = opening === 'scene' ? 'scene' : playableReveal(opening, hasWebGL());
+  const Reveal = revealId === 'scene' ? null : revealComponent(revealId);
+  const hasOpening = revealId === 'scene' || Reveal !== null;
+  /** Identity of the opening: a change (host flipping options) restarts it. */
+  const openingKey = revealId === 'scene' ? `scene:${design?.id ?? ''}` : revealId;
+  // How far the reader is through whatever scrolls inside the card, for the
+  // design backdrop's parallax. A ref, not state: it changes every frame.
+  const scrollRef = useRef(0);
+  const onScrollCapture = useCallback((e: UIEvent<HTMLElement>) => {
+    const el = e.target as HTMLElement;
+    const max = el.scrollHeight - el.clientHeight;
+    const maxX = el.scrollWidth - el.clientWidth;
+    if (max > 4) scrollRef.current = el.scrollTop / max;
+    else if (maxX > 4) scrollRef.current = el.scrollLeft / maxX;
+  }, []);
   const { Component: Template, fullBleed } = resolveCardTemplate(overrides?.template ?? card.template);
 
   // `run` re-keys the reveal so Replay mounts a fresh one.
   const [run, setRun] = useState(0);
-  const [phase, setPhase] = useState<Phase>(Reveal ? 'reveal' : 'card');
-  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<Phase>(hasOpening ? 'reveal' : 'card');
+  // A design's scene is not WebGL, so the card can wait, mounted and hidden,
+  // under its opening (other reveals keep the one-GPU-context rule: the card
+  // mounts only after them).
+  const premount = design !== null && revealId === 'scene';
+  const [index, setIndex] = useState(() => (premount ? firstReadingPage(true, contributions.length) : 0));
 
-  // A different reveal (host preview switching options) restarts the moment.
+  // A different opening (host preview switching options) restarts the moment.
   // Skips the first render: the initial state already matches.
-  const lastReveal = useRef(Reveal);
+  const lastOpening = useRef(openingKey);
   useEffect(() => {
-    if (lastReveal.current === Reveal) return;
-    lastReveal.current = Reveal;
-    setPhase(Reveal ? 'reveal' : 'card');
-    setIndex(0);
+    if (lastOpening.current === openingKey) return;
+    lastOpening.current = openingKey;
+    setPhase(hasOpening ? 'reveal' : 'card');
+    setIndex(premount ? firstReadingPage(true, contributions.length) : 0);
     setRun((r) => r + 1);
-  }, [Reveal]);
+  }, [openingKey, hasOpening, premount, contributions.length]);
 
+  // The opening was the "open your card" moment: land on the first message,
+  // not on a cover asking them to open it again.
+  const readingStart = firstReadingPage(hasOpening, contributions.length);
   const finishReveal = useCallback(() => {
     setPhase((p) => (p === 'reveal' ? 'handoff' : p));
-  }, []);
+    setIndex(readingStart);
+  }, [readingStart]);
 
   useEffect(() => {
     if (phase !== 'handoff') return;
-    const t = window.setTimeout(() => setPhase('card'), REVEAL_HANDOFF_MS);
+    const t = window.setTimeout(() => setPhase('card'), premount ? SCENE_HANDOFF_MS : REVEAL_HANDOFF_MS);
     return () => window.clearTimeout(t);
-  }, [phase]);
+  }, [phase, premount]);
 
   const replay = useCallback(() => {
-    if (!Reveal) return;
-    setIndex(0);
+    if (!hasOpening) return;
+    setIndex(premount ? readingStart : 0);
     setRun((r) => r + 1);
     setPhase('reveal');
-  }, [Reveal]);
+  }, [hasOpening, premount, readingStart]);
 
   const goNext = useCallback(() => setIndex((i) => clampIndex(i + 1, contributions)), [contributions]);
-  const goPrev = useCallback(() => setIndex((i) => clampIndex(i - 1, contributions)), [contributions]);
+  const goPrev = useCallback(
+    () => setIndex((i) => Math.max(readingStart, clampIndex(i - 1, contributions))),
+    [contributions, readingStart],
+  );
 
   useEffect(() => {
     if (!keyboard || phase === 'reveal') return;
@@ -177,9 +229,15 @@ export default function CardExperience({
     return () => window.removeEventListener('keydown', onKey);
   }, [keyboard, phase, goNext, goPrev]);
 
-  // Event look: the snapshot's variables, inline on this root only.
-  const rootStyle: CSSProperties | undefined =
-    look === 'event' && theme
+  // Design: its palette as the semantic tokens every template reads. Event
+  // look: the snapshot's variables. Inline on this root only either way.
+  const rootStyle: CSSProperties | undefined = design
+    ? ({
+        ...designCssVars(design),
+        backgroundColor: 'var(--color-brand-bg)',
+        color: 'var(--color-brand-fg)',
+      } as CSSProperties)
+    : look === 'event' && theme
       ? ({
           ...theme.vars,
           backgroundColor: 'var(--color-brand-bg)',
@@ -188,7 +246,9 @@ export default function CardExperience({
         } as CSSProperties)
       : undefined;
 
-  const showCard = phase !== 'reveal';
+  const showCard = phase !== 'reveal' || premount;
+  // The design's reading-view skin (photo frames, corner cut-outs), read by the templates.
+  const skin = useMemo(() => (design ? designSkin(design.id) : null), [design]);
 
   // Hand-off choreography: the reveal fades out FAST and the card fades in a
   // beat later, so the reveal's title and the template's title (which sit at
@@ -203,15 +263,31 @@ export default function CardExperience({
       setCardIn(true);
       return;
     }
-    const t = window.setTimeout(() => setCardIn(true), REVEAL_CARD_DELAY_MS);
+    const t = window.setTimeout(() => setCardIn(true), premount ? SCENE_CARD_DELAY_MS : REVEAL_CARD_DELAY_MS);
     return () => window.clearTimeout(t);
-  }, [phase]);
+  }, [phase, premount]);
+
+  // The card's entrance. A design's card rises and settles into place
+  // (transform + opacity only: both run on the compositor, so the phone never
+  // re-lays the page out mid-move); reduced motion keeps the fade alone.
+  const mainMotion: CSSProperties = premount
+    ? {
+        opacity: cardIn ? 1 : 0,
+        // The page grows out of the gateway it came through (the scene's centre).
+        transform: cardIn || reducedMotion ? 'none' : 'translate3d(0, 22px, 0) scale(0.9)',
+        transformOrigin: '50% 47%',
+        transition: `opacity ${SCENE_RISE_MS * 0.7}ms ${SETTLE}, transform ${SCENE_RISE_MS}ms ${SETTLE}`,
+        willChange: cardIn ? undefined : 'opacity, transform',
+      }
+    : { opacity: cardIn ? 1 : 0, transitionDuration: `${REVEAL_HANDOFF_MS - REVEAL_CARD_DELAY_MS}ms` };
 
   return (
+    <DesignSkinContext.Provider value={skin}>
     <div
-      className={`absolute inset-0 flex flex-col overflow-hidden ${look === 'beamwall' ? 'app-bg' : ''}`}
+      className={`absolute inset-0 flex flex-col overflow-hidden ${!design && look === 'beamwall' ? 'app-bg' : ''}`}
       style={rootStyle}
-      data-card-look={look}
+      data-card-look={design ? 'design' : look}
+      data-card-design={design?.id}
       data-card-reveal={revealId}
     >
       {showCard && (
@@ -219,12 +295,33 @@ export default function CardExperience({
           {/* The designed space behind the card (crown, rays, bokeh, star
               linework) — reads the accent, so it follows the event's look,
               and is seeded per card so the sky is the same every visit. */}
-          <CardField seed={`${card.title}|${card.publishedAt ?? ''}`} reducedMotion={reducedMotion} />
+          {design ? (
+            <SceneBackdrop
+              design={design}
+              scrollRef={scrollRef}
+              reducedMotion={reducedMotion}
+              seed={`${card.title}|${card.publishedAt ?? ''}`}
+              arrived={phase !== 'reveal'}
+            />
+          ) : (
+            <CardField seed={`${card.title}|${card.publishedAt ?? ''}`} reducedMotion={reducedMotion} />
+          )}
           <main
-            className={`relative mx-auto flex min-h-0 w-full flex-1 flex-col pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] transition-opacity ease-out ${
-              fullBleed ? 'max-w-none px-3 sm:px-6' : 'max-w-2xl px-4'
+            onScrollCapture={design ? onScrollCapture : undefined}
+            className={`relative mx-auto flex min-h-0 w-full flex-1 flex-col pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] ${
+              premount ? '' : 'transition-opacity ease-out'
+            } ${
+              design
+                ? // Inside the scene's own portrait column, never wider than the art.
+                  'max-w-[min(100%,calc(100dvh*9/16))] px-4'
+                : fullBleed
+                  ? 'max-w-none px-3 sm:px-6'
+                  : 'max-w-2xl px-4'
             }`}
-            style={{ opacity: cardIn ? 1 : 0, transitionDuration: `${REVEAL_HANDOFF_MS - REVEAL_CARD_DELAY_MS}ms` }}
+            style={mainMotion}
+            // Waiting under the opening: hidden from screen readers and taps.
+            aria-hidden={cardIn ? undefined : true}
+            inert={!cardIn}
           >
             {card.filmUrl && <KeepsakeFilm url={card.filmUrl} reducedMotion={reducedMotion} />}
             <Template
@@ -236,8 +333,18 @@ export default function CardExperience({
               reducedMotion={reducedMotion}
             />
           </main>
-          {Reveal && phase === 'card' && (
-            <footer className="relative flex shrink-0 justify-center pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          {/* The scene's foreground cut-outs hang IN FRONT of the page, like the
+              front layer of a paper diorama (the pager and footer sit above them). */}
+          {design && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 left-1/2 z-10 aspect-[9/16] h-full max-w-full -translate-x-1/2"
+            >
+              <MidPair src={designAssets(design.id).mid} design={design} />
+            </div>
+          )}
+          {hasOpening && phase === 'card' && (
+            <footer className="card-footer-in relative z-20 flex shrink-0 justify-center pb-[max(0.5rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
                 onClick={replay}
@@ -252,25 +359,42 @@ export default function CardExperience({
         </>
       )}
 
-      {Reveal && phase !== 'card' && (
+      {hasOpening && phase !== 'card' && (
         <div
           className="absolute inset-0 z-20 transition-opacity ease-out"
           style={{
             opacity: phase === 'handoff' ? 0 : 1,
-            transitionDuration: `${REVEAL_FADE_MS}ms`,
+            transitionDuration: `${premount ? SCENE_FADE_MS : REVEAL_FADE_MS}ms`,
+            transitionTimingFunction: premount ? 'cubic-bezier(0.4, 0, 0.2, 1)' : undefined,
             pointerEvents: phase === 'handoff' ? 'none' : undefined,
           }}
         >
           <Suspense fallback={null}>
-            <Reveal
-              key={run}
-              card={card}
-              contributions={contributions}
-              look={look}
-              palette={palette}
-              reducedMotion={reducedMotion}
-              onDone={finishReveal}
-            />
+            {design && revealId === 'scene' ? (
+              <SceneOpener
+                key={`${run}:${design.id}`}
+                design={design}
+                unlock={overrides?.unlock ?? presentation.unlock}
+                card={card}
+                contributions={contributions}
+                look={look}
+                palette={palette}
+                reducedMotion={reducedMotion}
+                onDone={finishReveal}
+              />
+            ) : (
+              Reveal && (
+                <Reveal
+                  key={run}
+                  card={card}
+                  contributions={contributions}
+                  look={look}
+                  palette={palette}
+                  reducedMotion={reducedMotion}
+                  onDone={finishReveal}
+                />
+              )
+            )}
           </Suspense>
           {phase === 'reveal' && (
             <button
@@ -284,5 +408,6 @@ export default function CardExperience({
         </div>
       )}
     </div>
+    </DesignSkinContext.Provider>
   );
 }

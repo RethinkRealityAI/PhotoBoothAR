@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { signUpWithEmail, signInWithGoogle, resendConfirmation } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
+import AuthShell from './AuthShell';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -86,12 +87,12 @@ export default function Signup() {
     setResendState(err ? 'error' : 'sent');
   }
 
-  // See Login: a centred card taller than the viewport loses its own top.
-  // This one has four fields, so it is the likelier of the two to overflow.
+  // AuthShell scrolls and centres with my-auto (never items-center), so a
+  // card taller than the viewport keeps its top in reach.
   return (
-    <div className="h-full w-full app-bg flex items-start justify-center px-5 py-12 overflow-y-auto">
-      <div className="w-full max-w-sm my-auto animate-rise-in">
-        <div className="glass-strong rounded-3xl px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
+    <AuthShell page="signup">
+      <div className="w-full animate-rise-in">
+        <div className="glass-strong rounded-3xl px-6 py-7 sm:px-8 sm:py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
           <Link
             to="/"
             className="block text-center font-serif text-4xl font-semibold tracking-wide text-foil-static"
@@ -334,6 +335,6 @@ export default function Signup() {
           )}
         </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }

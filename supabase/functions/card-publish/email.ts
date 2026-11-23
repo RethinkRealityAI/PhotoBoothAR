@@ -64,6 +64,53 @@ export function normalizeEmailPresentation(raw: unknown): EmailPresentation {
   return { email, look };
 }
 
+/* ------------------------------------------------------------------ */
+/* Card designs: the email side of each design pack                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * MIRROR of the `email` half of src/lib/designPacks.ts (Deno cannot import
+ * src/). src/lib/designPacks.test.ts asserts this table equals the packs, so
+ * a design added to the card but not to the email goes red.
+ */
+export const EMAIL_DESIGNS: Readonly<Record<string, { bg: string; accent: string; fg: string; kicker: string }>> = {
+  'garden-gate': { bg: '#3B3A7A', accent: '#E4D8FF', fg: '#FFFFFF', kicker: 'The gates are open' },
+  'balloon-bash': { bg: '#4B4FA8', accent: '#FFE29A', fg: '#FFFFFF', kicker: 'Pop! A card for you' },
+  'gala-night': { bg: '#111733', accent: '#E8C77A', fg: '#FFFFFF', kicker: 'You are cordially invited' },
+  owambe: { bg: '#1E2457', accent: '#F0B54A', fg: '#FFFFFF', kicker: 'The party is for you' },
+  'city-lights': { bg: '#25265E', accent: '#FFD9A0', fg: '#FFFFFF', kicker: 'Look up, the city is glowing' },
+  'moon-gate': { bg: '#1B1A4A', accent: '#F2B65A', fg: '#FFFFFF', kicker: 'Step through the moon gate' },
+  'cloud-nine': { bg: '#5E5AA0', accent: '#FFD7E6', fg: '#FFFFFF', kicker: 'A little card on cloud nine' },
+  'grand-hall': { bg: '#1C2448', accent: '#E3C27A', fg: '#FFFFFF', kicker: 'With honour' },
+  'island-sunset': { bg: '#3A2C5E', accent: '#FFB38A', fg: '#FFFFFF', kicker: 'Sent from paradise' },
+  'love-notes': { bg: '#3A1F4A', accent: '#F08AA0', fg: '#FFFFFF', kicker: 'With all our love' },
+  'festival-of-lights': { bg: '#2D1458', accent: '#FFB627', fg: '#FFFFFF', kicker: 'The lamps are lit for you' },
+  'crescent-night': { bg: '#0E1A3D', accent: '#E8C77A', fg: '#FFFFFF', kicker: 'Under the new moon' },
+  'golden-hour': { bg: '#4A2F4E', accent: '#FFC857', fg: '#FFFFFF', kicker: 'A toast to you' },
+  'jungle-party': { bg: '#1F5E45', accent: '#FFD23F', fg: '#FFFFFF', kicker: 'Hooray, it’s party time' },
+  'winter-glow': { bg: '#1B2B5A', accent: '#DCEBFF', fg: '#FFFFFF', kicker: 'Warm wishes, from all of us' },
+  'balloon-release': { bg: '#4B4FA8', accent: '#FFE29A', fg: '#FFFFFF', kicker: 'Let them go, it’s your day' },
+  showtime: { bg: '#2A0A14', accent: '#F2C14E', fg: '#FFFFFF', kicker: 'Tonight, the spotlight is yours' },
+  'pop-party': { bg: '#7A2E5C', accent: '#FFD36B', fg: '#FFFFFF', kicker: 'Pop, pop, hooray, it’s your day' },
+  'jewel-box': { bg: '#2A0E24', accent: '#E4B451', fg: '#FFFFFF', kicker: 'A little treasure, just for you' },
+  'deep-blue': { bg: '#0F3A4A', accent: '#D7A54C', fg: '#FFFFFF', kicker: 'Dive in, something wonderful is waiting' },
+};
+
+/** MIRROR of EMAIL_HERO_VERSION / EMAIL_HERO_W / EMAIL_HERO_H in src/lib/designPacks.ts (parity-tested). */
+export const EMAIL_DESIGN_HERO = { version: 'v1', w: 600, h: 340 } as const;
+
+/** TOTAL: the design id in `cards.presentation`, or null for none/unknown. */
+export function normalizeEmailDesign(raw: unknown): string | null {
+  const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const d = obj.design;
+  return typeof d === 'string' && Object.prototype.hasOwnProperty.call(EMAIL_DESIGNS, d) ? d : null;
+}
+
+/** The painted hero still of a design's scene (public/email/designs/<version>/<id>.jpg). */
+export function emailDesignHeroUrl(base: string | null | undefined, id: string): string {
+  return `${emailAssetBase(base)}/designs/${EMAIL_DESIGN_HERO.version}/${id}.jpg`;
+}
+
 /** The theme snapshot's string vars (src/lib/cardTheme.ts shape). */
 function themeVars(theme: unknown): Record<string, string> {
   const obj = theme && typeof theme === 'object' && !Array.isArray(theme)
@@ -677,6 +724,34 @@ function artSealedBody(p: EmailPalette, c: Ctx, base: string): string {
   return artPanel(base, inner, '34px 12px 30px');
 }
 
+/**
+ * A card design's email: the design's own scene as the hero (linked to the
+ * card), its kicker in the accent, then title, intro, photos and the button,
+ * all in the design's colours. Blocked images leave a tile in the scene's
+ * colour with the kicker as its alt text; the button never depends on art.
+ */
+function designBody(p: EmailPalette, c: Ctx, base: string, id: string): string {
+  const d = EMAIL_DESIGNS[id];
+  const { w, h } = EMAIL_DESIGN_HERO;
+  const hero = `<a href="${escapeHtml(c.url)}" style="display:block;text-decoration:none;"><img src="${escapeHtml(emailDesignHeroUrl(base, id))}" width="${w}" height="${h}" alt="${escapeHtml(d.kicker)}" style="display:block;width:100%;max-width:${w}px;height:auto;border:0;outline:none;border-radius:20px;background-color:${p.surface};font-family:${SANS};font-size:15px;color:${p.fg};"></a>`;
+  const kicker = `<div style="font-family:${SANS};font-size:13px;line-height:18px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${p.accent};">${escapeHtml(d.kicker)}</div>`;
+  const inner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td style="padding:0;font-size:0;line-height:0;">${hero}</td></tr>
+    <tr><td align="center" style="padding:30px 8px 12px;">${kicker}</td></tr>
+    <tr><td align="center" style="padding:0 8px;">${titleHtml(p, c.title, 42)}</td></tr>
+    <tr><td align="center" style="padding:16px 8px ${c.photos.length > 0 ? 32 : 34}px;">${intro(p, c.intro)}</td></tr>
+    ${c.photos.length > 0 ? `<tr><td style="padding:0 6px 34px;">${mosaic(p, c.photos)}</td></tr>` : ''}
+    <tr><td align="center">${button(p, c.url, 'Open your card')}</td></tr>
+  </table>`;
+  return doubleRule(p, inner, { pad: '12px 12px 40px', fill: true });
+}
+
+/** The email palette for a design: its scene colours, as solid hexes. */
+export function designEmailPalette(id: string): EmailPalette {
+  const d = EMAIL_DESIGNS[id];
+  return { look: 'event', bg: d.bg, surface: d.bg, fg: d.fg, muted: '#E8E6F4', accent: d.accent, onAccent: DUSK.onAccent, core: d.accent };
+}
+
 interface Ctx {
   title: string;
   url: string;
@@ -695,7 +770,12 @@ interface Ctx {
  */
 export function cardEmailHtml(input: CardEmailInput): string {
   const pres = normalizeEmailPresentation(input.presentation);
-  const p = emailPalette(input.theme, resolveEmailLook(pres.look, input.theme));
+  // A card design brings its own email (scene hero, colours), like it brings
+  // its own opening to the card; the style and look pickers then do not apply.
+  const design = normalizeEmailDesign(input.presentation);
+  const p = design
+    ? designEmailPalette(design)
+    : emailPalette(input.theme, resolveEmailLook(pres.look, input.theme));
   const s = input.extras?.summary ?? null;
   const title = clip(clean(input.title), 160) || 'A card for you';
 
@@ -712,7 +792,9 @@ export function cardEmailHtml(input: CardEmailInput): string {
   };
   const base = emailAssetBase(input.assetBase);
   const art = p.look === 'beamwall';
-  const body = art
+  const body = design
+    ? designBody(p, ctx, base, design)
+    : art
     ? (pres.email === 'sealed'
       ? artSealedBody(p, ctx, base)
       : pres.email === 'spotlight' ? artSpotlightBody(p, ctx, base) : artGlowBody(p, ctx, base))

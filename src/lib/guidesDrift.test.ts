@@ -45,6 +45,10 @@ import { CONTENT_PACKS, PACK_IDS } from './contentPacks';
 import { FACE_PAINT_DESIGNS } from './facePaint/designs';
 import { CARD_TEMPLATE_OPTIONS } from './cardTemplates';
 import { CARD_EMAIL_STYLE_OPTIONS, CARD_LOOK_OPTIONS, CARD_REVEAL_OPTIONS } from './cardPresentation';
+import { CARD_DESIGNS } from './cardDesigns';
+import { KEEPSAKE_THEMES } from './keepsakeSettings';
+import { KEEPSAKE_TRACKS } from './keepsakeMusic';
+import { KEEPSAKE_REVEAL_CHOICES, KEEPSAKE_TABS, KEEPSAKE_TOKEN_CHIPS } from './keepsakeEditor';
 import { GUIDES, GUIDE_COUNTS, GUIDE_COVERAGE, type GuideCoverageEntry } from './guidesContent';
 import type { FeatureHelpTopic } from './studio/featureHelp';
 
@@ -285,6 +289,7 @@ describe('guides counts — the numbers the copy says out loud', () => {
       ['opening (src/lib/cardPresentation.ts CARD_REVEAL_OPTIONS)', CARD_REVEAL_OPTIONS],
       ['email style (src/lib/cardPresentation.ts CARD_EMAIL_STYLE_OPTIONS)', CARD_EMAIL_STYLE_OPTIONS],
       ['colour choice (src/lib/cardPresentation.ts CARD_LOOK_OPTIONS)', CARD_LOOK_OPTIONS],
+      ['design (src/lib/cardDesigns.ts CARD_DESIGNS)', CARD_DESIGNS],
     ];
     for (const [what, options] of sets) {
       for (const o of options) {
@@ -292,6 +297,30 @@ describe('guides counts — the numbers the copy says out loud', () => {
           text.includes(o.label),
           `The keepsake guide does not name the "${o.label}" ${what}. ${FIX}.`,
         ).toBe(true);
+      }
+    }
+  });
+
+  it('names every keepsake album theme, opening moment, music track, copy token and editor tab', () => {
+    // "Make the album yours" walks the host through the Keepsake editor
+    // (src/pages/host/keepsake/KeepsakeEditor.tsx) and names each choice by
+    // its label, so a new theme, reveal, track, token or tab shipping without
+    // copy goes red.
+    const block = Object.values(GUIDES)
+      .flatMap((g) => g.blocks)
+      .find((b) => b.kind === 'prose' && b.title === 'Make the album yours');
+    expect(block, `no "Make the album yours" section in src/lib/guidesContent.ts. ${FIX}.`).toBeDefined();
+    const text = block && block.kind === 'prose' ? block.body.join(' ') : '';
+    const sets: [string, readonly string[]][] = [
+      ['theme (src/lib/keepsakeSettings.ts KEEPSAKE_THEMES)', KEEPSAKE_THEMES.map((t) => t.label)],
+      ['music track (src/lib/keepsakeMusic.ts KEEPSAKE_TRACKS)', KEEPSAKE_TRACKS.map((t) => t.title)],
+      ['copy token (src/lib/keepsakeEditor.ts KEEPSAKE_TOKEN_CHIPS)', KEEPSAKE_TOKEN_CHIPS.map((c) => c.label)],
+      ['opening moment (src/lib/keepsakeEditor.ts KEEPSAKE_REVEAL_CHOICES)', KEEPSAKE_REVEAL_CHOICES.map((c) => c.label)],
+      ['editor tab (src/lib/keepsakeEditor.ts KEEPSAKE_TABS)', KEEPSAKE_TABS.map((t) => t.label)],
+    ];
+    for (const [what, labels] of sets) {
+      for (const label of labels) {
+        expect(text.includes(label), `The keepsake album guide does not name the "${label}" ${what}. ${FIX}.`).toBe(true);
       }
     }
   });

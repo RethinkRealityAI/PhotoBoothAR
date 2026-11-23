@@ -4,7 +4,7 @@
  */
 import { existsSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { BUNDLED_PROPS, BUNDLED_PROP_MAP, bundledPropUrls, propAnchorConfig, supersededPieceIds } from './bundledProps';
+import { BUNDLED_PROPS, BUNDLED_PROP_MAP, bundledPropUrls, isRetiredProp, offeredBundledProps, propAnchorConfig, supersededPieceIds } from './bundledProps';
 import { FINISHES } from './finish';
 import { ANCHOR_PRESETS } from '../faceRig';
 import { HEAD_PIECES, HEAD_PIECE_MAP } from '../headPieces';
@@ -113,5 +113,24 @@ describe('the bundled prop catalogue is real', () => {
       const text = `${p.id} ${p.name} ${p.url}`.toLowerCase();
       for (const w of words) expect(text.includes(w), `${p.id} mentions "${w}"`).toBe(false);
     }
+  });
+});
+
+describe('retired props (2026-11-23 showcase cleanup)', () => {
+  const RETIRED = ['prop-neon-shades', 'prop-queens-tiara', 'prop-halo-ring'];
+  it('stay resolvable so saved scenes keep rendering', () => {
+    for (const id of RETIRED) expect(BUNDLED_PROP_MAP[id]?.url, id).toBeTruthy();
+  });
+  it('are never offered', () => {
+    const offered = offeredBundledProps().map((p) => p.id);
+    for (const id of RETIRED) {
+      expect(isRetiredProp(id), id).toBe(true);
+      expect(offered, id).not.toContain(id);
+    }
+    expect(offered).toContain('prop-royal-crown');
+    expect(offered.length).toBe(BUNDLED_PROPS.length - RETIRED.length);
+  });
+  it('every procedural head piece is retired from the shelf', () => {
+    for (const p of HEAD_PIECES) expect(p.retired, p.id).toBe(true);
   });
 });

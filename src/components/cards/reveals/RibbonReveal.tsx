@@ -57,7 +57,7 @@ function layoutFor({ w, h }: Size) {
 const IDLE_SHIMMER_MS = 6200; // one shimmer pass, then rest (no repaint while resting)
 const SHIMMER_PASS_MS = 2300;
 
-export default function RibbonReveal({ card, palette, reducedMotion, onDone }: CardRevealProps) {
+export default function RibbonReveal({ card, palette, reducedMotion, noun, onDone }: CardRevealProps) {
   const colors = useMemo(() => ribbonColors(palette), [palette]);
   const monogram = cardMonogram(card.recipientName, card.title);
 
@@ -98,6 +98,7 @@ export default function RibbonReveal({ card, palette, reducedMotion, onDone }: C
             colors={colors}
             accentRgb={palette.accentRgb}
             reducedMotion={reducedMotion}
+            noun={noun}
             onDone={onDone}
           />
         )}
@@ -113,10 +114,11 @@ interface StageProps {
   colors: ReturnType<typeof ribbonColors>;
   accentRgb: string;
   reducedMotion: boolean;
+  noun?: 'card' | 'album';
   onDone: () => void;
 }
 
-function RibbonStage({ size, title, monogram, colors, accentRgb, reducedMotion, onDone }: StageProps) {
+function RibbonStage({ size, title, monogram, colors, accentRgb, reducedMotion, noun, onDone }: StageProps) {
   const { w, h } = size;
   const { bh, s, knotX, cy } = layoutFor(size);
   const art = useMemo(() => ribbonFaceArt(w, h), [w, h]);
@@ -732,7 +734,7 @@ function RibbonStage({ size, title, monogram, colors, accentRgb, reducedMotion, 
           type="button"
           onClick={untie}
           autoFocus
-          aria-label="Untie the ribbon and open the card"
+          aria-label={`Untie the ribbon and open the ${noun ?? 'card'}`}
           className="min-h-[44px] min-w-[132px] rounded-full border px-6 text-sm font-medium backdrop-blur-md transition hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4"
           style={{
             color: colors.ink,

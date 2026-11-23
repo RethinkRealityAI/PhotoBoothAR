@@ -102,7 +102,10 @@ export const HOME_ASSET_DEFAULTS: HomeAssets = {
     // Christmas first: he lands, puts on the Holiday cover and the antlers, and
     // that dressed-up selfie is the photo he beams to the wall.
     { id: 'holiday', name: 'Holiday cover + antlers', category: 'frame', occasion: 'Christmas', url: `${F}christmas-santa-cover.png`, opening: { top: 0.186, bottom: 0.907, left: 0.086, right: 0.916 }, with: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'Tap me to see more!' },
-    { id: 'glasses', name: 'Neon shades', category: 'prop', url: `${P}neon-shades.glb`, fit: { width: 0.4, at: [0, 0.225, 0.19], align: 'centre' }, line: 'Real 3D filters, right in the browser.' },
+    // The gold masquerade (baked for him; its fit is the one it had on the AR
+    // panel before the Venetian mask took that slot). The neon shutter shades
+    // that were here were retired from everything public 2026-11-23.
+    { id: 'glasses', name: 'Gold masquerade', category: 'prop', url: `${P}beamy-masquerade.glb`, fit: { width: 0.574, at: [0, 0.267, 0.102], align: 'centre' }, line: 'Real 3D filters, right in the browser.' },
     { id: 'elf', name: 'Elf hat', category: 'prop', url: `${P}elf-hat.glb`, fit: { width: 0.3, at: [0, 0.35, -0.01], align: 'base', tilt: -0.14 }, line: 'Scroll to see what I can do.' },
     { id: 'tree', name: 'Christmas tree hat', category: 'prop', url: `${P}tree-hat.glb`, fit: { width: 0.27, at: [0, 0.33, 0], align: 'base' }, line: 'Snapchat and Instagram in one, right in the browser.' },
     { id: 'antlers', name: 'Reindeer antlers', category: 'prop', url: `${P}reindeer-antlers.glb`, fit: { width: 0.58, at: [0, 0.33, -0.02], align: 'base' }, line: 'Tap me for another look!' },

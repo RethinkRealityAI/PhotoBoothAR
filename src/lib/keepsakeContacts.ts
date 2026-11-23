@@ -20,6 +20,7 @@
  * modules, and it owns the localStorage half (the "already opted in" flag).
  */
 import { getSessionId, hasKeepsakeOptIn, markKeepsakeOptIn } from './session';
+import { normalizeKeepsakeSettings, type KeepsakeSettings } from './keepsakeSettings';
 
 /** Re-exported so callers have ONE import for the whole feature. The single
  *  definition stays in session.ts beside the other per-device flags. */
@@ -125,6 +126,7 @@ export type KeepsakeSendError =
   | 'event_still_live'
   | 'recently_sent'
   | 'preview_rate_limited'
+  | 'send_cap_reached'
   | 'invalid_email'
   | 'invalid_body'
   | 'email_not_configured'
@@ -163,6 +165,7 @@ const SEND_ERRORS: readonly string[] = [
   'event_still_live',
   'recently_sent',
   'preview_rate_limited',
+  'send_cap_reached',
   'invalid_email',
   'invalid_body',
   'email_not_configured',
@@ -321,5 +324,123 @@ export async function sendKeepsakePreview(
   } catch (e) {
     console.error('[keepsakeContacts] sendKeepsakePreview', e);
     return { ok: false, sent: 0, emailConfigured: false, error: 'network' };
+  }
+}
+
+/* ── The next-day autopilot switch (config.keepsakes.autoSend) ─────────
+ * On unless a host turned it off — send-keepsakes/autopilot.ts
+ * autoSendEnabled() is the reader, and only an explicit false means off. */
+
+/** The host's switch for this event; null when it could not be read (the
+ *  panel then shows no toggle rather than a guess). */
+export async function fetchKeepsakeAutoSend(eventUuid: string): Promise<boolean | null> {
+  try {
+    const { supabase } = await import('./supabase');
+    const { data, error } = await supabase.from('events').select('config').eq('id', eventUuid).maybeSingle();
+    if (error || !data) return null;
+    const k = (data.config as { keepsakes?: { autoSend?: unknown } } | null)?.keepsakes;
+    return k?.autoSend !== false;
+  } catch (e) {
+    console.error('[keepsakeContacts] fetchKeepsakeAutoSend', e);
+    return null;
+  }
+}
+
+/* ── The host's keepsake settings (config.keepsakes, keepsakeSettings.ts) ── */
+
+/**
+ * Lay the editor's settings over what is stored, key by key. PURE.
+ *
+ * Unknown keys survive at the top level AND inside `downloads`/`copy`: a newer
+ * build (or the film worker) may keep its own field there, and an older editor
+ * saving over it must not delete it. Known keys always take the editor's value.
+ */
+export function mergeKeepsakeSettings(prevRaw: unknown, next: KeepsakeSettings): Record<string, unknown> {
+  const obj = (v: unknown): Record<string, unknown> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  const prev = obj(prevRaw);
+  return {
+    ...prev,
+    autoSend: next.autoSend,
+    theme: next.theme,
+    music: next.music,
+    beamy: next.beamy,
+    downloads: { ...obj(prev.downloads), ...next.downloads },
+    copy: { ...obj(prev.copy), ...next.copy },
+  };
+}
+
+export interface KeepsakeSettingsRead {
+  settings: KeepsakeSettings;
+  /** events.slug — the key the feature resolver and the album page use. */
+  slug: string;
+}
+
+/** The event's keepsake settings, normalised; null when they could not be read
+ *  (the editor then shows a retry, never defaults it could save over a real
+ *  configuration). */
+export async function fetchKeepsakeSettings(eventUuid: string): Promise<KeepsakeSettingsRead | null> {
+  try {
+    const { supabase } = await import('./supabase');
+    const { data, error } = await supabase.from('events').select('slug, config').eq('id', eventUuid).maybeSingle();
+    if (error || !data) {
+      if (error) console.error('[keepsakeContacts] fetchKeepsakeSettings', error);
+      return null;
+    }
+    const k = (data.config as { keepsakes?: unknown } | null)?.keepsakes;
+    return { settings: normalizeKeepsakeSettings(k), slug: typeof data.slug === 'string' ? data.slug : '' };
+  } catch (e) {
+    console.error('[keepsakeContacts] fetchKeepsakeSettings', e);
+    return null;
+  }
+}
+
+/** Save the editor's settings. Merges into config.keepsakes (unknown keys kept,
+ *  see mergeKeepsakeSettings). True only when the row was actually written —
+ *  a refused read, a write error and a zero-row write all return false. */
+export async function saveKeepsakeSettings(eventUuid: string, settings: KeepsakeSettings): Promise<boolean> {
+  try {
+    const { supabase } = await import('./supabase');
+    const { data, error } = await supabase.from('events').select('config').eq('id', eventUuid).maybeSingle();
+    if (error || !data) return false;
+    const { updateEventConfig } = await import('./host');
+    const prev = (data.config as { keepsakes?: unknown } | null)?.keepsakes;
+    return await updateEventConfig(eventUuid, { keepsakes: mergeKeepsakeSettings(prev, settings) });
+  } catch (e) {
+    console.error('[keepsakeContacts] saveKeepsakeSettings', e);
+    return false;
+  }
+}
+
+/** Whether this event's plan includes the keepsake film: a paid event is one
+ *  whose resolved features drop the watermark. null when unknown (the editor
+ *  then says nothing rather than a guess). */
+export async function fetchKeepsakeFilmIncluded(slug: string): Promise<boolean | null> {
+  if (slug === '') return null;
+  try {
+    const { supabase } = await import('./supabase');
+    const { data, error } = await supabase.rpc('event_features', { p_slug: slug });
+    if (error || data === null || typeof data !== 'object') return null;
+    const raw = (data as Record<string, unknown>).watermark;
+    return typeof raw === 'boolean' ? raw === false : null;
+  } catch (e) {
+    console.error('[keepsakeContacts] fetchKeepsakeFilmIncluded', e);
+    return null;
+  }
+}
+
+/** Turn the next-day send on or off. Merges into config.keepsakes so a
+ *  future key there survives. Returns whether the write landed. */
+export async function setKeepsakeAutoSend(eventUuid: string, on: boolean): Promise<boolean> {
+  try {
+    const { supabase } = await import('./supabase');
+    const { data, error } = await supabase.from('events').select('config').eq('id', eventUuid).maybeSingle();
+    if (error || !data) return false;
+    const { updateEventConfig } = await import('./host');
+    const prev = (data.config as { keepsakes?: Record<string, unknown> } | null)?.keepsakes;
+    return await updateEventConfig(eventUuid, { keepsakes: { ...(prev ?? {}), autoSend: on } });
+  } catch (e) {
+    console.error('[keepsakeContacts] setKeepsakeAutoSend', e);
+    return false;
   }
 }

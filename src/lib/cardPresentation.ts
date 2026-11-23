@@ -14,6 +14,11 @@
  * The card STYLE (storybook, film strip…) stays where it always lived, in
  * `cards.template` / lib/cardTemplates.ts.
  *
+ * Plus an optional fourth: `design`, an illustrated occasion scene from
+ * lib/cardDesigns.ts ('none' = no design). A design brings its OWN opening
+ * and colours, so when one is set it wins over `reveal` (except 'none', which
+ * still means "straight to the card") and over `look`; see effectiveReveal.
+ *
  * Stored in `cards.presentation` jsonb (migration 049). The edge functions
  * that read it (card-view, card-publish) normalise it themselves, so this
  * module is the browser half and the source of the closed sets.
@@ -26,6 +31,7 @@
  * or junk all fall back to the defaults, because a published keepsake must
  * always open.
  */
+import { normalizeCardDesign, type CardDesignChoice } from './cardDesigns';
 
 /* ------------------------------------------------------------------ */
 /* Closed sets                                                         */
@@ -182,6 +188,18 @@ export interface CardPresentation {
   reveal: CardRevealId;
   email: CardEmailStyleId;
   look: CardLookId;
+  /** Illustrated scene design, or 'none'. Additive: old rows have no key and
+   *  normalise to 'none', so they render exactly as before. */
+  design: CardDesignChoice;
+  /** How a design asks to be opened: its own gesture, or tracing the
+   *  recipient's initials. Additive: old rows normalise to 'design'. */
+  unlock: CardUnlock;
+}
+
+export const CARD_UNLOCKS = ['design', 'initials'] as const;
+export type CardUnlock = (typeof CARD_UNLOCKS)[number];
+export function isCardUnlock(raw: unknown): raw is CardUnlock {
+  return typeof raw === 'string' && (CARD_UNLOCKS as readonly string[]).includes(raw);
 }
 
 /**
@@ -193,6 +211,8 @@ export const DEFAULT_CARD_PRESENTATION: Readonly<CardPresentation> = Object.free
   reveal: 'envelope',
   email: 'glow',
   look: 'auto',
+  design: 'none',
+  unlock: 'design',
 });
 
 /** Where a WebGL reveal lands on a device without WebGL. */
@@ -216,7 +236,28 @@ export function normalizeCardPresentation(raw: unknown): CardPresentation {
     reveal: isCardRevealId(obj.reveal) ? obj.reveal : DEFAULT_CARD_PRESENTATION.reveal,
     email: isCardEmailStyleId(obj.email) ? obj.email : DEFAULT_CARD_PRESENTATION.email,
     look: isCardLookId(obj.look) ? obj.look : DEFAULT_CARD_PRESENTATION.look,
+    design: normalizeCardDesign(obj.design),
+    unlock: isCardUnlock(obj.unlock) ? obj.unlock : DEFAULT_CARD_PRESENTATION.unlock,
   };
+}
+
+/**
+ * What actually opens the card: a design plays its own scene opener
+ * ('scene'), unless the host chose no opening at all.
+ */
+export function effectiveReveal(reveal: CardRevealId, design: CardDesignChoice): CardRevealId | 'scene' {
+  if (design === 'none' || reveal === 'none') return reveal;
+  return 'scene';
+}
+
+/**
+ * The page the card lands on once an opening has played. The opening already
+ * did the "open your card" moment, so a second cover asking the recipient to
+ * open it again is skipped: they land on the first message (page 1). With no
+ * opening, or nothing inside yet, the cover (page 0) is still the first page.
+ */
+export function firstReadingPage(hasOpening: boolean, contributionCount: number): number {
+  return hasOpening && contributionCount > 0 ? 1 : 0;
 }
 
 export function revealOption(id: CardRevealId): CardRevealOption {
@@ -257,15 +298,19 @@ export function cardMonogram(recipientName: string | null | undefined, title?: s
 export interface CardViewOverrides {
   reveal?: CardRevealId;
   look?: CardLookId;
+  /** Illustrated design, including 'none' to preview without one. */
+  design?: CardDesignChoice;
   /** A raw template id; the viewer resolves it through the template
    *  registry, which already falls back on an unknown id. */
   template?: string;
+  /** 'initials' to preview the trace-your-initials opening. */
+  unlock?: CardUnlock;
 }
 
 const TEMPLATE_PARAM_RE = /^[a-z0-9-]{1,32}$/;
 
 /**
- * `?reveal=airplane&template=storybook&look=beamwall` on /c/:publicId.
+ * `?reveal=airplane&template=storybook&look=beamwall&design=owambe` on /c/:publicId.
  * Purely cosmetic and per-visit: it changes nothing stored, grants nothing,
  * and an unknown value is ignored (never an error page).
  */
@@ -281,8 +326,12 @@ export function parseCardViewOverrides(search: string): CardViewOverrides {
   if (isCardRevealId(reveal)) out.reveal = reveal;
   const look = params.get('look');
   if (isCardLookId(look)) out.look = look;
+  const design = params.get('design');
+  if (design === 'none' || normalizeCardDesign(design) !== 'none') out.design = normalizeCardDesign(design);
   const template = params.get('template');
   if (template !== null && TEMPLATE_PARAM_RE.test(template)) out.template = template;
+  const unlock = params.get('unlock');
+  if (isCardUnlock(unlock)) out.unlock = unlock;
   return out;
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Experience } from '../../types';
 import { experienceToDraft } from '../studio/draftMapping';
 import { parseTriggers } from '../studio/triggers';
-import { BUNDLED_PROPS } from '../studio/bundledProps';
+import { BUNDLED_PROPS, offeredBundledProps } from '../studio/bundledProps';
 import {
   NO_LOOKS, buildLookCatalog, classicRow, composeDraft, customFilterError, customFilterRow, diffPicks, eventFilters,
   filterLooks, isPicked, occasionTag, paintRow, picksConfigPatch, picksFromEvent, powerScenes, readyFilters, setCategory,
@@ -21,10 +21,18 @@ describe('look catalogue', () => {
   it('offers frames, classics and effects before any library row loads', () => {
     const c = buildLookCatalog([], new Map());
     expect(c.frames.length).toBeGreaterThan(0);
-    expect(c.props.length).toBe(BUNDLED_PROPS.length);
+    expect(c.props.length).toBe(offeredBundledProps().length);
     expect(c.effects.length).toBeGreaterThan(0);
     const keys = [...c.frames, ...c.props, ...c.effects].map((l) => l.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+  it('never offers a retired prop or a scene that wears one', () => {
+    const c = buildLookCatalog([], new Map());
+    for (const id of ['prop-neon-shades', 'prop-queens-tiara', 'prop-halo-ring']) {
+      expect(c.props.some((l) => l.ref === id), id).toBe(false);
+    }
+    const scenes = [...readyFilters(), ...powerScenes()].map((s) => s.id);
+    for (const id of ['neon-night', 'deco-glam', 'halo-light']) expect(scenes, id).not.toContain(id);
   });
   it('never offers a library draft', () => {
     const draft = asExp({ name: 'WIP', kind: '3d_attachment', config: { library: { draft: true } } }, 'd1');

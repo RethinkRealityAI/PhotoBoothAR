@@ -33,7 +33,7 @@
 import { BORDER_MAP, toDataUrl } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
 import { ANCHOR_VERSION_LATEST, migrateOffsetToV2 } from '../faceRig';
-import { BUNDLED_PROP_MAP, propAnchorConfig, type BundledProp } from './bundledProps';
+import { BUNDLED_PROP_MAP, isRetiredProp, propAnchorConfig, type BundledProp } from './bundledProps';
 import { findLibraryAsset, assetTemplateOf } from './assetLibrary';
 import {
   createObject3D,
@@ -367,6 +367,15 @@ export function starterAssetIds(scene: StarterScene): { borders: string[]; piece
 /** Every bundled prop id a scene places, `propId` first then `props`. */
 export function scenePropIds(scene: StarterScene): string[] {
   return [...(scene.propId ? [scene.propId] : []), ...(scene.props ?? [])];
+}
+
+/**
+ * The scenes a host is OFFERED: a scene wearing a retired prop (bundledProps
+ * `retired`) leaves the gallery, since its preview photo shows that prop. It
+ * stays in STARTER_SCENES so a scene already built from it still resolves.
+ */
+export function offeredStarterScenes(): StarterScene[] {
+  return STARTER_SCENES.filter((s) => !scenePropIds(s).some(isRetiredProp));
 }
 
 /** Every bundled prop GLB a starter scene can pull in — the preload list. */

@@ -167,7 +167,7 @@ function WaxSeal({
 type Flap = 'left' | 'right' | 'bottom' | 'top';
 const FLAPS: Flap[] = ['left', 'right', 'bottom', 'top'];
 
-export default function EnvelopeReveal({ card, palette, look, reducedMotion, onDone }: CardRevealProps) {
+export default function EnvelopeReveal({ card, palette, look, reducedMotion, noun, onDone }: CardRevealProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const openedRef = useRef(false);
   const doneRef = useRef(false);
@@ -666,7 +666,7 @@ export default function EnvelopeReveal({ card, palette, look, reducedMotion, onD
           onClick={open}
           disabled={opened}
           ref={sealRef}
-          aria-label="Open your card"
+          aria-label={`Open your ${noun ?? 'card'}`}
           className="absolute inset-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-transparent disabled:cursor-default"
           style={{ background: 'transparent', WebkitTapHighlightColor: 'transparent' }}
         >

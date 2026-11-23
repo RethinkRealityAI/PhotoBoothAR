@@ -1,0 +1,197 @@
+<!doctype html>
+<!--
+  Card Scene Intro — the opening of a keepsake card design, as a film intro.
+  ==========================================================================
+  Plays the SAME opening the recipient sees on /c/:publicId: the paper
+  gateway (doors, slide, rise or iris cut-out) opens, the camera glides into
+  the scene, light pours through and the title plate settles. The motion is
+  not re-authored here: scene-frame.js is generated from src/lib/cardDesigns.ts
+  by scripts/build-scene-intro.mjs, and this file only maps its numbers onto
+  1920x1080 (a portrait stage in the centre, the scene blurred on the sides).
+
+  Data: window.__SCENE_INTRO__ = { design, title, recipient, artBase }, baked
+  into the si-payload-data slot by `node scripts/build-scene-intro.mjs --bake`.
+  Without it (standalone preview from the repo) it plays the fixture below
+  against public/card-designs.
+
+  HyperFrames contract: standalone root, fixed 1920x1080, data-duration 7,
+  one paused gsap timeline at window.__timelines.sceneIntro built
+  synchronously, deterministic (seeded sparkles, no clocks), guest text via
+  textContent only.
+
+  Not wired into the keepsake film yet: the film's editor and worker are
+  changing in an open PR. Once that lands, the film prepends this intro when
+  the card has a design (see docs/STATE.md ## Next).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Card Scene Intro</title>
+    <script src="./gsap.min.js"></script>
+    <script src="./scene-frame.js"></script>
+    <script id="si-payload-data">/* window.__SCENE_INTRO__ = … (baked at render time) */</script>
+    <style>
+      @font-face { font-family: 'Geist'; src: url('./fonts/geist-var-latin.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+      html, body { margin: 0; padding: 0; background: #000; }
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; font-family: 'Geist', sans-serif; }
+      .fill { position: absolute; inset: 0; }
+      #sides { position: absolute; inset: -60px; background-size: cover; background-position: center; filter: blur(48px); opacity: 0.55; }
+      #stage { position: absolute; top: 0; left: 50%; width: 608px; height: 1080px; margin-left: -304px; overflow: hidden; box-shadow: 0 0 140px -20px rgba(0,0,0,0.75); }
+      #back { position: absolute; inset: 0; background-size: cover; background-position: center; will-change: transform; }
+      #glow { position: absolute; inset: 0; opacity: 0; mix-blend-mode: screen; }
+      #mid { position: absolute; inset: 0; will-change: transform; }
+      #mid img { position: absolute; width: 62%; filter: drop-shadow(0 18px 24px rgba(0,0,0,0.45)); }
+      #sparkles { position: absolute; inset: 0; }
+      #sparkles i { position: absolute; width: 6px; height: 6px; border-radius: 50%; opacity: 0; }
+      #gate { position: absolute; inset: 0; perspective: 1300px; }
+      .half { position: absolute; top: 0; bottom: 0; width: 50%; background-size: 200% 100%; backface-visibility: hidden; }
+      .strip { position: absolute; top: 0; bottom: 0; background-size: 300% 100%; }
+      #iris { position: absolute; inset: 0; width: 100%; height: 100%; }
+      #plate { position: absolute; left: 40px; right: 40px; top: 30%; display: flex; justify-content: center; opacity: 0; }
+      #plate div { padding: 22px 30px; border-radius: 28px; text-align: center; color: #fff; font-size: 40px; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em;
+        background: rgba(30, 28, 80, 0.42); backdrop-filter: blur(18px); box-shadow: inset 1px 1px 0 rgba(255,255,255,0.36), 0 18px 36px -22px rgba(0,0,0,0.6); }
+      #plate small { display: block; margin-top: 8px; font-size: 22px; font-weight: 500; opacity: 0.82; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="sceneIntro" data-start="0" data-duration="7" data-width="1920" data-height="1080">
+      <div id="sides"></div>
+      <div id="stage">
+        <div id="back"></div>
+        <div id="glow"></div>
+        <div id="mid"></div>
+        <div id="sparkles"></div>
+        <div id="gate"></div>
+        <div id="plate"><div><span id="title"></span><small id="recipient"></small></div></div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var FIXTURE = { design: 'garden-gate', title: 'Happy anniversary', recipient: 'Tolu and Sam', artBase: '../../public/card-designs' };
+        var P = window.__SCENE_INTRO__ || FIXTURE;
+        var SI = window.SceneIntro;
+        var ids = SI.CARD_DESIGN_IDS;
+        var id = ids.indexOf(P.design) >= 0 ? P.design : 'garden-gate';
+        var d = SI.cardDesign(id);
+        var base = (P.artBase || FIXTURE.artBase) + '/' + id + '/';
+        var kind = d.gateway.kind;
+        var shape = d.gateway.shape || 'circle';
+        var $ = function (s) { return document.getElementById(s); };
+
+        document.getElementById('root').style.background = d.palette.bg;
+        $('sides').style.backgroundImage = 'url(' + base + 'back.webp)';
+        $('back').style.backgroundImage = 'url(' + base + 'back.webp)';
+        $('glow').style.background = 'radial-gradient(60% 45% at 50% 47%, ' + d.palette.glow + ', transparent 70%)';
+        $('title').textContent = String(P.title || '').slice(0, 80);
+        $('recipient').textContent = P.recipient ? 'for ' + String(P.recipient).slice(0, 60) : '';
+
+        // Foreground cut-outs, mirrored, as on the card.
+        var mid = $('mid');
+        var vpos = d.mid.placement === 'top' ? 'top:-3%;' : 'bottom:-4%;';
+        mid.innerHTML = '';
+        [['left:-9%;', ''], ['right:-9%;', 'transform:scaleX(-1);']].forEach(function (p) {
+          var img = document.createElement('img');
+          img.src = base + 'mid.webp';
+          img.setAttribute('style', vpos + p[0] + 'width:' + d.mid.size * 100 + '%;' + p[1]);
+          mid.appendChild(img);
+        });
+
+        // Seeded sparkles (mulberry32): same scatter every render.
+        var seed = 0;
+        for (var c = 0; c < id.length; c++) seed = (Math.imul(seed ^ id.charCodeAt(c), 16777619) >>> 0);
+        var rnd = function () { seed = (seed + 0x6d2b79f5) >>> 0; var r = Math.imul(seed ^ (seed >>> 15), 1 | seed); r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r; return ((r ^ (r >>> 14)) >>> 0) / 4294967296; };
+        var sparks = [];
+        for (var s = 0; s < 22; s++) {
+          var el = document.createElement('i');
+          el.style.left = (rnd() * 100).toFixed(2) + '%';
+          el.style.top = (rnd() * 90).toFixed(2) + '%';
+          el.style.background = d.motif.colors[Math.floor(rnd() * d.motif.colors.length)];
+          el.style.boxShadow = '0 0 12px 3px ' + el.style.background;
+          $('sparkles').appendChild(el);
+          sparks.push({ el: el, at: rnd(), sp: 0.6 + rnd() * 1.4 });
+        }
+
+        // The gateway.
+        var gate = $('gate');
+        var gateBg = 'url(' + base + 'gate.webp)';
+        var L, R, strips = [], irisPathEl, rimEl;
+        if (kind === 'doors' || kind === 'slide') {
+          L = document.createElement('div'); L.className = 'half';
+          L.setAttribute('style', 'left:0;background-image:' + gateBg + ';background-position:0% 50%;transform-origin:0% 50%;box-shadow:inset -14px 0 24px -16px rgba(0,0,0,.55)');
+          R = document.createElement('div'); R.className = 'half';
+          R.setAttribute('style', 'right:0;background-image:' + gateBg + ';background-position:100% 50%;transform-origin:100% 50%;box-shadow:inset 14px 0 24px -16px rgba(0,0,0,.55)');
+          gate.appendChild(L); gate.appendChild(R);
+        } else if (kind === 'rise') {
+          for (var k = 0; k < 3; k++) {
+            var st = document.createElement('div'); st.className = 'strip';
+            st.setAttribute('style', 'left:' + (k * 100) / 3 + '%;width:' + (100 / 3 + 0.4) + '%;background-image:' + gateBg + ';background-position:' + k * 50 + '% 50%');
+            gate.appendChild(st); strips.push(st);
+          }
+        } else {
+          var NS = 'http://www.w3.org/2000/svg';
+          var svg = document.createElementNS(NS, 'svg');
+          svg.setAttribute('id', 'iris'); svg.setAttribute('viewBox', '0 0 900 1600'); svg.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+          svg.innerHTML = '<defs><mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="900" height="1600"><rect width="900" height="1600" fill="white"/><path id="hole" fill="black"/></mask></defs>' +
+            '<image href="' + base + 'gate.webp" width="900" height="1600" preserveAspectRatio="xMidYMid slice" mask="url(#m)"/>' +
+            '<path id="rim" fill="none" stroke="' + d.palette.accent + '" stroke-width="5" stroke-opacity="0.85"/>';
+          gate.appendChild(svg);
+          irisPathEl = svg.querySelector('#hole'); rimEl = svg.querySelector('#rim');
+        }
+
+        // GSAP drives `t` through a setter, so every seek repaints, including
+        // the renderer's event-suppressed seeks (onUpdate would not fire).
+        var tNow = 0;
+        var state = {};
+        Object.defineProperty(state, 't', {
+          get: function () { return tNow; },
+          set: function (v) { tNow = v; apply(); },
+        });
+        function apply() {
+          var t = tNow;
+          var f = SI.sceneFrame(kind, t, false);
+          $('back').style.transform = 'translateY(' + f.backY + '%) scale(' + f.backScale + ')';
+          mid.style.transform = 'translateY(' + f.midY + '%) scale(' + f.midScale + ')';
+          mid.style.opacity = f.midOpacity;
+          $('glow').style.opacity = f.glow;
+          gate.style.opacity = f.gateOpacity;
+          gate.style.transform = 'scale(' + f.gateScale + ')';
+          if (kind === 'doors') {
+            L.style.transform = 'rotateY(' + -f.doorDeg + 'deg)';
+            R.style.transform = 'rotateY(' + f.doorDeg + 'deg)';
+          } else if (kind === 'slide') {
+            L.style.transform = 'translateX(' + -f.slidePct + '%)';
+            R.style.transform = 'translateX(' + f.slidePct + '%)';
+          } else if (kind === 'rise') {
+            strips.forEach(function (el, i) {
+              var lag = i === 1 ? 0 : f.riseLagPct * (i === 0 ? 1 : 0.6);
+              el.style.transform = 'translateY(' + -(f.risePct - lag) + '%)';
+            });
+          } else {
+            irisPathEl.setAttribute('d', SI.irisPath(shape, f.irisR));
+            rimEl.setAttribute('d', SI.irisPath(shape, Math.max(f.irisR, 0.16)));
+            rimEl.style.opacity = f.gateOpacity;
+          }
+          var p = $('plate');
+          p.style.opacity = f.plateOpacity;
+          p.style.transform = 'translateY(' + f.plateY + 'px) scale(' + f.plateScale + ')';
+          sparks.forEach(function (q) {
+            var tw = Math.abs(Math.sin((t * 6 + q.at * 6.283) * q.sp));
+            q.el.style.opacity = (Math.min(1, t * 2.2) * (0.25 + 0.75 * tw)).toFixed(3);
+          });
+        }
+        apply();
+
+        // 1.0 s on the closed gateway, the opening at its real length, then
+        // a hold on the title plate.
+        var OPEN = SI.SCENE_OPEN_MS / 1000;
+        var tl = gsap.timeline({ paused: true });
+        tl.set({}, {}, 0);
+        tl.fromTo(state, { t: 0 }, { t: 1, duration: OPEN, ease: 'none', immediateRender: false }, 1.0);
+        tl.set({}, {}, 7);
+        window.__timelines = window.__timelines || {};
+        window.__timelines['sceneIntro'] = tl;
+      })();
+    </script>
+  </body>
+</html>
