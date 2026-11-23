@@ -146,11 +146,15 @@ describe('copy', () => {
   });
 
   it('keeps the keepsake promise in one place, and only promises what ships', () => {
-    // Sending is a host button after the event, so no line names a day or says it sends itself.
+    // The autopilot sends the album the next morning; the film is paid-only, so the
+    // step must say so whenever it promises a film, and never claims it for everyone.
     expect(STORY_STEPS.find((x) => x.id === 'keepsake')?.body).toBe(KEEPSAKE_PROMISE.step);
     expect(FILMS.find((f) => f.id === 'cards')?.beamy).toBe(KEEPSAKE_PROMISE.beamy);
+    expect(KEEPSAKE_PROMISE.step).toMatch(/morning/i);
+    if (/\bfilm\b/i.test(KEEPSAKE_PROMISE.step)) expect(KEEPSAKE_PROMISE.step).toMatch(/paid/i);
+    expect(KEEPSAKE_PROMISE.step.length).toBeLessThanOrEqual(80);
     for (const s of Object.values(KEEPSAKE_PROMISE)) {
-      expect(s, s).not.toMatch(/morning|tomorrow|next day|day after|automatic/i);
+      expect(s, s).not.toMatch(/automatic|instantly|right away/i);
     }
   });
 
