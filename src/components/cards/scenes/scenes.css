@@ -1,0 +1,53 @@
+/*
+ * Paper cut-outs in the foreground sway as if in a light breeze (trees,
+ * palms, flowers, fans). `rotate` composes with each cut-out's own transform
+ * (the right one is mirrored with scaleX(-1)), so one keyframe serves both.
+ * Reduced motion: a smaller, slower sway — still alive, never still.
+ */
+@keyframes scene-sway {
+  0%, 100% { rotate: -1.1deg; }
+  50% { rotate: 1.3deg; }
+}
+.scene-sway {
+  animation: scene-sway 6.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes scene-sway-soft {
+    0%, 100% { rotate: -0.5deg; }
+    50% { rotate: 0.6deg; }
+  }
+  .scene-sway { animation: scene-sway-soft 11s ease-in-out infinite; }
+}
+
+/* The "Replay the opening" footer settles in after the card has arrived. */
+@keyframes card-footer-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.card-footer-in {
+  animation: card-footer-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes card-footer-fade { from { opacity: 0; } to { opacity: 1; } }
+  .card-footer-in { animation: card-footer-fade 500ms ease-out both; }
+}
+
+/* Open gestures (SceneOpener): the hold seal breathes; a full hold bursts a ring of light. */
+@keyframes seal-breathe { 0%, 100% { opacity: 0.65; transform: scale(1.05); } 50% { opacity: 1; transform: scale(1.22); } }
+.seal-breathe { animation: seal-breathe 2.4s ease-in-out infinite; }
+@keyframes seal-burst { from { opacity: 0.95; transform: scale(1); } to { opacity: 0; transform: scale(2.6); } }
+.seal-burst { animation: seal-burst 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+@keyframes pull-nudge-left { 0%, 100% { transform: translateX(0); opacity: 0.9; } 50% { transform: translateX(-4px); opacity: 0.5; } }
+@keyframes pull-nudge-right { 0%, 100% { transform: translateX(0); opacity: 0.9; } 50% { transform: translateX(4px); opacity: 0.5; } }
+.pull-nudge-left { animation: pull-nudge-left 1.4s ease-in-out infinite; }
+.pull-nudge-right { animation: pull-nudge-right 1.4s ease-in-out infinite; }
+/* The same nudge in stage units (inside the 900x1600 SVG layers). */
+@keyframes stage-nudge-left { 0%, 100% { transform: translateX(0); opacity: 0.95; } 50% { transform: translateX(-16px); opacity: 0.45; } }
+@keyframes stage-nudge-right { 0%, 100% { transform: translateX(0); opacity: 0.95; } 50% { transform: translateX(16px); opacity: 0.45; } }
+.stage-nudge-left { animation: stage-nudge-left 1.4s ease-in-out infinite; }
+.stage-nudge-right { animation: stage-nudge-right 1.4s ease-in-out infinite; }
+@keyframes stage-sway { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
+.stage-sway { animation: stage-sway 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .seal-breathe, .seal-burst, .pull-nudge-left, .pull-nudge-right, .stage-nudge-left, .stage-nudge-right, .stage-sway { animation: none; }
+}

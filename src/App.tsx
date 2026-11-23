@@ -152,6 +152,12 @@ const BrandPage = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/brand/BrandPage'));
 
+/** Card design gallery (/card-designs, noindex): every illustrated keepsake
+ *  design, playable with a sample card. Same fold as the brand page. */
+const CardDesignGallery = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/cards/CardDesignGallery'));
+
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
 const DevStudioHarness = import.meta.env.DEV
@@ -325,6 +331,7 @@ export default function App() {
               <Route path="/try/:kit" element={<TryPage />} />
               <Route path="/beamy" element={<RedirectToHome />} />
               <Route path="/brand" element={<BrandPage />} />
+              <Route path="/card-designs" element={<CardDesignGallery />} />
 
               {/* Host platform (session-gated) */}
               {/* The setup wizard: full-screen, its own session gate. A new
