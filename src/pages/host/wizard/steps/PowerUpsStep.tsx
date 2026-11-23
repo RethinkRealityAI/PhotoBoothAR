@@ -140,7 +140,7 @@ export default function PowerUpsStep() {
             </ul>
             </>)}
             {tab === 'gear' && (<>
-            <p className="text-[13px] text-white/65">Superhero filters with their own blasts. They join your filters.</p>
+            <p className="text-[13px] text-white/65">Superhero combos with their own blasts. They join your combos.</p>
             <div className="mt-4 wz-shelf">
               {powerScenes().map((s) => {
                 const active = rows?.some((r) => wizardRefOf(r) === `starter:${s.id}`) ?? false;

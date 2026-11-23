@@ -249,7 +249,7 @@ export default function HostImport() {
               {done.studio
                 ? <>“{done.name}” is in that event’s library as a draft — open the studio to place it and publish
                   it to your booth.</>
-                : <>“{done.name}” is in that event’s Frames &amp; filters, switched off — open it there and
+                : <>“{done.name}” is in that event’s Looks, switched off — open it there and
                   turn it on for guests.</>}
             </p>
           </div>
@@ -258,7 +258,7 @@ export default function HostImport() {
               to={done.studio ? `/host/events/${done.event.id}/studio` : `/host/events/${done.event.id}/library`}
               className="pressable flex items-center gap-2 rounded-full bg-foil px-6 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition"
             >
-              {done.studio ? 'Open in Studio' : 'Open frames & filters'} <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+              {done.studio ? 'Open in Studio' : 'Open looks'} <ExternalLink className="w-3.5 h-3.5 opacity-70" />
             </Link>
             <button
               onClick={() => { setDone(null); setError(null); }}

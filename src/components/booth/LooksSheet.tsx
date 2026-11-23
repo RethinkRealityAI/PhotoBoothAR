@@ -16,18 +16,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Ban, Check, RefreshCw, Sparkles, X } from 'lucide-react';
-import LookThumb, { CATEGORY_ICON } from './LookThumb';
+import LookThumb, { TAB_ICON } from './LookThumb';
 import { useStore } from '../../store';
 import { isPristine, type DeckSection, type DeckSelection } from '../../lib/boothDeck';
 import {
   activeLookIds,
   buildLookStrip,
-  categoryIsClear,
-  clearCategoryAction,
+  clearTabAction,
   lookChips,
   looksForChip,
   lookTapAction,
   runLookAction,
+  tabIsClear,
   type LookChip,
   type LookHandlers,
   LOOK_NONE_LABEL,
@@ -114,7 +114,7 @@ export default function LooksSheet({
               <div className="min-w-0">
                 <h2 className="font-serif text-[22px] font-semibold leading-tight text-brand-fg">Looks</h2>
                 <p className="mt-0.5 font-sans text-[13px] leading-snug text-brand-muted/80">
-                  Mix one of each: a frame, a 3D piece and an effect.
+                  Mix a frame, a prop or face paint, and an effect.
                 </p>
               </div>
               <button
@@ -132,7 +132,7 @@ export default function LooksSheet({
               <div role="tablist" aria-label="Look categories" className="flex shrink-0 gap-2 overflow-x-auto px-5 pb-3 pt-1 hide-scrollbar">
                 {chips.map((c) => {
                   const on = c.key === current;
-                  const ChipIcon = c.key === 'all' ? null : CATEGORY_ICON[c.key];
+                  const ChipIcon = c.key === 'all' ? null : TAB_ICON[c.key];
                   return (
                     <button
                       key={c.key}
@@ -155,7 +155,7 @@ export default function LooksSheet({
             )}
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3 hide-scrollbar">
-              {(current === 'all' || current === 'effect') && (
+              {(current === 'all' || current === 'effects') && (
                 <button
                   type="button"
                   onClick={() => { haptic('toggle'); onToggleSparkles(!sparkles); }}
@@ -204,9 +204,9 @@ export default function LooksSheet({
               )}
 
               {groups.map((g) => {
-                const Icon = CATEGORY_ICON[g.category];
+                const Icon = TAB_ICON[g.tab];
                 return (
-                  <section key={g.category} className="mb-5" aria-label={g.label}>
+                  <section key={g.tab} className="mb-5" aria-label={g.label}>
                     {current === 'all' && (
                       <h3 className="mb-2.5 flex items-center gap-2 font-sans text-[12px] font-semibold uppercase tracking-[0.14em] text-brand-muted/80">
                         <Icon className="h-3.5 w-3.5" />
@@ -214,15 +214,16 @@ export default function LooksSheet({
                       </h3>
                     )}
                     <div className="grid grid-cols-4 gap-x-2.5 gap-y-3.5">
-                      {/* "None" leads every section: take THIS category off
+                      {/* "None" leads every section: take THIS tab's look off
                           and keep the rest of the combined look. */}
                       {(() => {
-                        const clear = categoryIsClear(g.category, selection);
+                        const clear = tabIsClear(g.tab, strip, selection);
+                        const action = clearTabAction(g.tab, strip, selection);
                         return (
                           <button
                             type="button"
                             aria-pressed={clear}
-                            onClick={() => { haptic('select'); runLookAction(clearCategoryAction(g.category), handlers); }}
+                            onClick={() => { haptic('select'); if (action !== null) runLookAction(action, handlers); }}
                             className="group flex min-w-0 flex-col items-center gap-1.5 text-center"
                           >
                             <span
@@ -240,7 +241,7 @@ export default function LooksSheet({
                               className="line-clamp-2 w-full font-sans text-[12px] leading-tight"
                               style={{ color: clear ? 'var(--color-brand-fg)' : 'rgba(205,210,235,0.85)', fontWeight: clear ? 600 : 400 }}
                             >
-                              {LOOK_NONE_LABEL[g.category]}
+                              {LOOK_NONE_LABEL[g.tab]}
                             </span>
                           </button>
                         );

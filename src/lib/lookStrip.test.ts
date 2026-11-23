@@ -4,9 +4,14 @@ import {
   activeLookIds,
   buildLookStrip,
   categoryBreaks,
-  categoryIsClear,
-  clearCategoryAction,
+  clearTabAction,
+  defaultLookTab,
+  isPaintLook,
   isSwipeUp,
+  lookTabs,
+  tabIsClear,
+  tabOfLook,
+  tabsInUse,
   LOOK_NONE_LABEL,
   SWIPE_UP_MIN_PX,
   centeredScrollLeft,
@@ -171,27 +176,27 @@ describe('lookChips / looksForChip', () => {
   it('offers All first, then each non-empty category with its count', () => {
     expect(lookChips(STRIP)).toEqual([
       { key: 'all', label: 'All', count: 6 },
-      { key: 'frame', label: 'Frames', count: 2 },
-      { key: 'prop', label: '3D', count: 1 },
-      { key: 'effect', label: 'Effects', count: 3 },
+      { key: 'frames', label: 'Frames', count: 2 },
+      { key: 'props', label: 'Props', count: 1 },
+      { key: 'effects', label: 'Effects', count: 3 },
     ]);
   });
 
   it('drops "All" when there is only one category', () => {
     const fxOnly = buildLookStrip(buildDeck(CATALOG.filter((e) => e.kind === 'shader')));
-    expect(lookChips(fxOnly).map((c) => c.key)).toEqual(['effect']);
+    expect(lookChips(fxOnly).map((c) => c.key)).toEqual(['effects']);
   });
 
   it('All groups by category in strip order; a chip narrows to one group', () => {
     expect(looksForChip(STRIP, 'all').map((g) => [g.label, g.items.length])).toEqual([
-      ['Frames', 2], ['3D', 1], ['Effects', 3],
+      ['Frames', 2], ['Props', 1], ['Effects', 3],
     ]);
-    expect(looksForChip(STRIP, 'prop').map((g) => g.items.map((i) => i.exp.id))).toEqual([['p1']]);
+    expect(looksForChip(STRIP, 'props').map((g) => g.items.map((i) => i.exp.id))).toEqual([['p1']]);
   });
 
   it('a chip with nothing in it yields no groups', () => {
     const fxOnly = buildLookStrip(buildDeck(CATALOG.filter((e) => e.kind === 'shader')));
-    expect(looksForChip(fxOnly, 'frame')).toEqual([]);
+    expect(looksForChip(fxOnly, 'frames')).toEqual([]);
   });
 });
 
@@ -252,30 +257,33 @@ describe('first-run hint storage', () => {
   });
 });
 
-describe('per-category None', () => {
-  it('names each category in words a guest reads', () => {
-    expect(LOOK_NONE_LABEL).toEqual({ frame: 'No frame', prop: 'No 3D', effect: 'No effect' });
+describe('per-tab None', () => {
+  it('names each tab in words a guest reads', () => {
+    expect(LOOK_NONE_LABEL).toEqual({ frames: 'No frame', props: 'No prop', paint: 'No paint', effects: 'No effect' });
   });
 
-  it('clears only its own category', () => {
+  it('clears only its own tab', () => {
     const calls: string[] = [];
     const h = {
       onSelectEffect: (s: string, e: Experience | null) => calls.push(`effect:${s}:${e === null ? 'null' : e.id}`),
       onSelectFrame: (e: Experience | null) => calls.push(`frame:${e === null ? 'null' : e.id}`),
       onSelectAttachment: (e: Experience | null) => calls.push(`prop:${e === null ? 'null' : e.id}`),
     };
-    runLookAction(clearCategoryAction('frame'), h);
-    runLookAction(clearCategoryAction('prop'), h);
-    runLookAction(clearCategoryAction('effect'), h);
+    const sel: DeckSelection = { effectId: 'aurora-lumina', frameId: 'f1', attachmentId: 'p1' };
+    for (const t of ['frames', 'props', 'effects'] as const) {
+      const action = clearTabAction(t, STRIP, sel);
+      expect(action, t).not.toBeNull();
+      runLookAction(action!, h);
+    }
     expect(calls).toEqual(['frame:null', 'prop:null', 'effect:none:null']);
   });
 
-  it('lights when that category has nothing on, whatever the others hold', () => {
+  it('lights when that tab has nothing on, whatever the others hold', () => {
     const sel: DeckSelection = { effectId: 'prismatic-holo', frameId: null, attachmentId: 'p1' };
-    expect(categoryIsClear('frame', sel)).toBe(true);
-    expect(categoryIsClear('prop', sel)).toBe(false);
-    expect(categoryIsClear('effect', sel)).toBe(false);
-    expect(categoryIsClear('effect', NONE)).toBe(true);
+    expect(tabIsClear('frames', STRIP, sel)).toBe(true);
+    expect(tabIsClear('props', STRIP, sel)).toBe(false);
+    expect(tabIsClear('effects', STRIP, sel)).toBe(false);
+    expect(tabIsClear('effects', STRIP, NONE)).toBe(true);
   });
 });
 
@@ -300,5 +308,88 @@ describe('isSwipeUp', () => {
     expect(isSwipeUp(0, -(SWIPE_UP_MIN_PX - 1))).toBe(false);
     expect(isSwipeUp(0, 60)).toBe(false);
     expect(isSwipeUp(80, -60)).toBe(false);
+  });
+});
+
+/* ── Tabs: Frames · Props · Paint · Effects ──────────────────────────── */
+
+function paintExp(id: string, name: string, extraProp = false): Experience {
+  const layers = [
+    { kind: '3d_attachment', facePaint: { design: 'tiger' } },
+    ...(extraProp ? [{ kind: '3d_attachment', assetUrl: '/models/hat.glb' }] : []),
+  ];
+  return { ...exp(id, '3d_attachment', name), config: { layers } } as unknown as Experience;
+}
+
+const WITH_PAINT: Experience[] = [
+  ...CATALOG,
+  paintExp('fp1', 'Tiger Paint'),
+  paintExp('mix1', 'Tiger + Hat', true),
+];
+const PSTRIP = buildLookStrip(buildDeck(WITH_PAINT));
+
+describe('isPaintLook', () => {
+  it('is face paint only when every visible layer is paint', () => {
+    expect(isPaintLook(paintExp('a', 'A'))).toBe(true);
+    expect(isPaintLook(paintExp('b', 'B', true))).toBe(false);
+    expect(isPaintLook(exp('c', '3d_attachment', 'Crown'))).toBe(false);
+  });
+
+  it('ignores hidden layers', () => {
+    const e = { ...exp('d', '3d_attachment', 'D'), config: { layers: [
+      { kind: '3d_attachment', facePaint: { design: 'tiger' } },
+      { kind: '3d_attachment', hidden: true, assetUrl: '/x.glb' },
+    ] } } as unknown as Experience;
+    expect(isPaintLook(e)).toBe(true);
+  });
+});
+
+describe('tabs', () => {
+  it('puts face paint under Paint (same 3D slot) and mixed scenes under Props', () => {
+    expect(PSTRIP.map((i) => [i.exp.id, i.tab])).toEqual([
+      ['f1', 'frames'], ['c1', 'frames'],
+      ['p1', 'props'], ['mix1', 'props'],
+      ['fp1', 'paint'],
+      ['s1', 'effects'], ['s2', 'effects'], ['s3', 'effects'],
+    ]);
+    expect(PSTRIP.find((i) => i.exp.id === 'fp1')?.category).toBe('prop');
+  });
+
+  it('lists only tabs with looks, in order — Effects always (it holds Sparkle)', () => {
+    expect(lookTabs(PSTRIP).map((t) => [t.id, t.label, t.count])).toEqual([
+      ['frames', 'Frames', 2], ['props', 'Props', 2], ['paint', 'Paint', 1], ['effects', 'Effects', 3],
+    ]);
+    expect(lookTabs(STRIP).map((t) => t.id)).toEqual(['frames', 'props', 'effects']);
+    expect(lookTabs([]).map((t) => t.id)).toEqual(['effects']);
+  });
+
+  it('opens on the tab holding the applied look, else the first tab', () => {
+    expect(defaultLookTab(PSTRIP, NONE)).toBe('frames');
+    expect(defaultLookTab(PSTRIP, { ...NONE, attachmentId: 'fp1' })).toBe('paint');
+    expect(defaultLookTab(PSTRIP, { ...NONE, effectId: 'aurora-lumina' })).toBe('effects');
+    // A combined look opens on its frame, like the name pill.
+    expect(defaultLookTab(PSTRIP, { effectId: 'aurora-lumina', frameId: 'c1', attachmentId: 'p1' })).toBe('frames');
+    expect(defaultLookTab(buildLookStrip(buildDeck(CATALOG.filter((e) => e.kind === 'shader'))), NONE)).toBe('effects');
+  });
+
+  it('marks every tab with something on, Sparkle counting for Effects', () => {
+    expect([...tabsInUse(PSTRIP, { ...NONE, frameId: 'f1', attachmentId: 'fp1' }, false)]).toEqual(['frames', 'paint']);
+    expect([...tabsInUse(PSTRIP, NONE, true)]).toEqual(['effects']);
+    expect(tabsInUse(PSTRIP, NONE, false).size).toBe(0);
+  });
+
+  it('finds a look\'s tab by id', () => {
+    expect(tabOfLook(PSTRIP, 'fp1')).toBe('paint');
+    expect(tabOfLook(PSTRIP, 'gone')).toBeNull();
+  });
+
+  it('"No paint" never takes a prop off — the two share one slot', () => {
+    const propOn: DeckSelection = { ...NONE, attachmentId: 'p1' };
+    expect(tabIsClear('paint', PSTRIP, propOn)).toBe(true);
+    expect(clearTabAction('paint', PSTRIP, propOn)).toBeNull();
+    expect(clearTabAction('props', PSTRIP, propOn)).toEqual({ category: 'prop', exp: null });
+    const paintOn: DeckSelection = { ...NONE, attachmentId: 'fp1' };
+    expect(clearTabAction('props', PSTRIP, paintOn)).toBeNull();
+    expect(clearTabAction('paint', PSTRIP, paintOn)).toEqual({ category: 'prop', exp: null });
   });
 });

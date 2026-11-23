@@ -298,7 +298,7 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                   onClick={(e) => { e.stopPropagation(); dispatch({ type: 'MOVE_OBJECT', id: o.id, toIndex: stepTargetIndex(row, count, 'up') }); }}
                   disabled={isTop}
                   aria-label="Move layer up"
-                  title={is3DRow ? 'Move up the list — 3D pieces draw by depth, so this does not change what covers what' : 'Move up — paints over more'}
+                  title={is3DRow ? 'Move up the list — props draw by depth, so this does not change what covers what' : 'Move up — paints over more'}
                   className={`${action} text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]`}
                 >
                   <ChevronUp className="w-4 h-4" />
@@ -307,7 +307,7 @@ export default function LayerList({ objects, selectedId, displayNames, dispatch 
                   onClick={(e) => { e.stopPropagation(); dispatch({ type: 'MOVE_OBJECT', id: o.id, toIndex: stepTargetIndex(row, count, 'down') }); }}
                   disabled={isBottom}
                   aria-label="Move layer down"
-                  title={is3DRow ? 'Move down the list — 3D pieces draw by depth, so this does not change what covers what' : 'Move down — paints under more'}
+                  title={is3DRow ? 'Move down the list — props draw by depth, so this does not change what covers what' : 'Move down — paints under more'}
                   className={`${action} text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]`}
                 >
                   <ChevronDown className="w-4 h-4" />

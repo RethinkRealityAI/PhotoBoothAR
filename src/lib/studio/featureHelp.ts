@@ -78,7 +78,7 @@ export const FEATURE_HELP: Record<FeatureHelpTopic, FeatureHelpContent> = {
   modes: {
     eyebrow: 'One scene, three views',
     title: '2D, 3D & Preview',
-    body: 'Switch the canvas between modes at the top: 2D for flat frames & filters, 3D to place face-tracked props, and Preview to see the finished result exactly as a guest will — all one scene.',
+    body: 'Switch the canvas between modes at the top: 2D for flat frames & effects, 3D to place face-tracked props, and Preview to see the finished result exactly as a guest will — all one scene.',
     media: { kind: 'modes' },
     detail: [
       { icon: Move, label: 'Drag to place', blurb: '2D: drag & scroll to place/scale' },

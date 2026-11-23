@@ -412,8 +412,8 @@ function LegacyGuestWelcome() {
                 photos-only plan must not promise video. Legacy sites resolve
                 LEGACY_ENTITLEMENTS (video on), so their copy is unchanged. */}
             {videoEnabled
-              ? <>Try on live filters, frames &amp; 3D pieces — snap a photo or video.</>
-              : <>Try on live filters, frames &amp; 3D pieces — and snap a photo.</>}
+              ? <>Try on frames, props, face paint &amp; effects — snap a photo or video.</>
+              : <>Try on frames, props, face paint &amp; effects — and snap a photo.</>}
             {posts.length > 0 && (
               <>
                 {' '}

@@ -159,7 +159,7 @@ export default function LaunchStep() {
             <ul className="flex flex-col">
               <Row icon={CalendarDays} title={ev.name} detail={dateLabel ?? 'Date to be decided'} step="basics" ok onEdit={w.goTo} />
               <Row icon={ImageIcon} title="Welcome page" detail="Your background, border and welcome line" step="invite" ok onEdit={w.goTo} />
-              <Row icon={Sparkles} title="Looks" detail={`${summary.looks} to pick from · ${summary.filters} ${summary.filters === 1 ? 'filter' : 'filters'}${summary.opening ? ` · opens with ${summary.opening}` : ''}`} step="looks" ok={summary.looks + summary.filters > 0} onEdit={w.goTo} />
+              <Row icon={Sparkles} title="Looks" detail={`${summary.looks} to pick from · ${summary.filters} ${summary.filters === 1 ? 'combo' : 'combos'}${summary.opening ? ` · opens with ${summary.opening}` : ''}`} step="looks" ok={summary.looks + summary.filters > 0} onEdit={w.goTo} />
               <Row icon={Zap} title="Power-ups" detail={powerUps > 0 ? `${powerUps} gesture${powerUps === 1 ? '' : 's'} on` : 'None yet (optional)'} step="powerups" ok={powerUps > 0} onEdit={w.goTo} />
               <Row icon={Trophy} title="Challenges" detail={summary.challenges > 0 ? `${summary.challenges} mission${summary.challenges === 1 ? '' : 's'}` : 'None yet (optional)'} step="challenges" ok={summary.challenges > 0} onEdit={w.goTo} />
               <Row icon={Monitor} title="Live wall" detail={`${summary.layout} wall`} step="booth" ok onEdit={w.goTo} />

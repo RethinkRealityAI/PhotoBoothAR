@@ -363,7 +363,7 @@ function ReadyMadeLooks({
   );
 }
 
-export default function LooksPicker({ eventUuid, eventSlug, config, eventType, accentHex, onSaved, title = 'Pick your frames & filters', openingLookName, ownFrames = [], library }: Props) {
+export default function LooksPicker({ eventUuid, eventSlug, config, eventType, accentHex, onSaved, title = 'Pick your looks', openingLookName, ownFrames = [], library }: Props) {
   const ownOn = ownFrames.filter((f) => f.on).length;
   const lib = useEventLibrary(library?.eventSlug ?? null);
   // Linked ready-made looks the booth shows under Frames / Filters (a combined
@@ -620,7 +620,7 @@ export default function LooksPicker({ eventUuid, eventSlug, config, eventType, a
       ))}
 
       <h3 className="mt-5 text-[13px] font-semibold uppercase tracking-wide text-brand-muted">
-        Filters <span className="font-normal normal-case">· {sel.shaderIds.length + linkedOn.filters} on</span>
+        Effects <span className="font-normal normal-case">· {sel.shaderIds.length + linkedOn.filters} on</span>
       </h3>
       <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="list">
         {filterGroups.core.map(renderFilter)}
@@ -628,7 +628,7 @@ export default function LooksPicker({ eventUuid, eventSlug, config, eventType, a
       {filterGroups.seasons.map(({ season, ids }) => (
         <div key={season}>
           <SeasonHeading season={season} count={ids.filter((id) => sel.shaderIds.includes(id)).length} />
-          <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="list" aria-label={`${SEASON_LABEL[season] ?? season} filters`}>
+          <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="list" aria-label={`${SEASON_LABEL[season] ?? season} effects`}>
             {ids.map(renderFilter)}
           </ul>
         </div>
@@ -642,11 +642,11 @@ export default function LooksPicker({ eventUuid, eventSlug, config, eventType, a
           className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-white/15 px-5 text-sm font-semibold text-brand-fg hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-          Save frames &amp; filters
+          Save looks
         </button>
         <p role="status" aria-live="polite" className="text-[13px]">
           {sel.borderIds.length === 0 || sel.shaderIds.length === 0 ? (
-            <span className="text-amber-300">Keep at least one frame and one filter on.</span>
+            <span className="text-amber-300">Keep at least one frame and one effect on.</span>
           ) : status === 'saved' ? (
             <span className="text-emerald-300">Saved — your booth uses these now.</span>
           ) : status === 'error' ? (

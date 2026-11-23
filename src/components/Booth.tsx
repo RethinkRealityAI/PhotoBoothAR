@@ -695,7 +695,7 @@ export default function Booth() {
     console.warn('[Booth] 3D asset failed to load', url, message);
     armedRevealRef.current = null;
     markAssetLoaded(url);
-    showBoothHint('That 3D piece didn’t load — filters and frames still work');
+    showBoothHint('That prop didn’t load — frames and effects still work');
   }, [markAssetLoaded, showBoothHint]);
 
   // ── Camera taking too long ────────────────────────────────────────────
@@ -1192,7 +1192,7 @@ export default function Booth() {
   useEffect(() => {
     if (trackerFailed && is3D && phase === 'camera' && ready && !trackerFailHintShownRef.current) {
       trackerFailHintShownRef.current = true;
-      showBoothHint('3D pieces aren’t loading on this connection — filters and frames still work');
+      showBoothHint('Props aren’t loading on this connection — frames and effects still work');
     }
   }, [trackerFailed, is3D, phase, ready, showBoothHint]);
   // Same, for the HAND tracker (CPU delegate failed — never retried on GPU):

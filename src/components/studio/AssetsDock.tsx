@@ -140,8 +140,8 @@ const KIND_CHIPS: { id: AssetChip; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'frame', label: 'Frames' },
   { id: 'sticker', label: 'Stickers' },
-  { id: 'filter', label: 'Filters' },
-  { id: '3d', label: '3D' },
+  { id: 'filter', label: 'Effects' },
+  { id: '3d', label: 'Props' },
 ];
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -959,7 +959,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl transition-colors ${draft.shaderId === 'none' ? 'bg-accent/15 ring-1 ring-accent/30 text-accent-2' : 'bg-white/[0.03] hover:bg-white/[0.06] text-brand-muted/70 hover:text-brand-fg'}`}
           >
             <X className="w-3.5 h-3.5 shrink-0" />
-            <span className="text-xs font-sans font-medium">No filter</span>
+            <span className="text-xs font-sans font-medium">No effect</span>
           </button>
         )}
         {shaders.map((s) => {
@@ -1167,7 +1167,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             >
               <Wand2 className="w-3.5 h-3.5 text-accent-2" />
               <span className="font-label uppercase tracking-widest text-[9px] text-accent-2 flex-1 text-left">
-                Quick AI — single {showAi3d ? '3D piece' : aiKind === 'border' ? 'frame' : 'sticker'}
+                Quick AI — single {showAi3d ? 'prop' : aiKind === 'border' ? 'frame' : 'sticker'}
               </span>
               {aiOpen ? <ChevronDown className="w-3.5 h-3.5 text-accent-2/70" /> : <ChevronRight className="w-3.5 h-3.5 text-accent-2/70" />}
             </button>
@@ -1232,8 +1232,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
             <SectionLabel>Studio Library</SectionLabel>
             {subGroup('lib-frames', 'Frames', frameTiles.length, renderTiles(frameTiles, 'frame'))}
             {subGroup('lib-stickers', 'Stickers', stickerTiles.length, renderTiles(stickerTiles, 'square'))}
-            {subGroup('lib-filters', 'Filters', filterCount, renderFilters())}
-            {subGroup('lib-props', '3D props', propTiles.length, renderTiles(propTiles, 'square'))}
+            {subGroup('lib-filters', 'Effects', filterCount, renderFilters())}
+            {subGroup('lib-props', 'Props', propTiles.length, renderTiles(propTiles, 'square'))}
             {subGroup('lib-pieces', 'Head pieces', headTiles.length, renderTiles(headTiles, 'square'))}
             {(cfgTiles.length > 0 || showCfgEmpty) && subGroup(
               'lib-configurable',

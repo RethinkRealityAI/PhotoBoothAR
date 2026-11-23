@@ -324,7 +324,7 @@ export function FilterCard({ name, description, state, onApprove, onSkip }: {
 }) {
   const { status } = state;
   return (
-    <CardShell label="Filter look" icon={<SlidersHorizontal className="w-3 h-3" />} cost={0} state={state}>
+    <CardShell label="Effect" icon={<SlidersHorizontal className="w-3 h-3" />} cost={0} state={state}>
       <div>
         <p className="font-sans text-[12px] text-brand-fg leading-snug">{name}</p>
         <p className="font-sans text-[11px] text-brand-muted/60 leading-snug mt-0.5">{description}</p>
@@ -343,7 +343,7 @@ export function FilterCard({ name, description, state, onApprove, onSkip }: {
         </div>
       )}
       {status === 'added' && (
-        <p className="font-sans text-[10px] text-emerald-300/70">In your scene · one filter per scene</p>
+        <p className="font-sans text-[10px] text-emerald-300/70">In your scene · one effect per scene</p>
       )}
     </CardShell>
   );

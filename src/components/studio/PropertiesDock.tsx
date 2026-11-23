@@ -1056,7 +1056,7 @@ function LightingPicker({ value, onChange }: { value: LightingPresetId; onChange
       <div className="flex items-center gap-1.5">
         <Sparkles className="w-3.5 h-3.5 text-accent-2" />
         <span className="font-label uppercase tracking-widest text-[9px] text-accent-2">Lighting</span>
-        <Tooltip label="Lighting" hint="Lights every 3D piece — in this studio, in the preview and in the guest booth. Metal, glass and gems take their look from it." side="left">
+        <Tooltip label="Lighting" hint="Lights every prop — in this studio, in the preview and in the guest booth. Metal, glass and gems take their look from it." side="left">
           <span className="ml-auto text-brand-muted/50 cursor-help text-[10px]">?</span>
         </Tooltip>
       </div>
@@ -1175,7 +1175,7 @@ const ACTION_CHOICES: { id: NewActionType; label: string; icon: LucideIcon }[] =
   { id: 'beam', label: 'Blast', icon: Zap },
   { id: 'reveal', label: 'Reveal', icon: Wand2 },
   { id: 'animate', label: 'Animate', icon: Clapperboard },
-  { id: 'filterPulse', label: 'Filter', icon: Palette },
+  { id: 'filterPulse', label: 'Effect', icon: Palette },
 ];
 
 function newTriggerId(): string {
@@ -1191,7 +1191,7 @@ function triggerActionLabel(
   if (a.type === 'reveal') return `Reveal ${pieceName(a.objectId)}`;
   if (a.type === 'beam') return BEAM_STYLE_LABELS[a.style];
   if (a.type === 'animate') return `${ANIMATE_PRESET_LABELS[a.preset]} ${pieceName(a.objectId)}`;
-  return `${a.shaderId ? shaderName(a.shaderId) : 'Filter'} pulse`;
+  return `${a.shaderId ? shaderName(a.shaderId) : 'Effect'} pulse`;
 }
 
 /**
@@ -1520,7 +1520,7 @@ function MagicTriggers({
 
           {actionType === 'filterPulse' && (
             <div>
-              <SectionLabel>Filter</SectionLabel>
+              <SectionLabel>Effect</SectionLabel>
               <select value={filterId} onChange={(e) => setFilterId(e.target.value)} className={selectCls}>
                 {FILTER_SHADERS.map((s) => (
                   <option key={s.id} value={s.id} className="bg-noir-900">{s.name}</option>
@@ -1767,9 +1767,9 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
       : undefined;
   /** Kind chip beside the pronounced asset name. */
   const selectedKind: string | undefined = selected
-    ? (selOverlay ? (selOverlay.overlayKind === 'border' ? 'Frame' : 'Sticker') : '3D piece')
+    ? (selOverlay ? (selOverlay.overlayKind === 'border' ? 'Frame' : 'Sticker') : 'Prop')
     : filterActive && shaderDef
-      ? 'Filter'
+      ? 'Effect'
       : undefined;
 
   const handleThumbInput = (e: ChangeEvent<HTMLInputElement>) => {
@@ -1932,7 +1932,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
           <>
       {/* Empty scene + empty filter slot — the hint is the panel's only guidance. */}
       {!hasObjects && !filterActive && (
-        <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or 3D piece from the left dock to start a scene.</p>
+        <p className="text-[10px] text-brand-muted/40 font-sans px-1">Add a frame, sticker or prop from the left dock to start a scene.</p>
       )}
 
       {/* SCENE ASSETS — the hierarchy leads the tab: select here, edit below.
@@ -2398,7 +2398,7 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
           {hasHead3D && (
             <StudioToggle
               label="Hide props behind head"
-              hint="Parts of your 3D pieces that fall behind the guest's real head stop showing. Applies to the whole scene."
+              hint="Parts of your props that fall behind the guest's real head stop showing. Applies to the whole scene."
               value={sceneOccludes}
               onChange={(v) => dispatch({ type: 'SET_SCENE_OCCLUSION', occlusion: v })}
             />

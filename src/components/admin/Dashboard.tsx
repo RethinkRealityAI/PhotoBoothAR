@@ -491,9 +491,9 @@ export default function Dashboard({
             )}
             <ActionCard
               icon={<ImageIcon className={`w-5 h-5 ${studio ? 'text-gold-300' : 'text-noir-900'}`} />}
-              title={platformStudio ? 'Frames & filters' : 'Experiences Library'}
+              title={platformStudio ? 'Looks' : 'Experiences Library'}
               description={platformStudio
-                ? 'Pick ready-made frames and filters for your booth, or make one with AI.'
+                ? 'Pick ready-made frames, props, face paint and effects for your booth, or make a frame with AI.'
                 : 'Browse, publish, duplicate, and manage all AR experiences.'}
               onClick={() => navigate(`${base}/library`)}
               accent={!studio}
