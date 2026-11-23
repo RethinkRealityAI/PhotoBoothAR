@@ -35,8 +35,8 @@ import type { Experience, ExperienceConfig, ExperienceDraft } from '../../types'
 import { BORDER_MAP, GENERIC_FRAMES, frameDataUrl } from '../borders';
 import { FILTER_SHADERS, defaultParams } from '../shaders';
 import { lookSeason } from '../themeMatch';
-import { BUNDLED_PROPS, BUNDLED_PROP_MAP, type BundledProp } from '../studio/bundledProps';
-import { STARTER_SCENES, buildStarterDraft, bundledPropObject, facePaintObject, type StarterScene } from '../studio/starterScenes';
+import { BUNDLED_PROP_MAP, offeredBundledProps, type BundledProp } from '../studio/bundledProps';
+import { STARTER_SCENES, buildStarterDraft, bundledPropObject, facePaintObject, offeredStarterScenes, type StarterScene } from '../studio/starterScenes';
 import { FACE_PAINT_CATEGORIES, FACE_PAINT_DESIGNS, FACE_PAINT_DESIGN_MAP, categoryOf, defaultColorsFor } from '../facePaint/designs';
 import { normalizeFacePaint } from '../facePaint/spec';
 import { createOverlay, deriveKind, initialDraft, type StudioDraft, type StudioObject } from '../studio/state';
@@ -204,9 +204,9 @@ export function effectLooks(): WizardLook[] {
   });
 }
 
-/** The Beamwall classics: the bundled GLB props (crown, tiara, Santa hat…). */
+/** The Beamwall classics: the bundled GLB props still offered (crown, Santa hat…). */
 export function classicLooks(): WizardLook[] {
-  return BUNDLED_PROPS.map((p) => ({
+  return offeredBundledProps().map((p) => ({
     key: `classic:${p.id}`,
     category: 'props' as const,
     source: 'classic' as const,
@@ -524,11 +524,11 @@ export function occasionTag(eventType: string | null | undefined): LookTag | nul
 export const POWER_SCENE_IDS: readonly string[] = ['hero-visor', 'wizard-duel', 'power-surge'];
 
 export function readyFilters(): StarterScene[] {
-  return STARTER_SCENES.filter((s) => !POWER_SCENE_IDS.includes(s.id));
+  return offeredStarterScenes().filter((s) => !POWER_SCENE_IDS.includes(s.id));
 }
 
 export function powerScenes(): StarterScene[] {
-  return STARTER_SCENES.filter((s) => POWER_SCENE_IDS.includes(s.id));
+  return offeredStarterScenes().filter((s) => POWER_SCENE_IDS.includes(s.id));
 }
 
 /** A starter scene as a filter row (optionally carrying extra triggers). */

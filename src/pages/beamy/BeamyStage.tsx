@@ -423,12 +423,12 @@ function peekClone(master: THREE.Object3D): THREE.Object3D {
 }
 const CRYSTALS: CrystalSpec[] = [
   { prop: 'royal-crown', at: { panel: [-0.012, -0.05] }, size: 0.15, depth: 0.25, phone: true },
-  { prop: 'halo-ring', at: { panel: [1.015, 1.02] }, size: 0.16, depth: 0.35, phone: true },
+  { prop: 'snowflake-tiara', at: { panel: [1.015, 1.02] }, size: 0.16, depth: 0.35, phone: true },
   // Around his stand: one in front of him (front-right, large), two behind (small).
-  { prop: 'queens-tiara', at: { stand: [0.66, 0.03] }, size: 0.2, depth: 1, phone: true, shadow: true, layer: 'front' },
+  { prop: 'silver-crown', at: { stand: [0.66, 0.03] }, size: 0.2, depth: 1, phone: true, shadow: true, layer: 'front' },
   { prop: 'royal-crown', at: { stand: [-0.78, -0.05] }, size: 0.12, depth: 0.15, phone: false, shadow: true, layer: 'back' },
-  { prop: 'halo-ring', at: { stand: [0.74, -0.04], lift: 0.62 }, size: 0.09, depth: 0.25, phone: false, layer: 'back' },
-  { prop: 'queens-tiara', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false },
+  { prop: 'snowflake-tiara', at: { stand: [0.74, -0.04], lift: 0.62 }, size: 0.09, depth: 0.25, phone: false, layer: 'back' },
+  { prop: 'silver-crown', at: { panel: [0.6, 0.16] }, size: 0.05, depth: 0.7, phone: false },
   { prop: 'royal-crown', at: { panel: [0.33, 0.9] }, size: 0.035, depth: 0.55, phone: false, shadow: true },
 ];
 
