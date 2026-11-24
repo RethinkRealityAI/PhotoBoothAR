@@ -61,6 +61,14 @@
  *                              audited; metadata only, never rendering content
  *   set_library_item_state   → { data: { id, state, linkCount } }
  *                              (args: { id, state: listed|retired|withdrawn|deleted }) — audited
+ *   set_library_item_fit     → { data: { id } } (args: { id, fit: { offset, rotation, scale } }) —
+ *                              audited; IN PLACE on the item's one worn piece (libraryImport
+ *                              applyItemFit). 400 invalid_args|not_fittable · 404 · 409 is_draft
+ *   copy_library_settings    → { data: { results: [{ id, status, notes? }], applied: number } }
+ *                              (args: { sourceId, targetIds ≤100, groups: (fit|look|behaviour)[], dryRun? })
+ *                              — audited; copies one prop's settings onto other library items IN PLACE
+ *                              (librarySettings.ts). status: changed|same|several_pieces|not_a_prop|
+ *                              is_draft|not_found|update_failed. dryRun writes nothing.
  * Library workshop (migration 046) — edit a library item in the full Studio. The
  * Studio is event-scoped (slug-keyed load/save/uploads under tenant RLS), so each
  * admin gets a private draft event in an org they own, and an item is COPIED into
@@ -133,6 +141,7 @@ import {
   CLASSIFY_SYSTEM_PROMPT,
   DRAFT_LIST_MAX,
   IMPORT_BATCH_MAX,
+  applyItemFit,
   buildDraftRow,
   checkDraftAssetSwap,
   checkDraftConfig,
@@ -144,6 +153,7 @@ import {
   isDraftConfig,
   normalizeClassification,
   normalizeImportMeta,
+  normalizeItemFit,
   patchDraftConfig,
   publishedDraftConfig,
   replacedFileKeys,
@@ -158,6 +168,14 @@ import {
   normalizeKeywords,
   slugifyCategory,
 } from './taxonomy.ts';
+import {
+  COPY_TARGETS_MAX,
+  applySettings,
+  extractSettings,
+  locatePiece,
+  modelSizeOf,
+  normalizeGroups,
+} from './librarySettings.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1430,6 +1448,12 @@ function previewModelUrl(kind: string, assetUrl: string | null, config: unknown)
   return null;
 }
 
+function importFileName(config: unknown): string | null {
+  const lib = (config as Record<string, unknown> | null)?.library as Record<string, unknown> | undefined;
+  const imp = lib?.import as Record<string, unknown> | undefined;
+  return typeof imp?.fileName === 'string' ? imp.fileName.slice(0, 120) : null;
+}
+
 async function listLibraryItems(sb: Client): Promise<Response> {
   const { data, error, count } = await sb
     .from('experiences')
@@ -1470,6 +1494,11 @@ async function listLibraryItems(sb: Client): Promise<Response> {
       modelUrl: previewModelUrl(r.kind as string, r.asset_url as string | null, r.config),
       access: r.library_access === 'orgs' ? 'orgs' : 'everyone',
       accessOrgs: accessOf.get(r.id as string) ?? [],
+      // Copy settings: can this row give/take settings, and what the variant
+      // matcher compares (its import file name and measured size).
+      copyable: locatePiece(r.config).ok,
+      modelSize: modelSizeOf(r.config),
+      fileName: importFileName(r.config),
     };
   });
   return json(200, { data: { items, total: count ?? items.length, linkCountsCapped: capped } });
@@ -1817,6 +1846,113 @@ async function updateLibraryItemMeta(
   if (!data) return json(404, { error: 'not_found' });
   await auditLog(sb, actorUserId, 'update_library_item_meta', 'experience', id, changed);
   return json(200, { data: { id } });
+}
+
+/**
+ * Try on's "Save fit": writes one worn piece's offset / rotation / scale onto
+ * a library item IN PLACE (owner decision 2026-11-20: every host and event
+ * using the item gets the new fit; the browser confirms with the link count
+ * first). Rendering key, so it is deliberately NOT update_library_item_meta.
+ * The anchor slot, the model and everything else are untouched
+ * (libraryImport.applyItemFit). Drafts are fitted on the import screen.
+ */
+async function setLibraryItemFit(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const id = typeof args.id === 'string' ? args.id : '';
+  const fit = normalizeItemFit(args.fit);
+  if (!UUID_RE.test(id) || !fit) return json(400, { error: 'invalid_args' });
+
+  const { data: row, error: readErr } = await sb
+    .from('experiences')
+    .select('id, config')
+    .eq('id', id)
+    .eq('is_global', true)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (!row) return json(404, { error: 'not_found' });
+  if (isDraftConfig(row.config)) return json(409, { error: 'is_draft' });
+  const config = applyItemFit(row.config, fit);
+  if (!config) return json(400, { error: 'not_fittable' });
+
+  const { data, error } = await sb
+    .from('experiences')
+    .update({ config })
+    .eq('id', id)
+    .eq('is_global', true)
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return json(404, { error: 'not_found' });
+  await auditLog(sb, actorUserId, 'set_library_item_fit', 'experience', id, { fit });
+  return json(200, { data: { id } });
+}
+
+/**
+ * Copy settings (/admin/library): one prop's fit / look / behaviour onto other
+ * library items, IN PLACE (same decision as Save fit: every event using a
+ * target gets it; the browser shows the event count before confirming). Each
+ * target is written on its own, so one refusal never blocks the rest, and a
+ * target already matching is not written (no needless audit rows or cache
+ * busting). dryRun answers what WOULD happen, for the confirm screen.
+ */
+async function copyLibrarySettings(
+  sb: Client, actorUserId: string, args: Record<string, unknown>,
+): Promise<Response> {
+  const sourceId = typeof args.sourceId === 'string' ? args.sourceId : '';
+  const targetIds = idList(args.targetIds, COPY_TARGETS_MAX);
+  const groups = normalizeGroups(args.groups);
+  if (!UUID_RE.test(sourceId) || !targetIds || !groups) return json(400, { error: 'invalid_args' });
+  const dryRun = args.dryRun === true;
+  const ids = [...new Set(targetIds.filter((t) => t !== sourceId))];
+  if (ids.length === 0) return json(400, { error: 'invalid_args' });
+
+  const { data: rows, error: readErr } = await sb
+    .from('experiences')
+    .select('id, config, updated_at')
+    .in('id', [sourceId, ...ids])
+    .eq('is_global', true);
+  if (readErr) throw readErr;
+  const byId = new Map((rows ?? []).map((r) => [r.id as string, r]));
+  const src = byId.get(sourceId);
+  if (!src) return json(404, { error: 'not_found' });
+  const settings = extractSettings(src.config);
+  if (!settings) {
+    const loc = locatePiece(src.config);
+    return json(400, { error: 'reason' in loc && loc.reason === 'several_pieces' ? 'source_several_pieces' : 'source_not_a_prop' });
+  }
+
+  const results: Array<{ id: string; status: string; notes?: string[] }> = [];
+  let applied = 0;
+  for (const id of ids) {
+    const row = byId.get(id);
+    if (!row) { results.push({ id, status: 'not_found' }); continue; }
+    if (isDraftConfig(row.config)) { results.push({ id, status: 'is_draft' }); continue; }
+    const r = applySettings(row.config, settings, groups, settings);
+    if (!r.ok) { results.push({ id, status: r.reason }); continue; }
+    if (!r.changed) { results.push({ id, status: 'same', notes: r.notes }); continue; }
+    if (dryRun) { results.push({ id, status: 'changed', notes: r.notes }); continue; }
+    // Optimistic: only write over the row we read, so a concurrent Save fit
+    // or Studio publish is never silently overwritten.
+    const { data: upd, error } = await sb
+      .from('experiences')
+      .update({ config: r.config })
+      .eq('id', id)
+      .eq('is_global', true)
+      .eq('updated_at', row.updated_at as string)
+      .select('id')
+      .maybeSingle();
+    if (error) { console.error('[admin-api] copy settings failed', id, error); results.push({ id, status: 'update_failed' }); continue; }
+    if (!upd) { results.push({ id, status: 'changed_meanwhile' }); continue; }
+    applied++;
+    results.push({ id, status: 'changed', notes: r.notes });
+  }
+  if (!dryRun && applied > 0) {
+    await auditLog(sb, actorUserId, 'copy_library_settings', 'experience_batch', sourceId, {
+      sourceId, groups, applied, results: results.map((x) => ({ id: x.id, status: x.status })),
+    });
+  }
+  return json(200, { data: { results, applied, sourceSize: modelSizeOf(src.config) } });
 }
 
 async function setLibraryItemState(
@@ -2988,6 +3124,10 @@ Deno.serve(async (req: Request) => {
         return await updateLibraryItemMeta(sb, user.id, args);
       case 'set_library_item_state':
         return await setLibraryItemState(sb, user.id, args);
+      case 'set_library_item_fit':
+        return await setLibraryItemFit(sb, user.id, args);
+      case 'copy_library_settings':
+        return await copyLibrarySettings(sb, user.id, args);
       case 'ensure_library_workshop':
         return await ensureLibraryWorkshop(sb, user.id);
       case 'open_library_item_in_workshop':
