@@ -28,7 +28,8 @@ import type { Offer, Slide, SlideStat } from '../../../lib/salesTypes';
 import FilmEmbed from '../../../components/ui/FilmEmbed';
 import { demoKit, tryPath } from '../../../lib/demoKits';
 import { salesImage } from '../salesImages';
-import { salesVideo } from '../salesVideos';
+import { isLiveWallKey, salesVideo } from '../salesVideos';
+import { DeckWall, LooksBoard, StepArt } from './DeckVisuals';
 import { iconFor } from './salesIcons';
 import { hasShowcase, ShowcaseModal } from './Showcase';
 
@@ -216,6 +217,7 @@ function SlideImg({ k, env, className = '', fit = 'contain' }: {
 
 /** A slide's film (managed autoplay), or its poster when the slide is still. */
 function SlideFilm({ k, env, className = '' }: { k: string | undefined; env: SlideEnv; className?: string }) {
+  if (isLiveWallKey(k)) return <DeckWall mode={env.mode} eager={env.eagerImages === true} className={className} />;
   const v = salesVideo(k);
   if (v === null) return null;
   return (
@@ -408,11 +410,11 @@ function Solution({ slide, env }: { slide: Slide; env: SlideEnv }) {
       <ItemsList slide={slide} env={env} />
     </div>
   );
-  const film = salesVideo(slide.video) !== null;
+  const film = salesVideo(slide.video) !== null || isLiveWallKey(slide.video);
   if (!stage) {
     return (
       <div className="flex flex-col">
-        {film && <SlideFilm k={slide.video} env={env} className="mb-5" />}
+        {film && <SlideFilm k={slide.video} env={env} className={isLiveWallKey(slide.video) ? 'mb-9' : 'mb-5'} />}
         {!film && img !== undefined && salesImage(img) !== null && (
           <div className={cx('mb-5', salesImage(img)?.cutout === true ? 'mx-auto aspect-square w-60 max-w-full' : 'aspect-[4/3] w-full')}>
             <SlideImg k={img} env={env} fit="cover" />
@@ -439,8 +441,6 @@ function Solution({ slide, env }: { slide: Slide; env: SlideEnv }) {
   );
 }
 
-const STEP_ART = ['step-create', 'step-qr', 'step-wall'];
-
 function How({ slide, env }: { slide: Slide; env: SlideEnv }) {
   const stage = env.mode === 'stage';
   const steps: { title: string; body?: string }[] = slide.items ?? (slide.bullets ?? []).map((b) => ({ title: b }));
@@ -453,11 +453,10 @@ function How({ slide, env }: { slide: Slide; env: SlideEnv }) {
       </div>
       <ol className={cx(stage ? 'mt-auto grid grid-cols-3 gap-8' : 'mt-6 flex flex-col gap-4')}>
         {steps.map((s, i) => {
-          const art = STEP_ART[i];
           return (
             <li key={i} className={cx('relative flex', stage ? 'flex-col items-center text-center' : cx('items-center gap-4 rounded-[20px] p-3', CARD))}>
               <div className={cx('relative shrink-0', stage ? 'h-[230px] w-[230px]' : 'h-20 w-20')}>
-                {art !== undefined ? <SlideImg k={art} env={env} /> : null}
+                <StepArt index={i} mode={env.mode} eager={env.eagerImages === true} />
                 <span
                   className={cx('absolute flex items-center justify-center rounded-full bg-[color:var(--bw-core)] font-semibold tabular-nums text-[color:var(--bw-on-accent)] shadow-[0_8px_20px_-10px_rgba(26,23,64,0.6)]', stage ? '-left-1 top-2 h-11 w-11 text-[18px]' : '-left-1 -top-1 h-7 w-7 text-[13px]')}
                   aria-hidden
@@ -729,7 +728,7 @@ function QuoteSlide({ slide, env }: { slide: Slide; env: SlideEnv }) {
   const stage = env.mode === 'stage';
   // The films carry their own captions, so a quote never sits ON one: the
   // line leads, the film plays framed beneath it.
-  if (salesVideo(slide.video) !== null) {
+  if (salesVideo(slide.video) !== null || isLiveWallKey(slide.video)) {
     return (
       <figure className={cx('flex flex-col items-center text-center', stage && 'h-full justify-center')}>
         {slide.eyebrow !== undefined && <Eyebrow env={env} center>{slide.eyebrow}</Eyebrow>}
@@ -746,7 +745,7 @@ function QuoteSlide({ slide, env }: { slide: Slide; env: SlideEnv }) {
   return (
     <figure className={cx('flex flex-col items-center text-center', stage && 'h-full justify-center px-16')}>
       {slide.image !== undefined && salesImage(slide.image) !== null ? (
-        <div className={stage ? 'mb-4 h-[150px] w-[150px]' : 'mb-3 h-24 w-24'}><SlideImg k={slide.image} env={env} /></div>
+        <div className={stage ? 'mb-2 h-[300px] w-[320px]' : 'mb-3 h-40 w-44'}><SlideImg k={slide.image} env={env} /></div>
       ) : (
         <QuoteIcon className={cx('text-white/80', stage ? 'h-14 w-14' : 'h-9 w-9')} strokeWidth={1.25} aria-hidden />
       )}
@@ -842,6 +841,19 @@ function Demo({ slide, env }: { slide: Slide; env: SlideEnv }) {
   );
 }
 
+/** What a guest can try on, in the platform's own words (lib/lookTerms). */
+function Looks({ slide, env }: { slide: Slide; env: SlideEnv }) {
+  const stage = env.mode === 'stage';
+  const header = (
+    <div>
+      {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
+      <Title env={env} size="md">{slide.title}</Title>
+      {slide.body !== undefined && <p className={cx('text-pretty', MUTED, stage ? 'mt-4 text-[19px] leading-[1.45]' : 'mt-3 text-[15.5px] leading-relaxed')}>{slide.body}</p>}
+    </div>
+  );
+  return <div className={cx(stage && 'h-full')}><LooksBoard mode={env.mode} hero={slide.image} eager={env.eagerImages === true} header={header} /></div>;
+}
+
 function Cta({ slide, env }: { slide: Slide; env: SlideEnv }) {
   const stage = env.mode === 'stage';
   const img = slide.image ?? 'beamy';
@@ -911,6 +923,7 @@ const LAYOUTS: Record<Slide['kind'], (p: { slide: Slide; env: SlideEnv }) => Rea
   roi: Roi,
   quote: QuoteSlide,
   demo: Demo,
+  looks: Looks,
   cta: Cta,
 };
 

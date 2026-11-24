@@ -40,11 +40,13 @@ import {
   type TemplateToken,
 } from './salesTypes';
 
-/** Image keys the sales UI knows how to render (src/pages/sales/salesImages.ts). */
+/** Image keys a slide may use (src/pages/sales/salesImages.ts).
+ *  Brand v2 (2026-11-24): decks draw ONLY the real 3D Beamy wearing real
+ *  library Looks; the pre-v2 cutouts (gold steps, neon mirrors, the old
+ *  mascot render) are no longer allowed on a slide. */
 export const SLIDE_IMAGE_KEYS = [
-  'hero-wall', 'booth-phone', 'booth-guy', 'frames', 'card', 'step-create', 'step-qr',
-  'step-wall', 'trophy', 'event-wedding', 'event-gala', 'event-conference',
-  'event-tradeshow', 'event-activation', 'event-birthday', 'beamy', 'beamy-wave',
+  'beamy', 'beamy-wave', 'beamy-crown', 'beamy-tophat', 'beamy-mask', 'beamy-paint',
+  'beamy-aviators', 'beamy-necklace', 'beamy-antlers', 'beamy-asoebi', 'beamy-wedding', 'beamy-gala',
 ] as const;
 
 // Short labels reused on slides so a source string never drifts between decks.
@@ -70,7 +72,7 @@ const NA_PLANNERS_DECK: Deck = {
       eyebrow: 'For event & wedding planners',
       title: 'Give every client a room that lights up',
       body: 'An AR photo booth on every guest’s phone, beaming live onto a big-screen wall. No hardware, no app.',
-      image: 'hero-wall',
+      image: 'beamy-crown',
       notes:
         'Open on the outcome, not the tech: the moment the room watches its own photos land on the wall. Ask how many events they run a year before you go further — it frames everything after.',
     },
@@ -88,7 +90,6 @@ const NA_PLANNERS_DECK: Deck = {
       stats: [
         { value: '$886', label: 'median wedding photo booth booking', source: SRC_CHECKCHERRY },
       ],
-      image: 'booth-guy',
       notes:
         'Let them say the pain in their own words — logistics, queues, vendors who run late. The $886 is a real median across ~118k bookings; use it as context, not as an attack on their booth vendor.',
     },
@@ -99,9 +100,18 @@ const NA_PLANNERS_DECK: Deck = {
       eyebrow: 'Beamwall',
       title: 'The booth lives in every pocket',
       body: 'Guests scan one QR code and the booth opens in their phone’s browser. Every shot beams onto the live wall.',
-      image: 'booth-phone',
       notes:
         'The key idea: every guest IS the booth, so there is no queue and no corner. Nothing to install, nothing to ship — that is the logistics win for them.',
+    },
+    {
+      id: 'looks',
+      kind: 'looks',
+      eyebrow: 'Looks',
+      title: 'Every guest picks a look',
+      body: 'Frames in the couple’s names, 3D props, face paint and effects, tracked live on every face.',
+      image: 'beamy-wedding',
+      notes:
+        'Walk the four rows left to right; these are the platform’s own words, so use them: Frames are 2D borders with names, monograms or logos; Props are 3D pieces (crowns, hats, glasses, jewellery) tracked to the face; Paint is face paint; Effects are whole-screen sparkle, snow, confetti or stage lights. Never say “filters”. It all runs in the guest’s browser, no app. Library Looks are included; custom 3D props come with the larger Signature package.',
     },
     {
       id: 'how',
@@ -109,11 +119,10 @@ const NA_PLANNERS_DECK: Deck = {
       eyebrow: 'How it works',
       title: 'Ready in minutes, not days',
       items: [
-        { title: 'Create the event', body: 'Pick a style, tune frames and effects in the studio.', icon: 'Sparkles' },
+        { title: 'Create the event', body: 'Pick a style and the Looks in a few taps.', icon: 'Sparkles' },
         { title: 'Share one QR code', body: 'On tables, screens or the invite. No app.', icon: 'QrCode' },
         { title: 'The room lights up', body: 'Photos and videos beam onto the wall live.', icon: 'MonitorPlay' },
       ],
-      image: 'step-qr',
       notes:
         'Keep it to three steps. The next slide is the live booth, so show it there rather than describing it.',
     },
@@ -140,7 +149,6 @@ const NA_PLANNERS_DECK: Deck = {
         { title: 'Keepsake cards', body: 'Guest moments compiled into one animated card.', icon: 'Mail', showcase: 'keepsake' },
         { title: 'Moderation built in', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck', showcase: 'moderation' },
       ],
-      image: 'frames',
       notes:
         'Match features to their client types: weddings love keepsake cards, corporate clients love branded frames and challenges. AI frames are in Premium and above; greeting cards are Premium and above.',
     },
@@ -175,10 +183,9 @@ const NA_PLANNERS_DECK: Deck = {
     },
     {
       id: 'quote',
-      video: 'sizzle',
       kind: 'quote',
       title: 'Be the planner whose events get filmed',
-      image: 'event-wedding',
+      image: 'beamy-necklace',
       notes:
         'Pause here. This is the aspiration: their events become the ones guests post about, which markets the planner for free.',
     },
@@ -211,7 +218,7 @@ const NA_BRANDS_DECK: Deck = {
       eyebrow: 'For brands & corporate events',
       title: 'Every attendee becomes your content crew',
       body: 'Branded AR photos on attendees’ own phones, beaming live onto your screen. No hardware, no app.',
-      image: 'event-activation',
+      image: 'beamy-tophat',
       notes:
         'Lead with content and attention, not "photo booth". Ask what their next launch, stand or conference is — the deck lands better with a real event in mind.',
     },
@@ -229,7 +236,6 @@ const NA_BRANDS_DECK: Deck = {
       stats: [
         { value: '$899', label: 'median corporate photo booth booking', source: SRC_CHECKCHERRY },
       ],
-      image: 'event-tradeshow',
       notes:
         'Get them to name their own metric — foot traffic, social posts, content for the team. The $899 is a real corporate median; it anchors what they already pay for less.',
     },
@@ -240,9 +246,18 @@ const NA_BRANDS_DECK: Deck = {
       eyebrow: 'Beamwall',
       title: 'Your brand on every shot',
       body: 'Attendees scan a QR, wear your branded AR frame, and watch their shot land on your live wall.',
-      image: 'hero-wall',
       notes:
         'The wall is the draw for the floor; the branded frame is what travels when guests share their shot. Keep it concrete.',
+    },
+    {
+      id: 'looks',
+      kind: 'looks',
+      eyebrow: 'Looks',
+      title: 'Your brand, worn by every guest',
+      body: 'Branded frames, 3D props, face paint and effects. Every guest tries them on in the browser.',
+      image: 'beamy-gala',
+      notes:
+        'Walk the four rows left to right; these are the platform’s own words, so use them: Frames are 2D borders with names, monograms or logos; Props are 3D pieces (crowns, hats, glasses, jewellery) tracked to the face; Paint is face paint; Effects are whole-screen sparkle, snow, confetti or stage lights. Never say “filters”. It all runs in the guest’s browser, no app. Library Looks are included; custom 3D props come with the larger Signature package.',
     },
     {
       id: 'how',
@@ -254,7 +269,6 @@ const NA_BRANDS_DECK: Deck = {
         { title: 'Put up one QR', body: 'Stand signage, lanyards, slides or screens.', icon: 'QrCode' },
         { title: 'Watch the wall fill', body: 'Every shot beams live to your screen.', icon: 'MonitorPlay' },
       ],
-      image: 'step-create',
       notes:
         'A trade-show stand needs a screen and a QR sign — that is the whole kit. The next slide is the live booth; show it rather than describe it.',
     },
@@ -281,7 +295,6 @@ const NA_BRANDS_DECK: Deck = {
         { title: 'Moderation', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck', showcase: 'moderation' },
         { title: 'Gallery link', body: 'Every shot in one gallery afterwards.', icon: 'Images', showcase: 'gallery' },
       ],
-      image: 'trophy',
       notes:
         'Do not promise lead-capture forms, CRM sync or analytics dashboards — we do not have them. Do promise branded frames, challenges, moderation and the photos afterwards. Get permission before reusing any guest photo in ads.',
     },
@@ -295,7 +308,7 @@ const NA_BRANDS_DECK: Deck = {
         { value: '83%', label: 'trust recommendations from people they know', source: SRC_NIELSEN },
         { value: '70%', label: 'trust branded websites', source: SRC_NIELSEN },
       ],
-      image: 'booth-phone',
+      image: 'beamy-aviators',
       notes:
         'Be honest: the Nielsen figures are about trust in recommendations, not a Beamwall result. Our own proof is the live booth slide; we have no case studies yet.',
     },
@@ -330,10 +343,9 @@ const NA_BRANDS_DECK: Deck = {
     },
     {
       id: 'quote',
-      video: 'sizzle',
       kind: 'quote',
       title: 'The stand everyone films',
-      image: 'event-conference',
+      image: 'beamy-mask',
       notes:
         'Let it sit. The goal is to be the booth people point their phones at, then post.',
     },
@@ -366,7 +378,7 @@ const NA_CREATORS_DECK: Deck = {
       eyebrow: 'For creators',
       title: 'Your fans make the content',
       body: 'Fans scan a QR, snap AR photos in your style, and watch them beam onto a live wall.',
-      image: 'event-birthday',
+      image: 'beamy-paint',
       notes:
         'Creators think in content. Start with what they get to post after the event, then show the experience that makes it.',
     },
@@ -381,7 +393,6 @@ const NA_CREATORS_DECK: Deck = {
         'Sponsors want more than a logo slide',
         'Booth hire eats the whole budget',
       ],
-      image: 'booth-guy',
       notes:
         'Ask about their last meetup: how many fans came, what they posted afterwards, whether a sponsor was involved.',
     },
@@ -392,9 +403,18 @@ const NA_CREATORS_DECK: Deck = {
       eyebrow: 'Beamwall',
       title: 'Every fan gets a moment',
       body: 'Your custom AR frame on every fan’s phone, every shot live on the wall, every photo kept.',
-      image: 'booth-phone',
       notes:
         'The emotional hook: every fan feels seen on the big screen, even when the creator cannot reach everyone.',
+    },
+    {
+      id: 'looks',
+      kind: 'looks',
+      eyebrow: 'Looks',
+      title: 'Your look on every fan',
+      body: 'Your frame, 3D props, face paint and effects, tracked live on every fan’s face.',
+      image: 'beamy-wedding',
+      notes:
+        'Walk the four rows left to right; these are the platform’s own words, so use them: Frames are 2D borders with names, monograms or logos; Props are 3D pieces (crowns, hats, glasses, jewellery) tracked to the face; Paint is face paint; Effects are whole-screen sparkle, snow, confetti or stage lights. Never say “filters”. It all runs in the guest’s browser, no app. Library Looks are included; custom 3D props come with the larger Signature package.',
     },
     {
       id: 'how',
@@ -406,7 +426,6 @@ const NA_CREATORS_DECK: Deck = {
         { title: 'Share the QR', body: 'On the door, the screen, or your story.', icon: 'QrCode' },
         { title: 'Fans fill the wall', body: 'Every shot beams live to the room.', icon: 'MonitorPlay' },
       ],
-      image: 'step-qr',
       notes:
         'Free tier is enough to test it with friends tonight. Push them to try it before the call ends.',
     },
@@ -431,7 +450,6 @@ const NA_CREATORS_DECK: Deck = {
         { title: 'Sponsor-ready frames', body: 'Put a partner’s brand in every shot.', icon: 'Handshake', showcase: 'frames' },
         { title: 'Keepsake highlight film', body: 'A highlight film of the night, on Deluxe.', icon: 'Film', showcase: 'keepsake' },
       ],
-      image: 'frames',
       notes:
         'The sponsor angle is the money angle: a partner frame on every fan photo is a deliverable they can sell. The highlight film is Deluxe only.',
     },
@@ -500,7 +518,7 @@ const NG_PLANNERS_DECK: Deck = {
       eyebrow: 'For event & wedding planners',
       title: 'Every guest becomes the booth',
       body: 'AR photos on every guest’s own phone, beaming live onto the big screen. No machine to hire, no app.',
-      image: 'hero-wall',
+      image: 'beamy-asoebi',
       notes:
         'Open on the hall: hundreds of guests in their aso-ebi, all on the big screen at once. Ask how many weddings and events they run this season before going further.',
     },
@@ -519,7 +537,6 @@ const NG_PLANNERS_DECK: Deck = {
         { value: '₦200k–₦400k', label: 'typical 360 booth rental, Lagos/Abuja weddings (approx.)', source: SRC_NG_360 },
         { value: '₦1.4m', label: 'premium photo-video package that includes a 360 booth', source: SRC_NG_PACKAGE },
       ],
-      image: 'booth-guy',
       notes:
         'Do not knock their 360 vendor — clients love it. The point is reach: at a 500-guest owambe, most guests never touch the booth. The ₦200k–₦400k range is approximate (ElitePlanners.ng guide, consistent with Jiji listings from ₦200k–₦250k); our Signature starts at ₦200,000 for 300 guests. The ₦1.4m is a reported premium package (with drone and shower coverage), not a standalone booth price; say so if asked.',
     },
@@ -530,9 +547,18 @@ const NG_PLANNERS_DECK: Deck = {
       eyebrow: 'Beamwall',
       title: 'The whole hall on the wall',
       body: 'Guests scan one QR code, pose in custom AR frames on their own phones, and every shot lands on the live wall.',
-      image: 'booth-phone',
       notes:
         'Every guest is a booth, so there is no queue and nothing to transport. The couple and families see every guest on the screen — that is the moment that gets posted.',
+    },
+    {
+      id: 'looks',
+      kind: 'looks',
+      eyebrow: 'Looks',
+      title: 'Every guest picks a look',
+      body: 'Aso ebi frames in the couple’s colours, 3D crowns, face paint and effects, live on every face.',
+      image: 'beamy-wedding',
+      notes:
+        'Walk the four rows left to right; these are the platform’s own words, so use them: Frames are 2D borders with names, monograms or logos; Props are 3D pieces (crowns, hats, glasses, jewellery) tracked to the face; Paint is face paint; Effects are whole-screen sparkle, snow, confetti or stage lights. Never say “filters”. It all runs in the guest’s browser, no app. Library Looks are included; custom 3D props come with the larger Signature package.',
     },
     {
       id: 'how',
@@ -544,7 +570,6 @@ const NG_PLANNERS_DECK: Deck = {
         { title: 'Guests scan one QR', body: 'On tables, the screen or the IV.', icon: 'QrCode' },
         { title: 'The hall lights up', body: 'Every photo beams onto the wall live.', icon: 'MonitorPlay' },
       ],
-      image: 'step-qr',
       notes:
         'The next slide is the live booth: do it there, or have them scan its QR. A build really takes under 20 minutes, which is why we can price for volume.',
     },
@@ -571,7 +596,6 @@ const NG_PLANNERS_DECK: Deck = {
         { title: 'Keepsake cards & film', body: 'Guest moments compiled for the couple.', icon: 'Film', showcase: 'keepsake' },
         { title: 'Moderation built in', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck', showcase: 'moderation' },
       ],
-      image: 'frames',
       notes:
         'Weddings: monograms, keepsake cards and the highlight film. Corporate clients: branded frames and challenges. On Signature our team designs and builds all of it remotely; the client gets the links and runs the day.',
     },
@@ -607,10 +631,9 @@ const NG_PLANNERS_DECK: Deck = {
     },
     {
       id: 'quote',
-      video: 'sizzle',
       kind: 'quote',
       title: 'More than a 360 booth, for less',
-      image: 'event-wedding',
+      image: 'beamy-necklace',
       notes:
         'The line: "More than a 360 booth, for less than a 360 booth." Every guest is the booth, and it costs less than hiring one. Let it land, then move to the quote.',
     },
@@ -643,7 +666,7 @@ const NG_BRANDS_DECK: Deck = {
       eyebrow: 'For brands & corporate events',
       title: 'Every guest becomes your content crew',
       body: 'Branded AR photos on guests’ own phones, beaming live onto your screen. No machine, no app.',
-      image: 'event-activation',
+      image: 'beamy-tophat',
       notes:
         'Lead with content and reach. Ask about their next launch, activation or end-of-year event.',
     },
@@ -658,7 +681,6 @@ const NG_BRANDS_DECK: Deck = {
         'Equipment hire, transport and power to sort',
         'Hard to show what the night delivered',
       ],
-      image: 'event-tradeshow',
       notes:
         'Let them name their metric: reach, content, buzz on the night. Do not promise lead capture or analytics — we do not have them.',
     },
@@ -669,9 +691,18 @@ const NG_BRANDS_DECK: Deck = {
       eyebrow: 'Beamwall',
       title: 'Your brand on every shot',
       body: 'Guests scan a QR, pose in your branded AR frame, and watch their photo land on your live wall.',
-      image: 'hero-wall',
       notes:
         'The wall pulls the crowd; the branded frame travels when guests share their photos.',
+    },
+    {
+      id: 'looks',
+      kind: 'looks',
+      eyebrow: 'Looks',
+      title: 'Your brand, worn by every guest',
+      body: 'Branded frames, 3D props, face paint and effects. Every guest tries them on in the browser.',
+      image: 'beamy-gala',
+      notes:
+        'Walk the four rows left to right; these are the platform’s own words, so use them: Frames are 2D borders with names, monograms or logos; Props are 3D pieces (crowns, hats, glasses, jewellery) tracked to the face; Paint is face paint; Effects are whole-screen sparkle, snow, confetti or stage lights. Never say “filters”. It all runs in the guest’s browser, no app. Library Looks are included; custom 3D props come with the larger Signature package.',
     },
     {
       id: 'how',
@@ -683,7 +714,6 @@ const NG_BRANDS_DECK: Deck = {
         { title: 'Put up one QR', body: 'Signage, screens, tickets or tables.', icon: 'QrCode' },
         { title: 'Watch the wall fill', body: 'Every shot beams live to your screen.', icon: 'MonitorPlay' },
       ],
-      image: 'step-create',
       notes:
         'The kit is a screen and a QR sign. Demo it live on the call.',
     },
@@ -709,7 +739,6 @@ const NG_BRANDS_DECK: Deck = {
         { title: 'Moderation', body: 'Approve photos before they hit the wall.', icon: 'ShieldCheck', showcase: 'moderation' },
         { title: 'Gallery link', body: 'Every shot in one gallery afterwards.', icon: 'Images', showcase: 'gallery' },
       ],
-      image: 'trophy',
       notes:
         'Get written permission before reusing any guest photo in ads. No lead forms, CRM sync or dashboards — do not promise them.',
     },
@@ -723,7 +752,7 @@ const NG_BRANDS_DECK: Deck = {
         { value: '₦396.5bn', label: 'reported consumer spending, Lagos Detty December 2025', source: SRC_DETTY },
         { value: '83%', label: 'trust recommendations from people they know', source: SRC_NIELSEN },
       ],
-      image: 'booth-phone',
+      image: 'beamy-aviators',
       notes:
         'The ₦396.5bn is one report’s estimate for Lagos festive-season spending — context for why brands activate then, not a Beamwall result. We have no case studies yet.',
     },
@@ -781,7 +810,7 @@ const NG_CREATORS_DECK: Deck = {
       eyebrow: 'For creators',
       title: 'Your fans make the content',
       body: 'Fans scan a QR, snap AR photos in your style, and watch them beam onto a live wall.',
-      image: 'event-birthday',
+      image: 'beamy-paint',
       notes:
         'Start with what they get to post after: hundreds of fan photos in their own frame.',
     },
@@ -796,7 +825,6 @@ const NG_CREATORS_DECK: Deck = {
         'Sponsors want more than a logo mention',
         'Booth hire eats the budget',
       ],
-      image: 'booth-guy',
       notes:
         'Ask about their last hangout or launch: turnout, sponsors, what they posted afterwards.',
     },
@@ -807,9 +835,18 @@ const NG_CREATORS_DECK: Deck = {
       eyebrow: 'Beamwall',
       title: 'Every fan gets a moment',
       body: 'Your AR frame on every fan’s phone, every shot live on the wall, every photo kept.',
-      image: 'booth-phone',
       notes:
         'Every fan feels seen on the big screen, even when the creator cannot reach everyone.',
+    },
+    {
+      id: 'looks',
+      kind: 'looks',
+      eyebrow: 'Looks',
+      title: 'Your look on every fan',
+      body: 'Your frame, 3D props, face paint and effects, tracked live on every fan’s face.',
+      image: 'beamy-asoebi',
+      notes:
+        'Walk the four rows left to right; these are the platform’s own words, so use them: Frames are 2D borders with names, monograms or logos; Props are 3D pieces (crowns, hats, glasses, jewellery) tracked to the face; Paint is face paint; Effects are whole-screen sparkle, snow, confetti or stage lights. Never say “filters”. It all runs in the guest’s browser, no app. Library Looks are included; custom 3D props come with the larger Signature package.',
     },
     {
       id: 'demo',
@@ -832,7 +869,6 @@ const NG_CREATORS_DECK: Deck = {
         { title: 'Sponsor-ready frames', body: 'Put a partner’s brand in every shot.', icon: 'Handshake', showcase: 'frames' },
         { title: 'Keepsake highlight film', body: 'A highlight film of the night.', icon: 'Film', showcase: 'keepsake' },
       ],
-      image: 'frames',
       notes:
         'The sponsor frame is the money angle: a deliverable they can sell to a brand partner.',
     },
@@ -1367,7 +1403,7 @@ export const DELIVERY_SOP: SopStep[] = [
     when: 'Day 2–5',
     title: 'Build',
     minutes: 20,
-    detail: 'All remote, on the platform. Start from the closest library experience and frame set; generate new 2D frames, 3D AR assets or filters only where nothing fits. Add a challenge pack, the live photo feed and wall settings, and the keepsake card.',
+    detail: 'All remote, on the platform. Start from the closest library experience and frame set; generate new frames, 3D props or effects only where nothing fits. Add a challenge pack, the live photo feed and wall settings, and the keepsake card.',
   },
   {
     id: 'day-5-review',
@@ -1387,7 +1423,7 @@ export const DELIVERY_SOP: SopStep[] = [
     when: '7 days before',
     title: 'Rehearsal and handover',
     minutes: 20,
-    detail: 'Run the full checklist ourselves on an iPhone AND an Android: camera permission, filter tracking, capture, send, wall arrival, moderation, gallery. Then hand over: the rehearsal link, the Signage Kit and the one-page setup guide (guest QR, wall link for their screen or projector, host console).',
+    detail: 'Run the full checklist ourselves on an iPhone AND an Android: camera permission, face tracking on Props and Paint, capture, send, wall arrival, moderation, gallery. Then hand over: the rehearsal link, the Signage Kit and the one-page setup guide (guest QR, wall link for their screen or projector, host console).',
   },
   {
     id: 'freeze',

@@ -23,7 +23,8 @@ import FilmEmbed from '../../../components/ui/FilmEmbed';
 import { useDialog } from '../../../lib/useDialog';
 import { DEMO_KITS, FRAME_THEMES } from '../../../lib/demoKits';
 import type { ShowcaseId, SlideItem } from '../../../lib/salesTypes';
-import { salesImage } from '../salesImages';
+import { LOOK_SHOTS, salesImage } from '../salesImages';
+import { DeckWall } from './DeckVisuals';
 import { salesVideo } from '../salesVideos';
 
 const cx = (...parts: (string | false | undefined)[]) => parts.filter(Boolean).join(' ');
@@ -239,13 +240,74 @@ function Film({ k }: { k: string }) {
   );
 }
 
+// ── 3D props: Beamy wearing real library pieces ─────────────────────────────
+
+function PropsShowcase() {
+  const shots = [...LOOK_SHOTS.props, ...LOOK_SHOTS.paint];
+  return (
+    <div>
+      <div className="grid grid-cols-3 gap-3">
+        {shots.map((k) => {
+          const img = salesImage(k);
+          if (img === null) return null;
+          return (
+            <figure key={k} className={cx('sc-pop flex flex-col items-center rounded-2xl p-3', WELL)}>
+              <img src={img.src} alt={img.alt} draggable={false} className="h-28 w-auto object-contain sm:h-36" style={{ filter: 'drop-shadow(0 16px 24px rgba(22,18,78,0.5))' }} />
+            </figure>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-center text-[14px] text-white/[0.86]">Crowns, hats, glasses, jewellery, masks and face paint, tracked to every guest’s face in the browser.</p>
+    </div>
+  );
+}
+
+// ── Challenges: the leaderboard on the wall ───────────────────────────────
+
+const BOARD = [
+  { name: 'Table 7', pts: 230, mission: 'Squad selfie with the couple' },
+  { name: 'The cousins', pts: 210, mission: 'Best dance-floor shot' },
+  { name: 'Ada & Femi', pts: 165, mission: 'Recreate the first look' },
+  { name: 'Team blue', pts: 140, mission: 'Snap someone new' },
+];
+
+function ChallengesShowcase() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-[1fr_1.1fr]">
+      <div className={cx('rounded-2xl p-4', WELL)}>
+        <p className={LABEL}>Missions</p>
+        <ul className="mt-2 flex flex-col gap-2">
+          {BOARD.map((b) => (
+            <li key={b.mission} className="flex items-center gap-2.5 rounded-xl bg-white/[0.07] px-3 py-2.5 text-[14px] text-white">
+              <Check className="h-4 w-4 shrink-0 text-[#5FD9A8]" strokeWidth={2.25} aria-hidden /> {b.mission}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className={cx('rounded-2xl p-4', WELL)}>
+        <p className={LABEL}>Leaderboard on the live wall</p>
+        <ol className="mt-2 flex flex-col gap-2">
+          {BOARD.map((b, i) => (
+            <li key={b.name} className="sc-pop flex items-center gap-3 rounded-xl bg-white/[0.07] px-3 py-2.5" style={{ animationDelay: `${i * 90}ms` }}>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.14] text-[13px] font-semibold tabular-nums text-white">{i + 1}</span>
+              <span className="flex-1 text-[15px] font-medium text-white">{b.name}</span>
+              <span className="text-[15px] font-semibold tabular-nums text-white">{b.pts} pts</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <p className="text-center text-[14px] text-white/[0.86] sm:col-span-2">Hosts pick missions; AI can check a photo fits before it scores.</p>
+    </div>
+  );
+}
+
 const BODY: Record<ShowcaseId, () => ReactNode> = {
   frames: () => <FramesShowcase />,
   ai: () => <AiShowcase />,
-  wall: () => <Film k="wall" />,
-  '3d': () => <Film k="booth" />,
-  challenges: () => <Film k="challenges" />,
-  keepsake: () => <Film k="cards" />,
+  wall: () => <div className="pb-6 pt-2"><DeckWall mode="card" /></div>,
+  '3d': () => <PropsShowcase />,
+  challenges: () => <ChallengesShowcase />,
+  keepsake: () => <Film k="virtual" />,
   moderation: () => <ModerationShowcase />,
   gallery: () => <GalleryShowcase />,
 };
