@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The booth's capture controls — the Photo · Strip · Video pill and the
+ * The booth's capture controls — the Photo · Video · Strip pill and the
  * self-timer — shared by both decks.
  *
  * Extracted VERBATIM from BoothControlDeck so the legacy deck (which keeps
@@ -51,12 +51,26 @@ export function CaptureModePill({
       >
         <CameraIcon className="h-3.5 w-3.5" />
       </button>
+      {videoAllowed && (
+        <button
+          type="button"
+          onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('video'); onStripMode?.(false); } }}
+          disabled={recording}
+          aria-label="Video mode"
+          aria-pressed={mediaMode === 'video'}
+          className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
+            mediaMode === 'video' ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
+          }`}
+        >
+          <Video className="h-3.5 w-3.5" />
+        </button>
+      )}
       {onOpenStripPicker && (
         <button
           type="button"
           onClick={() => { if (!recording) { haptic('tap'); onOpenStripPicker(); } }}
           disabled={recording}
-          aria-label="Photo strip — choose 2 or 3 shots"
+          aria-label="Photo strip — choose a layout"
           aria-pressed={mediaMode === 'photo' && stripMode}
           className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
             mediaMode === 'photo' && stripMode ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
@@ -75,20 +89,6 @@ export function CaptureModePill({
               {stripShots}
             </span>
           )}
-        </button>
-      )}
-      {videoAllowed && (
-        <button
-          type="button"
-          onClick={() => { if (!recording) { haptic('toggle'); onMediaMode('video'); onStripMode?.(false); } }}
-          disabled={recording}
-          aria-label="Video mode"
-          aria-pressed={mediaMode === 'video'}
-          className={`pressable relative flex h-8 w-8 items-center justify-center rounded-full transition-colors after:absolute after:-inset-1.5 after:rounded-full after:content-[''] ${
-            mediaMode === 'video' ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-muted/70'
-          }`}
-        >
-          <Video className="h-3.5 w-3.5" />
         </button>
       )}
     </div>
