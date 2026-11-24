@@ -58,7 +58,7 @@ export default function Modal({
             <button
               onClick={onClose}
               aria-label="Close"
-              className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors shrink-0"
+              className="liquid-glass-raised pressable flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-brand-muted/80 hover:text-brand-fg transition-colors"
             >
               <X className="w-4 h-4" />
             </button>

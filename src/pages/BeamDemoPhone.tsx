@@ -108,7 +108,7 @@ export default function BeamDemoPhone() {
         <p className="max-w-sm text-sm leading-relaxed text-brand-muted/75">
           Scan the QR code on the Beamwall landing page again — each demo session mints a fresh link.
         </p>
-        <Link to="/" className="mt-2 rounded-full border border-white/15 bg-white/[0.04] px-6 py-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg">
+        <Link to="/" className="mt-2 rounded-full liquid-glass-raised px-6 py-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg">
           Go to Beamwall
         </Link>
       </div>

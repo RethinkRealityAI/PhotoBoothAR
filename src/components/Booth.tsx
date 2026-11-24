@@ -2551,7 +2551,7 @@ export default function Booth() {
                   <button
                     type="button"
                     onClick={() => { setNameDraft(propWantsInitials ? crestInitials : guestName); setAskName(true); }}
-                    className="pointer-events-auto flex min-h-11 items-center gap-2 px-4 py-2 rounded-full glass-strong border border-gold-400/40 active:scale-95 transition-transform"
+                    className="pressable liquid-glass-raised pointer-events-auto flex min-h-11 items-center gap-2 px-4 py-2 rounded-full"
                   >
                     <Pencil className="w-4 h-4 text-gold-300" aria-hidden />
                     <span className="font-sans text-[13px] text-ivory">

@@ -109,7 +109,7 @@ function Tile({
             // brighter rim + drop shadow for the same reason.
             boxShadow: active
               ? '0 0 0 2.5px var(--color-accent), 0 0 0 5px rgba(5,6,11,0.55), 0 0 24px -4px rgba(var(--accent-rgb), 0.95)'
-              : 'inset 0 0 0 1.5px rgba(255,255,255,0.3), 0 3px 10px -3px rgba(0,0,0,0.7)',
+              : 'inset 0 0 0 1.5px rgba(255,255,255,0.42), inset 0 10px 12px -10px rgba(255,255,255,0.6), 0 3px 10px -3px rgba(0,0,0,0.7)',
           }}
         >
           {children}
@@ -332,7 +332,9 @@ export default function BoothLookDeck({
                       background: hex,
                       boxShadow: on
                         ? '0 0 0 2px var(--color-accent), 0 0 10px rgba(var(--accent-rgb),0.8)'
-                        : 'inset 0 0 0 1px rgba(255,255,255,0.22)',
+                        // Glass bead: a white rim and a specular lip, so the
+                        // swatches match the booth's other glass controls.
+                        : 'inset 0 0 0 1.5px rgba(255,255,255,0.5), inset 0 7px 8px -7px rgba(255,255,255,0.75), 0 2px 6px -2px rgba(0,0,0,0.55)',
                     }}
                   />
                 </button>
@@ -409,11 +411,11 @@ export default function BoothLookDeck({
                         aria-hidden
                         layoutId="look-tab-pill"
                         transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 38 }}
-                        className="absolute inset-0 rounded-full"
-                        style={{
-                          background: 'rgba(5,6,11,0.62)',
-                          boxShadow: 'inset 0 0 0 1.5px rgba(var(--accent-rgb),0.75), 0 2px 10px -3px rgba(0,0,0,0.7)',
-                        }}
+                        // The shared liquid-glass pill (same glass as every booth
+                        // button). `position` is pinned inline: the glass
+                        // classes set `position: relative` for their rim.
+                        className="liquid-glass-raised is-selected inset-0 rounded-full"
+                        style={{ position: 'absolute' }}
                       />
                     )}
                     <span className="relative">{t.label}</span>
@@ -517,8 +519,11 @@ export default function BoothLookDeck({
 
       {/* Shutter row: capture mode · SHUTTER · More looks. */}
       <div className="relative flex min-h-[76px] w-full max-w-md items-center justify-center px-3">
+        {/* Wrapped like More looks: the glass classes set `position:
+            relative`, which would put the pill back in flow. */}
+        <div className="absolute left-3">
         <CaptureModePill
-          className="liquid-glass-inset absolute left-3 flex items-center gap-0.5 rounded-full p-0.5"
+          className="liquid-glass-raised flex items-center gap-0.5 rounded-full p-0.5"
           mediaMode={mediaMode}
           onMediaMode={onMediaMode}
           videoAllowed={videoAllowed}
@@ -528,6 +533,7 @@ export default function BoothLookDeck({
           stripShots={stripShots}
           onOpenStripPicker={onOpenStripPicker}
         />
+        </div>
 
         {shutter}
 
