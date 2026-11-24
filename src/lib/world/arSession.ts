@@ -80,3 +80,50 @@ export function settleStep(g: SettleGate, now: number, normal: boolean, frameGap
 export function isSettled(g: SettleGate): boolean {
   return g.latched;
 }
+
+/* ------------------------------------------------------------------ */
+/* The switch screen between the two booths                            */
+/* ------------------------------------------------------------------ */
+// Going in or out of world mode is a page load (two 8th Wall engines can't
+// share a page). The leaving page writes a note to sessionStorage; index.html
+// paints a plain switch screen from it before any JS loads, and the arriving
+// booth shows the full one until it is ready, so the guest never sees a blank.
+
+export const AR_SWITCH_KEY = 'bw.arSwitch';
+/** A note older than this is stale (a reload much later): ignore it. */
+export const AR_SWITCH_FRESH_MS = 15000;
+
+export type ArSwitchDir = 'enter' | 'leave';
+export interface ArSwitchNote { dir: ArSwitchDir; accent: string; t: number }
+
+const HEX = /^#[0-9a-fA-F]{3,8}$/;
+
+/** The note to store; the accent falls back when it is not a plain hex colour. */
+export function arSwitchNote(dir: ArSwitchDir, accent: string, now: number): string {
+  return JSON.stringify({ dir, accent: HEX.test(accent) ? accent : '#8f8cf5', t: now });
+}
+
+/** The stored note, or null when missing, malformed or stale. */
+export function readArSwitchNote(raw: string | null, now: number): ArSwitchNote | null {
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw) as Partial<ArSwitchNote>;
+    if ((o.dir !== 'enter' && o.dir !== 'leave') || typeof o.t !== 'number') return null;
+    if (now - o.t < 0 || now - o.t > AR_SWITCH_FRESH_MS) return null;
+    return { dir: o.dir, accent: typeof o.accent === 'string' && HEX.test(o.accent) ? o.accent : '#8f8cf5', t: o.t };
+  } catch {
+    return null;
+  }
+}
+
+/** Which way a booth URL goes: into world mode or out of it. */
+export function arSwitchDirFor(url: string): ArSwitchDir {
+  const q = url.indexOf('?');
+  return arFrameIdFrom(q >= 0 ? url.slice(q) : '') !== null ? 'enter' : 'leave';
+}
+
+export function arSwitchCopy(dir: ArSwitchDir): { title: string; sub: string } {
+  return dir === 'enter'
+    ? { title: 'Switching to AR mode', sub: 'Getting your space ready' }
+    : { title: 'Back to the booth', sub: 'Turning the selfie camera on' };
+}

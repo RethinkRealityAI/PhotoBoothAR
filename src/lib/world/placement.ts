@@ -26,7 +26,7 @@ export interface Vec3 { x: number; y: number; z: number }
 /**
  * Where a ray from `origin` along `dir` meets the floor (y = 0), or null when it
  * points at or above the horizon, or the hit is closer than `min` / further
- * than `max` metres along the floor (a frame at your own feet is no use).
+ * than `max` metres along the floor.
  */
 export function floorHit(origin: Vec3, dir: Vec3, min = MIN_PLACE_M, max = MAX_PLACE_M): Vec3 | null {
   if (!(dir.y < -1e-4) || origin.y <= 0) return null;
@@ -42,19 +42,37 @@ export const DEFAULT_PLACE_M = 2.6;
 /** Aimed further than this, the frame comes back to DEFAULT_PLACE_M. */
 export const COMFORT_MAX_M = 5;
 
+/** Closest the reticle comes when the phone points down at the floor near
+ *  your feet: the frame still shows, just in front of you. */
+export const NEAR_PLACE_M = 0.35;
+
 /**
  * The spot the reticle shows: where the aim ray meets the floor, or — when the
  * phone points at the horizon or further than COMFORT_MAX_M — DEFAULT_PLACE_M
- * ahead along the floor in the direction the phone faces. Null only when the
- * phone points straight up or down (no heading) or the hit is too close.
+ * ahead along the floor in the direction the phone faces.
+ *
+ * Pointing DOWN always gives a spot, even straight down at your feet: the
+ * floor hit, pushed out to NEAR_PLACE_M if it is closer. Straight down has no
+ * heading of its own, so `up` (the top edge of the phone, in world space)
+ * says which way is "ahead". Null only when there is no heading at all
+ * (straight up, or straight down without `up`).
  */
-export function placementSpot(origin: Vec3, dir: Vec3): Vec3 | null {
-  const hit = floorHit(origin, dir, MIN_PLACE_M, COMFORT_MAX_M);
+export function placementSpot(origin: Vec3, dir: Vec3, up?: Vec3): Vec3 | null {
+  const hit = floorHit(origin, dir, NEAR_PLACE_M, COMFORT_MAX_M);
   if (hit) return hit;
   const flat = Math.hypot(dir.x, dir.z);
+  if (dir.y < -1e-4 && origin.y > 0) {
+    const k = -origin.y / dir.y;
+    const d = k * flat;
+    if (d < NEAR_PLACE_M) {
+      // At your feet: the hit's own direction, else the phone's facing.
+      let hx = dir.x, hz = dir.z, hl = flat;
+      if (hl < 0.05 && up) { hx = up.x; hz = up.z; hl = Math.hypot(hx, hz); }
+      if (hl < 1e-3) return null;
+      return { x: origin.x + (hx / hl) * NEAR_PLACE_M, y: 0, z: origin.z + (hz / hl) * NEAR_PLACE_M };
+    }
+  }
   if (flat < 0.05) return null;
-  // Aimed down but too close (at your feet): no spot, the hint says to aim further.
-  if (dir.y < 0 && origin.y > 0 && (-origin.y / dir.y) * flat < MIN_PLACE_M) return null;
   return { x: origin.x + (dir.x / flat) * DEFAULT_PLACE_M, y: 0, z: origin.z + (dir.z / flat) * DEFAULT_PLACE_M };
 }
 
