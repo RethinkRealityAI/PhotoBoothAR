@@ -186,15 +186,18 @@ export function formatRetention(retentionDays: number | null): string {
 }
 
 /**
- * Every clip must fit the live `posts` bucket's 25 MB per-file limit
- * (storage.buckets.file_size_limit), with headroom for container overhead and
- * MediaRecorder overshooting its target. Longer clips therefore record at a
- * lower bitrate instead of growing the file: a 30 s clip keeps today's 5 Mbps,
- * a 60 s clip records at ~3.2 Mbps and a 90 s clip at ~2.1 Mbps. That also
- * keeps the upload short on crowded venue wifi, which is the real failure mode
- * of long clips.
+ * Every clip must fit BOTH upload ceilings, with headroom for container
+ * overhead and MediaRecorder overshooting its target:
+ *  - the `posts` bucket's per-file limit (60 MB since migration 053), and
+ *  - the Supabase project's global upload limit (dashboard: Storage → Settings),
+ *    50 MB by default. Uploads go straight to storage via a signed URL, so the
+ *    LOWER of the two wins.
+ * 48 MB sits under both. Clips of up to 60 s record at the full 5 Mbps; a 90 s
+ * clip records at ~4.3 Mbps. Once the project limit is raised past 60 MB this
+ * can grow to 56 MB, and 90 s clips reach 5 Mbps too. (Before 053 the budget
+ * was 24 MB, which pushed a 90 s clip down to ~2.1 Mbps.)
  */
-export const VIDEO_CLIP_BYTE_BUDGET = 24 * 1024 * 1024;
+export const VIDEO_CLIP_BYTE_BUDGET = 48 * 1024 * 1024;
 const VIDEO_MAX_BPS = 5_000_000;
 const VIDEO_AUDIO_BPS = 128_000;
 

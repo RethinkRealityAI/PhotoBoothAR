@@ -74,14 +74,16 @@ describe('video clip length tiers (owner decision 2026-11-19)', () => {
     expect(videoBitsPerSecondFor(30)).toBe(5_000_000);
   });
 
-  it('fits every tier\'s longest clip inside the 25 MB posts-bucket limit', () => {
-    const BUCKET_LIMIT = 25 * 1024 * 1024;
+  it('fits every tier\'s longest clip inside the posts-bucket limit AND the project upload limit', () => {
+    // posts bucket = 60 MB (migration 053); project-wide default = 50 MB. The lower wins.
+    const BUCKET_LIMIT = Math.min(60 * 1024 * 1024, 50 * 1024 * 1024);
     for (const e of Object.values(ENTITLEMENTS)) {
       const bytes = ((videoBitsPerSecondFor(e.videoMaxSec) + 128_000) * e.videoMaxSec) / 8;
       expect(bytes).toBeLessThanOrEqual(VIDEO_CLIP_BYTE_BUDGET);
       expect(VIDEO_CLIP_BYTE_BUDGET).toBeLessThan(BUCKET_LIMIT);
     }
-    expect(videoBitsPerSecondFor(90)).toBeGreaterThan(2_000_000); // still watchable
+    expect(videoBitsPerSecondFor(60)).toBe(5_000_000); // full quality up to a minute
+    expect(videoBitsPerSecondFor(90)).toBeGreaterThan(4_000_000); // close to full at 90 s
   });
 
   it('falls back to 30 s on a nonsense length instead of dividing by zero', () => {

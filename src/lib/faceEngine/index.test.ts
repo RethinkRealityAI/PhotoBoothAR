@@ -441,6 +441,7 @@ describe('face-engine manager', () => {
       const release2 = m.retainFrameLock();
       expect(m.getActiveFaceEngineInfo()).toMatchObject({ frameLock: true, frameLockSource: 'url' });
       expect(h.state.mpSnapshot).toBe(true);
+      m.pollFaceEngine(video, 50); // a pose sample exists (before one, frame-lock shows the live camera)
       expect(m.getTrackedFrame()!.source).toBe(h.state.mpFrame);
       release2();
       expect(h.state.mpSnapshot).toBe(false);

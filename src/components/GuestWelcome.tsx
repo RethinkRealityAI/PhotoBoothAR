@@ -12,9 +12,9 @@
 import { Link, useLocation } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { Album, Camera, Check, ChevronRight, Images, Link2, Trophy, UploadCloud } from 'lucide-react';
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import EventBackground from './ui/EventBackground';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { Emblem } from './ui/EventLogo';
+import EventBackground from './ui/EventBackground';
 import ReportIssueButton from './support/ReportIssueButton';
 import LiveWallField from './theme/LiveWallField';
 import { WALL_FIELD_SAMPLES } from './theme/samplePhotos';
@@ -108,6 +108,10 @@ function SceneGuestWelcome() {
   // The phone shows the event's frame on a stand-in guest (or a finished
   // look), never a wall photo: the wall behind already shows the room.
   const screen = useBoothScreen();
+  // Desktop: the phone is exactly as tall as the left column (title to the
+  // last row of cards), so its top and bottom line up with them.
+  const leftRef = useRef<HTMLDivElement>(null);
+  const phoneWidth = useColumnPhoneWidth(leftRef);
   // The host's own words only: the page no longer explains itself by default.
   const intro =
     typeof config.copy.welcomeIntro === 'string' && config.copy.welcomeIntro.trim() !== ''
@@ -121,7 +125,6 @@ function SceneGuestWelcome() {
     ...(hasChallenges ? [{ to: `${basePath}/challenges`, icon: Trophy, title: 'Photo challenges' }] : []),
   ];
 
-  const moments = posts.length;
 
   // The QR's companion: copy the page link. navigator.clipboard is undefined
   // outside a secure context and writeText rejects when the page is not
@@ -138,34 +141,14 @@ function SceneGuestWelcome() {
     clip.writeText(eventUrl).then(() => setCopyState('copied'), () => setCopyState('failed'));
   };
 
-  // The room's pulse. Desktop: above the name. Phones: over the phone's screen.
-  const pulse = moments > 0 ? (
-    <Link
-      to={`${basePath}/wall`}
-      aria-live="polite"
-      className="sc-chip pressable relative inline-flex min-h-11 items-center gap-2.5 rounded-full px-4 font-sans text-[14px] font-semibold"
-    >
-      <span className="sc-rim" aria-hidden><span /></span>
-      <span aria-hidden className="sc-live-dot h-2.5 w-2.5 rounded-full" style={{ background: 'var(--sc-accent)', boxShadow: '0 0 12px var(--sc-accent)' }} />
-      Guests are snapping
-      <span className="sc-faint font-medium">· {moments}</span>
-    </Link>
-  ) : (
-    <div className="sc-chip relative inline-flex min-h-11 items-center gap-2.5 rounded-full px-4 font-sans text-[14px] font-semibold">
-      <span className="sc-rim" aria-hidden><span /></span>
-      <span aria-hidden className="sc-live-dot h-2.5 w-2.5 rounded-full" style={{ background: 'var(--sc-accent)', boxShadow: '0 0 12px var(--sc-accent)' }} />
-      Be the first on the wall
-    </div>
-  );
-
   const scanToJoin = (
-    <div className="sc-glass flex w-full max-w-[440px] items-center gap-4 rounded-[24px] p-3 pr-4">
+    <div className="sc-glass flex w-full max-w-[440px] items-center gap-5 rounded-[26px] p-3 pr-5">
       <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: '-3.4s' }}><span /></span>
       <div className="shrink-0 rounded-[16px] bg-white p-2">
-        <QRCodeSVG value={eventUrl} size={76} bgColor="#FFFFFF" fgColor="#1A1740" level="M" title="QR code for this event page" />
+        <QRCodeSVG value={eventUrl} size={128} bgColor="#FFFFFF" fgColor="#1A1740" level="M" title="QR code for this event page" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="font-sans text-[16px] font-semibold sc-ink">Scan to join</p>
+        <p className="font-sans text-[18px] font-semibold sc-ink">Scan to join</p>
         <button
           type="button"
           onClick={copyLink}
@@ -196,62 +179,30 @@ function SceneGuestWelcome() {
       {config.scene?.border && <PageBorder border={config.scene.border} />}
       <div className="relative z-10 mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 sm:px-8 pt-safe-top [--safe-top:1.25rem] pb-safe-bottom [--safe-bottom:1.5rem]">
 
-        {/* Top line (desktop): who this is, and the wall one tap away. On a
-            phone the name itself is the first thing, so this row is skipped. */}
-        <div className="hidden items-center justify-between gap-3 animate-rise-in lg:flex">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <Emblem size={34} className="shrink-0" />
-            <span className="truncate font-sans text-[14px] font-medium sc-muted">{config.copy.eventName}</span>
-          </div>
-          <Link
-            to={`${basePath}/wall`}
-            className="sc-chip pressable relative inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full px-4 font-sans text-[13px] font-medium"
-          >
-            <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: '-2.1s' }}><span /></span>
-            <span aria-hidden className="sc-live-dot h-2 w-2 rounded-full" style={{ background: 'var(--sc-accent)' }} />
-            Live wall
-          </Link>
-        </div>
-
         {fromLanding && (
           <p role="status" className="sc-glass mt-3 rounded-2xl px-4 py-3 text-center font-sans text-[14px] leading-relaxed sc-ink lg:mt-5">
             Oh, you scanned it for real. Thanks for trying it out! This is a live demo event: step into the booth, then watch your shot land on the wall.
           </p>
         )}
 
-        <main className="grid flex-1 grid-cols-[minmax(0,1fr)] items-start gap-x-16 gap-y-5 pb-6 pt-1 [grid-template-areas:'head'_'vf'_'qr'_'rest'] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:gap-y-8 lg:py-10 lg:[grid-template-areas:'head_vf'_'rest_vf']">
+        {/* Phones: one column, name, phone, cards. Desktop: the left column
+            (title, QR, cards) sits in one block centred in the viewport and
+            the phone matches its height exactly (useColumnPhoneWidth). */}
+        <main className="grid flex-1 grid-cols-[minmax(0,1fr)] items-start gap-x-14 gap-y-5 pb-6 pt-1 [grid-template-areas:'head'_'vf'_'qr'_'rest'] lg:flex lg:items-center lg:justify-between lg:py-8">
+          <div ref={leftRef} className="contents lg:flex lg:h-[min(calc(100dvh-176px),820px)] lg:min-h-[480px] lg:min-w-0 lg:max-w-[640px] lg:flex-1 lg:flex-col lg:justify-between">
           {/* ── Hero: the name first ── */}
-          <section className="flex min-w-0 flex-col items-center text-center animate-rise-in [grid-area:head] lg:items-start lg:pt-6 lg:text-left">
-            <div className="mb-6 hidden lg:block">{pulse}</div>
-            <h1 className="sc-display max-w-[14ch] text-[clamp(38px,11vw,92px)] font-semibold leading-[0.96] sc-ink break-words">
+          <section className="flex min-w-0 flex-col items-center text-center animate-rise-in [grid-area:head] lg:items-start lg:text-left">
+            <h1 className="sc-display max-w-[14ch] text-[clamp(38px,11vw,92px)] font-semibold leading-[0.96] sc-ink break-words lg:text-[clamp(44px,min(6.2vw,10vh),96px)]">
               {config.copy.fullName}
             </h1>
             {config.copy.tagline && (
               <p className="mt-2 max-w-xl font-sans text-[clamp(16px,2.2vw,22px)] leading-snug sc-muted lg:mt-4">{config.copy.tagline}</p>
             )}
-            {/* Scan to join sits right under the name on a big screen. */}
-            <div className="mt-6 hidden w-full lg:block">{scanToJoin}</div>
           </section>
 
-          {/* ── The booth, previewed ── */}
-          <div className="flex min-w-0 flex-col items-center animate-rise-in [grid-area:vf] lg:justify-center lg:self-center">
-            <div className="relative">
-              <BoothViewfinder
-                to={`${basePath}/booth`}
-                // The booth skips its own "Step inside" splash for this tap,
-                // so the camera line that splash carried is shown below.
-                linkState={FROM_WELCOME_STATE}
-                frameUrl={screen.frame}
-                previewUrl={screen.photo}
-                widthClass="w-[min(64vw,280px)] lg:w-[min(25vw,330px)]"
-              />
-              {/* Phones: the room's pulse sits over the top of the screen. */}
-              <div className="absolute inset-x-0 top-4 z-20 flex justify-center lg:hidden">{pulse}</div>
-            </div>
-            <div className="mt-4 text-center lg:text-left">
-              <PrivacyLine />
-            </div>
-          </div>
+          {/* Desktop: Scan to join between the name and the cards; the
+              column spreads the three evenly down the phone's height. */}
+          <div className="hidden w-full lg:block">{scanToJoin}</div>
 
           {/* Tablets: Scan to join under the phone. Never on a phone: the
               guest is already holding the device the QR would open. */}
@@ -259,12 +210,12 @@ function SceneGuestWelcome() {
 
           <section className="flex min-w-0 flex-col items-start animate-rise-in [grid-area:rest]">
             {intro && <p className="mb-5 max-w-lg font-sans text-[15px] leading-relaxed sc-muted">{intro}</p>}
-            <nav aria-label="More to do here" className="grid w-full grid-cols-2 gap-3">
+            <nav aria-label="More to do here" className="grid w-full grid-cols-2 gap-3 lg:gap-4">
               {actions.map((a, i) => (
                 <Link
                   key={a.to}
                   to={a.to}
-                  className="sc-glass sc-card group flex min-h-[60px] items-center gap-3 rounded-2xl px-3.5 py-3"
+                  className="sc-glass sc-card group flex min-h-[60px] items-center lg:min-h-[72px] gap-3 rounded-2xl px-3.5 py-3"
                 >
                   <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: `-${(i * 1.7).toFixed(1)}s` }}><span /></span>
                   <span
@@ -279,22 +230,76 @@ function SceneGuestWelcome() {
               ))}
             </nav>
           </section>
+          </div>
+
+          {/* ── The booth, previewed ── */}
+          <div
+            className="flex min-w-0 flex-col items-center animate-rise-in [grid-area:vf] lg:shrink-0"
+            style={phoneWidth ? { width: phoneWidth } : undefined}
+          >
+            <BoothViewfinder
+              to={`${basePath}/booth`}
+              // The booth skips its own "Step inside" splash for this tap,
+              // so the camera line that splash carried is shown below.
+              linkState={FROM_WELCOME_STATE}
+              frameUrl={screen.frame}
+              previewUrl={screen.photo}
+              widthClass="w-[min(70vw,300px)] lg:w-full"
+            />
+            {/* Desktop carries this line in the footer, so the phone's bottom
+                stays level with the action cards. */}
+            <div className="mt-4 text-center lg:hidden">
+              <PrivacyLine />
+            </div>
+          </div>
 
         </main>
 
-        {slug !== null && (
-          <div className="flex justify-center">
+        <footer className="flex flex-col items-center gap-x-8 lg:flex-row lg:items-center lg:justify-between">
+          <div className="hidden max-w-[760px] lg:block [&_p]:max-w-none">
+            <PrivacyLine />
+          </div>
+          {slug !== null && (
             <ReportIssueButton
               label="Something not working? Report a problem"
               iconSize={14}
               prefill={{ source: 'guest_booth', eventSlug: slug }}
-              className="pressable flex min-h-11 items-center gap-2 font-sans text-[13px] sc-faint hover:underline"
+              className="pressable flex min-h-11 shrink-0 items-center gap-2 font-sans text-[13px] sc-faint hover:underline"
             />
-          </div>
-        )}
+          )}
+        </footer>
       </div>
     </div>
   );
+}
+
+/** Phone outer width (px) whose height equals the measured column's, on
+ *  desktop only (undefined on narrower screens, where CSS sizes it). The
+ *  device is a 9:16 screen inside a 10px bezel on every side. */
+const DESKTOP_MQ = '(min-width: 1024px)';
+const PHONE_BEZEL = 10;
+function useColumnPhoneWidth(ref: RefObject<HTMLDivElement | null>): number | undefined {
+  const [width, setWidth] = useState<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof window === 'undefined' || typeof ResizeObserver === 'undefined') return;
+    const mq = window.matchMedia(DESKTOP_MQ);
+    const measure = () => {
+      if (!mq.matches) { setWidth(undefined); return; }
+      const h = el.getBoundingClientRect().height;
+      if (h <= 0) return;
+      setWidth(Math.round((h - 2 * PHONE_BEZEL) * (9 / 16) + 2 * PHONE_BEZEL));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    mq.addEventListener('change', measure);
+    return () => {
+      ro.disconnect();
+      mq.removeEventListener('change', measure);
+    };
+  }, [ref]);
+  return width;
 }
 
 function LegacyGuestWelcome() {
