@@ -11,8 +11,16 @@ export type Facing = 'user' | 'environment';
 export interface CameraOptions {
   facingMode?: Facing;
   withAudio?: boolean;
+  /**
+   * Ask for the microphone TOGETHER with the camera (one browser prompt), then
+   * release it straight away. The grant stays, so opening the microphone later
+   * (video mode) asks nothing. A refused or missing microphone never costs the
+   * camera: the request is repeated for the picture alone.
+   */
+  primeMic?: boolean;
   deviceId?: string;
 }
+
 
 /**
  * Thrown BEFORE getUserMedia is ever called when the environment cannot
@@ -101,7 +109,7 @@ function assertCameraCapable(): void {
  */
 export async function getCameraStream(opts: CameraOptions = {}): Promise<MediaStream> {
   assertCameraCapable();
-  const { facingMode = 'user', withAudio = false, deviceId } = opts;
+  const { facingMode = 'user', withAudio = false, primeMic = false, deviceId } = opts;
 
   const tiers: MediaTrackConstraints[] = [
     { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
@@ -121,11 +129,27 @@ export async function getCameraStream(opts: CameraOptions = {}): Promise<MediaSt
   // video robust and lets us add audio independently below.
   let stream: MediaStream | null = null;
   let lastErr: unknown;
+  // primeMic: the same request also names the microphone, so the browser shows
+  // ONE prompt for both. Any failure that is not a video constraint drops the
+  // microphone from every later attempt, starting with this same one.
+  let askMic = primeMic && !withAudio;
   outer: for (const facing of facingVariants) {
     for (const tier of tiers) {
       const video: MediaTrackConstraints = deviceId
         ? { deviceId: { exact: deviceId }, ...tier }
         : { facingMode: facing, ...tier };
+      if (askMic) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video, audio: BOOTH_MIC_CONSTRAINTS });
+          // Granted. Photo mode must not hold a live microphone (indicator on).
+          for (const t of stream.getAudioTracks()) { stream.removeTrack(t); t.stop(); }
+          break outer;
+        } catch (e) {
+          lastErr = e;
+          if (classifyCameraError(e) === 'OverconstrainedError') continue; // this picture tier, not the microphone
+          askMic = false;
+        }
+      }
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
         break outer;
