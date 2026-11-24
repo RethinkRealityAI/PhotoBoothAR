@@ -532,7 +532,7 @@ export default function LooksPicker({ eventUuid, eventSlug, config, eventType, a
         <div className="min-w-0">
           <h2 id="looks-picker-title" className="text-base font-semibold text-brand-fg">{title}</h2>
           <p className="mt-1 text-[13px] text-brand-muted">
-            Tap to switch a frame or filter on or off. Guests can pick from everything you leave on.
+            Tap any look to switch it on or off. Guests can pick from everything you leave on.
           </p>
         </div>
         {accent && (

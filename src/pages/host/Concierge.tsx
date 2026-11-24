@@ -84,7 +84,7 @@ function EventCard({
                 onBlur={commit}
                 className="min-w-0 flex-1 rounded-lg bg-white/[0.06] border border-[color:var(--color-accent)]/40 px-2 py-1 font-serif text-base text-brand-fg outline-none"
               />
-              <button onMouseDown={(e) => { e.preventDefault(); setDraft(ev.name); setEditing(false); }} aria-label="Cancel rename" className="p-1 text-brand-muted/50 hover:text-brand-fg">
+              <button onMouseDown={(e) => { e.preventDefault(); setDraft(ev.name); setEditing(false); }} aria-label="Cancel rename" className="shrink-0 min-h-11 min-w-11 -my-2 inline-flex items-center justify-center rounded-xl text-brand-muted/50 hover:text-brand-fg">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -94,13 +94,13 @@ function EventCard({
               <button
                 onClick={(e) => { e.stopPropagation(); setDraft(ev.name); setEditing(true); }}
                 aria-label={`Rename ${ev.name}`}
-                className="shrink-0 p-0.5 text-brand-muted/40 hover:text-[color:var(--color-accent)] transition-colors"
+                className="shrink-0 min-h-11 min-w-11 -my-3 -ml-2 inline-flex items-center justify-center rounded-xl text-brand-muted/50 hover:text-[color:var(--color-accent)] transition-colors"
               >
-                <Pencil className="w-3 h-3" />
+                <Pencil className="w-3.5 h-3.5" />
               </button>
             </p>
           )}
-          <p className="font-sans text-[9px] uppercase tracking-widest text-brand-muted/40 mt-0.5">{ev.event_type}</p>
+          <p className="font-sans text-[11px] capitalize text-brand-muted/60 mt-0.5">{ev.event_type}</p>
         </div>
         <div className="shrink-0 flex items-center gap-1">
           <TierPill tier={ev.plan_tier} />
@@ -109,35 +109,38 @@ function EventCard({
       </div>
 
       <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-        <p className="flex-1 font-mono text-[10px] text-brand-muted/60 truncate">/e/{ev.slug}</p>
+        <p className="flex-1 min-w-0 font-mono text-[11px] text-brand-muted/60 truncate">/e/{ev.slug}</p>
         <button
           onClick={() => copyText(welcomeUrl).then((ok) => { if (!ok) return; setCopied(true); push('Link copied', 'success'); setTimeout(() => setCopied(false), 1500); })}
           title="Copy guest link"
-          className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+          aria-label="Copy guest link"
+          className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/70 hover:text-brand-fg transition-colors"
         >
-          {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+          {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
         </button>
         <a
           href={guestUrl}
           target="_blank"
           rel="noopener noreferrer"
           title="Open guest view"
-          className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+          aria-label="Open guest view"
+          className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/70 hover:text-brand-fg transition-colors"
         >
-          <ExternalLink className="w-3 h-3" />
+          <ExternalLink className="w-4 h-4" />
         </a>
         <Link
           to={`/host/events/${ev.id}`}
           title="Open studio"
-          className="p-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/60 hover:text-brand-fg transition-colors"
+          aria-label="Open studio"
+          className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/70 hover:text-brand-fg transition-colors"
         >
-          <Settings2 className="w-3 h-3" />
+          <Settings2 className="w-4 h-4" />
         </Link>
         {(ev.status === 'draft' || ev.status === 'ended') && (
           <button
             onClick={() => onStatus('live')}
             disabled={busy}
-            className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-2.5 py-1 font-label uppercase tracking-luxe text-[8px] text-emerald-400 transition-colors disabled:opacity-40"
+            className="shrink-0 min-h-11 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-4 font-label uppercase tracking-luxe text-[11px] text-emerald-300 transition-colors disabled:opacity-40"
           >
             Go live
           </button>
@@ -146,7 +149,7 @@ function EventCard({
           <button
             onClick={() => onStatus('ended')}
             disabled={busy}
-            className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-2.5 py-1 font-label uppercase tracking-luxe text-[8px] text-amber-400 transition-colors disabled:opacity-40"
+            className="shrink-0 min-h-11 rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-4 font-label uppercase tracking-luxe text-[11px] text-amber-300 transition-colors disabled:opacity-40"
           >
             End
           </button>
@@ -246,7 +249,7 @@ export default function Concierge() {
         </div>
         <Link
           to="/host/new/assistant"
-          className="flex items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98]"
+          className="flex min-h-11 items-center gap-2 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98]"
         >
           <PartyPopper className="w-4 h-4" /> New event with the Concierge
         </Link>
@@ -259,7 +262,7 @@ export default function Concierge() {
           </p>
           <button
             onClick={load}
-            className="inline-flex items-center gap-2 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-6 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors"
+            className="inline-flex min-h-11 items-center gap-2 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-6 py-2.5 font-label uppercase tracking-luxe text-[11px] text-brand-fg/90 transition-colors"
           >
             Retry
           </button>
@@ -311,7 +314,7 @@ export default function Concierge() {
                 <p className="font-serif text-sm text-foil-static leading-tight truncate">
                   {selected ? selected.name : 'Pick an event'}
                 </p>
-                <p className={`font-sans text-[10px] truncate ${snapFailed || snapshot?.failed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
+                <p className={`font-sans text-[11px] truncate ${snapFailed || snapshot?.failed ? 'text-amber-300/90' : 'text-brand-muted/60'}`}>
                   {/* When the snapshot fails the header used to keep naming the
                       event while every tool answered "pick an event first".
                       `snapshot.failed` is the softer case: the event IS scoped,
@@ -330,7 +333,7 @@ export default function Concierge() {
               {selected && (
                 <Link
                   to={`/host/events/${selected.id}`}
-                  className="shrink-0 flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3.5 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/90 transition-colors"
+                  className="shrink-0 min-h-11 flex items-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-4 py-1.5 font-label uppercase tracking-luxe text-[11px] text-brand-fg/90 transition-colors"
                 >
                   <Settings2 className="w-3 h-3" /> Studio
                 </Link>

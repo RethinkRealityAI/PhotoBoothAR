@@ -98,7 +98,7 @@ export function computeChecklist(facts: ChecklistFacts, mode: ChecklistMode): Ch
       // "done" here means "your chosen template's defaults are active", not
       // "you customized it".
       { id: 'look', label: 'Pick your look & colours', hint: hasLook ? 'Template look active — make it yours in Branding' : 'Theme, background & fonts', done: hasLook },
-      { id: 'frames', label: 'Add frames & effects', hint: facts.hasFrames ? 'Template frames active — add your own or AI-generate more' : 'Frames, filters & 3D props', done: facts.hasFrames },
+      { id: 'frames', label: 'Add frames & effects', hint: facts.hasFrames ? 'Template frames active — add your own or AI-generate more' : 'Frames, props, paint & effects', done: facts.hasFrames },
       { id: 'test_shot', label: 'Take a test photo', hint: 'Open your booth and snap one — see what guests will see', done: facts.posts > 0 },
     ];
   }

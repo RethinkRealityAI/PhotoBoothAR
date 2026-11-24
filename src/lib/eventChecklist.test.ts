@@ -48,7 +48,7 @@ describe('dashboard checklist (studio)', () => {
   it('an unnamed, unthemed, frameless event shows the "not yet" hints', () => {
     const items = computeChecklist(checklistFromStudio({ copy: { fullName: '  ' } }, null, 'draft'), 'dashboard');
     expect(items.map((i) => i.hint)).toEqual([
-      'Give it a name in Branding', 'Theme, background & fonts', 'Frames, filters & 3D props',
+      'Give it a name in Branding', 'Theme, background & fonts', 'Frames, props, paint & effects',
       'Open your booth and snap one — see what guests will see',
     ]);
     expect(missingIds(items)).toEqual(['name', 'look', 'frames', 'test_shot']);
