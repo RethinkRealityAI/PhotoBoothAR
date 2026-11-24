@@ -207,9 +207,9 @@ export default function AdminSupport() {
   };
   // The reader pane only earns its column when there is something to read.
   const showReader = selectedId !== null || state === 'ready' || state === 'loading';
-  const chip = 'pressable rounded-full px-3 py-1.5 min-h-9 font-label uppercase tracking-luxe text-[10px] border transition-colors';
+  const chip = 'pressable rounded-full px-3.5 min-h-11 font-label uppercase tracking-luxe text-[11px] border transition-colors';
   const chipOn = 'bg-[color:var(--color-accent)]/15 border-[color:var(--color-accent)]/50 text-brand-fg';
-  const chipOff = 'bg-white/[0.03] border-white/10 text-brand-muted/60 hover:text-brand-fg';
+  const chipOff = 'bg-white/[0.04] border-white/10 text-brand-muted/80 hover:text-brand-fg';
 
   return (
     <div className="min-h-full px-4 py-6 md:px-8 md:py-10">
@@ -245,7 +245,7 @@ export default function AdminSupport() {
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               aria-label="Filter by category"
-              className="rounded-full bg-white/[0.03] border border-white/10 px-3 min-h-9 font-label uppercase tracking-luxe text-[10px] text-brand-muted/70"
+              className="rounded-full bg-white/[0.04] border border-white/10 px-3.5 min-h-11 font-label uppercase tracking-luxe text-[11px] text-brand-muted/85"
             >
               <option value="">All types</option>
               {SUPPORT_CATEGORIES.map((c) => (
@@ -254,14 +254,14 @@ export default function AdminSupport() {
             </select>
             <label className="relative flex-1 basis-full sm:basis-64 min-w-0 sm:min-w-[16rem] sm:max-w-md sm:ml-auto">
               <span className="sr-only">Search tickets</span>
-              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted/40" />
+              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted/60" />
               <input
                 type="search"
                 value={list.query}
                 onChange={(e) => list.setQuery(e.target.value)}
                 placeholder="Search ref, subject, email…"
                 aria-label="Search tickets by reference, subject, email or event"
-                className="w-full rounded-xl bg-white/[0.04] border border-white/10 pl-9 pr-3.5 min-h-10 text-sm text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-[color:var(--color-accent)]/50"
+                className="w-full rounded-xl bg-white/[0.06] border border-white/10 pl-9 pr-3.5 min-h-11 text-sm text-brand-fg placeholder:text-brand-muted/60 focus:outline-none focus:border-[color:var(--color-accent)]/60"
               />
             </label>
           </div>
