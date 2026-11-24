@@ -36,6 +36,7 @@ import BoothControlDeck from './booth/BoothControlDeck';
 import BoothTopBar from './booth/BoothTopBar';
 import BoothLookDeck from './booth/BoothLookDeck';
 import LooksSheet from './booth/LooksSheet';
+import WorldStage from './booth/WorldStage';
 import { TimerControl } from './booth/BoothCaptureControls';
 import {
   buildDeck, initialCategory, initialCategoryWhenReady, type DeckCategory, type DeckSelection,
@@ -1008,6 +1009,19 @@ export default function Booth() {
       }));
   }, [frameLayers, layerVisible]);
 
+  // ── World mode ────────────────────────────────────────────────────────
+  // PLATFORM booths only: on the BACK camera a selected Frame (2D border)
+  // stands up in the room, life-size (WorldStage). Only the camera and the
+  // tracking change; tabs, shutter, recording and review stay as they are.
+  // Legacy coded events can never reach it (source !== 'db').
+  const worldFrameUrl: string | null = (() => {
+    if (source !== 'db' || isFront || frameExp === null) return null;
+    if (frameExp.kind === 'border' && frameExp.asset_url) return frameExp.asset_url;
+    const layer = frameExp.config?.layers?.find((l) => l.kind === 'border' && !!l.asset_url && l.hidden !== true);
+    return layer?.asset_url ?? null;
+  })();
+  const worldMode = worldFrameUrl !== null;
+
   const rawAttachLayers = attachExp?.config?.layers;
   // ── Guest lens colour ─────────────────────────────────────────────────
   // Session-only: a swatch pick recolours the template's guest-pickable region
@@ -1819,9 +1833,9 @@ export default function Booth() {
   }, [filterOptions, effectId, applyEffect]);
 
   const onStagePointerDown = useCallback((e: React.PointerEvent) => {
-    if (phase !== 'camera') return;
+    if (phase !== 'camera' || worldMode) return;
     gestureStartRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
-  }, [phase]);
+  }, [phase, worldMode]);
 
   const onStagePointerUp = useCallback((e: React.PointerEvent) => {
     const start = gestureStartRef.current;
@@ -2203,13 +2217,13 @@ export default function Booth() {
                   effectId={effectId}
                   sparkles={sparkles}
                   mirror={isFront}
-                  overlayUrl={stageOverlays ? null : (is2DOverlay ? frameExp!.asset_url : null)}
+                  overlayUrl={worldMode || stageOverlays ? null : (is2DOverlay ? frameExp!.asset_url : null)}
                   overlayTransform={overlayTransform}
                   overlayOpacity={frameExp?.config?.opacity}
-                  overlays={stageOverlays}
+                  overlays={worldMode ? null : stageOverlays}
                   // powerFxActive (db-only): a frame/filter-only scene's beam
                   // renders in that same canvas, so it must reach photos too.
-                  threeCanvasId={is3D || powerFxActive ? 'booth-3d-layer' : null}
+                  threeCanvasId={worldMode ? 'booth-world-layer' : (is3D || powerFxActive ? 'booth-3d-layer' : null)}
                   // Draw the frame the pose came from (resolver decides: never
                   // legacy; on for 8th Wall poses). Photos use it too. A clip
                   // keeps it when its sound is delayed to match (clipLocked):
@@ -2217,13 +2231,13 @@ export default function Booth() {
                   // so with live sound the lips would move after the words.
                   // Otherwise a clip shows the live camera and props ride the
                   // filtered pose.
-                  frameLock={is3D && source === 'db' && (!recording || clipLocked)}
+                  frameLock={!worldMode && is3D && source === 'db' && (!recording || clipLocked)}
                   pictureClock={source === 'db'}
                   maxFps={boothFpsCap}
                   active={true}
                   watermark={entitlements.watermark}
                   effectsCanvas={triggerFxCanvas}
-                  lettering={stageLettering}
+                  lettering={worldMode ? null : stageLettering}
                   // The recorded clip IS this canvas (captureStream below), and
                   // the preview pass skips the signature — so every video used
                   // to ship unsigned while every photo shipped signed. On only
@@ -2237,7 +2251,7 @@ export default function Booth() {
                     triggers carry a beam action (a frame-only scene can still
                     blast) — the beam renders in this canvas so StageCanvas
                     composites it into the photo and the recording for free. */}
-                {((is3D && anchorConfig) || powerFxActive) && (
+                {!worldMode && ((is3D && anchorConfig) || powerFxActive) && (
                   <HeadScaleOverlay3D
                     base={studioCfg.headScale}
                     subRef={headScaleSubRef}
@@ -2270,6 +2284,17 @@ export default function Booth() {
                   />
                 )}
               </div>
+              {worldFrameUrl !== null && phase === 'camera' && (
+                <WorldStage
+                  frameUrl={worldFrameUrl}
+                  frameName={frameExp?.name ?? 'This frame'}
+                  accent={eventConfig.accentHexes?.[0] ?? '#d4af37'}
+                  videoRef={videoRef}
+                  maxFps={boothFpsCap}
+                  recording={recording}
+                  onExit={() => { if (!recording) flipCamera(); }}
+                />
+              )}
               {/* Face-trigger particles. This canvas is the SOURCE: it is passed
                   to StageCanvas.effectsCanvas (:1081) and composited into the
                   same canvas that produces the preview, the JPEG and the recorded
