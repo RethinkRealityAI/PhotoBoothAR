@@ -71,6 +71,8 @@ export default function BoothViewfinder({
     >
       <div className={`sc-glass-strong ${compact ? 'rounded-[18px] p-1' : 'rounded-[42px] p-2.5'}`}>
         <span className="sc-rim" aria-hidden><span /></span>
+        {/* The earpiece sits in the bezel, never over the host's frame art. */}
+        {!compact && <span className="vf-island" aria-hidden />}
         <div className={`relative aspect-[9/16] overflow-hidden bg-[#0E0C2A] ${compact ? 'rounded-[14px]' : 'rounded-[34px]'}`}>
           {previewUrl ? (
             <div className="vf-drift absolute inset-0">
@@ -111,6 +113,7 @@ export default function BoothViewfinder({
             </div>
           )}
           <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/55 to-transparent" aria-hidden />
+          {!compact && <span className="vf-sheen" aria-hidden />}
           {compact ? (
             <span aria-hidden className="absolute inset-x-0 bottom-2 mx-auto flex w-max flex-col items-center">
               {shutter}
