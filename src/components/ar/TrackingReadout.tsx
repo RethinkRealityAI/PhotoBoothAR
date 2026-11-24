@@ -61,6 +61,61 @@ function readoutEnabled(): boolean {
   return trackingReadoutEnabled(window.location.search, store);
 }
 
+/**
+ * The camera stream's microphone, for the tester: its state, whether call
+ * processing is on, and the peak level it is delivering right now. A mic that
+ * says "live" but sits near -100 dB is handing the page silence, which is the
+ * "videos have no sound" failure.
+ */
+class MicMeter {
+  private ctx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
+  private trackId = '';
+  private buf = new Float32Array(2048);
+  /** Browsers start an AudioContext suspended until a tap. */
+  private readonly resume = () => { void this.ctx?.resume().catch(() => {}); };
+
+  constructor() { window.addEventListener('pointerdown', this.resume, { passive: true }); }
+
+  read(): string {
+    const src = cameraVideo()?.srcObject;
+    const track = src instanceof MediaStream ? src.getAudioTracks()[0] : undefined;
+    if (!track) return 'none';
+    const state = track.readyState === 'ended' ? 'ended' : track.muted ? 'muted' : track.enabled ? 'live' : 'disabled';
+    let ec = '';
+    try { ec = track.getSettings().echoCancellation ? ' · ec on' : ' · ec off'; } catch { ec = ''; }
+    return `${state}${ec} · peak ${this.peakDb(track)}`;
+  }
+
+  private peakDb(track: MediaStreamTrack): string {
+    try {
+      if (track.id !== this.trackId) {
+        this.source?.disconnect();
+        this.ctx ??= new AudioContext();
+        this.analyser ??= this.ctx.createAnalyser();
+        this.analyser.fftSize = this.buf.length;
+        this.source = this.ctx.createMediaStreamSource(new MediaStream([track]));
+        this.source.connect(this.analyser); // analyser only: nothing reaches the speaker
+        this.trackId = track.id;
+      }
+      if (this.ctx?.state !== 'running' || !this.analyser) return 'tap';
+      this.analyser.getFloatTimeDomainData(this.buf);
+      let peak = 0;
+      for (const v of this.buf) peak = Math.max(peak, Math.abs(v));
+      return peak > 0 ? `${(20 * Math.log10(peak)).toFixed(0)} dB` : 'silent';
+    } catch {
+      return '—';
+    }
+  }
+
+  dispose() {
+    window.removeEventListener('pointerdown', this.resume);
+    this.source?.disconnect();
+    void this.ctx?.close().catch(() => {});
+  }
+}
+
 const fmt = (v: number | null, digits: number) => (v === null ? '—' : v.toFixed(digits));
 
 export default function TrackingReadout() {
@@ -75,6 +130,8 @@ export default function TrackingReadout() {
   const [lockFallbacks, setLockFallbacks] = useState(0);
   /** Per-second rates: composites drawn, 3D renders, new camera frames. */
   const [fps, setFps] = useState<{ screen: number; r3d: number; cam: number | null } | null>(null);
+  /** Microphone state + live peak level (MicMeter). */
+  const [mic, setMic] = useState<string | null>(null);
 
   // Fresh numbers per engine: an engine switch restarts the window, so a
   // reading never mixes two engines' samples.
@@ -97,6 +154,7 @@ export default function TrackingReadout() {
       const v = camVideo as RVFC | null;
       if (v?.requestVideoFrameCallback) camHandle = v.requestVideoFrameCallback(onCamFrame);
     };
+    const micMeter = new MicMeter();
     let last = { t: performance.now(), composite: boothFrameCounters.composite, render3d: boothFrameCounters.render3d, cam: 0 };
     const id = window.setInterval(() => {
       const now = performance.now();
@@ -108,6 +166,7 @@ export default function TrackingReadout() {
       setFaces(slots === 0 ? null : [(st.detectionsPerSec ?? 0) > 0 ? 1 + extras : 0, slots + 1]);
       setCamera(readCamera());
       setLockFallbacks(getFrameLockFallbacks());
+      setMic(micMeter.read());
       const v = cameraVideo() as RVFC | null;
       if (v !== camVideo) {
         if (camVideo && (camVideo as RVFC).cancelVideoFrameCallback) (camVideo as RVFC).cancelVideoFrameCallback!(camHandle);
@@ -126,6 +185,7 @@ export default function TrackingReadout() {
     }, 500);
     return () => {
       window.clearInterval(id);
+      micMeter.dispose();
       if (camVideo && (camVideo as RVFC).cancelVideoFrameCallback) (camVideo as RVFC).cancelVideoFrameCallback!(camHandle);
       camVideo = null;
       setRawPoseTap(null);
@@ -157,6 +217,7 @@ export default function TrackingReadout() {
       </div>
       {info.error !== null && <div className="text-brand-muted">error: {info.error}</div>}
       {camera !== null && <div className="tabular-nums">cam: <b>{camera}</b></div>}
+      {mic !== null && <div className="tabular-nums">mic: <b>{mic}</b></div>}
       {faces !== null && <div className="tabular-nums">faces: <b>{faces[0]}</b>/{faces[1]}</div>}
       {fps !== null && (
         <div className="tabular-nums">

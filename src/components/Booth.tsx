@@ -92,7 +92,8 @@ import {
   savePhoto, addCompletedChallenge, setGuestName, getGuestName, hasSkippedGuestName, skipGuestName,
 } from '../lib/session';
 import { normalizeGuestLettering } from '../lib/letteringFit';
-import { StreamRecorder, buildRecordStream, recordingSupported } from '../lib/recorder';
+import { StreamRecorder, buildRecordStream, liveAudioTrack, recordingSupported } from '../lib/recorder';
+import { acquireMicTrack } from '../lib/camera';
 import { useEntitlements } from '../lib/entitlements';
 import { videoBitsPerSecondFor } from '../lib/plans';
 import { dataUrlToBlob } from './booth/capture';
@@ -493,6 +494,8 @@ export default function Booth() {
 
   // ── Recording ─────────────────────────────────────────────────────────
   const recorderRef = useRef<StreamRecorder | null>(null);
+  /** True while startRecording waits for a fresh microphone (see there). */
+  const micCheckPendingRef = useRef(false);
   const [recording, setRecording] = useState(false);
   // Elapsed recording time is published to <RecordingClock> subscribers instead
   // of held as Booth state — see RecordingClock. `recording` (a boolean that
@@ -1385,7 +1388,32 @@ export default function Booth() {
     }
     const canvas = stageRef.current?.canvas;
     if (!canvas) return;
+    if (micCheckPendingRef.current) return; // a second tap while the mic opens
 
+    // A clip is only as good as its microphone. The track opened with the
+    // camera can be missing (mic refused at entry), ended, or muted by the OS,
+    // and any of those records a silent video. Open a fresh mic first; if that
+    // fails too, say so instead of handing the guest a silent clip.
+    const source = streamRef.current;
+    if (source && !liveAudioTrack(source.getAudioTracks())) {
+      micCheckPendingRef.current = true;
+      void acquireMicTrack().then((track) => {
+        micCheckPendingRef.current = false;
+        if (track && streamRef.current === source) {
+          for (const old of source.getAudioTracks()) { source.removeTrack(old); old.stop(); }
+          source.addTrack(track); // the camera hook's teardown stops it with the rest
+        } else {
+          track?.stop(); // the camera restarted meanwhile; its own stream decides
+          if (!track) showBoothHint('Microphone is off, so this video will have no sound');
+        }
+        beginRecording(canvas);
+      });
+      return;
+    }
+    beginRecording(canvas);
+  }
+
+  function beginRecording(canvas: HTMLCanvasElement) {
     setPhase('camera');
     setRecording(true);
     publishRecordingMs(0);
