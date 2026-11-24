@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { listAssets, uploadAsset, deleteAsset, type StoredAsset } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
+import { useStudioBase } from './studioBase';
 import { classifyAsset } from '../../lib/studio/dnd';
 import { copyText } from '../../lib/clipboard';
 
@@ -93,6 +94,7 @@ export default function Assets() {
   // Assets are scoped to THIS event's folder — the library used to list the
   // whole bucket, so every host saw (and could delete) every other host's files.
   const { eventId } = useEvent();
+  const platform = useStudioBase().startsWith('/host/');
   const [assets, setAssets] = useState<StoredAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -129,7 +131,10 @@ export default function Assets() {
         {/* Header */}
         <header className="flex items-center justify-between gap-3 animate-rise-in flex-wrap">
           <div>
-            <p className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/40 mb-1">AR Studio</p>
+            {/* Platform: "AR Studio" named a paid add-on (same swap as Settings). */}
+            <p className={`font-label uppercase tracking-luxe mb-1 ${platform ? 'text-[11px] text-brand-muted/60' : 'text-[9px] text-brand-muted/40'}`}>
+              {platform ? 'Your event' : 'AR Studio'}
+            </p>
             <h1 className="font-serif italic text-3xl text-foil-static">Assets Library</h1>
             <p className="font-sans text-xs text-brand-muted/45 mt-1">
               {loading ? 'Loading…' : `${visible.length} asset${visible.length === 1 ? '' : 's'}${thumbCount > 0 ? ` · ${thumbCount} thumbnail${thumbCount === 1 ? '' : 's'} hidden` : ''}`}

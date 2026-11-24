@@ -241,7 +241,7 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
                 key={m}
                 onClick={() => setMode(m)}
                 disabled={mode === null || saving}
-                className={`px-3.5 py-1.5 rounded-full font-label uppercase tracking-luxe text-[11px] transition-all duration-200 ${
+                className={`min-h-11 px-4 py-1.5 rounded-full font-label uppercase tracking-luxe text-[11px] transition-all duration-200 ${
                   mode === m ? 'is-selected bg-foil text-noir-900 glow-accent' : 'text-champagne/60 hover:text-champagne'
                 } disabled:opacity-50`}
               >
@@ -292,7 +292,8 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
                       onClick={() => decide(p.id, true)}
                       disabled={busyId === p.id}
                       title="Approve — beams onto the wall"
-                      className="flex-1 flex items-center justify-center py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-40"
+                      aria-label="Approve"
+                      className="flex-1 min-h-11 flex items-center justify-center py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-40"
                     >
                       <Check className="w-3.5 h-3.5" />
                     </button>
@@ -300,7 +301,8 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
                       onClick={() => decide(p.id, false)}
                       disabled={busyId === p.id}
                       title="Reject (hide)"
-                      className="flex-1 flex items-center justify-center py-1.5 rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors disabled:opacity-40"
+                      aria-label="Hide"
+                      className="flex-1 min-h-11 flex items-center justify-center py-1.5 rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors disabled:opacity-40"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>

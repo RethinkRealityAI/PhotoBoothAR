@@ -6,7 +6,7 @@
  * Writes via db.setWallSettings() and syncs into store.setWallSettings().
  * Subscribes to realtime so two admin tabs stay in sync.
  */
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   QrCode, Trophy, BarChart2, Info, ExternalLink, Copy, Check,
@@ -29,6 +29,7 @@ import { inputCls, TextField, TextArea } from './fields';
 import { copyText } from '../../lib/clipboard';
 import { fetchEventDetails, saveEventDetails, setOpeningLook, type EventDetails, type EventDetailsResult } from '../../lib/host';
 import { effectiveOpeningLookId, openingLookErrorCopy } from '../../lib/openingLook';
+import { tabIndexForKey } from '../../lib/wizard/tabKeys';
 
 /** Platform-only: tuck expert controls behind one disclosure. Legacy events
  *  (the frozen sites) render the children exactly as before. */
@@ -201,6 +202,14 @@ function UrlRow({ label, url, icon }: { label: string; url: string; icon: React.
 /* Main Settings                                                         */
 /* ------------------------------------------------------------------ */
 
+type SettingsTab = 'event' | 'screen' | 'booth' | 'links';
+const SETTINGS_TABS: readonly { id: SettingsTab; label: string }[] = [
+  { id: 'event', label: 'Event' },
+  { id: 'screen', label: 'Big screen' },
+  { id: 'booth', label: 'Booth' },
+  { id: 'links', label: 'Links' },
+];
+
 export default function Settings() {
   const { eventId, eventUuid, config, source, basePath, refreshConfig } = useEvent();
   const base = useStudioBase();
@@ -312,6 +321,24 @@ export default function Settings() {
   // ── Event details: name · date · venue (runtime DB events only) ──
   // ONE helper writes every store the name lives in (host.saveEventDetails).
   const hasDetails = isDbEvent && eventUuid !== null && eventUuid !== '';
+
+  // ── Platform tabs: one group at a time instead of one long scroll (same
+  //    segmented control as the setup wizard). Every section saves itself, so
+  //    switching tabs never drops an edit that was meant to be kept. Legacy
+  //    (/admin) renders every section, unchanged.
+  const tabbed = base.startsWith('/host/') && isDbEvent;
+  const [tab, setTab] = useState<SettingsTab>(hasDetails ? 'event' : 'screen');
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const show = (t: SettingsTab) => !tabbed || tab === t;
+  const tabs = hasDetails ? SETTINGS_TABS : SETTINGS_TABS.filter((t) => t.id !== 'event');
+  const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const at = tabs.findIndex((t) => t.id === tab);
+    const next = tabIndexForKey(e.key, at, tabs.length);
+    if (next === null) return;
+    e.preventDefault();
+    setTab(tabs[next].id);
+    tabRefs.current[next]?.focus();
+  };
   const [detailsBase, setDetailsBase] = useState<EventDetails | null>(null);
   const [detailsDraft, setDetailsDraft] = useState<EventDetails | null>(null);
   const [detailsLoad, setDetailsLoad] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -448,7 +475,9 @@ export default function Settings() {
             )}
             <h1 className="font-serif italic text-3xl text-foil-static">Event Settings</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
-              Live wall feature controls — changes apply immediately.
+              {base.startsWith('/host/')
+                ? 'Your event details, and what shows on the big screen.'
+                : 'Live wall feature controls — changes apply immediately.'}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -459,15 +488,44 @@ export default function Settings() {
             <button
               onClick={load}
               disabled={loading}
-              className="p-2 glass rounded-xl text-champagne/40 hover:text-gold-300 transition-colors disabled:opacity-30"
+              aria-label="Refresh settings"
+              className={`p-2 glass rounded-xl text-champagne/40 hover:text-gold-300 transition-colors disabled:opacity-30${tabbed ? ' min-h-11 min-w-11 flex items-center justify-center' : ''}`}
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </header>
 
+        {tabbed && (
+          <div className="wz-tabs self-start -mb-2" role="tablist" aria-label="Settings sections" onKeyDown={onTabKey}>
+            {tabs.map((t, i) => {
+              const on = t.id === tab;
+              return (
+                <button
+                  key={t.id}
+                  ref={(el) => { tabRefs.current[i] = el; }}
+                  type="button"
+                  role="tab"
+                  id={`settings-tab-${t.id}`}
+                  aria-controls="settings-panel"
+                  aria-selected={on}
+                  tabIndex={on ? 0 : -1}
+                  className="wz-tab min-h-11"
+                  onClick={() => setTab(t.id)}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div
+          {...(tabbed ? { role: 'tabpanel', id: 'settings-panel', 'aria-labelledby': `settings-tab-${tab}` } : {})}
+          className="flex flex-col gap-8"
+        >
+
         {/* Event details — runtime DB events only */}
-        {hasDetails && (
+        {hasDetails && show('event') && (
           <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1">Event details</h2>
             <p className="font-sans text-[11px] text-champagne/40 mb-4">
@@ -527,6 +585,7 @@ export default function Settings() {
         )}
 
         {/* Wall feature toggles */}
+        {show('screen') && (
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1">Wall Features</h2>
           <p className="font-sans text-[11px] text-champagne/40 mb-4">
@@ -567,8 +626,10 @@ export default function Settings() {
             </div>
           )}
         </section>
+        )}
 
         {/* Gallery & Slideshow settings */}
+        {show('screen') && (
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1">Gallery &amp; Slideshow</h2>
           <p className="font-sans text-[11px] text-champagne/40 mb-4">
@@ -684,11 +745,13 @@ export default function Settings() {
             })()
           )}
         </section>
+        )}
 
         {/* Booth default filter */}
+        {show('booth') && (
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
-            <Wand2 className="w-3.5 h-3.5" /> Booth Default Filter
+            <Wand2 className="w-3.5 h-3.5" /> {tabbed ? 'Opening look' : 'Booth Default Filter'}
           </h2>
           <p className="font-sans text-[11px] text-champagne/40 mb-4">
             Auto-select an effect, frame or 3D piece the moment the booth opens. Guests can still change or clear it.
@@ -719,7 +782,7 @@ export default function Settings() {
                 </optgroup>
               )}
               {pieces3d.length > 0 && (
-                <optgroup label="3D Pieces">
+                <optgroup label={tabbed ? '3D props' : '3D Pieces'}>
                   {pieces3d.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </optgroup>
               )}
@@ -729,8 +792,10 @@ export default function Settings() {
             <p role="alert" className="mt-3 font-sans text-[12px] text-red-300">{defaultExpError}</p>
           )}
         </section>
+        )}
 
         {/* Join / Landing page editor */}
+        {show('booth') && (
         <Advanced enabled={isDbEvent} label="Advanced — join poster wording">
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <div className="flex items-center justify-between mb-1">
@@ -790,8 +855,10 @@ export default function Settings() {
           </div>
         </section>
         </Advanced>
+        )}
 
         {/* How "Scan to get your photos" works — explainer */}
+        {show('links') && (
         <section className="glass rounded-2xl border border-gold-400/15 p-6 animate-rise-in">
           <div className="flex items-center gap-2 mb-3">
             <Info className="w-4 h-4 text-gold-300 shrink-0" />
@@ -812,9 +879,10 @@ export default function Settings() {
             </p>
           </div>
         </section>
+        )}
 
         {/* Event info — the Event details card replaces it on the platform */}
-        {!hasDetails && (
+        {!hasDetails && show('links') && (
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-4">Event Info</h2>
           <div className="space-y-2 font-sans text-sm text-champagne/70">
@@ -835,7 +903,7 @@ export default function Settings() {
         )}
 
         {/* Public upload passcode — runtime DB events only */}
-        {isDbEvent && (
+        {isDbEvent && show('booth') && (
           <Advanced enabled label="Advanced — public upload passcode">
           <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
@@ -893,6 +961,7 @@ export default function Settings() {
         )}
 
         {/* URLs reference */}
+        {show('links') && (
         <section className="glass rounded-2xl border border-gold-400/15 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-4">Event URLs</h2>
           <div>
@@ -907,6 +976,8 @@ export default function Settings() {
             <UrlRow label="Admin Studio" url={`${origin}${base}`} icon={<QrCode className="w-3.5 h-3.5" />} />
           </div>
         </section>
+        )}
+        </div>
 
         <div className="h-6" />
       </div>

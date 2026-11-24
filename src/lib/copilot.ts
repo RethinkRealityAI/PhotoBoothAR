@@ -728,9 +728,9 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         const { buildFilterExperienceDraft } = await import('./studio/copilotExperience');
         const { createExperience } = await import('./db');
         const draft = buildFilterExperienceDraft(action.proposal.shaderId);
-        if (!draft) return fail('That filter isn’t available.', 'unknown_id', false);
+        if (!draft) return fail('That effect isn’t available.', 'unknown_id', false);
         const exp = await createExperience(ctx.slug, draft);
-        if (!exp) return fail('Adding the filter failed.', 'unknown', true);
+        if (!exp) return fail('Adding the effect failed.', 'unknown', true);
         const pinned = await pinDefault(ctx, exp.id);
         return {
           ok: true,

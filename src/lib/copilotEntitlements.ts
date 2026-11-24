@@ -107,7 +107,7 @@ export function buildLockedSurface(surfaceId: string, lock: LockKind, prompt = '
   const heading = lock === 'ai3d' ? '3D props are part of the Studio add-on' : 'The Scene Director is part of the Studio add-on';
   const body = lock === 'ai3d'
     ? 'Nothing was generated or charged. On your plan you can add a ready-made 3D prop from the library, or have me make an AI frame — your event’s first 3 are free.'
-    : 'Nothing was opened or charged. On your plan you can pick ready-made frames, filters and props, or have me make an AI frame — your event’s first 3 are free.';
+    : 'Nothing was opened or charged. On your plan you can pick ready-made frames, props and effects, or have me make an AI frame — your event’s first 3 are free.';
   const alt = (id: string, label: string, value: 'library_prop' | 'frame', primary: boolean): A2uiComponent[] => [
     {
       id, component: 'Button', variant: primary ? 'primary' : 'borderless', child: `${id}Label`,
