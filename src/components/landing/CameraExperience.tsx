@@ -25,6 +25,7 @@ import {
 } from 'react';
 import { Ban, Sparkles, X } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
+import { ShutterFace, shutterSize } from '../ui/BrandShutter';
 import StageCanvas, { type StageCanvasHandle } from '../booth/StageCanvas';
 import Overlay3D from '../booth/Overlay3D';
 import { dataUrlToBlob } from '../booth/capture';
@@ -729,9 +730,11 @@ export default function CameraExperience({
                   onClick={capture}
                   disabled={!ready}
                   aria-label="Take photo"
-                  className="mt-1 h-14 w-14 rounded-full border-4 border-white/90 bg-white/25 backdrop-blur-sm transition-transform active:scale-90 disabled:opacity-40"
-                  style={{ boxShadow: '0 0 30px -6px rgba(238,243,255,0.9)' }}
-                />
+                  className="bw-shutter mt-1 transition-transform active:scale-90"
+                  style={shutterSize(56)}
+                >
+                  <ShutterFace />
+                </button>
               )}
             </div>
           )}

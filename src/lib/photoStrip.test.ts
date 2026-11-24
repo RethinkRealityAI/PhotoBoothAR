@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   stripLayout, stripPanelAspect, shotsRemaining, stripComplete, stripProgressLabel,
   hexToRgba, STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC, STRIP_SHOT_CHOICES,
+  STRIP_FORMATS, DEFAULT_STRIP_FORMAT, stripFormat,
 } from './photoStrip';
 
 describe('stripLayout', () => {
@@ -83,6 +84,69 @@ describe('stripLayout', () => {
   it('never lets a panel exceed the card width even when very tall', () => {
     const l = stripLayout(400, 4000, 1);
     expect(l.panels[0].w).toBeLessThanOrEqual(400);
+  });
+});
+
+describe('strip formats', () => {
+  it('offers 2, 3 (classic), 4-long and the 2x2 grid, in that order', () => {
+    expect(STRIP_FORMATS.map((f) => f.id)).toEqual(['duo', 'classic', 'long', 'grid']);
+    expect(stripFormat('classic').shots).toBe(3);
+    expect(stripFormat('long')).toMatchObject({ shots: 4, cols: 1 });
+    expect(stripFormat('grid')).toMatchObject({ shots: 4, cols: 2 });
+  });
+
+  it('defaults to the classic strip and falls back to it on an unknown id', () => {
+    expect(DEFAULT_STRIP_FORMAT).toBe('classic');
+    expect(stripFormat('nonsense').id).toBe('classic');
+  });
+
+  it('every format shot count is a picker shot count', () => {
+    for (const f of STRIP_FORMATS) expect(STRIP_SHOT_CHOICES).toContain(f.shots);
+  });
+
+  it('lays the long strip out as four stacked, centred, landscape panels', () => {
+    const l = stripLayout(1080, 1920, 4);
+    expect(l.panels).toHaveLength(4);
+    for (const p of l.panels) {
+      expect(p.x + p.w / 2).toBeCloseTo(540, 0);
+      expect(p.w / p.h).toBeGreaterThan(1);
+    }
+    const last = l.panels[3];
+    expect(last.y + last.h).toBeLessThanOrEqual(l.height - l.footerH);
+  });
+});
+
+describe('2x2 grid layout', () => {
+  const l = stripLayout(1080, 1920, 4, 2);
+
+  it('places two panels per row in two rows', () => {
+    const [a, b, c, d] = l.panels;
+    expect(l.panels).toHaveLength(4);
+    expect(a.y).toBe(b.y);
+    expect(c.y).toBe(d.y);
+    expect(b.x).toBeGreaterThanOrEqual(a.x + a.w);
+    expect(c.y).toBeGreaterThanOrEqual(a.y + a.h);
+    expect(c.x).toBe(a.x);
+  });
+
+  it('keeps cells portrait and never wider than the 9:16 capture', () => {
+    for (const p of l.panels) expect(p.w / p.h).toBeLessThanOrEqual(9 / 16 + 1e-9);
+    expect(l.panels[0].w / l.panels[0].h).toBeGreaterThan(0.5);
+  });
+
+  it('fills most of the card width, centred, and inside the card above the footer', () => {
+    const [a, b, , d] = l.panels;
+    expect((b.x + b.w - a.x) / l.width).toBeGreaterThan(0.85);
+    expect((a.x + b.x + b.w) / 2).toBeCloseTo(540, 0);
+    for (const p of l.panels) {
+      expect(p.x).toBeGreaterThanOrEqual(0);
+      expect(p.x + p.w).toBeLessThanOrEqual(l.width);
+    }
+    expect(d.y + d.h).toBeLessThanOrEqual(l.height - l.footerH);
+  });
+
+  it('a one-column call is unchanged by the grid option', () => {
+    expect(stripLayout(1080, 1920, 3, 1)).toEqual(stripLayout(1080, 1920, 3));
   });
 });
 

@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react';
 import { AlertTriangle, RefreshCw, SwitchCamera } from 'lucide-react';
 import { useCameraStream } from '../booth/useCameraStream';
+import { ShutterFace, shutterSize } from '../ui/BrandShutter';
 import { streamResolution } from '../../lib/camera';
 import { StreamRecorder, recordingSupported } from '../../lib/recorder';
 
@@ -232,9 +233,10 @@ export default function CaptureSurface({
               onClick={handleShutter}
               whileTap={{ scale: 0.88 }}
               aria-label="Take photo"
-              className="relative w-16 h-16 rounded-full bg-white/90 flex items-center justify-center"
+              className="bw-shutter"
+              style={shutterSize(64)}
             >
-              <span className="absolute inset-1.5 rounded-full border-2 border-black/25" />
+              <ShutterFace />
             </motion.button>
           ) : !canRecord ? (
             <p className="font-sans text-[11px] text-white/70 text-center max-w-[12rem]">
