@@ -22,6 +22,19 @@
 
 /** Older than this, the tracked frame is a freeze, not a frame. About 3 missed samples at 8th Wall's ~23/s. */
 export const FRAME_LOCK_STALE_MS = 150;
+/**
+ * Samples can keep ARRIVING while each one comes from an ever older camera frame: a tracker
+ * that slows to ~5 samples/s under load (recording, a hot phone) still hands one over every
+ * 200 ms, but the frame under it is ~2 samples old, so the locked picture trails the live
+ * camera by ~0.4-0.5 s (the "my mouth keeps moving after I stop talking" lag). Past this age
+ * the live camera is the better picture. A healthy 8th Wall booth trails by ~2 samples at
+ * ~23/s, about 90-130 ms, comfortably under it.
+ */
+export const FRAME_LOCK_MAX_LAG_MS = 250;
+/** Re-lock only once the lag is back under this, well below the fall-back limit: a tracker
+ *  hovering around 250 ms would otherwise flip the picture between a 250 ms-old frame and the
+ *  live one every few samples, which reads as stutter. */
+export const FRAME_LOCK_RESUME_LAG_MS = 180;
 /** Fresh samples in a row before the picture locks again after a fallback. */
 export const FRAME_LOCK_RESUME_SAMPLES = 2;
 
@@ -34,20 +47,31 @@ export interface FrameLockGuard {
   lastKey: number;
   /** How many times the picture fell back to live (tester readout). */
   fallbacks: number;
+  /**
+   * While set, a fallback to live LASTS (no re-lock) until it is cleared. The
+   * booth sets it for the length of a recording: a clip whose picture hops
+   * between the tracker's frame and the live camera repeats or skips a moment
+   * at every hop, and its sound can only follow one of the two. So a clip
+   * changes source at most once, and only toward the live camera.
+   */
+  holdLive: boolean;
 }
 
 export function createFrameLockGuard(): FrameLockGuard {
-  return { live: false, freshRun: 0, lastKey: Number.NaN, fallbacks: 0 };
+  return { live: false, freshRun: 0, lastKey: Number.NaN, fallbacks: 0, holdLive: false };
 }
 
 /**
  * Called once per compositor draw. `key` = t of the newest sample (NaN: none
- * yet). Returns true when the live camera should be drawn.
+ * yet); `frameMs` = when that sample's camera frame was taken (defaults to
+ * `key` for engines that don't report it). Returns true when the live camera
+ * should be drawn.
  */
-export function frameLockShouldUseLive(g: FrameLockGuard, now: number, key: number): boolean {
+export function frameLockShouldUseLive(g: FrameLockGuard, now: number, key: number, frameMs: number = key): boolean {
   const age = now - key;
+  const lag = now - (Number.isFinite(frameMs) ? frameMs : key);
   // NaN key (no sample yet) compares false here, so it lands in the stale branch.
-  if (!(age <= FRAME_LOCK_STALE_MS)) {
+  if (!(age <= FRAME_LOCK_STALE_MS) || !(lag <= FRAME_LOCK_MAX_LAG_MS)) {
     if (!g.live && Number.isFinite(key)) g.fallbacks++;
     g.live = true;
     g.freshRun = 0;
@@ -55,9 +79,16 @@ export function frameLockShouldUseLive(g: FrameLockGuard, now: number, key: numb
     return true;
   }
   if (!g.live) return false;
+  if (g.holdLive) {
+    g.lastKey = key;
+    g.freshRun = 0;
+    return true;
+  }
   if (key !== g.lastKey) {
     g.lastKey = key;
-    g.freshRun++;
+    // A sample still trailing more than the resume limit keeps the picture live.
+    if (lag <= FRAME_LOCK_RESUME_LAG_MS) g.freshRun++;
+    else g.freshRun = 0;
   }
   if (g.freshRun >= FRAME_LOCK_RESUME_SAMPLES) {
     g.live = false;
@@ -67,7 +98,7 @@ export function frameLockShouldUseLive(g: FrameLockGuard, now: number, key: numb
   return true;
 }
 
-/** Engine switch, camera change or lock toggled: forget the history (the counter is kept). */
+/** Engine switch, camera change or lock toggled: forget the history (the counter and holdLive are kept). */
 export function resetFrameLockGuard(g: FrameLockGuard): void {
   g.live = false;
   g.freshRun = 0;

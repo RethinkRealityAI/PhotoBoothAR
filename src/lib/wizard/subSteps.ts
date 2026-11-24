@@ -36,7 +36,7 @@ export const WELCOME_SUBSTEPS: readonly SubStepDef<WelcomeSubStep>[] = [
 ];
 
 export const POWERUPS_SUBSTEPS: readonly SubStepDef<PowerUpsSubStep>[] = [
-  { id: 'gestures', label: 'Gestures', hint: 'A smile or a hand sign sets off an effect, whatever look a guest has on.' },
+  { id: 'gestures', label: 'Gestures', hint: 'A smile or an open mouth sets off an effect, whatever look a guest has on.' },
   { id: 'gear', label: 'Power gear', hint: 'Superhero filters with their own blasts. They join your filters.' },
 ];
 
