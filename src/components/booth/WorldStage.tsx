@@ -7,9 +7,11 @@
  * R3F canvas, which StageCanvas composites exactly like the face props'
  * canvas (threeCanvasId), so photos and clips get the standing frame for free.
  *
- * Tracking: the phone's motion sensors (rotation only). The frame stays put
- * while the phone turns and tilts; it is not anchored if the holder walks.
- * See docs/STATE.md (2026-11-24) for why this is not the 8th Wall SLAM binary.
+ * Tracking: 8th Wall's floor tracking (SLAM) when `engine` is given
+ * (lib/world/xr8World.ts): the camera pose and lens come from the engine, for
+ * the very picture the booth draws, so the frame stays on its spot while the
+ * phone turns AND moves. Without an engine (fallback: no phone, engine failed,
+ * `?wtrack=sensors`), the phone's motion sensors plus the floor lock.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -26,6 +28,7 @@ import {
 import { buildStandeeWalls, gridFromImageData } from '../../lib/world/standeeMesh';
 import { haptic } from '../../lib/haptics';
 import { goodMatch, grabPatch, matchPatch, median, MIN_PATCH_STD, toGray, type Patch } from '../../lib/world/patchTrack';
+import type { WorldSession } from '../../lib/world/xr8World';
 
 /* ------------------------------------------------------------------ */
 /* Tunables (URL knobs for phone A/B tests)                            */
@@ -75,6 +78,8 @@ interface WorldStore {
   onAimChange: ((hasAim: boolean) => void) | null;
   /** Floor-lock points matched on the last step (tester readout). */
   lockMatched: number;
+  /** Where the camera is in the world (SLAM moves it; sensors keep it at CAM_H). */
+  camPos: THREE.Vector3;
 }
 
 /* ------------------------------------------------------------------ */
@@ -371,9 +376,10 @@ class FloorLock {
 /* ------------------------------------------------------------------ */
 
 function WorldScene({
-  store, frameUrl, accent, videoRef, onBoardReady, onBoardError,
+  store, frameUrl, accent, videoRef, onBoardReady, onBoardError, engine,
 }: {
   store: WorldStore;
+  engine: WorldSession | null;
   frameUrl: string;
   accent: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -421,6 +427,22 @@ function WorldScene({
 
   useFrame((_, dt) => {
     const now = performance.now();
+    if (engine) {
+      // 8th Wall: the pose and lens of the picture the booth is drawing.
+      const p = engine.pose();
+      if (p) {
+        camera.position.set(p.position.x, p.position.y, p.position.z);
+        camera.quaternion.set(p.rotation.x, p.rotation.y, p.rotation.z, p.rotation.w);
+        camera.projectionMatrix.fromArray(p.intrinsics);
+        // The engine's projection replaces fov/aspect: refresh the inverse every
+        // frame or rays (the reticle's aim) land off to one side.
+        camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+      }
+      camera.updateMatrixWorld();
+      store.camPos.copy(camera.position);
+      stepScene(dt, now, p !== null && engine.settled());
+      return;
+    }
     // Camera: phone height, rotated as the phone was when this picture was taken.
     camera.position.set(0, CAM_H, 0);
     if (store.history.at(now - PICTURE_LAG_MS, q)) camera.quaternion.copy(q);
@@ -435,7 +457,12 @@ function WorldScene({
       camera.updateProjectionMatrix();
     }
     camera.updateMatrixWorld();
+    store.camPos.copy(camera.position);
+    stepScene(dt, now, store.sensors === false || store.samples >= SETTLE_SAMPLES);
+  });
 
+  /** Reticle, placement and floor lock, once the camera is set for this frame. */
+  function stepScene(dt: number, now: number, ready: boolean): void {
     const st = stage.current, hd = holder.current, rt = reticle.current;
     if (!st || !hd || !rt) return;
     const g = store.gesture;
@@ -443,7 +470,6 @@ function WorldScene({
     hd.scale.setScalar(g.scale);
 
     if (store.phase === 'placing') {
-      const ready = store.sensors === false || store.samples >= SETTLE_SAMPLES;
       tmp.set(AIM_NDC.x, AIM_NDC.y, 0.5).unproject(camera).sub(camera.position);
       const hit = ready ? placementSpot(camera.position, tmp) : null;
       if (hit) {
@@ -472,7 +498,7 @@ function WorldScene({
       st.visible = board !== null;
       st.position.copy(store.spot);
       st.rotation.y = store.spotYaw;
-      if (FLOOR_LOCK && store.sensors === true) {
+      if (!engine && FLOOR_LOCK && store.sensors === true) {
         lockStarted.current = true;
         lock.step(now, videoRef.current, size.width / Math.max(1, size.height), camera, () => {
           // Floor just outside the board's feet and in front of it: the spots
@@ -490,7 +516,7 @@ function WorldScene({
       rt.visible = false;
       st.visible = false;
     }
-  });
+  }
 
   return (
     <>
@@ -563,13 +589,57 @@ export interface WorldStageProps {
   onExit: () => void;
   /** DOM id StageCanvas composites (`#id canvas`). */
   layerId?: string;
+  /**
+   * 8th Wall world tracking for this run (null = motion sensors). Its camera
+   * is started by `onStartTap`, which runs synchronously inside the Start
+   * placing tap, as iOS requires.
+   */
+  engine?: WorldSession | null;
+  onStartTap?: () => void;
+  /**
+   * Start already placing, on the motion sensors: the guest tapped Start
+   * placing, 8th Wall could not run, and this stage was mounted again for the
+   * fallback. Without it they would see the intro card a second time.
+   */
+  resumePlacing?: boolean;
+}
+
+/** Ask for motion access (iPhone). MUST be the first, synchronous thing in a tap. */
+function askMotionAccess(): void {
+  const DOE = (typeof DeviceOrientationEvent !== 'undefined' ? DeviceOrientationEvent : undefined) as unknown as IOSPermission | undefined;
+  const DME = (typeof DeviceMotionEvent !== 'undefined' ? DeviceMotionEvent : undefined) as unknown as IOSPermission | undefined;
+  try { DOE?.requestPermission?.().catch(() => {}); } catch { /* not iOS */ }
+  try { DME?.requestPermission?.().catch(() => {}); } catch { /* not iOS */ }
+}
+
+/** Re-render when the engine's state changes, and poll its tracking status. */
+function useEngineState(engine: WorldSession | null) {
+  const [, bump] = useState(0);
+  const [limitedSince, setLimitedSince] = useState<number | null>(null);
+  useEffect(() => {
+    if (!engine) return;
+    engine.onChange = () => bump((n) => n + 1);
+    const t = window.setInterval(() => {
+      setLimitedSince((cur) => (engine.live && engine.tracking === 'LIMITED' ? (cur ?? performance.now()) : null));
+      bump((n) => n + 1);
+    }, 400);
+    return () => { engine.onChange = null; window.clearInterval(t); };
+  }, [engine]);
+  return {
+    loaded: engine?.loaded ?? false,
+    live: engine?.live ?? false,
+    settled: engine?.settled() ?? false,
+    lostTracking: limitedSince !== null && performance.now() - limitedSince > 1500,
+  };
 }
 
 export default function WorldStage({
   frameUrl, frameName, accent, videoRef, maxFps, recording, onExit, layerId = 'booth-world-layer',
+  engine = null, onStartTap, resumePlacing = false,
 }: WorldStageProps) {
+  const resumed = resumePlacing && engine === null;
   const store = useMemo<WorldStore>(() => ({
-    phase: 'intro',
+    phase: resumed ? 'placing' : 'intro',
     gesture: createGesture(),
     history: new OrientationHistory(),
     samples: 0,
@@ -579,9 +649,11 @@ export default function WorldStage({
     spotYaw: 0,
     onAimChange: null,
     lockMatched: 0,
+    camPos: new THREE.Vector3(0, CAM_H, 0),
   }), []);
-  const [phase, setPhase] = useState<Phase>('intro');
-  const [sensorsOn, setSensorsOn] = useState(false);
+  const eng = useEngineState(engine);
+  const [phase, setPhase] = useState<Phase>(resumed ? 'placing' : 'intro');
+  const [sensorsOn, setSensorsOn] = useState(resumed);
   const [sensorState, setSensorState] = useState<boolean | null>(null);
   const [hasAim, setHasAim] = useState(false);
   const [boardReady, setBoardReady] = useState(false);
@@ -596,7 +668,24 @@ export default function WorldStage({
 
   const go = (p: Phase) => { store.phase = p; setPhase(p); };
 
+  // 8th Wall could not run after Start placing (the booth drops the engine):
+  // carry on with the motion sensors. Motion access was already asked in the tap.
+  const hadEngine = useRef(engine !== null);
+  useEffect(() => {
+    if (engine !== null) { hadEngine.current = true; return; }
+    if (hadEngine.current && store.phase !== 'intro') setSensorsOn(true);
+  }, [engine, store]);
+
   const start = () => {
+    if (engine) {
+      // First lines, synchronous: iOS only asks for camera and motion access
+      // inside the tap, so 8th Wall starts here too (the guide, section 2).
+      askMotionAccess();
+      onStartTap?.();
+      haptic('select');
+      go('placing');
+      return;
+    }
     // First line, synchronous: iOS only asks for motion access inside the tap.
     const asked = askMotionPermission();
     haptic('select');
@@ -607,7 +696,7 @@ export default function WorldStage({
   const place = useCallback(() => {
     if (store.phase !== 'placing' || store.aim === null) return;
     store.spot.copy(store.aim);
-    store.spotYaw = yawToFace({ x: 0, y: CAM_H, z: 0 }, store.aim);
+    store.spotYaw = yawToFace(store.camPos, store.aim);
     haptic('success');
     go('placed');
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -635,6 +724,12 @@ export default function WorldStage({
   const settling = sensorState === null || (sensorState === true && !hasAim && store.samples < SETTLE_SAMPLES);
   const hint = boardFailed
     ? 'This frame couldn’t load. Try another one.'
+    : engine
+      ? (phase === 'placing'
+        ? (!eng.live ? 'Starting the camera…'
+          : !eng.settled ? 'Hold still a moment, finding the floor…'
+            : hasAim ? 'Tap to place it. Pinch to resize.' : 'Point at the floor and move slowly')
+        : phase === 'placed' && eng.lostTracking ? 'Move your phone slowly so it can see the floor again' : null)
     : phase === 'placing'
       ? (sensorState === false
         ? 'Motion sensors are off. Tap to place it in front of you.'
@@ -661,6 +756,7 @@ export default function WorldStage({
             videoRef={videoRef}
             onBoardReady={onBoardReady}
             onBoardError={onBoardError}
+            engine={engine}
           />
         </Canvas>
       </div>
@@ -764,10 +860,11 @@ export default function WorldStage({
                   type="button"
                   onClick={start}
                   autoFocus
-                  className="pressable flex min-h-12 items-center justify-center gap-2 rounded-xl bg-foil glow-accent px-6 font-label text-xs uppercase tracking-luxe text-[color:var(--on-accent)] transition-all active:scale-95"
+                  disabled={engine !== null && !eng.loaded}
+                  className="pressable flex min-h-12 items-center justify-center gap-2 rounded-xl bg-foil glow-accent px-6 font-label text-xs uppercase tracking-luxe text-[color:var(--on-accent)] transition-all active:scale-95 disabled:opacity-50"
                 >
                   <Hand className="w-4 h-4" aria-hidden />
-                  Start placing
+                  {engine !== null && !eng.loaded ? 'Loading…' : 'Start placing'}
                 </button>
                 <button
                   type="button"

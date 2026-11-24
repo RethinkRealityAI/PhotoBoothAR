@@ -21,7 +21,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, Eye, EyeOff, MoreHorizontal, SwitchCamera, UploadCloud } from 'lucide-react';
+import { ChevronLeft, Eye, EyeOff, MoreHorizontal, ScrollText, SwitchCamera, UploadCloud } from 'lucide-react';
 import { GalleryIcon, MediaStackIcon } from '../ui/MediaIcons';
 import ShareButton from '../ui/ShareButton';
 import ReportIssueButton from '../support/ReportIssueButton';
@@ -77,10 +77,12 @@ export interface BoothTopBarProps {
    * which is what the legacy single-event sites keep.
    */
   compact?: { backTo: string; extra?: ReactNode };
+  /** World mode (8th Wall world engine): a "Licences" item in the menu, as its licence asks. */
+  licencesHref?: string;
 }
 
 export default function BoothTopBar({
-  basePath, uiHidden, onToggleUi, leading, recording, recordingMs, canFlip, onFlip, compact,
+  basePath, uiHidden, onToggleUi, leading, recording, recordingMs, canFlip, onFlip, compact, licencesHref,
 }: BoothTopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -208,6 +210,18 @@ export default function BoothTopBar({
                       VITE_EVENT build basePath is '', and those three frozen
                       single-event sites get no new chrome — nor would a ticket
                       from one have an org to route to. */}
+                  {licencesHref && (
+                    <a
+                      href={licencesHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => { haptic('tap'); setMenuOpen(false); }}
+                      className={compact ? COMPACT_ITEM : 'pressable flex min-h-11 items-center gap-3 rounded-xl px-3 font-label text-[10px] uppercase tracking-luxe text-brand-fg/85 hover:bg-white/[0.06]'}
+                    >
+                      <ScrollText size={16} />
+                      Licences
+                    </a>
+                  )}
                   {boothSlug !== null && (
                     <ReportIssueButton
                       label="Report a problem"

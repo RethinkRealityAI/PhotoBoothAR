@@ -7,6 +7,8 @@ import {
 import type { Experience } from '../../types';
 import { WORLD_LOOK_PREFIX, frameArtUrl, isWorldLook, withWorldLooks, worldLookFrameUrl } from './worldLooks';
 import { MIN_PATCH_STD, goodMatch, grabPatch, matchPatch, median, toGray } from './patchTrack';
+import { arFrameIdFrom, createSettleGate, enterArUrl, isSettled, leaveArUrl, settleRestart, settleStep, worldTrackerFrom } from './arSession';
+import { isPhoneUa } from './xr8World';
 import { buildStandeeWalls, contourSegments, gridFromImageData, type StandeeGrid } from './standeeMesh';
 
 const forwardOf = (q: Quaternion) => new Vector3(0, 0, -1).applyQuaternion(q);
@@ -299,5 +301,63 @@ describe('patch tracking', () => {
   it('median ignores one outlier', () => {
     expect(median([1, 1.2, 40])).toBe(1.2);
     expect(median([])).toBe(0);
+  });
+});
+
+describe('world mode page (arSession)', () => {
+  it('reads ?ar= and rejects odd ids', () => {
+    expect(arFrameIdFrom('?ar=abc-123')).toBe('abc-123');
+    expect(arFrameIdFrom('?x=1')).toBeNull();
+    expect(arFrameIdFrom('?ar=../../x')).toBeNull();
+  });
+  it('builds enter/leave URLs and keeps tester params', () => {
+    expect(enterArUrl('/e/party', '?faceEngine=xr8&cam=1', 'f1')).toBe('/e/party/booth?faceEngine=xr8&ar=f1');
+    expect(leaveArUrl('/e/party', '?faceEngine=xr8&ar=f1', 'look9')).toBe('/e/party/experience/look9?faceEngine=xr8&cam=1');
+    expect(leaveArUrl('/e/party', '?ar=f1', null)).toBe('/e/party/booth?cam=1');
+  });
+  it('picks the tracker: URL override, then build default (xr8 unless "sensors")', () => {
+    expect(worldTrackerFrom('?wtrack=sensors', undefined)).toBe('sensors');
+    expect(worldTrackerFrom('', 'sensors')).toBe('sensors');
+    expect(worldTrackerFrom('', undefined)).toBe('xr8');
+    expect(worldTrackerFrom('?wtrack=xr8', 'sensors')).toBe('xr8');
+  });
+  it('phones by user agent, never by touch', () => {
+    expect(isPhoneUa('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)', 'iPhone', 5)).toBe(true);
+    expect(isPhoneUa('Mozilla/5.0 (Macintosh)', 'MacIntel', 5)).toBe(true); // iPadOS
+    expect(isPhoneUa('Mozilla/5.0 (Windows NT 10.0)', 'Win32', 10)).toBe(false); // touchscreen laptop
+  });
+});
+
+describe('settle gate', () => {
+  const run = (steps: Array<[number, boolean, number]>) => {
+    let g = settleRestart(createSettleGate(), 0);
+    for (const [t, normal, gap] of steps) g = settleStep(g, t, normal, gap);
+    return isSettled(g);
+  };
+  it('never settles before the run starts', () => {
+    let g = createSettleGate();
+    g = settleStep(g, 5000, true, 16);
+    expect(isSettled(g)).toBe(false);
+  });
+  it('needs NORMAL for 1.2 s and 1.5 s since start', () => {
+    expect(run([[0, true, 16], [1100, true, 16]])).toBe(false);
+    expect(run([[0, true, 16], [1300, true, 16]])).toBe(false); // < 1.5 s run
+    expect(run([[0, true, 16], [1600, true, 16]])).toBe(true);
+  });
+  it('LIMITED resets the NORMAL clock', () => {
+    expect(run([[0, true, 16], [1000, false, 16], [1600, true, 16], [2000, true, 16]])).toBe(false);
+    expect(run([[0, true, 16], [1000, false, 16], [1600, true, 16], [2900, true, 16]])).toBe(true);
+  });
+  it('a stall in the last second blocks it', () => {
+    expect(run([[0, true, 16], [1200, true, 400], [1700, true, 16]])).toBe(false);
+    expect(run([[0, true, 16], [1200, true, 400], [2300, true, 16]])).toBe(true);
+  });
+  it('latches: a later stall or LIMITED never unsettles', () => {
+    let g = settleRestart(createSettleGate(), 0);
+    g = settleStep(g, 0, true, 16);
+    g = settleStep(g, 1600, true, 16);
+    g = settleStep(g, 1700, false, 900);
+    expect(isSettled(g)).toBe(true);
+    expect(isSettled(settleRestart(g, 2000))).toBe(false);
   });
 });

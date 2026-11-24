@@ -40,6 +40,7 @@ import Signup from './pages/auth/Signup';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
 import Legal from './pages/legal/Legal';
+import Licences from './pages/legal/Licences';
 
 // Code-split: everything below loads on first navigation behind the Routes
 // Suspense boundary, so the AR/3D (Booth, studio), guest, host and admin
@@ -361,6 +362,7 @@ export default function App() {
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/privacy" element={<Legal doc="privacy" />} />
               <Route path="/terms" element={<Legal doc="terms" />} />
+              <Route path="/licences" element={<Licences />} />
               {/* Public guides. The bare path is the hub; an unknown :slug
                   renders the hub with a note rather than 404ing a printed link. */}
               <Route path="/guides" element={<Guides />} />
