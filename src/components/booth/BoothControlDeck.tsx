@@ -297,7 +297,7 @@ export default function BoothControlDeck<T extends number>({
                 <button
                   key={hex}
                   type="button"
-                  aria-label={`Colour ${hex}`}
+                  aria-label={colorSlot.names?.[hex] ?? `Colour ${hex}`}
                   aria-pressed={on}
                   onClick={() => {
                     haptic('toggle');

@@ -181,9 +181,11 @@ export interface AssetPartStyle {
 export interface AssetLabelConfig {
   /** Which of the template's label slots this text belongs to. */
   slotId: string;
-  token: 'fixed' | 'guestName';
+  /** 'guestInitials' engraves the guest's INITIALS (a mask's crest plate):
+   *  the ones they typed, else derived from their name (assetTemplate.initialsFrom). */
+  token: 'fixed' | 'guestName' | 'guestInitials';
   /** The line to engrave when token is 'fixed'; at booth time this field also
-   *  carries the RESOLVED name for 'guestName' (see draftMapping.layerToPiece). */
+   *  carries the RESOLVED name/initials for the guest tokens (see draftMapping.layerToPiece). */
   text?: string;
   style: GuestLetteringStyle;
   /** `#rrggbb` (normalized lowercase). */

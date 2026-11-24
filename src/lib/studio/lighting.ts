@@ -130,15 +130,23 @@ const STUDIO: LightingPreset = {
   id: 'studio',
   label: 'Studio',
   hint: 'Neutral softbox light. Metal reads as metal; good for anything.',
-  ambient: { color: '#ffffff', intensity: 0.18 },
+  // Owner-tuned on a phone against a real room (2026-11-24, booth ?lightdebug):
+  // exposure 0.25 · reflections 2 · ambient 0 · key 0.05 · fill 0.15 ·
+  // warmth -0.75 on top of the previous rig (ambient 0.18, key #FFF4E2 1.1,
+  // fill 0.35, environment 1.15). Almost all light now comes from the
+  // environment, like a prop in a real room; the old rig's direct lights made
+  // props read pasted-on and too bright against the camera. The exposure is
+  // folded INTO the lights rather than set on the renderer: identical for lit
+  // materials, while unlit effects (sparkles, beams) keep their brightness.
+  ambient: { color: '#ffffff', intensity: 0 },
   directionals: [
-    { color: '#FFF4E2', intensity: 1.1, position: [3, 5, 4] },
-    { color: '#9FC0FF', intensity: 0.35, position: [-4, 2, -3] },
+    { color: '#cedef8', intensity: 0.0138, position: [3, 5, 4] },
+    { color: '#9FC0FF', intensity: 0.0131, position: [-4, 2, -3] },
   ],
   points: [],
   environment: {
     resolution: 64,
-    intensity: 1.15,
+    intensity: 0.575,
     lightformers: [
       // Big overhead key — the long soft highlight down a crown's band.
       { form: 'rect', color: '#ffffff', intensity: 4, position: [0, 5, 1], rotation: [-Math.PI / 2, 0, 0], scale: [8, 8] },

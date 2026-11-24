@@ -133,6 +133,10 @@ export interface LabelTextures {
   normalMap: THREE.CanvasTexture;
   /** width / height of the drawn artwork — drives the decal box's proportions. */
   aspect: number;
+  /** Width of the drawn line on the canvas, px (LABEL_TEX_W wide canvas). */
+  drawnPx: number;
+  /** Font size the line was drawn at, px (LABEL_TEX_H tall canvas). */
+  fontPx: number;
   dispose: () => void;
 }
 
@@ -193,6 +197,8 @@ export function makeLabelTextures(
     map,
     normalMap,
     aspect,
+    drawnPx: drawnWidth,
+    fontPx,
     dispose: () => {
       map.dispose();
       normalMap.dispose();
@@ -337,8 +343,27 @@ export function buildLabelDecal(
   const orientation = projectorEuler(normal, up);
 
   const unitsPerCm = Number.isFinite(opts.unitsPerCm) && opts.unitsPerCm > 0 ? opts.unitsPerCm : 1;
-  const width = slot.maxWidthCm * unitsPerCm;
-  const size = new THREE.Vector3(width, width / textures.aspect, slot.decalDepth);
+  let size: THREE.Vector3;
+  if (slot.maxHeightCm !== undefined) {
+    // MONOGRAM fit (a crest plate): crop the canvas to the drawn line plus a
+    // little air, and scale it UP to the largest size that fits the slot's
+    // width AND height. A crest holds two or three letters, and the name-line
+    // rule below would engrave "DW" at the height of a 20-letter name.
+    const cropPx = Math.min(LABEL_TEX_W, textures.drawnPx + textures.fontPx * 0.3);
+    const unitsPerPx = Math.min(
+      (slot.maxWidthCm * unitsPerCm) / cropPx,
+      (slot.maxHeightCm * unitsPerCm) / textures.fontPx,
+    );
+    const repeat = cropPx / LABEL_TEX_W;
+    for (const tex of [textures.map, textures.normalMap]) {
+      tex.repeat.set(repeat, 1);
+      tex.offset.set((1 - repeat) / 2, 0);
+    }
+    size = new THREE.Vector3(cropPx * unitsPerPx, LABEL_TEX_H * unitsPerPx, slot.decalDepth);
+  } else {
+    const width = slot.maxWidthCm * unitsPerCm;
+    size = new THREE.Vector3(width, width / textures.aspect, slot.decalDepth);
+  }
 
   let geometry: THREE.BufferGeometry;
   const started = performance.now();
@@ -375,8 +400,10 @@ export function buildLabelDecal(
     polygonOffset: true,
     polygonOffsetFactor: -6,
     polygonOffsetUnits: -1,
-    roughness: 0.62,
-    metalness: 0.05,
+    // Gilt lettering is polished leaf: metallic, so it reflects the scene the
+    // way the gold trim around it does; stitched thread stays matte.
+    roughness: slot.finish === 'gilt' ? 0.3 : 0.62,
+    metalness: slot.finish === 'gilt' ? 0.9 : 0.05,
   });
 
   const mesh = new THREE.Mesh(geometry, material);

@@ -26,6 +26,8 @@ import {
   regionTintVertexPatch,
   regionTintFragmentPatch,
   regionOverridesKey,
+  REGION_MAP_UNIFORM,
+  REGION_TINT_MAP_CACHE_KEY,
 } from './regionTint';
 
 const close = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) <= eps;
@@ -613,5 +615,36 @@ describe('regionOverridesKey', () => {
   it('changes when a value changes', () => {
     expect(regionOverridesKey({ crown: { hex: '#ff0000' } }))
       .not.toBe(regionOverridesKey({ crown: { hex: '#ff0001' } }));
+  });
+});
+
+describe('fragment patch — texture-space region map', () => {
+  const FRAG = [
+    '#include <common>',
+    'void main() {',
+    'vec4 diffuseColor = vec4( diffuse, opacity );',
+    '#include <map_fragment>',
+    '#include <roughnessmap_fragment>',
+    '#include <metalnessmap_fragment>',
+    '#include <emissivemap_fragment>',
+    '}',
+  ].join('\n');
+
+  it('samples the region map AFTER map_fragment, using the map UV', () => {
+    const p = regionTintFragmentPatch(FRAG, { regionMap: true });
+    expect(p.patched).toBe(true);
+    expect(p.source).toContain(`uniform sampler2D ${REGION_MAP_UNIFORM};`);
+    const mapAt = p.source.indexOf('#include <map_fragment>');
+    const sampleAt = p.source.indexOf(`texture2D(${REGION_MAP_UNIFORM}, vMapUv)`);
+    expect(sampleAt).toBeGreaterThan(mapAt);
+  });
+
+  it('the vertex-region patch never references the map', () => {
+    const p = regionTintFragmentPatch(FRAG);
+    expect(p.source).not.toContain(REGION_MAP_UNIFORM);
+  });
+
+  it('uses a separate program cache key so the two variants never share a program', () => {
+    expect(REGION_TINT_MAP_CACHE_KEY).not.toBe(REGION_TINT_CACHE_KEY);
   });
 });

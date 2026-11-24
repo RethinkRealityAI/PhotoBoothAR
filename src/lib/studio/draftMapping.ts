@@ -52,7 +52,7 @@ import {
   type StudioKind,
   type StudioObject,
 } from './state';
-import { normalizeTemplate, scopeCustomizationToTemplate, type AssetTemplate } from './assetTemplate';
+import { normalizeTemplate, resolveLabelText, scopeCustomizationToTemplate, type AssetTemplate } from './assetTemplate';
 import { isHandAnchorId } from '../handPose';
 import { normalizeHandFit } from './handedness';
 import { parseTriggers, type TriggerConfig } from './triggers';
@@ -436,6 +436,9 @@ export interface PieceContext {
    * StageCanvas.drawGuestLettering does with an empty name: it draws nothing.
    */
   guestName?: string;
+  /** Initials the guest typed for a `'guestInitials'` engraving. Empty falls
+   *  back to initials derived from `guestName` (assetTemplate.initialsFrom). */
+  guestInitials?: string;
   /** Master occlusion gate; a piece must ALSO opt in (occlusion === true). */
   occlusionEnabled?: boolean;
   /**
@@ -461,10 +464,12 @@ export const STUDIO_SAMPLE_GUEST_NAME = 'Alex';
  * an empty one drops the label rather than engraving a blank plate. When that
  * leaves nothing customized at all, the whole key goes away.
  */
-export function resolvePieceCustomization(raw: unknown, guestName = ''): AssetCustomization | undefined {
+export function resolvePieceCustomization(raw: unknown, guestName = '', guestInitials = ''): AssetCustomization | undefined {
   const c = normalizeCustomization(raw);
   if (!c?.label) return c;
-  const text = (c.label.token === 'guestName' ? guestName : (c.label.text ?? '')).trim();
+  const text = (c.label.token === 'guestInitials'
+    ? resolveLabelText(c.label, guestName, guestInitials)
+    : c.label.token === 'guestName' ? guestName : (c.label.text ?? '')).trim();
   if (!text) return c.parts ? { parts: c.parts } : undefined;
   // The resolved label is emitted as 'fixed': a render spec should not ask the
   // renderer to know anything about guests, and this way EVERY consumer — one
@@ -510,7 +515,7 @@ function pieceExtras(
     // pre-feature behaviour.
     const template = normalizeTemplate(src.template);
     if (template) out.template = template;
-    const resolved = resolvePieceCustomization(src.customization, ctx.guestName ?? '');
+    const resolved = resolvePieceCustomization(src.customization, ctx.guestName ?? '', ctx.guestInitials ?? '');
     // SCOPED to the template when there is one. A saved config outlives the
     // asset it was written against — the host swaps the model, the library
     // re-authors the descriptor — and an override naming a region that no
