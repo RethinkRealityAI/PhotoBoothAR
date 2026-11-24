@@ -71,29 +71,32 @@ export default function LightingTuner({ presetId }: { presetId: string }) {
   };
 
   return (
-    <div
-      className="fixed right-2 z-[70] flex flex-col items-end gap-2"
-      style={{ top: 'calc(max(0.5rem, env(safe-area-inset-top)) + 3.5rem)' }}
-    >
+    <>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="min-h-[44px] rounded-full glass-strong px-4 font-label text-xs text-brand-fg"
+        className="fixed right-2 z-[70] min-h-[44px] rounded-full glass-strong px-4 font-label text-xs text-brand-fg"
+        style={{ top: 'calc(max(0.5rem, env(safe-area-inset-top)) + 3.5rem)' }}
         aria-expanded={open}
       >
         {open ? 'Close lighting' : `Lighting${isDefaultTune(tune) ? '' : ' •'}`}
       </button>
       {open && (
-        <div className="w-[min(18rem,calc(100vw-1rem))] max-h-[70dvh] overflow-y-auto rounded-2xl glass-strong p-3 text-brand-fg">
-          <p className="mb-2 font-sans text-[11px] leading-snug text-brand-muted">
-            Changes the light on 3D props live. 1.00 = as shipped.
+        // Docked at the bottom and see-through, so the face and the prop stay
+        // visible above it while tuning.
+        <div
+          className="fixed inset-x-2 z-[70] mx-auto max-w-md max-h-[48dvh] overflow-y-auto rounded-2xl bg-black/55 px-3 py-2 text-white backdrop-blur-[2px]"
+          style={{ bottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+        >
+          <p className="mb-1 font-sans text-[10px] leading-snug text-white/70">
+            Light on 3D props, live. 1.00 = as shipped.
           </p>
           {TUNE_KEYS.map((k) => {
             const b = TUNE_BOUNDS[k];
             return (
-              <label key={k} className="mb-2 block">
+              <label key={k} className="block" title={LABELS[k].hint}>
                 <span className="flex items-baseline justify-between font-label text-[11px]">
-                  <span>{LABELS[k].label}</span>
+                  <span>{LABELS[k].label} <span className="text-white/60">· {LABELS[k].hint}</span></span>
                   <span className="tabular-nums">{tune[k].toFixed(2)}</span>
                 </span>
                 <input
@@ -103,10 +106,9 @@ export default function LightingTuner({ presetId }: { presetId: string }) {
                   step={0.05}
                   value={tune[k]}
                   onChange={(e) => { setCopied('idle'); setLightingTune({ [k]: Number(e.target.value) }); }}
-                  className="h-8 w-full accent-[var(--color-accent)]"
+                  className="h-7 w-full accent-[var(--color-accent)]"
                   aria-label={LABELS[k].label}
                 />
-                <span className="font-sans text-[10px] text-brand-muted">{LABELS[k].hint}</span>
               </label>
             );
           })}
@@ -121,7 +123,7 @@ export default function LightingTuner({ presetId }: { presetId: string }) {
             <button
               type="button"
               onClick={() => { setCopied('idle'); setLightingTune({ ...DEFAULT_TUNE }); }}
-              className="min-h-[44px] rounded-xl glass px-3 font-label text-xs text-brand-fg"
+              className="min-h-[44px] rounded-xl bg-white/15 px-3 font-label text-xs text-white"
             >
               Reset
             </button>
@@ -131,12 +133,12 @@ export default function LightingTuner({ presetId }: { presetId: string }) {
               readOnly
               value={text}
               onFocus={(e) => e.currentTarget.select()}
-              className="mt-2 w-full rounded-lg bg-black/40 p-2 font-mono text-[11px] text-brand-fg"
+              className="mt-2 w-full rounded-lg bg-black/40 p-2 font-mono text-[11px] text-white"
               rows={3}
             />
           )}
         </div>
       )}
-    </div>
+    </>
   );
 }
