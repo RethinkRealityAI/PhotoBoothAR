@@ -25,6 +25,7 @@ import {
 } from '../../lib/world/placement';
 import { buildStandeeWalls, gridFromImageData } from '../../lib/world/standeeMesh';
 import { haptic } from '../../lib/haptics';
+import { goodMatch, grabPatch, matchPatch, median, MIN_PATCH_STD, toGray, type Patch } from '../../lib/world/patchTrack';
 
 /* ------------------------------------------------------------------ */
 /* Tunables (URL knobs for phone A/B tests)                            */
@@ -43,6 +44,8 @@ const CAM_H = num('camh', CAMERA_HEIGHT_M, 0.8, 2.2);
 const PICTURE_LAG_MS = num('wlag', 70, 0, 250);
 /** Where the reticle aims, in NDC (a little below the middle: you look at the floor in front). */
 const AIM_NDC = new THREE.Vector2(0, -0.3);
+/** Lock the placed frame to the floor with the camera picture (`?wlock=0` = sensors only). */
+const FLOOR_LOCK = qs.get('wlock') !== '0';
 /** Board thickness (m) and the art's grid resolution for its silhouette. */
 const BOARD_DEPTH = 0.045;
 const GRID_FACTOR = 4;
@@ -70,6 +73,8 @@ interface WorldStore {
   spotYaw: number;
   /** Bumped from the 3D half when what the DOM shows must change. */
   onAimChange: ((hasAim: boolean) => void) | null;
+  /** Floor-lock points matched on the last step (tester readout). */
+  lockMatched: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -232,6 +237,136 @@ function hexA(hex: string, a: number): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Floor lock: the camera picture keeps the frame on its patch of floor */
+/* ------------------------------------------------------------------ */
+
+const TRACK_H = 256;
+const PATCH = 15;
+const SEARCH = 10;
+const TRACK_EVERY_MS = 30;
+/** How much of each measured gap is corrected per step (smooths jitter). */
+const LOCK_GAIN = 0.6;
+/** The correction never grows past this (radians): a wrong lock cannot fling the frame. */
+const LOCK_MAX = 0.35;
+/** Re-grab a patch's picture after this many good matches (the view of it slowly changes). */
+const REFRESH_AFTER = 20;
+/**
+ * Steps in a row with no trustworthy match before the lock lets go (~0.5 s).
+ * It then eases its correction back to the sensors' view and re-anchors, so a
+ * lost lock is never worse than no lock.
+ */
+const LOST_AFTER = 15;
+/** Patches that must agree (within AGREE_PX on the tracking image) for a step to count. */
+const MIN_AGREE = 2;
+const AGREE_PX = 2.5;
+const RELEASE_EASE = 0.8;
+
+interface LockPoint { world: THREE.Vector3; patch: Patch; good: number }
+
+class FloorLock {
+  private cv = document.createElement('canvas');
+  private ctx = this.cv.getContext('2d', { willReadFrequently: true });
+  private gray: Float32Array | null = null;
+  private w = 0;
+  private h = TRACK_H;
+  private last = 0;
+  private points: LockPoint[] = [];
+  private v = new THREE.Vector3();
+  /** Camera-local correction: pitch (x) and yaw (y), radians. */
+  readonly corr = { x: 0, y: 0 };
+  /** Points matched on the last step (for ?wdiag). */
+  matched = 0;
+  active = false;
+  private misses = 0;
+
+  reset(): void { this.points = []; this.corr.x = 0; this.corr.y = 0; this.active = false; this.matched = 0; this.misses = 0; }
+
+  /** Small greyscale copy of exactly what the stage shows (same cover fit as StageCanvas). */
+  private grab(video: HTMLVideoElement, aspect: number): boolean {
+    const ctx = this.ctx;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!ctx || vw === 0 || vh === 0 || video.readyState < 2) return false;
+    const w = Math.max(32, Math.round(TRACK_H * aspect));
+    if (this.cv.width !== w || this.cv.height !== TRACK_H) { this.cv.width = w; this.cv.height = TRACK_H; }
+    this.w = w;
+    const srcA = vw / vh, dstA = w / TRACK_H;
+    let sw = vw, sh = vh, sx = 0, sy = 0;
+    if (srcA > dstA) { sw = vh * dstA; sx = (vw - sw) / 2; } else { sh = vw / dstA; sy = (vh - sh) / 2; }
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, TRACK_H);
+    this.gray = toGray(ctx.getImageData(0, 0, w, TRACK_H).data, w, TRACK_H, this.gray ?? undefined);
+    return true;
+  }
+
+  private toPx(p: THREE.Vector3, camera: THREE.Camera): { x: number; y: number } | null {
+    this.v.copy(p).project(camera);
+    if (this.v.z > 1 || this.v.z < -1) return null;
+    return { x: ((this.v.x + 1) / 2) * this.w, y: ((1 - this.v.y) / 2) * this.h };
+  }
+
+  /**
+   * One tracking step. `anchors` = world points on the floor next to the
+   * frame (used only to start a lock). Updates `corr`; returns nothing.
+   */
+  step(now: number, video: HTMLVideoElement | null, aspect: number, camera: THREE.PerspectiveCamera, anchors: () => THREE.Vector3[]): void {
+    if (!video || now - this.last < TRACK_EVERY_MS) return;
+    this.last = now;
+    if (!this.grab(video, aspect) || !this.gray) return;
+    const gray = this.gray, w = this.w, h = this.h;
+    if (this.points.length === 0) {
+      // Letting go: ease back to the sensors before taking new patches, so
+      // the frame glides rather than jumps.
+      if (Math.abs(this.corr.x) > 0.002 || Math.abs(this.corr.y) > 0.002) {
+        this.corr.x *= RELEASE_EASE;
+        this.corr.y *= RELEASE_EASE;
+        return;
+      }
+      this.corr.x = 0; this.corr.y = 0; this.misses = 0;
+      for (const a of anchors()) {
+        const px = this.toPx(a, camera);
+        if (!px) continue;
+        const patch = grabPatch(gray, w, h, px.x, px.y, PATCH);
+        if (patch && patch.std >= MIN_PATCH_STD) this.points.push({ world: a.clone(), patch, good: 0 });
+      }
+      this.active = this.points.length > 0;
+      return;
+    }
+    const hits: { pt: LockPoint; dx: number; dy: number; x: number; y: number }[] = [];
+    for (const pt of this.points) {
+      const pred = this.toPx(pt.world, camera);
+      if (!pred) continue;
+      const m = matchPatch(gray, w, h, pt.patch, pred.x, pred.y, SEARCH);
+      if (!goodMatch(m)) continue;
+      hits.push({ pt, dx: m.x - pred.x, dy: m.y - pred.y, x: m.x, y: m.y });
+    }
+    // Trust a step only when at least two patches agree on how far the floor
+    // moved. One patch alone can lock onto the wrong plank or tile of a
+    // repeating floor and hold the frame off its spot forever.
+    const mx = median(hits.map((k) => k.dx)), my = median(hits.map((k) => k.dy));
+    const agree = hits.filter((k) => Math.abs(k.dx - mx) <= AGREE_PX && Math.abs(k.dy - my) <= AGREE_PX);
+    this.matched = agree.length;
+    if (agree.length < MIN_AGREE) {
+      if (++this.misses >= LOST_AFTER) { this.points = []; this.active = false; }
+      return;
+    }
+    this.misses = 0;
+    for (const k of agree) {
+      if (++k.pt.good < REFRESH_AFTER) continue;
+      const fresh = grabPatch(gray, w, h, k.x, k.y, PATCH);
+      if (fresh && fresh.std >= MIN_PATCH_STD) k.pt.patch = fresh;
+      k.pt.good = 0;
+    }
+    const dxs = agree.map((k) => k.dx), dys = agree.map((k) => k.dy);
+    // Pixels → angle at this field of view. The floor patch sits right/below
+    // where the sensors put it: turn the virtual camera left/up so the frame
+    // is drawn right/below too, back on its patch.
+    const f = (h / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const clamp = (x: number) => Math.max(-LOCK_MAX, Math.min(LOCK_MAX, x));
+    this.corr.y = clamp(this.corr.y + LOCK_GAIN * Math.atan(median(dxs) / f));
+    this.corr.x = clamp(this.corr.x + LOCK_GAIN * Math.atan(median(dys) / f));
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* The 3D half                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -279,12 +414,20 @@ function WorldScene({
   const q = useMemo(() => new THREE.Quaternion(), []);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const hadAim = useRef(false);
+  const lock = useMemo(() => new FloorLock(), []);
+  const lockStarted = useRef(false);
+  const corrQ = useMemo(() => new THREE.Quaternion(), []);
+  const corrE = useMemo(() => new THREE.Euler(), []);
 
   useFrame((_, dt) => {
     const now = performance.now();
     // Camera: phone height, rotated as the phone was when this picture was taken.
     camera.position.set(0, CAM_H, 0);
     if (store.history.at(now - PICTURE_LAG_MS, q)) camera.quaternion.copy(q);
+    if (store.phase === 'placed' && (lock.corr.x !== 0 || lock.corr.y !== 0)) {
+      corrQ.setFromEuler(corrE.set(lock.corr.x, lock.corr.y, 0, 'YXZ'));
+      camera.quaternion.multiply(corrQ);
+    }
     const v = videoRef.current;
     const fov = stageVerticalFov(LONG_SIDE_FOV, v?.videoWidth ?? 0, v?.videoHeight ?? 0, size.width, size.height);
     if (Math.abs(camera.fov - fov) > 0.01 || camera.near !== 0.05) {
@@ -323,11 +466,26 @@ function WorldScene({
         hadAim.current = hit !== null;
         store.onAimChange?.(hit !== null);
       }
+      if (lockStarted.current) { lock.reset(); lockStarted.current = false; }
     } else if (store.phase === 'placed') {
       rt.visible = false;
       st.visible = board !== null;
       st.position.copy(store.spot);
       st.rotation.y = store.spotYaw;
+      if (FLOOR_LOCK && store.sensors === true) {
+        lockStarted.current = true;
+        lock.step(now, videoRef.current, size.width / Math.max(1, size.height), camera, () => {
+          // Floor just outside the board's feet and in front of it: the spots
+          // least likely to be covered by the people standing inside it.
+          st.updateMatrixWorld(true);
+          const half = board ? (board.w / 2) : 0.56;
+          return [
+            new THREE.Vector3(-half - 0.3, 0, 0.2), new THREE.Vector3(half + 0.3, 0, 0.2),
+            new THREE.Vector3(-half * 0.5, 0, 0.55), new THREE.Vector3(half * 0.5, 0, 0.55),
+          ].map((p) => hd.localToWorld(p));
+        });
+        store.lockMatched = lock.matched;
+      }
     } else {
       rt.visible = false;
       st.visible = false;
@@ -420,6 +578,7 @@ export default function WorldStage({
     spot: new THREE.Vector3(),
     spotYaw: 0,
     onAimChange: null,
+    lockMatched: 0,
   }), []);
   const [phase, setPhase] = useState<Phase>('intro');
   const [sensorsOn, setSensorsOn] = useState(false);
@@ -510,7 +669,7 @@ export default function WorldStage({
       {phase !== 'intro' && (
         <div
           ref={surfaceRef}
-          className="absolute inset-0 z-[21]"
+          className="absolute inset-0 z-10"
           style={{ touchAction: 'none' }}
           onPointerDown={onDown}
           onPointerMove={onMove}
@@ -546,19 +705,19 @@ export default function WorldStage({
 
       {/* Place / Move: small, above the booth's deck, never over the shutter. */}
       {phase === 'placing' && !recording && (
-        <div className="absolute inset-x-0 bottom-[26%] z-30 flex justify-center pointer-events-none">
+        <div className="absolute inset-x-0 bottom-[17%] z-30 flex justify-center pointer-events-none">
           <button
             type="button"
             onClick={place}
             disabled={!hasAim || !boardReady}
-            className="pointer-events-auto pressable flex min-h-12 items-center gap-2 rounded-full bg-foil glow-accent px-6 font-label text-xs uppercase tracking-luxe text-[color:var(--on-accent)] transition-all active:scale-95 disabled:opacity-40 disabled:shadow-none"
+            className="pointer-events-auto pressable flex min-h-14 items-center gap-2 rounded-full bg-foil glow-accent px-9 font-label text-sm uppercase tracking-luxe text-[color:var(--on-accent)] transition-all active:scale-95 disabled:opacity-40 disabled:shadow-none"
           >
             Place here
           </button>
         </div>
       )}
       {phase === 'placed' && !recording && (
-        <div className="absolute right-3 bottom-[26%] z-30">
+        <div className="absolute right-3 bottom-[17%] z-30">
           <button
             type="button"
             onClick={move}

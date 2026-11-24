@@ -237,6 +237,9 @@ export interface ExperienceConfig {
   layers?: ExperienceLayer[];     // for composite kind
   /** Built-in procedural head-piece id (e.g. 'royal-crown') instead of a GLB asset_url. */
   procedural?: string;
+  /** RUNTIME ONLY, never stored: marks a booth-generated "3D" Props tile that
+   *  stands a Frame up in the room (src/lib/world/worldLooks.ts). */
+  world?: { frameUrl: string; frameId: string };
   /** A shader applied to the whole frame when this experience is active. */
   ambientShader?: ShaderConfig;
   /** Scene Director grouping tag — set on every piece accepted from one scene. */

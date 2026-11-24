@@ -37,6 +37,7 @@ import BoothTopBar from './booth/BoothTopBar';
 import BoothLookDeck from './booth/BoothLookDeck';
 import LooksSheet from './booth/LooksSheet';
 import WorldStage from './booth/WorldStage';
+import { isWorldLook, withWorldLooks, worldLookFrameUrl } from '../lib/world/worldLooks';
 import { TimerControl } from './booth/BoothCaptureControls';
 import {
   buildDeck, initialCategory, initialCategoryWhenReady, type DeckCategory, type DeckSelection,
@@ -656,6 +657,10 @@ export default function Booth() {
       setAttachExp(exp?.kind === 'composite' ? exp : null);
     } else if (exp?.kind === 'composite') {
       setAttachExp(exp);
+    } else if (exp !== null && isWorldLook(attachExp)) {
+      // A 2D Frame is drawn on the selfie view, not in the room: picking one
+      // leaves AR mode (the camera flips back as for any face Prop).
+      setAttachExp(null);
     }
     setFrameExp(exp);
     setOverlayTransform(exp?.config?.transform ?? DEFAULT_TRANSFORM);
@@ -669,6 +674,16 @@ export default function Booth() {
       if (outgoingAmbient) setEffectId((cur) => (cur === outgoingAmbient ? 'none' : cur));
     }
   }, [frameExp, attachExp]);
+
+  /**
+   * Picking a Prop. A "3D" standing Frame replaces the 2D Frame: the 2D one
+   * is drawn on the selfie view and would sit hidden but still selected in AR
+   * mode. Every other Prop is exactly setAttachExp, as before.
+   */
+  const handleSelectAttachment = useCallback((exp: Experience | null) => {
+    if (isWorldLook(exp) && frameExp !== null) handleSelectFrame(null);
+    setAttachExp(exp);
+  }, [frameExp, handleSelectFrame]);
 
   // ── Reveal moment ─────────────────────────────────────────────────────
   // A transient ~600ms "magically appears" entrance whenever the guest's
@@ -1010,16 +1025,13 @@ export default function Booth() {
   }, [frameLayers, layerVisible]);
 
   // ── World mode ────────────────────────────────────────────────────────
-  // PLATFORM booths only: on the BACK camera a selected Frame (2D border)
-  // stands up in the room, life-size (WorldStage). Only the camera and the
-  // tracking change; tabs, shutter, recording and review stay as they are.
-  // Legacy coded events can never reach it (source !== 'db').
-  const worldFrameUrl: string | null = (() => {
-    if (source !== 'db' || isFront || frameExp === null) return null;
-    if (frameExp.kind === 'border' && frameExp.asset_url) return frameExp.asset_url;
-    const layer = frameExp.config?.layers?.find((l) => l.kind === 'border' && !!l.asset_url && l.hidden !== true);
-    return layer?.asset_url ?? null;
-  })();
+  // PLATFORM booths only: each Frame also appears in Props as a "3D" tile
+  // (lib/world/worldLooks). Picking one switches to the back camera and stands
+  // the Frame up in the room (WorldStage); picking any other prop, or none,
+  // goes back to the selfie camera. The Frames tab, the flip button and every
+  // other look work exactly as before. Legacy coded events never get the tiles.
+  const worldSelected = source === 'db' && isWorldLook(attachExp);
+  const worldFrameUrl: string | null = worldSelected && !isFront ? worldLookFrameUrl(attachExp) : null;
   const worldMode = worldFrameUrl !== null;
 
   const rawAttachLayers = attachExp?.config?.layers;
@@ -1910,7 +1922,22 @@ export default function Booth() {
     handleSelectFrame(null);
     setAttachExp(null);
   };
-  const deckSections = useMemo(() => buildDeck(catalog), [catalog]);
+  const deckSections = useMemo(
+    () => buildDeck(source === 'db' ? withWorldLooks(catalog) : catalog),
+    [catalog, source],
+  );
+  // A "3D" Props tile owns the camera while it is picked: back camera on pick,
+  // selfie camera again when another prop (or none) replaces it. Flipping to
+  // the selfie camera by hand takes the tile off, since it needs the room.
+  const worldFlipRef = useRef<{ auto: boolean; facing: string }>({ auto: false, facing: facingMode });
+  useEffect(() => {
+    const st = worldFlipRef.current;
+    const flippedToSelfie = st.facing === 'environment' && facingMode === 'user';
+    st.facing = facingMode;
+    if (worldSelected && flippedToSelfie) { st.auto = false; setAttachExp(null); return; }
+    if (worldSelected && facingMode === 'user' && !recording) { st.auto = true; flipCamera(); return; }
+    if (!worldSelected && st.auto && facingMode === 'environment' && !recording) { st.auto = false; flipCamera(); }
+  }, [worldSelected, facingMode, recording, flipCamera]);
   // Memoized: a fresh object literal per render made this a new prop identity
   // on every single re-render of the booth, defeating any memo downstream.
   const deckSelection: DeckSelection = useMemo(() => ({
@@ -2287,12 +2314,12 @@ export default function Booth() {
               {worldFrameUrl !== null && phase === 'camera' && (
                 <WorldStage
                   frameUrl={worldFrameUrl}
-                  frameName={frameExp?.name ?? 'This frame'}
+                  frameName={attachExp?.name.replace(/ 3D$/, '') ?? 'This frame'}
                   accent={eventConfig.accentHexes?.[0] ?? '#d4af37'}
                   videoRef={videoRef}
                   maxFps={boothFpsCap}
                   recording={recording}
-                  onExit={() => { if (!recording) flipCamera(); }}
+                  onExit={() => { if (!recording) setAttachExp(null); }}
                 />
               )}
               {/* Face-trigger particles. This canvas is the SOURCE: it is passed
@@ -2464,7 +2491,7 @@ export default function Booth() {
                 onToggleSparkles={setSparkles}
                 onSelectEffect={applyEffect}
                 onSelectFrame={handleSelectFrame}
-                onSelectAttachment={setAttachExp}
+                onSelectAttachment={handleSelectAttachment}
                 onClearAll={clearAllLooks}
                 onOpenAll={() => setMoreOpen(true)}
                 sheetOpen={moreOpen}
@@ -2496,7 +2523,7 @@ export default function Booth() {
                 onToggleSparkles={setSparkles}
                 onSelectEffect={applyEffect}
                 onSelectFrame={handleSelectFrame}
-                onSelectAttachment={setAttachExp}
+                onSelectAttachment={handleSelectAttachment}
                 onClearAll={() => {
                   setEffectId('none');
                   setSparkles(false);
@@ -2601,7 +2628,7 @@ export default function Booth() {
           onToggleSparkles={setSparkles}
           onSelectEffect={applyEffect}
           onSelectFrame={handleSelectFrame}
-          onSelectAttachment={setAttachExp}
+          onSelectAttachment={handleSelectAttachment}
           onClearAll={clearAllLooks}
           pendingIds={pendingExperienceIds}
         />
@@ -2624,7 +2651,7 @@ export default function Booth() {
               onSelectEffect={applyEffect}
               onToggleSparkles={setSparkles}
               onSelectFrame={handleSelectFrame}
-              onSelectAttachment={setAttachExp}
+              onSelectAttachment={handleSelectAttachment}
               open={moreOpen}
               onOpenChange={setMoreOpen}
               hideBar

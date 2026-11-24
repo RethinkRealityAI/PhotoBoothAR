@@ -4,6 +4,9 @@ import { OrientationHistory, orientationToQuaternion, stageVerticalFov } from '.
 import {
   CAMERA_HEIGHT_M, DEFAULT_PLACE_M, MAX_SCALE, placementSpot, MIN_SCALE, createGesture, floorHit, gestureDown, gestureMove, gestureUp, standeeSize, yawToFace,
 } from './placement';
+import type { Experience } from '../../types';
+import { WORLD_LOOK_PREFIX, frameArtUrl, isWorldLook, withWorldLooks, worldLookFrameUrl } from './worldLooks';
+import { MIN_PATCH_STD, goodMatch, grabPatch, matchPatch, median, toGray } from './patchTrack';
 import { buildStandeeWalls, contourSegments, gridFromImageData, type StandeeGrid } from './standeeMesh';
 
 const forwardOf = (q: Quaternion) => new Vector3(0, 0, -1).applyQuaternion(q);
@@ -205,5 +208,96 @@ describe('standee walls', () => {
     // Edge colour is the art's red, shaded.
     expect(w.colors[0]).toBeGreaterThan(0.5);
     expect(w.colors[1]).toBe(0);
+  });
+});
+
+describe('world looks', () => {
+  const base = { created_at: '', updated_at: '', thumbnail_url: 't.webp', is_published: true, featured: false, sort_order: 0 };
+  const border = { ...base, id: 'b1', name: 'Birthday Boss', kind: 'border', asset_url: '/f/boss.webp', config: {} } as Experience;
+  const twin = { ...base, id: 'c1', name: 'Boss Mode', kind: 'composite', asset_url: null,
+    config: { layers: [{ id: 'l', kind: 'border', asset_url: '/f/boss.webp' }, { id: 'p', kind: '3d_attachment', asset_url: '/m.glb' }] } } as Experience;
+  const prop = { ...base, id: 'p1', name: 'Cap', kind: '3d_attachment', asset_url: '/cap.glb', config: {} } as Experience;
+  const tint = { ...base, id: 'f1', name: 'Tint', kind: '2d_filter', asset_url: '/tint.png', config: {} } as Experience;
+
+  it('adds one 3D tile per distinct Frame art, after the catalog', () => {
+    const out = withWorldLooks([border, twin, prop, tint]);
+    expect(out.slice(0, 4)).toEqual([border, twin, prop, tint]);
+    expect(out).toHaveLength(5);
+    const w = out[4];
+    expect(w.id).toBe(`${WORLD_LOOK_PREFIX}b1`);
+    expect(w.kind).toBe('3d_attachment');
+    expect(w.asset_url).toBeNull();
+    expect(w.name).toBe('Birthday Boss 3D');
+    expect(w.thumbnail_url).toBe('t.webp');
+    expect(worldLookFrameUrl(w)).toBe('/f/boss.webp');
+  });
+  it('names the tile after the plain border even when its composite twin comes first', () => {
+    const out = withWorldLooks([twin, border]);
+    expect(out).toHaveLength(3);
+    expect(out[2].name).toBe('Birthday Boss 3D');
+    expect(out[2].id).toBe(`${WORLD_LOOK_PREFIX}b1`);
+  });
+  it('a composite with a border layer counts; a hidden layer or a tint does not', () => {
+    expect(frameArtUrl(twin)).toBe('/f/boss.webp');
+    expect(frameArtUrl(tint)).toBeNull();
+    const hidden = { ...twin, config: { layers: [{ id: 'l', kind: 'border', asset_url: '/x.webp', hidden: true }] } } as Experience;
+    expect(frameArtUrl(hidden)).toBeNull();
+  });
+  it('ordinary looks are not world looks', () => {
+    expect(isWorldLook(prop)).toBe(false);
+    expect(isWorldLook(null)).toBe(false);
+    expect(isWorldLook({ ...prop, id: 'world:fake' })).toBe(false); // no config.world
+    expect(worldLookFrameUrl(border)).toBeNull();
+  });
+  it('a catalog without Frames is returned unchanged', () => {
+    expect(withWorldLooks([prop])).toEqual([prop]);
+  });
+});
+
+describe('patch tracking', () => {
+  // Deterministic textured "floor": smooth noise so sub-pixel refinement has gradients to use.
+  const W = 120, H = 120;
+  const tex = (ox: number, oy: number) => {
+    const g = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const u = x - ox, v = y - oy;
+      g[y * W + x] = 128 + 50 * Math.sin(u * 0.37 + Math.cos(v * 0.21) * 2) + 40 * Math.cos(v * 0.29 + Math.sin(u * 0.17) * 3);
+    }
+    return g;
+  };
+  it('toGray weights RGB like luma', () => {
+    const g = toGray(new Uint8ClampedArray([255, 0, 0, 255, 0, 255, 0, 255]), 2, 1);
+    expect(g[0]).toBeCloseTo(76.245, 2);
+    expect(g[1]).toBeCloseTo(149.685, 2);
+  });
+  it('finds where a patch moved, to sub-pixel accuracy', () => {
+    const a = tex(0, 0);
+    const p = grabPatch(a, W, H, 60, 60, 16)!;
+    expect(p.std).toBeGreaterThan(MIN_PATCH_STD);
+    const b = tex(5.4, -3.6); // the picture moved right 5.4 px and up 3.6 px
+    const m = matchPatch(b, W, H, p, 60, 60, 10)!;
+    expect(goodMatch(m)).toBe(true);
+    expect(m.x).toBeCloseTo(65.4, 0);
+    expect(m.y).toBeCloseTo(56.4, 0);
+    expect(Math.abs(m.x - 65.4)).toBeLessThan(0.35);
+  });
+  it('a blank floor has no texture to lock onto', () => {
+    const flat = new Float32Array(W * H).fill(90);
+    expect(grabPatch(flat, W, H, 60, 60, 16)!.std).toBe(0);
+  });
+  it('ignores patches that do not fit', () => {
+    expect(grabPatch(tex(0, 0), W, H, 3, 60, 16)).toBeNull();
+    const p = grabPatch(tex(0, 0), W, H, 60, 60, 16)!;
+    expect(matchPatch(tex(0, 0), W, H, p, -50, 60, 5)).toBeNull();
+  });
+  it('a stripe pattern is ambiguous along the stripes and is not trusted', () => {
+    const s = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) s[y * W + x] = x % 8 < 4 ? 40 : 200;
+    const p = grabPatch(s, W, H, 60, 60, 16)!;
+    expect(goodMatch(matchPatch(s, W, H, p, 60, 60, 10))).toBe(false);
+  });
+  it('median ignores one outlier', () => {
+    expect(median([1, 1.2, 40])).toBe(1.2);
+    expect(median([])).toBe(0);
   });
 });
