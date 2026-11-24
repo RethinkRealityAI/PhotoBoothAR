@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CAMERA_DELAY_FALLBACK_MS,
+  HALF_CAMERA_FRAME_MS,
   PICTURE_AGE_TAU_MS,
   cameraDelayMs,
   createPictureClock,
@@ -39,24 +40,19 @@ describe('camera delay', () => {
 });
 
 describe('picture age', () => {
-  it('live = camera delay + how long the frame has been on the page', () => {
+  it('live = camera delay + half a camera frame, however long the page takes to draw', () => {
     const c = createPictureClock();
     noteCameraFrame(c, 1000, 920); // 80 ms camera delay
-    expect(liveAgeMs(c, 1010)).toBe(90);
+    expect(liveAgeMs(c)).toBe(80 + HALF_CAMERA_FRAME_MS);
+    expect(liveAgeMs(createPictureClock())).toBe(CAMERA_DELAY_FALLBACK_MS + HALF_CAMERA_FRAME_MS);
   });
 
-  it('live without a frame clock assumes half a camera frame of hold', () => {
-    const c = createPictureClock();
-    expect(liveAgeMs(c, 5000)).toBe(CAMERA_DELAY_FALLBACK_MS + 16);
-    noteCameraFrame(c, 1000, 920);
-    expect(liveAgeMs(c, 9000)).toBe(80 + 16); // the clock stalled: don't count 8 s of hold
-  });
-
-  it('locked = camera delay + time since the tracker took the frame', () => {
+  it('locked = the live age when the tracker took the frame + how long it has held it', () => {
     const c = createPictureClock();
     noteCameraFrame(c, 1000, 920);
-    expect(lockedAgeMs(c, 1200, 1050)).toBe(80 + 150);
-    expect(lockedAgeMs(c, 1200, Number.NaN)).toBe(liveAgeMs(c, 1200));
+    expect(lockedAgeMs(c, 1200, 1050)).toBe(80 + HALF_CAMERA_FRAME_MS + 150);
+    expect(lockedAgeMs(c, 1200, Number.NaN)).toBe(liveAgeMs(c));
+    expect(lockedAgeMs(c, 1000, 1050)).toBe(liveAgeMs(c)); // a frame time in the future never subtracts
   });
 
   it('averages with a time constant and reports null when stale', () => {

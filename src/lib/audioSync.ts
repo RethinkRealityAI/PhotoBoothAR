@@ -25,12 +25,26 @@
 /** DelayNode ceiling; a picture older than this is a stall, not a delay to match. */
 export const AUDIO_SYNC_MAX_MS = 600;
 /**
- * Added to the picture age. The two paths have unmeasurable ends that roughly
- * cancel: the camera's sensor-to-browser time (not in `captureTime` on Android)
- * makes the picture a little older than measured, and the Web Audio hop makes
- * the sound a little later than asked. Tune on a phone with `?avtrim=`.
+ * Added to the picture age. The parts nothing in the browser can measure sit
+ * here: the camera's sensor-to-browser time that `captureTime` leaves out on
+ * some phones (picture older than measured) against the microphone's own
+ * capture time (sound older than assumed). They pull opposite ways. Tune on a
+ * phone with `?avtrim=`, then move the number here.
  */
 export const AUDIO_SYNC_BIAS_MS = 0;
+/**
+ * The Web Audio hop itself delays the sound: microphone -> AudioContext ->
+ * recorder waits for the context's next render buffer. That is about one
+ * buffer (AudioContext.baseLatency), so the DelayNode is set that much
+ * shorter. Used when a context does not report its buffer.
+ */
+export const AUDIO_HOP_FALLBACK_MS = 20;
+
+/** How much the Web Audio hop alone delays the sound, from the context's reported buffer (seconds). */
+export function audioHopMs(baseLatencySec: number | undefined): number {
+  if (typeof baseLatencySec !== 'number' || !Number.isFinite(baseLatencySec) || baseLatencySec <= 0) return AUDIO_HOP_FALLBACK_MS;
+  return Math.min(150, baseLatencySec * 1000);
+}
 /** While recording, a wanted change smaller than this is left alone (no audible retune). */
 export const AUDIO_SYNC_DEADBAND_MS = 45;
 /** While recording, the delay moves at most this fast: 40 ms/s is a 4% pitch shift, barely audible. */
@@ -110,14 +124,17 @@ export function audioSyncDefaultOn(userAgent: string, maxTouchPoints: number): b
 export interface AudioSyncStatus {
   /** 'on' = the delayed track is usable; 'waiting' = the context is not running yet. */
   state: 'on' | 'waiting';
+  /** Total sound delay (DelayNode + hop). */
   delayMs: number;
+  /** Of that, the Web Audio hop's own share. */
+  hopMs: number;
 }
 
 let current: AudioSync | null = null;
 
 /** For the tester readout: the live sync, or null when none exists. */
 export function getAudioSyncStatus(): AudioSyncStatus | null {
-  return current === null ? null : { state: current.ready() ? 'on' : 'waiting', delayMs: current.delayMs };
+  return current === null ? null : { state: current.ready() ? 'on' : 'waiting', delayMs: current.delayMs, hopMs: current.hopMs };
 }
 
 export class AudioSync {
@@ -127,12 +144,15 @@ export class AudioSync {
   private source: MediaStreamAudioSourceNode | null = null;
   private sourceId = '';
   private disposed = false;
+  /** Delay the hop adds on its own; the DelayNode carries the rest. */
+  readonly hopMs: number;
 
   /** Throws when Web Audio cannot build the graph; use createAudioSync. */
   constructor(mic: MediaStreamTrack, initialMs: number) {
     this.ctx = new AudioContext({ latencyHint: 'interactive' });
     this.delay = this.ctx.createDelay(AUDIO_SYNC_MAX_MS / 1000 + 0.1);
-    this.delay.delayTime.value = Math.min(AUDIO_SYNC_MAX_MS, Math.max(0, initialMs)) / 1000;
+    this.hopMs = audioHopMs(this.ctx.baseLatency);
+    this.delay.delayTime.value = this.nodeMs(initialMs) / 1000;
     this.dest = this.ctx.createMediaStreamDestination();
     this.delay.connect(this.dest); // never ctx.destination: nothing reaches the speaker
     this.bind(mic);
@@ -149,8 +169,14 @@ export class AudioSync {
     return this.sourceId;
   }
 
+  /** Total sound delay right now: the DelayNode plus the hop. */
   get delayMs(): number {
-    return this.delay.delayTime.value * 1000;
+    return this.delay.delayTime.value * 1000 + this.hopMs;
+  }
+
+  /** DelayNode setting that makes the TOTAL delay `totalMs`. */
+  private nodeMs(totalMs: number): number {
+    return Math.min(AUDIO_SYNC_MAX_MS, Math.max(0, totalMs - this.hopMs));
   }
 
   /** The delayed track carries sound right now (a suspended context records silence). */
@@ -175,10 +201,11 @@ export class AudioSync {
     this.sourceId = mic.id;
   }
 
-  /** Move toward `wantedMs` (planDelayChange decides whether and how fast). */
+  /** Move the TOTAL delay toward `wantedMs` (planDelayChange decides whether and how fast). */
   setTarget(wantedMs: number, recording: boolean): void {
     if (this.disposed) return;
-    const plan = planDelayChange(this.delayMs, wantedMs, recording);
+    const nodeNow = this.delay.delayTime.value * 1000;
+    const plan = planDelayChange(nodeNow, this.nodeMs(wantedMs), recording);
     if (plan === null) return;
     const p = this.delay.delayTime;
     const now = this.ctx.currentTime;

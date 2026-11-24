@@ -15,9 +15,18 @@
  * The age has two parts:
  *   1. camera delay: capture -> the frame reaching the <video>. Measured per
  *      frame from requestVideoFrameCallback's `captureTime` where the browser
- *      reports it; a constant otherwise.
- *   2. hold: how long the drawn frame has been sitting since it reached the
- *      page (live: since the <video> got it; locked: since the tracker took it).
+ *      reports it; a constant otherwise. Plus half a camera frame: a draw (or
+ *      the tracker's upload) reads whatever frame is newest at that moment,
+ *      which on average arrived half a frame interval earlier.
+ *   2. hold (frame-lock only): how long ago the tracker took the frame it is
+ *      still showing.
+ *
+ * MEASURED, not assumed (flash + click clips recorded in headless Chromium and
+ * compared with a raw camera recording of the same source): a first version
+ * also counted, for the LIVE camera, the time since the last per-frame
+ * callback. On a slow page that callback fires once per (long) rendering
+ * frame while the <video> keeps receiving frames, and drawImage reads the
+ * newest one, so the estimate read ~150 ms where the clip was ~45 ms late.
  *
  * lib/audioSync.ts delays the recorded sound by the smoothed age, so the file
  * lines up whatever the phone's speed. Times are performance.now() ms.
@@ -31,8 +40,8 @@ const CAMERA_DELAY_MAX_MS = 1000;
 const CAMERA_DELAY_ALPHA = 0.1;
 /** Time constant of the picture-age average the sound delay follows. */
 export const PICTURE_AGE_TAU_MS = 700;
-/** A live frame older than this means the camera clock stopped ticking: don't trust the hold. */
-const LIVE_HOLD_MAX_MS = 200;
+/** Half a 30 fps camera frame: the average age of "the newest frame" when something reads it. */
+export const HALF_CAMERA_FRAME_MS = 16;
 /** A gap this long between composites restarts the average (tab hidden, look switch). */
 const AGE_RESTART_GAP_MS = 2000;
 
@@ -41,8 +50,6 @@ export interface PictureClock {
   cameraDelayMs: number;
   /** Valid capture-time readings so far (0 = the browser doesn't report them). */
   cameraSamples: number;
-  /** When the <video>'s current frame reached the page; NaN before the first. */
-  lastFrameMs: number;
   /** Smoothed age of the drawn picture; NaN before the first composite. */
   ageMs: number;
   /** Age of the picture in the most recent composite. */
@@ -55,19 +62,18 @@ export interface PictureClock {
 
 export function createPictureClock(): PictureClock {
   return {
-    cameraDelayMs: Number.NaN, cameraSamples: 0, lastFrameMs: Number.NaN,
+    cameraDelayMs: Number.NaN, cameraSamples: 0,
     ageMs: Number.NaN, lastAgeMs: Number.NaN, locked: false, notedMs: Number.NaN,
   };
 }
 
 /**
- * A new camera frame reached the <video> at `now`. `captureTime` is the
+ * A camera frame reached the <video> at `arrivedMs`. `captureTime` is the
  * browser's own capture timestamp for it (same clock), when it reports one.
  */
-export function noteCameraFrame(c: PictureClock, now: number, captureTime?: number | null): void {
-  c.lastFrameMs = now;
+export function noteCameraFrame(c: PictureClock, arrivedMs: number, captureTime?: number | null): void {
   if (captureTime === null || captureTime === undefined || !Number.isFinite(captureTime)) return;
-  const d = now - captureTime;
+  const d = arrivedMs - captureTime;
   if (!(d >= 0 && d <= CAMERA_DELAY_MAX_MS)) return;
   c.cameraSamples++;
   c.cameraDelayMs = Number.isFinite(c.cameraDelayMs) ? c.cameraDelayMs + (d - c.cameraDelayMs) * CAMERA_DELAY_ALPHA : d;
@@ -78,18 +84,15 @@ export function cameraDelayMs(c: PictureClock): number {
   return Number.isFinite(c.cameraDelayMs) ? c.cameraDelayMs : CAMERA_DELAY_FALLBACK_MS;
 }
 
-/** Age of the LIVE camera picture drawn at `now`. */
-export function liveAgeMs(c: PictureClock, now: number): number {
-  const hold = now - c.lastFrameMs;
-  // No frame clock (no requestVideoFrameCallback) or a stalled one: assume half a camera frame.
-  const held = hold >= 0 && hold <= LIVE_HOLD_MAX_MS ? hold : 16;
-  return cameraDelayMs(c) + held;
+/** Age of the LIVE camera picture when it is drawn: the newest frame the <video> holds. */
+export function liveAgeMs(c: PictureClock): number {
+  return cameraDelayMs(c) + HALF_CAMERA_FRAME_MS;
 }
 
-/** Age of a frame-LOCKED picture drawn at `now`: the tracker took its frame at `frameMs`. */
+/** Age of a frame-LOCKED picture drawn at `now`: the tracker took the then-newest frame at `frameMs`. */
 export function lockedAgeMs(c: PictureClock, now: number, frameMs: number): number {
-  if (!Number.isFinite(frameMs)) return liveAgeMs(c, now);
-  return cameraDelayMs(c) + Math.max(0, now - frameMs);
+  if (!Number.isFinite(frameMs)) return liveAgeMs(c);
+  return liveAgeMs(c) + Math.max(0, now - frameMs);
 }
 
 /** The compositor drew a picture of age `ageMs` at `now`. Feeds the average. */
@@ -116,7 +119,7 @@ export function smoothedPictureAgeMs(c: PictureClock, now: number): number | nul
 /** One booth composites at a time; the readout and the recorder read this. */
 export const boothPictureClock = createPictureClock();
 
-type FrameMeta = { captureTime?: number };
+type FrameMeta = { captureTime?: number; presentationTime?: number };
 type RvfcVideo = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: (now: number, meta: FrameMeta) => void) => number;
   cancelVideoFrameCallback?: (handle: number) => void;
@@ -128,7 +131,10 @@ let watchHandle = 0;
 function onCameraFrame(now: number, meta: FrameMeta): void {
   const v = watched;
   if (v === null) return;
-  noteCameraFrame(boothPictureClock, now, meta?.captureTime);
+  // presentationTime = when the browser got the frame ready to show; the
+  // callback itself can run a whole (slow) rendering frame later.
+  const arrived = typeof meta?.presentationTime === 'number' && meta.presentationTime <= now ? meta.presentationTime : now;
+  noteCameraFrame(boothPictureClock, arrived, meta?.captureTime);
   try {
     watchHandle = v.requestVideoFrameCallback!(onCameraFrame);
   } catch {
@@ -162,5 +168,4 @@ export function stopWatchingCameraFrames(): void {
   // A new camera has its own delay: forget the old one's.
   boothPictureClock.cameraDelayMs = Number.NaN;
   boothPictureClock.cameraSamples = 0;
-  boothPictureClock.lastFrameMs = Number.NaN;
 }

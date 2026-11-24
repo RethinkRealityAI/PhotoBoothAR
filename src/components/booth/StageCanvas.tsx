@@ -687,7 +687,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
         const locked = Number.isFinite(frameMs);
         notePictureAge(
           boothPictureClock, t,
-          locked ? lockedAgeMs(boothPictureClock, t, frameMs) : liveAgeMs(boothPictureClock, t),
+          locked ? lockedAgeMs(boothPictureClock, t, frameMs) : liveAgeMs(boothPictureClock),
           locked,
         );
       }

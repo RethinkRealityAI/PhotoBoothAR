@@ -3,7 +3,9 @@ import {
   AUDIO_SYNC_DEADBAND_MS,
   AUDIO_SYNC_MAX_MS,
   AUDIO_SYNC_SLEW_MS_PER_S,
+  AUDIO_HOP_FALLBACK_MS,
   audioDelayForPicture,
+  audioHopMs,
   audioSyncDefaultOn,
   createAudioSync,
   getAudioSyncStatus,
@@ -24,6 +26,19 @@ describe('audioDelayForPicture', () => {
     expect(audioDelayForPicture(30, -100)).toBe(0);
     expect(audioDelayForPicture(5000)).toBe(AUDIO_SYNC_MAX_MS);
     expect(audioDelayForPicture(180, Number.NaN)).toBe(180);
+  });
+});
+
+describe('audioHopMs', () => {
+  it('is the context render buffer, in ms', () => {
+    expect(audioHopMs(0.02)).toBeCloseTo(20, 5);
+    expect(audioHopMs(0.0427)).toBeCloseTo(42.7, 5);
+  });
+  it('falls back when the context does not report one, and caps a silly value', () => {
+    expect(audioHopMs(undefined)).toBe(AUDIO_HOP_FALLBACK_MS);
+    expect(audioHopMs(0)).toBe(AUDIO_HOP_FALLBACK_MS);
+    expect(audioHopMs(Number.NaN)).toBe(AUDIO_HOP_FALLBACK_MS);
+    expect(audioHopMs(3)).toBe(150);
   });
 });
 

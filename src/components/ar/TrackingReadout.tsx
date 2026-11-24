@@ -182,7 +182,7 @@ export default function TrackingReadout() {
         locked: boothPictureClock.locked,
         cam: cameraDelayMs(boothPictureClock),
         camMeasured: boothPictureClock.cameraSamples > 0,
-        sound: snd === null ? 'off' : snd.state === 'on' ? `${snd.delayMs.toFixed(0)} ms` : 'waiting for a tap',
+        sound: snd === null ? 'off' : snd.state === 'on' ? `${snd.delayMs.toFixed(0)} ms (hop ${snd.hopMs.toFixed(0)})` : 'waiting for a tap',
         enc: describeEncoder(),
       });
       const v = cameraVideo() as RVFC | null;
