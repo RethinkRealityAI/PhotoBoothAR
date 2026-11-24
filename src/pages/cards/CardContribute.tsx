@@ -291,7 +291,7 @@ export default function CardContribute() {
               setMessage('');
               setDone(false);
             }}
-            className="mt-7 min-h-11 rounded-full border border-white/15 bg-white/[0.05] px-6 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg hover:bg-white/[0.1] transition"
+            className="mt-7 min-h-11 rounded-full liquid-glass-raised px-6 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg transition"
           >
             Add another
           </button>

@@ -250,7 +250,7 @@ export default function UploadGate({ children }: { children: ReactNode }) {
                           </Link>
                           <Link
                             to={`${basePath}/wall`}
-                            className="pressable flex min-h-11 w-full items-center justify-center rounded-xl border border-white/15 bg-white/[0.05] font-label uppercase tracking-luxe text-[10px] text-brand-fg hover:bg-white/[0.1]"
+                            className="pressable flex min-h-11 w-full items-center justify-center rounded-xl liquid-glass-raised font-label uppercase tracking-luxe text-[10px] text-brand-fg"
                           >
                             See the live wall
                           </Link>

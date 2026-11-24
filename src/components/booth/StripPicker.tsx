@@ -64,10 +64,11 @@ export default function StripPicker({
               onClick={() => { haptic('select'); onPick(f.id); }}
               aria-pressed={on}
               aria-label={`${f.label}: ${f.blurb}`}
-              className={`pressable flex flex-col items-center gap-2.5 rounded-2xl border p-4 transition-colors ${
-                on
-                  ? 'border-[color:var(--color-accent)]/60 bg-[color:var(--color-accent)]/10'
-                  : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'
+              className={`pressable glass flex flex-col items-center gap-2.5 rounded-2xl p-4 transition-colors ${
+                // Platform: the glimmering selected rim. An event with its
+                // own theme has no .is-selected styling, so the accent border
+                // carries the state there (the platform glass zeroes borders).
+                on ? 'is-selected border border-[color:var(--color-accent)]/60' : ''
               }`}
             >
               <StripGlyph format={f} />
@@ -85,7 +86,7 @@ export default function StripPicker({
         <button
           type="button"
           onClick={() => { haptic('toggle'); onSingle(); }}
-          className="pressable mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.03] font-label text-[10px] uppercase tracking-luxe text-brand-muted/80 transition-colors hover:text-brand-fg"
+          className="pressable liquid-glass-raised mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-full font-label text-[10px] uppercase tracking-luxe text-brand-muted/80 transition-colors hover:text-brand-fg"
         >
           <Camera className="h-3.5 w-3.5" />
           Back to single photo

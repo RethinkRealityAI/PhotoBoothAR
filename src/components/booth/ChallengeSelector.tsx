@@ -107,7 +107,7 @@ export default function ChallengeSelector({ selectedChallenge, onSelect }: Props
           onClick={openSheet}
           // min-h-11: the trigger was 30px tall — under the 44px touch minimum,
           // and it is the entry point to the whole challenge system.
-          className="pressable flex min-h-11 items-center gap-1.5 pl-3 pr-2.5 py-1.5 rounded-full bg-gold-400/15 border border-gold-400/45 text-gold-200 hover:bg-gold-400/25 hover:border-gold-400/70 transition-all glow-soft active:scale-95"
+          className="pressable liquid-glass-raised flex min-h-11 items-center gap-1.5 pl-3 pr-2.5 py-1.5 rounded-full text-gold-200"
         >
           <Trophy className="w-4 h-4 text-gold-300" />
           <span className="font-label text-[9px] uppercase tracking-luxe">Challenges</span>
