@@ -5,7 +5,7 @@ import { parseTriggers } from '../studio/triggers';
 import { BUNDLED_PROPS, offeredBundledProps } from '../studio/bundledProps';
 import {
   NO_LOOKS, buildLookCatalog, classicRow, composeDraft, customFilterError, customFilterRow, diffPicks, eventFilters,
-  filterLooks, isPicked, occasionTag, paintRow, picksConfigPatch, picksFromEvent, powerScenes, readyFilters, setCategory,
+  filterLooks, isPicked, occasionTag, offeredPowerScenes, paintRow, picksConfigPatch, picksFromEvent, powerScenes, readyFilters, setCategory,
   starterRow, tagsIn, togglePick, type LookPicks,
 } from './looks';
 import { powerUpTriggers, powerUpsConfig } from './powerUps';
@@ -177,5 +177,13 @@ describe('quick filters', () => {
     expect(occasionTag('wedding')).toBe('wedding');
     expect(occasionTag('corporate')).toBe('gala');
     expect(occasionTag('other')).toBeNull();
+  });
+});
+
+describe('offeredPowerScenes', () => {
+  it('drops hand-held gear while guest booths do not track hands', () => {
+    expect(offeredPowerScenes(false).map((s) => s.id)).toEqual(['hero-visor']);
+    expect(offeredPowerScenes(true).map((s) => s.id)).toEqual(powerScenes().map((s) => s.id));
+    expect(offeredPowerScenes()).toEqual(offeredPowerScenes(false));
   });
 });

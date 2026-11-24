@@ -51,6 +51,7 @@ export type SlideKind =
   | 'roi'       // money maths for them
   | 'quote'     // a single big line
   | 'demo'      // hands-on booth (/try/:kit) embedded in the slide
+  | 'looks'     // what a guest can try on: Frames · Props · Paint · Effects (lib/lookTerms)
   | 'cta';      // the ask + contact
 
 /** What a feature tile opens (src/pages/sales/components/Showcase.tsx). */

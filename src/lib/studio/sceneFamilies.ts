@@ -35,6 +35,20 @@ export function isHandObject(o: FamilyMember): boolean {
   return objectFamily(o) === 'hand';
 }
 
+/**
+ * A look made ONLY of hand-held gear (every layer a hand-anchored 3D piece).
+ * Without hand tracking it would put nothing on screen, so guest booths that
+ * don't track hands (handPose.GUEST_HAND_TRACKING) leave it out of the picker.
+ * A look with anything else in it (a head piece, a frame, paint, an effect)
+ * still shows, minus its hand gear.
+ */
+export function isHandOnlyLook(look: { kind?: string; config?: { layers?: readonly (FamilyMember & { kind?: string })[] | null } | null }): boolean {
+  if (look.kind !== '3d_attachment') return false;
+  const layers = look.config?.layers;
+  if (!layers || layers.length === 0) return false;
+  return layers.every((l) => l.kind === '3d_attachment' && isHandObject(l));
+}
+
 /** Both subsets in one pass, each keeping the input's order. */
 export function splitByFamily<T extends FamilyMember>(objects: readonly T[]): { head: T[]; hand: T[] } {
   const head: T[] = [];

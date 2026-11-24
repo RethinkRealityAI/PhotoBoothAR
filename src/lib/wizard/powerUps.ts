@@ -15,6 +15,7 @@
  * Untrusted on read: unknown ids are dropped.
  */
 import type { TriggerConfig, TriggerSource } from '../studio/triggers';
+import { GUEST_HAND_TRACKING } from '../handPose';
 
 export type PowerUpId =
   | 'smile-sparkles'
@@ -46,6 +47,12 @@ export const POWER_UP_PRESETS: readonly PowerUpPreset[] = [
   { id: 'fist-beam', gesture: 'Make a fist', effect: 'An energy beam blasts out', glyph: 'fist', usesHands: true, source: 'fistClench', action: { type: 'beam', style: 'energy', origin: 'hand' } },
   { id: 'temple-optic', gesture: 'Fingers to your temple', effect: 'Laser eyes', glyph: 'temple', usesHands: true, source: 'handToTemple', action: { type: 'beam', style: 'optic', origin: 'head' } },
 ] as const;
+
+/** The gestures the host wizard offers: hand signs only while guest booths
+ *  track hands (handPose.GUEST_HAND_TRACKING), since they could never fire. */
+export function offeredPowerUpPresets(handTracking: boolean = GUEST_HAND_TRACKING): readonly PowerUpPreset[] {
+  return handTracking ? POWER_UP_PRESETS : POWER_UP_PRESETS.filter((p) => !p.usesHands);
+}
 
 const PRESET_MAP: ReadonlyMap<string, PowerUpPreset> = new Map(POWER_UP_PRESETS.map((p) => [p.id, p]));
 

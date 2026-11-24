@@ -299,6 +299,7 @@ export function createXr8Engine(options: Xr8EngineOptions = {}): Xr8FaceEngine {
     const blendshapes = meshValid ? xr8Expressions(meshBuf, now, expr, {}) : null;
     observeEarPoints(d.attachmentPoints, now);
     latest = { t: now, matrix, blendshapes, keypoints: d.uvsInCameraFrame ? xr8Keypoints(d.uvsInCameraFrame) : null };
+    if (analysed && Number.isFinite(analysed.stagedMs)) latest.frameMs = analysed.stagedMs;
     if (subjectSwitched) {
       latest.subjectChanged = true;
       subjectSwitched = false;

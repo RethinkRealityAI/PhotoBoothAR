@@ -118,6 +118,15 @@ describe('decks', () => {
     }
     for (const o of OFFERS) expect(JSON.stringify(o).toLowerCase(), o.id).not.toMatch(/guarantee|\blimited (spots|slots|places|time)/);
   });
+
+  it('prospect-facing copy speaks in Looks, never "filters"', () => {
+    for (const d of DECKS) expect(JSON.stringify(publicDeck(d)).toLowerCase(), d.slug).not.toMatch(/\bfilters?\b/);
+    for (const o of OFFERS) expect(JSON.stringify(o).toLowerCase(), o.id).not.toMatch(/\bfilters?\b/);
+  });
+
+  it('every deck shows what guests can try on (a looks slide)', () => {
+    for (const d of DECKS) expect(d.slides.some((s) => s.kind === 'looks'), d.slug).toBe(true);
+  });
 });
 
 describe('publicDeck', () => {
