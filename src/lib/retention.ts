@@ -108,7 +108,7 @@ export interface DownloadablePost {
 
 /** Worst-case sizes used to split the download BEFORE anything is fetched. */
 const EST_PHOTO_BYTES = 1 * 1024 * 1024;
-const EST_VIDEO_BYTES = 24 * 1024 * 1024; // plans.ts VIDEO_CLIP_BYTE_BUDGET
+const EST_VIDEO_BYTES = 48 * 1024 * 1024; // = plans.ts VIDEO_CLIP_BYTE_BUDGET (a clip's worst case)
 /** Per archive. Well under bulkSave's 1.5 GB in-memory ceiling and the classic
  *  ZIP 4 GB limit, so one part can never be refused half-way through. */
 export const DOWNLOAD_PART_BYTES = 900 * 1024 * 1024;
