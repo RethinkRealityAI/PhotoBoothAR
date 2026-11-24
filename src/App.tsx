@@ -102,6 +102,21 @@ const AdminReveals = lazyRoute(() => import('./pages/admin/reveals/AdminReveals'
 // visitor. Both components gate their own visibility to /host surfaces.
 const CopilotFab = lazy(() => import('./components/copilot/CopilotFab'));
 const CopilotPanel = lazy(() => import('./components/copilot/CopilotPanel'));
+/** Only /host/** can show or open the Copilot (CopilotFab's own gate, and
+ *  EventStudio is the only other opener), so the chunks are not even
+ *  requested elsewhere. They used to download (~25 requests, ~110 KB) on
+ *  the homepage and on every guest booth, competing with the camera's
+ *  critical path. Its state lives in the zustand store, not here. */
+function HostCopilot() {
+  const { pathname } = useLocation();
+  if (!pathname.startsWith('/host')) return null;
+  return (
+    <>
+      <CopilotFab />
+      <CopilotPanel />
+    </>
+  );
+}
 // Lazy too: nothing is loaded until somebody actually reports something.
 const SupportDialog = lazy(() => import('./components/support/SupportDialog'));
 
@@ -307,8 +322,8 @@ export default function App() {
         <ErrorBoundary label="app" fullScreen>
         <Suspense
           fallback={
-            <div className="flex h-full w-full items-center justify-center app-bg">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-[color:var(--color-accent)]" />
+            <div role="status" aria-label="Loading" className="flex h-full w-full items-center justify-center app-bg">
+              <div aria-hidden className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-[color:var(--color-accent)]" />
             </div>
           }
         >
@@ -447,8 +462,7 @@ export default function App() {
         {!LEGACY_EVENT && (
           <ErrorBoundary label="copilot" silent>
             <Suspense fallback={null}>
-              <CopilotFab />
-              <CopilotPanel />
+              <HostCopilot />
             </Suspense>
           </ErrorBoundary>
         )}
