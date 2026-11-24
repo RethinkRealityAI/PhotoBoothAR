@@ -89,6 +89,8 @@ import { builtInModels } from '../../lib/platformModels';
 import { pictureFromFile, renderPicture, stagePicture } from '../../lib/libraryPictureBrowser';
 import { formatDate } from '../../lib/adminFormat';
 import LoadError from '../../components/ui/LoadError';
+import RailToggle from '../../components/ui/RailToggle';
+import { useRailCollapsed } from '../../lib/useRailCollapsed';
 import Modal from '../../components/ui/Modal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import StatusPill from '../../components/ui/StatusPill';
@@ -867,6 +869,8 @@ export default function SharedLibrary() {
   const [copying, setCopying] = useState<{ sourceId: string | null; targetIds: string[] } | null>(null);
   const [managing, setManaging] = useState(false);
   const [managingTags, setManagingTags] = useState(false);
+  // Desktop: the category column folds to a slim strip for more grid room.
+  const catRail = useRailCollapsed('library-categories');
   const [autoSort, setAutoSort] = useState(false);
   const [bulkTags, setBulkTags] = useState<'add' | 'remove' | null>(null);
   const [bulkAccess, setBulkAccess] = useState(false);
@@ -1622,10 +1626,30 @@ export default function SharedLibrary() {
           </div>
 
           {/* Body */}
-          <div className={`grid gap-5 ${taxonomyReady ? 'lg:grid-cols-[220px_minmax(0,1fr)_320px]' : 'lg:grid-cols-[minmax(0,1fr)_320px]'}`}>
+          <div className={`grid gap-5 ${taxonomyReady ? (catRail.collapsed ? 'lg:grid-cols-[3rem_minmax(0,1fr)_320px]' : 'lg:grid-cols-[220px_minmax(0,1fr)_320px]') : 'lg:grid-cols-[minmax(0,1fr)_320px]'}`}>
             {taxonomyReady && (
-              <aside className="hidden lg:block">
-                <div className="sticky top-4">
+              <aside id="library-categories" aria-label="Categories" className="hidden lg:block">
+                {catRail.collapsed && (
+                  <div className="sticky top-4 flex flex-col items-center gap-2">
+                    <RailToggle collapsed onToggle={catRail.toggle} label="categories" controls="library-categories" />
+                    {/* Mouse convenience; the toggle is the accessible control.
+                        Accent when a category filter is on, so a folded column
+                        never hides why the grid is narrowed. */}
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-hidden
+                      onClick={catRail.toggle}
+                      className={`px-2 py-3 rounded-lg font-sans text-[11px] [writing-mode:vertical-rl] rotate-180 hover:bg-white/[0.05] transition-colors ${query.category !== 'all' ? 'text-[color:var(--color-accent)]' : 'text-brand-muted/60 hover:text-brand-fg'}`}
+                    >
+                      {query.category !== 'all' ? 'Category filter on' : 'Categories'}
+                    </button>
+                  </div>
+                )}
+                <div className={`sticky top-4 ${catRail.collapsed ? 'hidden' : ''}`}>
+                  <div className="flex justify-end -mt-2 mb-1">
+                    <RailToggle collapsed={false} onToggle={catRail.toggle} label="categories" controls="library-categories" />
+                  </div>
                   <CategoryNav
                     categories={categories}
                     counts={counts.byCategory}

@@ -20,6 +20,9 @@ import { useSession, signOut } from '../../lib/auth';
 import { checkIsPlatformAdmin } from '../../lib/admin';
 import { adminSupportCounts } from '../../lib/support';
 import { ToastProvider } from '../../components/ui/Toast';
+import Tooltip from '../../components/ui/Tooltip';
+import RailToggle from '../../components/ui/RailToggle';
+import { useRailCollapsed } from '../../lib/useRailCollapsed';
 import { haptic } from '../../lib/haptics';
 import { useDialog } from '../../lib/useDialog';
 import { ADMIN_NAV_GROUPS, currentAdminNav, type AdminNavEntry, type AdminNavId } from './adminNav';
@@ -48,10 +51,34 @@ const railLink =
   'pressable flex items-center gap-2.5 rounded-xl px-3 min-h-11 md:min-h-10 font-sans text-[13px] transition-colors shrink-0';
 const groupLabel = 'px-3 pt-3 pb-1 font-sans text-[10px] font-medium tracking-wide text-brand-muted/60';
 
-/** One labelled rail link. Shared by the desktop rail and the phone menu. */
-function RailItem({ item, unread, onPick }: { item: AdminNavEntry; unread: number; onPick?: () => void }) {
+/** One labelled rail link. Shared by the desktop rail and the phone menu.
+ *  `collapsed` (desktop rail only): icon alone, centred, named by a tooltip
+ *  and its aria-label; the unread count becomes a dot on the icon. */
+function RailItem({ item, unread, onPick, collapsed = false }: { item: AdminNavEntry; unread: number; onPick?: () => void; collapsed?: boolean }) {
   const Icon = ICONS[item.id];
   const showUnread = item.id === 'support' && unread > 0;
+  if (collapsed) {
+    return (
+      <Tooltip label={showUnread ? `${item.label} · ${unread} unread` : item.label} side="right">
+        <NavLink
+          to={item.to}
+          end={item.end}
+          aria-label={showUnread ? `${item.label}, ${unread} unread` : item.label}
+          onClick={() => { haptic('tap'); onPick?.(); }}
+          className={({ isActive }) =>
+            `${railLink} justify-center ${isActive ? 'is-selected bg-white/[0.10] text-brand-fg' : 'text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.05]'}`
+          }
+        >
+          <span className="relative">
+            <Icon className="w-[18px] h-[18px] shrink-0" aria-hidden />
+            {showUnread && (
+              <span aria-hidden className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[color:var(--color-accent)] ring-2 ring-[color:var(--color-brand-bg)]" />
+            )}
+          </span>
+        </NavLink>
+      </Tooltip>
+    );
+  }
   return (
     <NavLink
       to={item.to}
@@ -134,6 +161,9 @@ export default function AdminLayout() {
   const [adminState, setAdminState] = useState<'checking' | 'yes' | 'no'>('checking');
   const [unread, setUnread] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** Desktop rail only; the phone keeps its top bar + labelled menu. */
+  const rail = useRailCollapsed('admin');
+  const c = rail.collapsed;
 
   // A route change (a link, back/forward) always lands with the menu shut.
   useEffect(() => { setMenuOpen(false); }, [pathname]);
@@ -200,35 +230,49 @@ export default function AdminLayout() {
           groups and scroll on their own, so a short laptop screen never clips
           Admins or Sign out. */}
       <aside
-        className="hidden md:flex liquid-glass-raised shrink-0 z-20 flex-col my-3 ml-3 w-60 rounded-2xl px-3 pb-3 pt-5 min-h-0"
+        id="admin-rail"
+        className={`hidden md:flex liquid-glass-raised shrink-0 z-20 flex-col my-3 ml-3 rounded-2xl pb-3 pt-5 min-h-0 transition-[width] duration-200 motion-reduce:transition-none ${c ? 'w-[4.75rem] px-2' : 'w-60 px-3'}`}
       >
-        <Link
-          to="/admin"
-          onClick={() => haptic('tap')}
-          className="font-serif text-2xl font-semibold text-foil-static px-3 shrink-0 flex items-center min-h-11"
-        >
-          Beamwall
-        </Link>
-        <p className="px-3 font-sans text-[11px] text-brand-muted/60">Platform admin</p>
+        <div className={`flex items-center gap-1 shrink-0 ${c ? 'flex-col' : 'justify-between'}`}>
+          <Link
+            to="/admin"
+            onClick={() => haptic('tap')}
+            aria-label="Beamwall admin overview"
+            className={`font-serif text-2xl font-semibold text-foil-static shrink-0 flex items-center min-h-11 ${c ? 'justify-center' : 'px-3'}`}
+          >
+            {c ? <span aria-hidden>B</span> : 'Beamwall'}
+          </Link>
+          <RailToggle collapsed={c} onToggle={rail.toggle} label="menu" controls="admin-rail" />
+        </div>
+        {!c && <p className="px-3 font-sans text-[11px] text-brand-muted/60">Platform admin</p>}
 
         <nav aria-label="Admin" className="mt-1 flex-1 min-h-0 overflow-y-auto hide-scrollbar -mx-1 px-1 pb-2">
-          {ADMIN_NAV_GROUPS.map((g) => (
-            <div key={g.label}>
-              <p className={groupLabel}>{g.label}</p>
+          {ADMIN_NAV_GROUPS.map((g, i) => (
+            <div key={g.label} role={c ? 'group' : undefined} aria-label={c ? g.label : undefined}>
+              {/* Collapsed, a group's name becomes a hairline: the icons stay
+                  grouped without ten-pixel text squeezed into 76px. */}
+              {c ? (
+                i > 0 && <div aria-hidden className="mx-2 my-2 h-px bg-white/10" />
+              ) : (
+                <p className={groupLabel}>{g.label}</p>
+              )}
               <div className="flex flex-col">
-                {g.items.map((item) => <RailItem key={item.to} item={item} unread={unread} />)}
+                {g.items.map((item) => <RailItem key={item.to} item={item} unread={unread} collapsed={c} />)}
               </div>
             </div>
           ))}
         </nav>
 
-        <button
-          onClick={handleSignOut}
-          className={`${railLink} border-t border-white/10 rounded-t-none pt-1 text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.05]`}
-        >
-          <LogOut className="w-4 h-4 shrink-0" />
-          Sign out
-        </button>
+        <Tooltip label="Sign out" side="right" disabled={!c}>
+          <button
+            onClick={handleSignOut}
+            aria-label={c ? 'Sign out' : undefined}
+            className={`${railLink} border-t border-white/10 rounded-t-none pt-1 text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.05] ${c ? 'justify-center' : ''}`}
+          >
+            <LogOut className={c ? 'w-[18px] h-[18px] shrink-0' : 'w-4 h-4 shrink-0'} />
+            {!c && 'Sign out'}
+          </button>
+        </Tooltip>
       </aside>
 
       <main className="flex-1 relative overflow-y-auto">
