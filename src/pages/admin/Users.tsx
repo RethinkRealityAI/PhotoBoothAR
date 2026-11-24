@@ -16,7 +16,8 @@
  * 020) instead.
  */
 import { useCallback, useState } from 'react';
-import { Search, RefreshCw, Copy, Check } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
+import { AdminHeader, AdminPage, AdminSearch, RefreshButton } from './AdminChrome';
 import { fetchUsers, resetPassword, setUserBanned, adjustCredits, type UserRow } from '../../lib/admin';
 import { formatDate, formatCount } from '../../lib/adminFormat';
 import { listFootnote, type ListQuery } from '../../lib/serverList';
@@ -30,6 +31,9 @@ import { useToast } from '../../components/ui/Toast';
 import { copyText } from '../../lib/clipboard';
 
 const PAGE_SIZE = 50;
+/** A row action: a full 44px target (they were 27px pills in 9px type). */
+const rowBtn =
+  'pressable whitespace-nowrap rounded-full border px-3.5 min-h-11 font-sans text-[11px] transition-colors disabled:opacity-40';
 
 function ResetLinkModal({ link, onClose }: { link: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
@@ -97,7 +101,7 @@ function AdjustCreditsModal({
     <Modal title={`Adjust credits — ${user.orgName ?? 'org'}`} onClose={onClose} maxWidthClass="max-w-sm" dismissOnScrim={false}>
       <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1">
-          <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">Delta (+/-)</span>
+          <span className="font-sans text-[11px] text-brand-muted/75">Credits to add (negative removes)</span>
           <input
             type="number"
             value={delta}
@@ -107,7 +111,7 @@ function AdjustCreditsModal({
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">Reason</span>
+          <span className="font-sans text-[11px] text-brand-muted/75">Reason (goes in the audit log)</span>
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -200,15 +204,16 @@ export default function Users() {
       label: 'User',
       render: (u) => (
         <div>
-          <p className="text-brand-fg font-medium">{u.displayName || u.email || u.id}</p>
-          {u.email && <p className="font-mono text-[10px] text-brand-muted/40">{u.email}</p>}
+          <p className="text-brand-fg font-medium break-all">{u.displayName || u.email || u.id}</p>
+          {/* The email is the title already when there is no display name. */}
+          {u.email && u.displayName && <p className="font-mono text-[10px] text-brand-muted/70 break-all">{u.email}</p>}
         </div>
       ),
     },
     {
       key: 'org',
       label: 'Organization',
-      render: (u) => (u.orgName ? <span>{u.orgName} <span className="text-brand-muted/40">· {u.role}</span></span> : <span className="text-brand-muted/40">—</span>),
+      render: (u) => (u.orgName ? <span>{u.orgName} <span className="text-brand-muted/70">· {u.role}</span></span> : <span className="text-brand-muted/60">None</span>),
     },
     {
       key: 'status',
@@ -234,7 +239,7 @@ export default function Users() {
             <button
               onClick={() => doResetPassword(u)}
               disabled={busy}
-              className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors disabled:opacity-40"
+              className={`${rowBtn} border-white/10 bg-white/[0.06] hover:bg-white/[0.1] text-brand-fg/90`}
             >
               Reset password
             </button>
@@ -242,7 +247,7 @@ export default function Users() {
               <button
                 onClick={() => setCreditsTarget(u)}
                 disabled={busy}
-                className="rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors disabled:opacity-40"
+                className={`${rowBtn} border-white/10 bg-white/[0.06] hover:bg-white/[0.1] text-brand-fg/90`}
               >
                 Credits
               </button>
@@ -251,7 +256,7 @@ export default function Users() {
               <button
                 onClick={() => doUnban(u)}
                 disabled={busy}
-                className="rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-emerald-400 transition-colors disabled:opacity-40"
+                className={`${rowBtn} border-emerald-400/25 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300`}
               >
                 Unban
               </button>
@@ -259,7 +264,7 @@ export default function Users() {
               <button
                 onClick={() => setBanTarget(u)}
                 disabled={busy}
-                className="rounded-full bg-amber-500/15 hover:bg-amber-500/25 px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-amber-400 transition-colors disabled:opacity-40"
+                className={`${rowBtn} border-amber-400/25 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300`}
               >
                 Ban
               </button>
@@ -271,34 +276,22 @@ export default function Users() {
   ];
 
   return (
-    <div className="p-6 md:p-10 max-w-6xl mx-auto">
-      <header className="flex items-center justify-between mb-6 gap-4">
-        <div>
-          <h1 className="font-serif text-3xl text-foil-static">Users</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">
-            {listFootnote(list.rows.length, list.hasMore, 'account') || 'Loading…'}
-          </p>
-        </div>
-        <button
-          onClick={list.reload}
-          disabled={list.loading}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
-        >
-          <RefreshCw className={`w-4 h-4 ${list.loading ? 'animate-spin' : ''}`} />
-        </button>
-      </header>
+    <AdminPage>
+      <AdminHeader
+        title="Users"
+        subtitle="Every account. Reset a password, adjust credits or block a sign-in."
+        note={listFootnote(list.rows.length, list.hasMore, 'account') || 'Loading…'}
+        actions={<RefreshButton onClick={list.reload} busy={list.loading} />}
+      />
 
       {list.error && <LoadError what="users" code={list.error} onRetry={list.reload} />}
 
-      <div className="relative mb-4 max-w-xs">
-        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
-        <input
-          value={list.query}
-          onChange={(e) => list.setQuery(e.target.value)}
-          placeholder="Search name, email or org…"
-          className="w-full pl-9 pr-3 min-h-11 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
-        />
-      </div>
+      <AdminSearch
+        value={list.query}
+        onChange={list.setQuery}
+        placeholder="Search name, email or org…"
+        label="Search users"
+      />
 
       <DataTable columns={columns} rows={list.rows} getRowKey={(u) => u.id} loading={list.loading} emptyMessage="No users match." />
       <ListMore
@@ -318,13 +311,14 @@ export default function Users() {
           <div className="flex gap-2">
             <button
               onClick={confirmBan}
-              className="flex-1 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 px-4 py-2.5 font-label uppercase tracking-luxe text-[10px] text-amber-400 transition-colors"
+              disabled={busyId === banTarget.id}
+              className="pressable flex-1 min-h-11 rounded-xl border border-amber-400/25 bg-amber-500/15 hover:bg-amber-500/25 px-4 font-sans text-sm text-amber-300 transition-colors disabled:opacity-40"
             >
               Ban user
             </button>
             <button
               onClick={() => setBanTarget(null)}
-              className="flex-1 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] px-4 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/80 transition-colors"
+              className="pressable flex-1 min-h-11 rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] px-4 font-sans text-sm text-brand-fg/90 transition-colors"
             >
               Cancel
             </button>
@@ -339,6 +333,6 @@ export default function Users() {
           onDone={() => setCreditsTarget(null)}
         />
       )}
-    </div>
+    </AdminPage>
   );
 }

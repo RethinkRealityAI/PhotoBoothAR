@@ -10,7 +10,7 @@
  */
 import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Search } from 'lucide-react';
+import { AdminHeader, AdminPage, AdminSearch, RefreshButton } from './AdminChrome';
 import { fetchEvents, setEventStatus, setEventTier, type AdminEventRow } from '../../lib/admin';
 import { formatDate } from '../../lib/adminFormat';
 import { listFootnote, type ListQuery } from '../../lib/serverList';
@@ -74,7 +74,7 @@ export default function Events() {
       render: (e) => (
         <div>
           <p className="text-brand-fg font-medium">{e.name}</p>
-          <p className="font-mono text-[10px] text-brand-muted/40">/e/{e.slug}</p>
+          <p className="font-mono text-[10px] text-brand-muted/70 break-all">/e/{e.slug}</p>
         </div>
       ),
     },
@@ -104,13 +104,13 @@ export default function Events() {
         <div className="flex items-center gap-2 justify-end">
           <button
             onClick={(ev) => { ev.stopPropagation(); setTierTarget(e); }}
-            className="pressable rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
+            className="pressable whitespace-nowrap rounded-full border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] px-3.5 min-h-11 font-sans text-[11px] text-brand-fg/90 transition-colors"
           >
             Comp plan
           </button>
           <button
             onClick={(ev) => { ev.stopPropagation(); setTarget(e); }}
-            className="pressable rounded-full bg-white/[0.06] hover:bg-white/[0.1] px-3 min-h-11 font-label uppercase tracking-luxe text-[9px] text-brand-fg/80 transition-colors"
+            className="pressable whitespace-nowrap rounded-full border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] px-3.5 min-h-11 font-sans text-[11px] text-brand-fg/90 transition-colors"
           >
             Change status
           </button>
@@ -120,34 +120,22 @@ export default function Events() {
   ];
 
   return (
-    <div className="p-6 md:p-10 max-w-6xl mx-auto">
-      <header className="flex items-center justify-between mb-6 gap-4">
-        <div>
-          <h1 className="font-serif text-3xl text-foil-static">Events</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">
-            {listFootnote(list.rows.length, list.hasMore, 'event') || 'Loading…'}
-          </p>
-        </div>
-        <button
-          onClick={load}
-          disabled={list.loading}
-          className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
-        >
-          <RefreshCw className={`w-4 h-4 ${list.loading ? 'animate-spin' : ''}`} />
-        </button>
-      </header>
+    <AdminPage>
+      <AdminHeader
+        title="Events"
+        subtitle="Every event across every customer. Changes here skip the host's own studio, so each one asks first."
+        note={listFootnote(list.rows.length, list.hasMore, 'event') || 'Loading…'}
+        actions={<RefreshButton onClick={load} busy={list.loading} />}
+      />
 
       {list.error && <LoadError what="events" code={list.error} onRetry={list.reload} />}
 
-      <div className="relative mb-4 max-w-xs">
-        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
-        <input
-          value={list.query}
-          onChange={(e) => list.setQuery(e.target.value)}
-          placeholder="Search by event name or slug…"
-          className="w-full pl-9 pr-3 min-h-11 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
-        />
-      </div>
+      <AdminSearch
+        value={list.query}
+        onChange={list.setQuery}
+        placeholder="Search by event name or slug…"
+        label="Search events"
+      />
 
       <DataTable
         columns={columns}
@@ -172,7 +160,7 @@ export default function Events() {
                 key={s}
                 onClick={() => applyStatus(s)}
                 disabled={busy}
-                className="rounded-xl bg-white/[0.06] hover:bg-white/[0.1] px-4 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors disabled:opacity-40 capitalize text-left"
+                className="pressable rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-sans text-sm text-brand-fg/90 transition-colors disabled:opacity-40 text-left"
               >
                 Set to {s}
               </button>
@@ -183,9 +171,9 @@ export default function Events() {
 
       {tierTarget && (
         <Modal title={`Comp plan — ${tierTarget.name}`} onClose={() => setTierTarget(null)} maxWidthClass="max-w-sm">
-          <p className="font-sans text-xs text-brand-muted/60 mb-5">
-            Currently <span className="capitalize">{tierTarget.plan_tier}</span>. This grants the tier directly —
-            it does not charge Stripe or create a purchase record.
+          <p className="font-sans text-xs text-brand-muted/75 mb-5">
+            Currently <span className="capitalize">{tierTarget.plan_tier}</span>. This grants the tier directly.
+            It does not charge Stripe or create a purchase record.
           </p>
           <div className="flex flex-col gap-2">
             {TIERS.filter((t) => t !== tierTarget.plan_tier).map((t) => (
@@ -193,7 +181,7 @@ export default function Events() {
                 key={t}
                 onClick={() => applyTier(t)}
                 disabled={busy}
-                className="rounded-xl bg-white/[0.06] hover:bg-white/[0.1] px-4 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg/90 transition-colors disabled:opacity-40 capitalize text-left"
+                className="pressable rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] px-4 min-h-11 font-sans text-sm text-brand-fg/90 transition-colors disabled:opacity-40 text-left"
               >
                 Comp to {t}
               </button>
@@ -201,6 +189,6 @@ export default function Events() {
           </div>
         </Modal>
       )}
-    </div>
+    </AdminPage>
   );
 }

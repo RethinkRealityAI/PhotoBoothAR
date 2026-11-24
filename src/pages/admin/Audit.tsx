@@ -11,7 +11,7 @@
  * "nothing" — indistinguishable from a clean record.
  */
 import { useCallback } from 'react';
-import { RefreshCw, Search } from 'lucide-react';
+import { AdminHeader, AdminPage, AdminSearch, RefreshButton } from './AdminChrome';
 import { fetchAudit, type AuditEntry } from '../../lib/admin';
 import { formatDate, auditActionLabel, auditMetaSummary } from '../../lib/adminFormat';
 import { listFootnote, type ListQuery } from '../../lib/serverList';
@@ -35,14 +35,14 @@ export default function Audit() {
   const list = useServerList<AuditEntry>(fetchPage, PAGE_SIZE);
 
   const columns: Column<AuditEntry>[] = [
-    { key: 'actor', label: 'Actor', render: (e) => e.actorEmail ?? <span className="text-brand-muted/40">system</span> },
-    { key: 'action', label: 'Action', render: (e) => <span className="text-brand-fg">{auditActionLabel(e.action)}</span> },
+    { key: 'action', label: 'Action', render: (e) => <span className="text-brand-fg font-medium">{auditActionLabel(e.action)}</span> },
+    { key: 'actor', label: 'Actor', render: (e) => <span className="break-all">{e.actorEmail ?? <span className="text-brand-muted/70">System</span>}</span> },
     {
       key: 'target',
       label: 'Target',
       render: (e) => e.target_type
-        ? <span className="font-mono text-[10px] text-brand-muted/60">{e.target_type}:{e.target_id}</span>
-        : <span className="text-brand-muted/40">—</span>,
+        ? <span className="font-mono text-[10px] text-brand-muted/75 break-all">{e.target_type}:{e.target_id}</span>
+        : <span className="text-brand-muted/60">None</span>,
     },
     {
       key: 'meta',
@@ -50,42 +50,30 @@ export default function Audit() {
       render: (e) => {
         const summary = auditMetaSummary(e.meta);
         return summary
-          ? <span className="text-[11px] text-brand-muted/60 truncate block max-w-xs" title={summary}>{summary}</span>
-          : <span className="text-brand-muted/40">—</span>;
+          ? <span className="text-[11px] text-brand-muted/75 sm:truncate block sm:max-w-xs" title={summary}>{summary}</span>
+          : <span className="text-brand-muted/60">None</span>;
       },
     },
     { key: 'when', label: 'When', render: (e) => formatDate(e.created_at) },
   ];
 
   return (
-    <div className="p-6 md:p-10 max-w-6xl mx-auto">
-      <header className="flex items-center justify-between mb-6 gap-4">
-        <div>
-          <h1 className="font-serif text-3xl text-foil-static">Audit log</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">
-            {listFootnote(list.rows.length, list.hasMore, 'admin action') || 'Loading…'}
-          </p>
-        </div>
-        <button
-          onClick={list.reload}
-          disabled={list.loading}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
-        >
-          <RefreshCw className={`w-4 h-4 ${list.loading ? 'animate-spin' : ''}`} />
-        </button>
-      </header>
+    <AdminPage>
+      <AdminHeader
+        title="Audit log"
+        subtitle="Every change an admin made, newest first. Nothing here can be edited."
+        note={listFootnote(list.rows.length, list.hasMore, 'admin action') || 'Loading…'}
+        actions={<RefreshButton onClick={list.reload} busy={list.loading} />}
+      />
 
       {list.error && <LoadError what="the audit log" code={list.error} onRetry={list.reload} />}
 
-      <div className="relative mb-4 max-w-xs">
-        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
-        <input
-          value={list.query}
-          onChange={(e) => list.setQuery(e.target.value)}
-          placeholder="Search action or target…"
-          className="w-full pl-9 pr-3 min-h-11 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
-        />
-      </div>
+      <AdminSearch
+        value={list.query}
+        onChange={list.setQuery}
+        placeholder="Search action or target…"
+        label="Search the audit log by action or target"
+      />
 
       <DataTable columns={columns} rows={list.rows} getRowKey={(e) => String(e.id)} loading={list.loading} emptyMessage="No audit activity yet." />
       <ListMore
@@ -94,6 +82,6 @@ export default function Audit() {
         onMore={list.loadMore}
         note={listFootnote(list.rows.length, list.hasMore, 'admin action')}
       />
-    </div>
+    </AdminPage>
   );
 }

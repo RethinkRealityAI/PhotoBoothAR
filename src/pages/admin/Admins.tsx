@@ -9,7 +9,8 @@
  * the same guard server-side regardless).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, UserPlus, X } from 'lucide-react';
+import { UserPlus, X } from 'lucide-react';
+import { AdminHeader, AdminPage, RefreshButton } from './AdminChrome';
 import { fetchAdmins, addAdmin, removeAdmin, type AdminRow } from '../../lib/admin';
 import { useSession } from '../../lib/auth';
 import { formatDate } from '../../lib/adminFormat';
@@ -77,54 +78,58 @@ export default function Admins() {
   const totalAdmins = admins.length;
 
   return (
-    <div className="p-6 md:p-10 max-w-3xl mx-auto">
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="font-serif text-3xl text-foil-static">Admins</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">{registryNote(totalAdmins, 'platform admin')}</p>
-        </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </header>
+    <AdminPage>
+      <AdminHeader
+        title="Admins"
+        subtitle="People who can open this admin suite. Add someone by email; new people get an invite."
+        note={loading ? 'Loading…' : registryNote(totalAdmins, 'platform admin')}
+        actions={<RefreshButton onClick={load} busy={loading} />}
+      />
+      <div className="max-w-3xl">
 
       {loadError && <LoadError what="platform admins" code={loadError} onRetry={load} />}
 
       <div className="flex items-center gap-2 mb-6">
         <input
+          type="email"
+          aria-label="Email of the person to make an admin"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submitAdd(); }}
           placeholder="email@example.com"
-          className="flex-1 rounded-xl bg-white/[0.04] border border-white/10 px-4 py-2.5 font-sans text-sm text-brand-fg placeholder:text-brand-muted/40 outline-none focus:border-white/20"
+          className="flex-1 min-w-0 min-h-11 rounded-xl bg-white/[0.06] border border-white/10 px-4 font-sans text-sm text-brand-fg placeholder:text-brand-muted/60 outline-none focus:border-[color:var(--color-accent)]/60"
         />
         <button
           onClick={submitAdd}
           disabled={busy || !email.trim()}
-          className="flex items-center gap-1.5 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-noir-900 glow-accent transition active:scale-[0.98] disabled:opacity-40 shrink-0"
+          className="pressable flex items-center gap-1.5 min-h-11 rounded-full bg-foil px-5 font-sans text-sm font-semibold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-40 shrink-0"
         >
-          <UserPlus className="w-4 h-4" /> Add
+          <UserPlus className="w-4 h-4" /> {busy ? 'Adding…' : 'Add admin'}
         </button>
       </div>
 
       {loading ? (
         <div className="flex flex-col gap-2">
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-14 glass rounded-2xl animate-pulse" />)}
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-14 glass rounded-2xl motion-safe:animate-pulse" />)}
         </div>
+      ) : admins.length === 0 ? (
+        // Only reachable on a failed read (the signed-in admin is always on the
+        // list), which the alert above already explains.
+        loadError ? null : <p className="glass rounded-2xl p-8 text-center font-sans text-sm text-brand-muted/75">No admins listed.</p>
       ) : (
-        <div className="glass rounded-2xl divide-y divide-white/[0.04]">
+        <div className="glass rounded-2xl divide-y divide-white/[0.06]">
           {admins.map((a) => {
             const check = canRemoveAdmin({ actorUserId, targetUserId: a.userId, totalAdmins });
             const busyRow = removingId === a.userId;
             return (
               <div key={a.userId} className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <div className="min-w-0">
-                  <p className="font-sans text-sm text-brand-fg truncate">{a.displayName || a.email || a.userId}</p>
-                  <p className="font-sans text-[10px] text-brand-muted/40">
+                  <p className="font-sans text-sm text-brand-fg truncate">
+                    {a.displayName || a.email || a.userId}
+                    {a.userId === actorUserId && <span className="ml-2 text-[11px] text-brand-muted/70">(you)</span>}
+                  </p>
+                  {a.displayName && a.email && <p className="font-mono text-[11px] text-brand-muted/75 truncate">{a.email}</p>}
+                  <p className="font-sans text-[11px] text-brand-muted/65">
                     Added {formatDate(a.createdAt)}{a.addedByEmail ? ` by ${a.addedByEmail}` : ''}
                   </p>
                 </div>
@@ -132,7 +137,8 @@ export default function Admins() {
                   onClick={() => doRemove(a)}
                   disabled={!check.ok || busyRow}
                   title={check.reason === 'cannot_remove_self' ? "You can't remove yourself" : check.reason === 'cannot_remove_last_admin' ? 'At least one admin must remain' : 'Remove'}
-                  className="p-2 rounded-lg bg-white/[0.04] hover:bg-amber-500/15 text-brand-muted/50 hover:text-amber-400 transition-colors disabled:opacity-30 disabled:hover:bg-white/[0.04] disabled:hover:text-brand-muted/50 shrink-0"
+                  aria-label={`Remove ${a.email ?? a.displayName ?? 'this admin'} as an admin`}
+                  className="pressable grid place-items-center w-11 h-11 rounded-xl bg-white/[0.04] hover:bg-amber-500/15 text-brand-muted/70 hover:text-amber-300 transition-colors disabled:opacity-30 disabled:hover:bg-white/[0.04] disabled:hover:text-brand-muted/70 shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -141,6 +147,7 @@ export default function Admins() {
           })}
         </div>
       )}
-    </div>
+      </div>
+    </AdminPage>
   );
 }
