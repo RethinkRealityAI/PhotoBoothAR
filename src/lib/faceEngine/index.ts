@@ -139,6 +139,8 @@ let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 let frameLockHolders = 0;
 /** t of the last POSE sample handed to faceRig — the tracked frame's identity. */
 let lastPoseT = Number.NaN;
+/** frameMs of that sample (when the camera frame was taken), else its t. */
+let lastPoseFrameMs = Number.NaN;
 /** `now` of the last pollFaceEngine call (performance.now() in the app): the frame-lock guard's clock. */
 let lastPollNow = Number.NaN;
 /** Frame-lock falls back to the live camera while the tracker has stalled (frameLockGuard.ts). */
@@ -474,12 +476,22 @@ export function getTrackedFrame(): TrackedFrame | null {
   if (src === null || !(src.width > 0) || !(src.height > 0)) return null;
   // The tracker has stalled (fast move, no new sample): a held frame is a frozen
   // picture. Show the live camera until samples flow again.
-  if (frameLockShouldUseLive(lockGuard, lastPollNow, lastPoseT)) return null;
+  if (frameLockShouldUseLive(lockGuard, lastPollNow, lastPoseT, lastPoseFrameMs)) return null;
   _tracked.source = src;
   _tracked.width = src.width;
   _tracked.height = src.height;
   _tracked.key = lastPoseT;
   return _tracked;
+}
+
+/**
+ * How far the frame-locked picture trails the live camera right now, ms (tester readout):
+ * the age of the camera frame under the current pose. null when the screen shows the live
+ * camera (no lock, or the stall guard fell back).
+ */
+export function getFrameLockLagMs(now: number): number | null {
+  if (!info.frameLock || lockGuard.live || !Number.isFinite(lastPoseFrameMs)) return null;
+  return Math.max(0, now - lastPoseFrameMs);
 }
 
 /** Times frame-lock fell back to the live camera because tracking stalled (tester readout). */
@@ -714,7 +726,10 @@ export function pollFaceEngine(video: HTMLVideoElement, now: number): FacePoll {
     prewarmPending(); // first poll (or a new camera element) while 8th Wall is still loading
   }
   pollEngines(video, now);
-  if (_poll.pose !== null) lastPoseT = _poll.pose.t;
+  if (_poll.pose !== null) {
+    lastPoseT = _poll.pose.t;
+    lastPoseFrameMs = _poll.pose.frameMs ?? _poll.pose.t;
+  }
   return _poll;
 }
 

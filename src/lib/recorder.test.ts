@@ -24,6 +24,11 @@ describe('pickVideoMimeType', () => {
     expect(pickVideoMimeType()).toBe('video/webm;codecs=vp9,opus');
   });
 
+  it('prefers vp8 over vp9 (the lighter encoder leaves the phone CPU to the face tracker)', () => {
+    stubMediaRecorder(['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']);
+    expect(pickVideoMimeType()).toBe('video/webm;codecs=vp8,opus');
+  });
+
   it('falls back to vp8+opus when vp9 is missing', () => {
     stubMediaRecorder(['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']);
     expect(pickVideoMimeType()).toBe('video/webm;codecs=vp8,opus');

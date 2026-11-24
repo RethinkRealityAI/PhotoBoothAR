@@ -67,7 +67,8 @@ import { fitStageBox, type StageBox } from '../lib/studio/stageLayout';
 import ReportIssueButton from './support/ReportIssueButton';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
 import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../lib/handRig';
-import { isHandAnchorId } from '../lib/handPose';
+import { GUEST_HAND_TRACKING, isHandAnchorId } from '../lib/handPose';
+import { isHandOnlyLook } from '../lib/studio/sceneFamilies';
 import {
   collectTriggers,
   createTriggerEngine,
@@ -509,10 +510,12 @@ export default function Booth() {
   const streamRef = useRef<MediaStream | null>(null); // always-current stream (survives camera flip)
 
   // ── Build catalog ─────────────────────────────────────────────────────
-  const catalog = useMemo(
-    () => buildCatalog(eventConfig.arContent, experiencesLoaded ? experiences : [], presetOverrides, experiencesLoaded ? linkedGlobals : [], source === 'db'),
-    [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides, source],
-  );
+  const catalog = useMemo(() => {
+    const all = buildCatalog(eventConfig.arContent, experiencesLoaded ? experiences : [], presetOverrides, experiencesLoaded ? linkedGlobals : [], source === 'db');
+    // A look that is ONLY hand-held gear shows nothing without hand tracking,
+    // which guest booths don't run (GUEST_HAND_TRACKING): leave it out.
+    return GUEST_HAND_TRACKING || source !== 'db' ? all : all.filter((e) => !isHandOnlyLook(e));
+  }, [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides, source]);
 
   // Pre-select from route param
   useEffect(() => {
@@ -919,6 +922,10 @@ export default function Booth() {
       // Same layerVisible rule as the 2D builder above (eye toggle, except
       // reveal targets which are gated only by their trigger firing).
       .filter((l) => l.kind === '3d_attachment' && !!l.anchor && layerVisible(l))
+      // Hand-held gear needs the hand tracker, which guest booths don't run
+      // (GUEST_HAND_TRACKING). Drawn without it, its HandRig would start the
+      // tracker itself, so it is left out instead.
+      .filter((l) => GUEST_HAND_TRACKING || !isHandAnchorId(l.handAnchor))
       // ONE mapper, shared with StudioPreview and Studio3DView (draftMapping):
       // animation, occlusion, finish/tint and customization were hand-written
       // three times and nothing compared them. The source==='db' gates stay
@@ -1112,8 +1119,12 @@ export default function Booth() {
   // AND bandwidth.
   const needsHands = useMemo(
     () =>
-      hasHandSource(lookTriggers) ||
-      (rawAttachLayers ?? []).some((l) => l.kind === '3d_attachment' && isHandAnchorId(l.handAnchor)),
+      // Off on every guest booth for now (handPose.GUEST_HAND_TRACKING): the
+      // model never downloads and its inference never competes with the face.
+      GUEST_HAND_TRACKING && (
+        hasHandSource(lookTriggers) ||
+        (rawAttachLayers ?? []).some((l) => l.kind === '3d_attachment' && isHandAnchorId(l.handAnchor))
+      ),
     [lookTriggers, rawAttachLayers],
   );
   /** The hand tracker FAILED to start (handTracking.getHandTrackerError). */
@@ -2063,8 +2074,13 @@ export default function Booth() {
                   // renders in that same canvas, so it must reach photos too.
                   threeCanvasId={is3D || powerFxActive ? 'booth-3d-layer' : null}
                   // Draw the frame the pose came from (resolver decides: never
-                  // legacy; on for 8th Wall poses). Photo + clip use it too.
-                  frameLock={is3D && source === 'db'}
+                  // legacy; on for 8th Wall poses). Photos use it too. NOT while
+                  // recording: the locked frame trails the camera by ~2 tracker
+                  // samples, and the clip's sound is live, so a locked clip has
+                  // lips moving after the words (worse as encoding slows the
+                  // tracker). A clip shows the live camera; props ride the
+                  // filtered pose.
+                  frameLock={is3D && source === 'db' && !recording}
                   maxFps={boothFpsCap}
                   active={true}
                   watermark={entitlements.watermark}

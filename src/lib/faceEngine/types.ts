@@ -19,6 +19,10 @@ export interface FaceKeypoints {
 export interface FaceSample {
   /** performance.now() when the sample was produced. */
   t: number;
+  /** performance.now() when the camera frame this sample was computed from was taken, when the
+   *  engine knows it (8th Wall: the frame's upload). Frame-lock shows THAT frame, so
+   *  `now - frameMs` is how far the locked picture trails the live camera. */
+  frameMs?: number;
   matrix: ArrayLike<number> | null;
   /** MediaPipe/ARKit category name -> score 0..1. {} when no face. null = this engine has no
    *  expression output for this sample (caller keeps its previous stash). */

@@ -22,6 +22,7 @@ import {
   getActiveFaceEngineInfo,
   getExtraFaces,
   getFrameLockFallbacks,
+  getFrameLockLagMs,
   subscribeFaceEngine,
 } from '../../lib/faceEngine';
 import { trackingReadoutEnabled } from '../../lib/faceEngine/engineSelect';
@@ -128,6 +129,8 @@ export default function TrackingReadout() {
   const [camera, setCamera] = useState<string | null>(null);
   /** Times the 3D picture fell back to the live camera because tracking stalled. */
   const [lockFallbacks, setLockFallbacks] = useState(0);
+  /** How far the locked picture trails the live camera (ms), null when showing live. */
+  const [lockLag, setLockLag] = useState<number | null>(null);
   /** Per-second rates: composites drawn, 3D renders, new camera frames. */
   const [fps, setFps] = useState<{ screen: number; r3d: number; cam: number | null } | null>(null);
   /** Microphone state + live peak level (MicMeter). */
@@ -166,6 +169,7 @@ export default function TrackingReadout() {
       setFaces(slots === 0 ? null : [(st.detectionsPerSec ?? 0) > 0 ? 1 + extras : 0, slots + 1]);
       setCamera(readCamera());
       setLockFallbacks(getFrameLockFallbacks());
+      setLockLag(getFrameLockLagMs(now));
       setMic(micMeter.read());
       const v = cameraVideo() as RVFC | null;
       if (v !== camVideo) {
@@ -214,6 +218,7 @@ export default function TrackingReadout() {
         frame-lock: <b>{info.frameLock ? 'on' : 'off'}</b>
         <span className="text-brand-muted"> ({info.frameLockSource})</span>
         {info.frameLock && <span className="tabular-nums"> · stalls→live <b>{lockFallbacks}</b></span>}
+        {info.frameLock && <span className="tabular-nums"> · lag <b>{lockLag === null ? 'live' : `${lockLag.toFixed(0)} ms`}</b></span>}
       </div>
       {info.error !== null && <div className="text-brand-muted">error: {info.error}</div>}
       {camera !== null && <div className="tabular-nums">cam: <b>{camera}</b></div>}

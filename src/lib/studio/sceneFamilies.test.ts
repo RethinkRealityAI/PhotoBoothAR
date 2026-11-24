@@ -3,6 +3,7 @@ import {
   familyPresence,
   focusForSelection,
   isHandObject,
+  isHandOnlyLook,
   objectFamily,
   orbitMannequins,
   resolveFocus,
@@ -103,5 +104,21 @@ describe('focusForSelection — a piece of the other family brings the camera wi
     expect(focusForSelection([head, wand, cuff], 'hand', cuff)).toBeNull();
     expect(focusForSelection([head, wand], null, head)).toBeNull();
     expect(focusForSelection([head, wand], 'hand', null)).toBeNull();
+  });
+});
+
+describe('isHandOnlyLook', () => {
+  const hand = { kind: '3d_attachment', handAnchor: 'grip' };
+  const head = { kind: '3d_attachment' };
+  it('is true only when every layer is hand-held 3D gear', () => {
+    expect(isHandOnlyLook({ kind: '3d_attachment', config: { layers: [hand] } })).toBe(true);
+    expect(isHandOnlyLook({ kind: '3d_attachment', config: { layers: [hand, hand] } })).toBe(true);
+  });
+  it('keeps looks that have anything besides hand gear', () => {
+    expect(isHandOnlyLook({ kind: '3d_attachment', config: { layers: [hand, head] } })).toBe(false);
+    expect(isHandOnlyLook({ kind: '3d_attachment', config: { layers: [hand, { kind: 'border' }] } })).toBe(false);
+    expect(isHandOnlyLook({ kind: '3d_attachment', config: { layers: [] } })).toBe(false);
+    expect(isHandOnlyLook({ kind: '3d_attachment', config: {} })).toBe(false);
+    expect(isHandOnlyLook({ kind: 'border', config: { layers: [hand] } })).toBe(false);
   });
 });

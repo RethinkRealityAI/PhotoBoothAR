@@ -17,9 +17,15 @@
  * kept last as the Safari fallback (Safari's MediaRecorder only emits MP4).
  */
 export function pickVideoMimeType(): string {
+  // VP8 before VP9: the booth encodes WHILE it tracks a face and draws 3D, on
+  // a phone. VP9 is a far heavier encoder (Chrome on Android encodes it in
+  // software; VP8 often has a hardware encoder) and its CPU comes straight out
+  // of the face tracker, which is what made the live picture lag while
+  // recording. Same WebM container, same players; at the booth's 4-5 Mbps a
+  // 720p clip looks the same in either.
   const candidates = [
-    'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9,opus',
     'video/webm;codecs=h264,opus',
     'video/webm',
     'video/mp4;codecs=h264,aac', // Safari
