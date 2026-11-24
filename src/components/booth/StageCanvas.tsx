@@ -38,6 +38,7 @@ import { useOptionalEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 import { animateTransform2D } from '../../lib/studio/animation';
 import { getTrackedFrame, retainFrameLock } from '../../lib/faceEngine';
+import { boothFrameCounters, createFrameGate, frameGateShouldDraw, runPreCompositeRender } from '../../lib/frameBudget';
 
 export interface StageCanvasHandle {
   canvas: HTMLCanvasElement | null;
@@ -127,6 +128,12 @@ interface Props {
    * drawn, nothing is retained).
    */
   frameLock?: boolean;
+  /**
+   * Cap the live composite at this many frames a second (lib/frameBudget.ts),
+   * and render the composited 3D canvas synchronously just before each one.
+   * Absent/0 ⇒ redraw on every screen refresh, exactly as before this prop.
+   */
+  maxFps?: number;
 }
 
 /** Live preview / record buffer. Exported so callers reporting a recording's
@@ -376,7 +383,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     videoRef, effectId, mirror, sparkles = false,
     overlayUrl, overlayTransform, overlayOpacity, overlays,
     threeCanvasId, active = true, watermark = true, effectsCanvas, lettering,
-    burnSignature = false, frameLock = false,
+    burnSignature = false, frameLock = false, maxFps = 0,
   },
   ref,
 ) {
@@ -437,6 +444,8 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   useEffect(() => { watermarkRef.current = watermark; }, [watermark]);
   useEffect(() => { effectsCanvasRef.current = effectsCanvas ?? null; }, [effectsCanvas]);
   useEffect(() => { burnSignatureRef.current = burnSignature ?? false; }, [burnSignature]);
+  const frameGateRef = useRef(createFrameGate(maxFps));
+  useEffect(() => { frameGateRef.current = createFrameGate(maxFps); }, [maxFps]);
   const frameLockRef = useRef(frameLock);
   useEffect(() => {
     frameLockRef.current = frameLock;
@@ -636,9 +645,15 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    function tick() {
+    function tick(now: number) {
       rafRef.current = requestAnimationFrame(tick);
       if (!activeRef.current) return;
+      // Budget: skip screen refreshes the camera has no new frame for.
+      if (!frameGateShouldDraw(frameGateRef.current, now)) return;
+      // The composited 3D canvas (if it registered) renders NOW, so the
+      // drawImage below reads this frame's props, not last frame's.
+      runPreCompositeRender(now);
+      boothFrameCounters.composite++;
       ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
       drawFrame(
         ctx!, canvas!, runner, PREVIEW_W, PREVIEW_H,
