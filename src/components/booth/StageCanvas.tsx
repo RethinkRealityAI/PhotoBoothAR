@@ -130,6 +130,13 @@ interface Props {
    */
   frameLock?: boolean;
   /**
+   * World mode on 8th Wall: the camera picture the world tracker tracked
+   * (its canvas, same aspect as the stage), drawn instead of the live
+   * <video> so the standing frame and the room come from the same moment.
+   * Returns null until the first tracked picture. Absent ⇒ unchanged.
+   */
+  frameSource?: (() => { source: CanvasImageSource; width: number; height: number; key: number; frameMs: number } | null) | null;
+  /**
    * Cap the live composite at this many frames a second (lib/frameBudget.ts),
    * and render the composited 3D canvas synchronously just before each one.
    * Absent/0 ⇒ redraw on every screen refresh, exactly as before this prop.
@@ -391,7 +398,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     videoRef, effectId, mirror, sparkles = false,
     overlayUrl, overlayTransform, overlayOpacity, overlays,
     threeCanvasId, active = true, watermark = true, effectsCanvas, lettering,
-    burnSignature = false, frameLock = false, maxFps = 0, pictureClock = false,
+    burnSignature = false, frameLock = false, maxFps = 0, pictureClock = false, frameSource = null,
   },
   ref,
 ) {
@@ -462,6 +469,8 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   /** What the last drawFrame drew: the tracker's frame time, or NaN for the live camera. */
   const drawnFrameMsRef = useRef(Number.NaN);
   const frameLockRef = useRef(frameLock);
+  const frameSourceRef = useRef(frameSource);
+  frameSourceRef.current = frameSource;
   useEffect(() => {
     frameLockRef.current = frameLock;
     // Tell the engine somebody draws the tracked frame (MediaPipe only pays
@@ -515,7 +524,10 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
 
     // Frame-lock: the analysed frame (full video frame, unmirrored, video pixel
     // size — drawn exactly like the element) when the engine has one.
-    const tracked = frameLockRef.current ? getTrackedFrame() : null;
+    const world = frameSourceRef.current ? frameSourceRef.current() : null;
+    const tracked = world !== null
+      ? world
+      : frameLockRef.current ? getTrackedFrame() : null;
     // For the picture clock: which frame this draw shows (NaN = the live camera).
     // A locked frame without a reported time is aged from its sample's time.
     drawnFrameMsRef.current = tracked === null ? Number.NaN : (Number.isFinite(tracked.frameMs) ? tracked.frameMs : tracked.key);

@@ -206,7 +206,7 @@ interface Props {
  *  for a full second (stage not mounted or paused) it keeps itself alive at the
  *  cap. A shorter wait double-rendered on a slow device whose composite itself
  *  ran under 4 fps. */
-function CompositeDriver({ fps }: { fps: number }) {
+export function CompositeDriver({ fps }: { fps: number }) {
   const get = useThree((s) => s.get);
   useEffect(() => {
     const t0 = performance.now();

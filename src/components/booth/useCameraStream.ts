@@ -36,23 +36,41 @@ interface UseCameraStream {
 }
 
 /**
+ * A camera owned by someone else (world mode: 8th Wall opens the back camera
+ * for its floor tracking). `acquire` replaces getCameraStream; `release`
+ * replaces stopping the tracks. Changing `key` reopens the camera.
+ */
+export interface CameraSourceOverride {
+  key: string;
+  facing: Facing;
+  acquire: () => Promise<MediaStream>;
+  release: (stream: MediaStream) => void;
+}
+
+/**
  * `primeMic`: ask for the microphone in the same prompt as the camera when the
  * stream first opens (lib/camera.ts), so video mode never prompts later. Read
  * when the camera opens; changing it never restarts the camera.
  */
-export function useCameraStream(enabled = true, withAudio = false, primeMic = false): UseCameraStream {
+export function useCameraStream(
+  enabled = true, withAudio = false, primeMic = false,
+  opts: { initialFacing?: Facing; source?: CameraSourceOverride | null } = {},
+): UseCameraStream {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [micTrack, setMicTrack] = useState<MediaStreamTrack | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<CameraError | null>(null);
-  const [facingMode, setFacingMode] = useState<Facing>('user');
+  const [facingMode, setFacingMode] = useState<Facing>(opts.source?.facing ?? opts.initialFacing ?? 'user');
   const [canFlip, setCanFlip] = useState(false);
   const retryCounter = useRef(0);
   const [retryTick, setRetryTick] = useState(0);
   const streamRef = useRef<MediaStream | null>(null);
   const primeMicRef = useRef(primeMic);
   primeMicRef.current = primeMic;
+  const sourceRef = useRef(opts.source ?? null);
+  sourceRef.current = opts.source ?? null;
+  const sourceKey = opts.source?.key ?? '';
   /** One combined prompt per page: a camera flip or re-acquire asks for the picture only. */
   const micPrimedRef = useRef(false);
 
@@ -96,9 +114,12 @@ export function useCameraStream(enabled = true, withAudio = false, primeMic = fa
       try {
         const prime = primeMicRef.current && !micPrimedRef.current;
         micPrimedRef.current = micPrimedRef.current || prime;
-        localStream = await getCameraStream({ facingMode, primeMic: prime }); // the microphone itself joins below
+        const src = sourceRef.current;
+        localStream = src
+          ? await src.acquire()
+          : await getCameraStream({ facingMode, primeMic: prime }); // the microphone itself joins below
         if (cancelled) {
-          stopStream(localStream);
+          if (src) src.release(localStream); else stopStream(localStream);
           return;
         }
         streamRef.current = localStream;
@@ -132,16 +153,17 @@ export function useCameraStream(enabled = true, withAudio = false, primeMic = fa
 
     start();
 
+    const ownedBy = sourceRef.current;
     return () => {
       cancelled = true;
-      if (localStream) stopStream(localStream);
+      if (localStream) { if (ownedBy) ownedBy.release(localStream); else stopStream(localStream); }
       if (videoRef.current) videoRef.current.srcObject = null;
       streamRef.current = null;
       setStream(null);
       setReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryTick, enabled, facingMode, retry, playVideo]);
+  }, [retryTick, enabled, facingMode, retry, playVideo, sourceKey]);
 
   // The microphone joins and leaves the RUNNING camera stream. It used to be a
   // dependency of the camera effect above, so switching photo -> video stopped

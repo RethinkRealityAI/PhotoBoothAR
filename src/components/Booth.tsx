@@ -36,6 +36,11 @@ import BoothControlDeck from './booth/BoothControlDeck';
 import BoothTopBar from './booth/BoothTopBar';
 import BoothLookDeck from './booth/BoothLookDeck';
 import LooksSheet from './booth/LooksSheet';
+import WorldStage from './booth/WorldStage';
+import { isWorldLook, withWorldLooks, worldLookFrameUrl, WORLD_LOOK_PREFIX } from '../lib/world/worldLooks';
+import { arFrameIdFrom, enterArUrl, leaveArUrl, worldTrackerFrom, CAMERA_ON_PARAM } from '../lib/world/arSession';
+import { WorldSession, isPhoneUa } from '../lib/world/xr8World';
+import type { CameraSourceOverride } from './booth/useCameraStream';
 import { TimerControl } from './booth/BoothCaptureControls';
 import {
   buildDeck, initialCategory, initialCategoryWhenReady, type DeckCategory, type DeckSelection,
@@ -367,7 +372,66 @@ export default function Booth() {
   // a tap handler, so no browser gesture requirement changes. Opening /booth
   // directly (and every legacy event) still gets the splash.
   const location = useLocation();
-  const [started, setStarted] = useState(() => skipBoothSplash(source === 'db', location.state));
+  // ── World mode (AR) ───────────────────────────────────────────────────
+  // A "3D" Props tile opens this same booth as its own page load,
+  // `?ar=<frameId>` (lib/world/arSession.ts): 8th Wall's world engine and its
+  // face engine both define window.XR8, so they can never share a page. On
+  // that page the face engine never starts, 8th Wall owns the back camera and
+  // its floor tracking stands the Frame up in the room (WorldStage). Leaving
+  // is a page load back. PLATFORM booths only; legacy events never get here.
+  const arFrameId = source === 'db' ? arFrameIdFrom(location.search) : null;
+  const [arTracker, setArTracker] = useState<'xr8' | 'sensors'>(() => {
+    const ua = typeof navigator !== 'undefined' ? navigator : null;
+    const phone = ua ? isPhoneUa(ua.userAgent, ua.platform, ua.maxTouchPoints ?? 0) : false;
+    const pick = worldTrackerFrom(location.search, import.meta.env.VITE_WORLD_TRACKER as string | undefined);
+    // Computers get the motion-sensor fallback (the binary throws there).
+    return pick === 'xr8' && !phone && !new URLSearchParams(location.search).has('desktop') ? 'sensors' : pick;
+  });
+  const worldCamH = useMemo(() => {
+    const v = Number(new URLSearchParams(location.search).get('camh'));
+    return Number.isFinite(v) && v >= 0.8 && v <= 2.2 ? v : 1.4;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const worldSession = useMemo(
+    () => (arFrameId !== null && arTracker === 'xr8' && typeof document !== 'undefined' ? new WorldSession(worldCamH) : null),
+    [arFrameId, arTracker, worldCamH],
+  );
+  const [arTapped, setArTapped] = useState(false);
+  const arHostRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!worldSession) return;
+    let alive = true;
+    worldSession.load().catch((e) => {
+      console.warn('[Booth] world engine failed to load; using motion sensors', e);
+      if (alive) setArTracker('sensors');
+    });
+    return () => { alive = false; worldSession.stop(); };
+  }, [worldSession]);
+  const worldCamera = useMemo<CameraSourceOverride | null>(() => {
+    if (!worldSession) return null;
+    return {
+      key: 'xr8-world',
+      facing: 'environment',
+      acquire: () => {
+        const host = arHostRef.current;
+        if (!host) return Promise.reject(new Error('world host missing'));
+        return worldSession.start(host).catch((e: unknown) => {
+          // 8th Wall could not run on this phone: our own tracking takes over.
+          console.warn('[Booth] world tracking failed; using motion sensors', e);
+          setArTracker('sensors');
+          throw e;
+        });
+      },
+      release: () => worldSession.stop(),
+    };
+  }, [worldSession]);
+  /** Full page loads: the two 8th Wall engines never share a page. */
+  const goTo = useCallback((url: string) => { window.location.assign(url); }, []);
+
+  const [started, setStarted] = useState(() =>
+    skipBoothSplash(source === 'db', location.state)
+    || arFrameId !== null
+    || (source === 'db' && new URLSearchParams(location.search).get(CAMERA_ON_PARAM) === '1'));
   const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
 
   // Video capture is entitlement-gated. If the flag resolves after the guest
@@ -387,7 +451,15 @@ export default function Booth() {
     facingMode, flipCamera, canFlip,
   // Platform booths with video ask for camera AND microphone in one prompt at
   // entry (Dapo, Nov 24 2026), so switching to video never asks again.
-  } = useCameraStream(started, mediaMode === 'video', source === 'db' && entitlements.videoEnabled);
+  } = useCameraStream(
+    // World mode on 8th Wall: the camera opens from the Start placing tap.
+    started && (worldSession === null || arTapped),
+    mediaMode === 'video',
+    source === 'db' && entitlements.videoEnabled,
+    { initialFacing: arFrameId !== null ? 'environment' : 'user', source: worldCamera },
+  );
+  /** The camera is (or should be) opening: false while world mode waits for its tap. */
+  const cameraWanted = started && (worldSession === null || arTapped);
 
   const feedContainerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<StageCanvasHandle>(null);
@@ -623,7 +695,9 @@ export default function Booth() {
   const appliedDefaultRef = useRef(false);
   useEffect(() => {
     if (appliedDefaultRef.current) return;
-    if (routeExperienceId) { appliedDefaultRef.current = true; return; }
+    // World mode opens on its own 3D Frame only: no default Frame on top, so
+    // the deck opens on Props with that tile lit.
+    if (routeExperienceId || arFrameId !== null) { appliedDefaultRef.current = true; return; }
     if (!experiencesLoaded) return;
     // The same resolver the host's Library / Settings read (openingLook.ts).
     const id = effectiveOpeningLookId(wallSettings.defaultExperienceId, eventConfig.defaultExperienceId);
@@ -656,6 +730,12 @@ export default function Booth() {
   // deselecting/switching away from one releases the 3D slot it owned — but
   // never touches a 3D piece the guest picked independently afterwards.
   const handleSelectFrame = useCallback((exp: Experience | null) => {
+    // In world mode a 2D Frame (drawn on the selfie view, not in the room)
+    // leaves it: back to the normal booth with that Frame on.
+    if (arFrameId !== null) {
+      if (exp !== null && !recording) goTo(leaveArUrl(basePath, location.search, exp.id));
+      return;
+    }
     if (frameExp?.kind === 'composite' && attachExp === frameExp) {
       setAttachExp(exp?.kind === 'composite' ? exp : null);
     } else if (exp?.kind === 'composite') {
@@ -672,7 +752,36 @@ export default function Booth() {
       const outgoingAmbient = frameExp?.config?.ambientShader?.shaderId;
       if (outgoingAmbient) setEffectId((cur) => (cur === outgoingAmbient ? 'none' : cur));
     }
-  }, [frameExp, attachExp]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameExp, attachExp, arFrameId, recording, basePath, goTo]);
+
+  /**
+   * Picking a Prop. A "3D" standing Frame opens world mode (its own page
+   * load); in world mode another 3D tile swaps the board in place and any
+   * other Prop, or none, goes back to the normal booth. Outside world mode
+   * every other Prop is exactly setAttachExp, as before.
+   */
+  const handleSelectAttachment = useCallback((exp: Experience | null) => {
+    if (recording && (arFrameId !== null || isWorldLook(exp))) return;
+    if (arFrameId !== null) {
+      if (isWorldLook(exp)) {
+        setAttachExp(exp);
+        const id = exp!.id.slice(WORLD_LOOK_PREFIX.length);
+        const p = new URLSearchParams(location.search);
+        p.set('ar', id);
+        window.history.replaceState(window.history.state, '', `${location.pathname}?${p.toString()}`);
+      } else {
+        goTo(leaveArUrl(basePath, location.search, exp?.id ?? null));
+      }
+      return;
+    }
+    if (isWorldLook(exp)) {
+      goTo(enterArUrl(basePath, location.search, exp!.id.slice(WORLD_LOOK_PREFIX.length)));
+      return;
+    }
+    setAttachExp(exp);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arFrameId, recording, basePath, goTo]);
 
   // ── Reveal moment ─────────────────────────────────────────────────────
   // A transient ~600ms "magically appears" entrance whenever the guest's
@@ -814,13 +923,13 @@ export default function Booth() {
   // the wait stays honest and offers the same exits as the error screen.
   const [cameraSlow, setCameraSlow] = useState(false);
   useEffect(() => {
-    if (!started || error !== null || ready) {
+    if (!cameraWanted || error !== null || ready) {
       setCameraSlow(false);
       return;
     }
     const t = window.setTimeout(() => setCameraSlow(true), 8_000);
     return () => window.clearTimeout(t);
-  }, [started, error, ready]);
+  }, [cameraWanted, error, ready]);
   /** `/e/<slug>` → slug; null on legacy builds (no support desk to route to —
    *  same gate as BoothTopBar). */
   const boothSlug = /^\/e\/([^/]+)/.exec(basePath)?.[1] ?? null;
@@ -967,9 +1076,14 @@ export default function Booth() {
   );
   // `legacy` also keeps a coded event on the shipped detection input, pose
   // filter and live-<video> composite (no frame-lock) — byte-identical photos.
-  useEffect(() => { setFaceTrackingMode(faceMode, { legacy: source !== 'db' }); }, [faceMode, source]);
+  // Never on the world-mode page: its 8th Wall world engine owns window.XR8.
   useEffect(() => {
+    if (arFrameId === null) setFaceTrackingMode(faceMode, { legacy: source !== 'db' });
+  }, [faceMode, source, arFrameId]);
+  useEffect(() => {
+    if (arFrameId !== null) return;
     initFaceEngine().catch((e) => console.warn('[Booth] face tracker init failed', e));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // A beam action anywhere in the scene mounts BeamFX inside the 3D canvas
@@ -1022,6 +1136,46 @@ export default function Booth() {
         animation: l.animation,
       }));
   }, [frameLayers, layerVisible]);
+
+  // ── World mode ────────────────────────────────────────────────────────
+  // PLATFORM booths only: each Frame also appears in Props as a "3D" tile
+  // (lib/world/worldLooks). Picking one opens the world-mode page (arFrameId,
+  // above), which stands the Frame up in the room (WorldStage); picking any
+  // other look goes back to the normal booth. Legacy events never get tiles.
+  const worldSelected = arFrameId !== null && isWorldLook(attachExp);
+  const worldFrameUrl: string | null = worldSelected ? worldLookFrameUrl(attachExp) : null;
+  const worldMode = worldFrameUrl !== null;
+  // The world-mode page opens on its frame's 3D tile once the catalog is in.
+  const arAppliedRef = useRef(false);
+  useEffect(() => {
+    if (arFrameId === null || arAppliedRef.current || !experiencesLoaded) return;
+    const tile = withWorldLooks(catalog).find((e) => e.id === `${WORLD_LOOK_PREFIX}${arFrameId}`);
+    arAppliedRef.current = true;
+    if (tile) setAttachExp(tile);
+    else goTo(leaveArUrl(basePath, location.search, null)); // unknown frame: plain booth
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arFrameId, experiencesLoaded, catalog]);
+  // XR8's intrinsics describe its canvas, which the stage cover-fits: keep the
+  // two the same shape.
+  useEffect(() => {
+    const el = feedContainerRef.current;
+    if (!worldSession || !el) return;
+    const fit = () => worldSession.sizeTo(el.clientWidth, el.clientHeight);
+    fit();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [worldSession]);
+  const leaveWorld = useCallback(() => {
+    if (!recording) goTo(leaveArUrl(basePath, location.search, null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording, basePath, goTo]);
+  /** The tracked camera picture, drawn by the stage instead of the live video. */
+  const worldFrameSource = useCallback(() => worldSession?.frame() ?? null, [worldSession]);
+  /** The flip button (and double-tap): in world mode it means "back to the selfie camera". */
+  const flipOrLeave = useCallback(() => {
+    if (arFrameId !== null) leaveWorld(); else flipCamera();
+  }, [arFrameId, leaveWorld, flipCamera]);
 
   const rawAttachLayers = attachExp?.config?.layers;
   // ── Guest lens colour ─────────────────────────────────────────────────
@@ -1837,9 +1991,9 @@ export default function Booth() {
   }, [filterOptions, effectId, applyEffect]);
 
   const onStagePointerDown = useCallback((e: React.PointerEvent) => {
-    if (phase !== 'camera') return;
+    if (phase !== 'camera' || worldMode) return;
     gestureStartRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
-  }, [phase]);
+  }, [phase, worldMode]);
 
   const onStagePointerUp = useCallback((e: React.PointerEvent) => {
     const start = gestureStartRef.current;
@@ -1855,11 +2009,11 @@ export default function Booth() {
     // Not a swipe → a tap. Two quick ones in the same spot flip the camera.
     if (isDoubleTap(lastTapRef.current, end)) {
       lastTapRef.current = null;
-      if (canFlip && !recording) { haptic('toggle'); flipCamera(); }
+      if (canFlip && !recording) { haptic('toggle'); flipOrLeave(); }
       return;
     }
     lastTapRef.current = end;
-  }, [phase, stepFilter, canFlip, recording, flipCamera]);
+  }, [phase, stepFilter, canFlip, recording, flipOrLeave]);
 
   // ── Orientation ───────────────────────────────────────────────────────
   // The stage is a fixed 9:16 box and the capture buffer is 1080x1920 by
@@ -1914,7 +2068,10 @@ export default function Booth() {
     handleSelectFrame(null);
     setAttachExp(null);
   };
-  const deckSections = useMemo(() => buildDeck(catalog), [catalog]);
+  const deckSections = useMemo(
+    () => buildDeck(source === 'db' ? withWorldLooks(catalog) : catalog),
+    [catalog, source],
+  );
   // Memoized: a fresh object literal per render made this a new prop identity
   // on every single re-render of the booth, defeating any memo downstream.
   const deckSelection: DeckSelection = useMemo(() => ({
@@ -2073,7 +2230,7 @@ export default function Booth() {
       {error && <CameraErrorScreen error={error} onRetry={retry} />}
 
       {/* ── Camera starting ───────────────────────────────────────────── */}
-      {started && !error && !ready && (
+      {cameraWanted && !error && !ready && (
         <div className="absolute inset-0 z-10 flex items-center justify-center px-8">
           <div className="flex w-full max-w-xs flex-col items-center gap-4 animate-rise-in">
             <div className="relative h-12 w-12">
@@ -2139,7 +2296,8 @@ export default function Booth() {
                   recording={recording}
                   recordingMs={ms}
                   canFlip={canFlip}
-                  onFlip={() => { if (!recording) flipCamera(); }}
+                  onFlip={() => { if (!recording) flipOrLeave(); }}
+                  licencesHref={arFrameId !== null && worldSession !== null ? '/licences' : undefined}
                   compact={lookDeckUi ? {
                     backTo: `${basePath}/welcome`,
                     // The timer moves up here on platform booths, camera-app
@@ -2234,13 +2392,13 @@ export default function Booth() {
                   effectId={effectId}
                   sparkles={sparkles}
                   mirror={isFront}
-                  overlayUrl={stageOverlays ? null : (is2DOverlay ? frameExp!.asset_url : null)}
+                  overlayUrl={worldMode || stageOverlays ? null : (is2DOverlay ? frameExp!.asset_url : null)}
                   overlayTransform={overlayTransform}
                   overlayOpacity={frameExp?.config?.opacity}
-                  overlays={stageOverlays}
+                  overlays={worldMode ? null : stageOverlays}
                   // powerFxActive (db-only): a frame/filter-only scene's beam
                   // renders in that same canvas, so it must reach photos too.
-                  threeCanvasId={is3D || powerFxActive ? 'booth-3d-layer' : null}
+                  threeCanvasId={worldMode ? 'booth-world-layer' : (is3D || powerFxActive ? 'booth-3d-layer' : null)}
                   // Draw the frame the pose came from (resolver decides: never
                   // legacy; on for 8th Wall poses). Photos use it too. A clip
                   // keeps it when its sound is delayed to match (clipLocked):
@@ -2248,13 +2406,14 @@ export default function Booth() {
                   // so with live sound the lips would move after the words.
                   // Otherwise a clip shows the live camera and props ride the
                   // filtered pose.
-                  frameLock={is3D && source === 'db' && (!recording || clipLocked)}
+                  frameLock={!worldMode && is3D && source === 'db' && (!recording || clipLocked)}
                   pictureClock={source === 'db'}
                   maxFps={boothFpsCap}
                   active={true}
                   watermark={entitlements.watermark}
                   effectsCanvas={triggerFxCanvas}
-                  lettering={stageLettering}
+                  lettering={worldMode ? null : stageLettering}
+                  frameSource={worldMode && worldSession ? worldFrameSource : null}
                   // The recorded clip IS this canvas (captureStream below), and
                   // the preview pass skips the signature — so every video used
                   // to ship unsigned while every photo shipped signed. On only
@@ -2268,7 +2427,7 @@ export default function Booth() {
                     triggers carry a beam action (a frame-only scene can still
                     blast) — the beam renders in this canvas so StageCanvas
                     composites it into the photo and the recording for free. */}
-                {((is3D && anchorConfig) || powerFxActive) && (
+                {!worldMode && ((is3D && anchorConfig) || powerFxActive) && (
                   <HeadScaleOverlay3D
                     base={studioCfg.headScale}
                     subRef={headScaleSubRef}
@@ -2301,6 +2460,32 @@ export default function Booth() {
                   />
                 )}
               </div>
+              {worldFrameUrl !== null && phase === 'camera' && (
+                <WorldStage
+                  frameUrl={worldFrameUrl}
+                  frameName={attachExp?.name.replace(/ 3D$/, '') ?? 'This frame'}
+                  accent={eventConfig.accentHexes?.[0] ?? '#d4af37'}
+                  videoRef={videoRef}
+                  maxFps={boothFpsCap}
+                  recording={recording}
+                  onExit={leaveWorld}
+                  engine={worldSession}
+                  resumePlacing={arTapped}
+                  onStartTap={() => {
+                    // Synchronous, inside the tap: 8th Wall opens the camera
+                    // and asks for motion access now (iOS needs the gesture).
+                    // The camera hook then picks up the same stream.
+                    if (worldSession && arHostRef.current) {
+                      worldSession.start(arHostRef.current).catch(() => { /* acquire handles it */ });
+                    }
+                    setArTapped(true);
+                  }}
+                />
+              )}
+              {/* 8th Wall's run canvas and its 1 px video live here, unseen. */}
+              {arFrameId !== null && (
+                <div ref={arHostRef} className="absolute left-0 top-0 h-px w-px overflow-hidden opacity-0 pointer-events-none" aria-hidden />
+              )}
               {/* Face-trigger particles. This canvas is the SOURCE: it is passed
                   to StageCanvas.effectsCanvas (:1081) and composited into the
                   same canvas that produces the preview, the JPEG and the recorded
@@ -2472,7 +2657,7 @@ export default function Booth() {
                 onToggleSparkles={setSparkles}
                 onSelectEffect={applyEffect}
                 onSelectFrame={handleSelectFrame}
-                onSelectAttachment={setAttachExp}
+                onSelectAttachment={handleSelectAttachment}
                 onClearAll={clearAllLooks}
                 onOpenAll={() => setMoreOpen(true)}
                 sheetOpen={moreOpen}
@@ -2504,7 +2689,7 @@ export default function Booth() {
                 onToggleSparkles={setSparkles}
                 onSelectEffect={applyEffect}
                 onSelectFrame={handleSelectFrame}
-                onSelectAttachment={setAttachExp}
+                onSelectAttachment={handleSelectAttachment}
                 onClearAll={() => {
                   setEffectId('none');
                   setSparkles(false);
@@ -2609,7 +2794,7 @@ export default function Booth() {
           onToggleSparkles={setSparkles}
           onSelectEffect={applyEffect}
           onSelectFrame={handleSelectFrame}
-          onSelectAttachment={setAttachExp}
+          onSelectAttachment={handleSelectAttachment}
           onClearAll={clearAllLooks}
           pendingIds={pendingExperienceIds}
         />
@@ -2632,7 +2817,7 @@ export default function Booth() {
               onSelectEffect={applyEffect}
               onToggleSparkles={setSparkles}
               onSelectFrame={handleSelectFrame}
-              onSelectAttachment={setAttachExp}
+              onSelectAttachment={handleSelectAttachment}
               open={moreOpen}
               onOpenChange={setMoreOpen}
               hideBar
