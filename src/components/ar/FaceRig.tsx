@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { initFaceEngine, getTrackedEars } from '../../lib/faceEngine';
 import { updateHeadPose, updateExtraHeadPose, detectFaceNow, scaledAnchorBase, anchorOffset, normalizeAnchorVersion } from '../../lib/faceRig';
 import { loadModel } from '../../lib/glbCache';
+import { drawableScene } from '../../lib/boothAssets';
 import { describeGlbError } from '../../lib/glbErrors';
 import { resolveFinish, resolveFinishForRegionTint, type FinishOverride } from '../../lib/studio/finish';
 import {
@@ -262,6 +263,7 @@ export function Model({
   customization,
   guestName,
   onDecalBuilt,
+  hideStale = false,
 }: {
   url: string;
   /**
@@ -298,8 +300,16 @@ export function Model({
   /** Reports the decal carve's real cost — O(mesh triangles), so callers can
    *  see whether they need to debounce rather than assuming. */
   onDecalBuilt?: (info: { buildMs: number; triangles: number }) => void;
+  /**
+   * Draw nothing while a NEW url loads, instead of the previous model. The rig
+   * around this Model is reused when the guest switches props and takes the
+   * new prop's anchor at once, so the kept scene showed the old prop at the new
+   * prop's spot until the new one parsed. Off by default: every other surface
+   * (studio, legacy events) keeps today's behaviour.
+   */
+  hideStale?: boolean;
 }) {
-  const [scene, setScene] = useState<THREE.Group | null>(null);
+  const [loaded, setLoaded] = useState<{ url: string; scene: THREE.Group } | null>(null);
   const earPair = useContext(EarPairContext);
   const onEar = earPair !== null;
   const pairRef = useRef<ScenePair | null>(null);
@@ -324,6 +334,8 @@ export function Model({
   // same question about the PLACEMENT, and the two halves must answer alike —
   // mirroring one without the other throws the piece clear of the hand.
   const mirrorX = wantsMirror && canMirrorAsset(engravable) && handedUrl === url;
+  // The scene on screen. With hideStale, only the one loaded from THIS url.
+  const scene = drawableScene(loaded, handedUrl, hideStale);
   useEffect(() => {
     if (wantsMirror && engravable) {
       console.warn('[Model] template has text slots; not mirroring for the other hand', template?.id);
@@ -354,7 +366,7 @@ export function Model({
         if (!alive) return;
         const clone = s.clone(true);
         owned = applyFinish(clone, finish, tint, tintStrength);
-        setScene(clone);
+        setLoaded({ url: handedUrl, scene: clone });
         // AFTER the state that will render it, so a consumer that reveals on
         // this callback can never beat the geometry to the screen.
         onReadyRef.current?.();

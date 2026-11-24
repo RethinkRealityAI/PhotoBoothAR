@@ -192,6 +192,13 @@ interface Props {
    * own every-refresh loop, as before.
    */
   maxFps?: number;
+  /**
+   * On a prop switch, draw nothing until the NEW model is loaded instead of the
+   * previous one at the new prop's anchor (FaceRig Model.hideStale). Head
+   * pieces only. Off by default; the booth turns it on for platform events, so
+   * legacy events and every other surface are unchanged.
+   */
+  hideStaleModels?: boolean;
 }
 
 /** Composited + capped: this canvas renders only when the composite asks for
@@ -242,7 +249,7 @@ const noSubscribe = () => () => {};
 
 /** The model or procedural piece of an EXTRA face's rig: no ready/error callbacks
  *  (the primary's copy reports the asset) and no fx emitter (its key is unique). */
-function ExtraPieceContent({ p }: { p: Pick<Overlay3DPiece, 'proceduralId' | 'assetUrl' | 'finish' | 'tint' | 'tintStrength' | 'template' | 'customization'> }) {
+function ExtraPieceContent({ p, hideStale = false }: { p: Pick<Overlay3DPiece, 'proceduralId' | 'assetUrl' | 'finish' | 'tint' | 'tintStrength' | 'template' | 'customization'>; hideStale?: boolean }) {
   if (isHeadPiece(p.proceduralId)) return <HeadPiece id={p.proceduralId as string} />;
   if (!p.assetUrl) return null;
   return (
@@ -253,6 +260,7 @@ function ExtraPieceContent({ p }: { p: Pick<Overlay3DPiece, 'proceduralId' | 'as
       tintStrength={p.tintStrength}
       template={p.template}
       customization={p.customization}
+      hideStale={hideStale}
     />
   );
 }
@@ -304,7 +312,7 @@ function AnimatedPiece({ animation, reveal, pulse, children }: { animation?: Lay
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false, multiFace = false, layerId = 'booth-3d-layer', maxFps = 0 }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false, multiFace = false, layerId = 'booth-3d-layer', maxFps = 0, hideStaleModels = false }: Props) {
   // Extra faces 8th Wall can track right now (0 unless opted in AND a multi-face
   // 8th Wall engine is the active pose engine on a platform session).
   const extraSlots = useSyncExternalStore(
@@ -419,6 +427,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                     customization={p.customization}
                     onReady={onAssetReady ? () => onAssetReady(p.assetUrl as string) : undefined}
                     onError={onAssetError ? (m) => onAssetError(p.assetUrl as string, m) : undefined}
+                    hideStale={hideStaleModels}
                   />
                 ) : null}
                 {emitter !== null && <FxEmitterPoint fxKey={p.fxKey as string} emitter={emitter} />}
@@ -441,6 +450,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                   url={assetUrl}
                   onReady={onAssetReady ? () => onAssetReady(assetUrl) : undefined}
                   onError={onAssetError ? (m) => onAssetError(assetUrl, m) : undefined}
+                  hideStale={hideStaleModels}
                 />
               ) : null}
             </AnimatedPiece>
@@ -467,7 +477,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
                   anchorVersion={p.anchorVersion}
                 >
                   <AnimatedPiece animation={p.animation} reveal={reveal} pulse={p.pulse}>
-                    <ExtraPieceContent p={p} />
+                    <ExtraPieceContent p={p} hideStale={hideStaleModels} />
                   </AnimatedPiece>
                 </FaceRig>
               ),
@@ -475,7 +485,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
           ) : (
             <FaceRig key={`x${slot}`} faceSlot={slot} videoId={videoId} anchor={anchor.anchor} config={anchor} mirror={mirror} occlude={occlude} headScale={headScale}>
               <AnimatedPiece reveal={reveal}>
-                <ExtraPieceContent p={{ proceduralId, assetUrl }} />
+                <ExtraPieceContent p={{ proceduralId, assetUrl }} hideStale={hideStaleModels} />
               </AnimatedPiece>
             </FaceRig>
           ),
