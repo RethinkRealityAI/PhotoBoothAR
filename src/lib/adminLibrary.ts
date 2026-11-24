@@ -14,6 +14,7 @@ import type { Classification, ImportMeta } from './libraryImport';
 import type { LibraryCategory } from './libraryTaxonomy';
 import type { ItemFit, TryOnRow } from './tryOn';
 import { supabase } from './supabase';
+import type { SettingsGroup } from '../../supabase/functions/admin-api/librarySettings.ts';
 
 export interface LibraryItemRow {
   id: string;
@@ -40,6 +41,13 @@ export interface LibraryItemRow {
   /** Migration 048: every host, or only the chosen customers. Absent = everyone. */
   access?: LibraryAccess;
   accessOrgs?: AccessOrg[];
+  /** Copy settings: a single-piece prop that can give or take settings.
+   *  Absent from an older admin-api -> treated as not copyable. */
+  copyable?: boolean;
+  /** Longest side of the model, measured at import (null = never measured). */
+  modelSize?: number | null;
+  /** The .glb's name at import, which the variant matcher also reads. */
+  fileName?: string | null;
 }
 
 export type LibraryAccess = 'everyone' | 'orgs';
@@ -93,6 +101,42 @@ export function setLibraryItemState(
   state: StateChangeTarget,
 ): Promise<AdminResult<{ id: string; state: StateChangeTarget; linkCount: number }>> {
   return adminApi('set_library_item_state', { id, state });
+}
+
+/* ── Copy settings (one prop onto many) ───────────────────────────────── */
+
+export type CopyStatus =
+  | 'changed' | 'same' | 'several_pieces' | 'not_a_prop' | 'is_draft' | 'not_found'
+  | 'update_failed' | 'changed_meanwhile';
+
+export interface CopyResult { id: string; status: CopyStatus; notes?: string[] }
+
+/**
+ * Copy one library prop's settings onto other library items, IN PLACE
+ * (admin-api copy_library_settings). `dryRun` reports what would happen and
+ * writes nothing — the confirm step uses it.
+ */
+export function copyLibrarySettings(args: {
+  sourceId: string;
+  targetIds: string[];
+  groups: SettingsGroup[];
+  dryRun?: boolean;
+}): Promise<AdminResult<{ results: CopyResult[]; applied: number }>> {
+  return adminApi('copy_library_settings', { ...args });
+}
+
+/** One line per copy outcome, in operator words. */
+export function copyStatusText(status: CopyStatus): string {
+  switch (status) {
+    case 'changed': return 'Updated';
+    case 'same': return 'Already matches';
+    case 'several_pieces': return 'Skipped: a scene with several pieces (fit each in the Studio)';
+    case 'not_a_prop': return 'Skipped: not a 3D prop';
+    case 'is_draft': return 'Skipped: still a draft in Bulk import';
+    case 'not_found': return 'Skipped: no longer in the library';
+    case 'changed_meanwhile': return 'Skipped: it was edited meanwhile. Refresh and try again';
+    default: return 'Failed: the database refused the change';
+  }
 }
 
 /* ── Library workshop: edit in the full Studio (migration 046) ─────────── */
@@ -296,6 +340,8 @@ export function libraryErrorText(code: string): string {
     case 'has_links': return 'Events still use it, so it cannot be deleted. Retire or withdraw it instead.';
     case 'unlist_first': return 'Retire or withdraw it before deleting.';
     case 'unknown_action': return 'The server does not have this yet — the admin-api update still needs deploying.';
+    case 'source_several_pieces': return 'That one is a scene with several pieces, so its settings cannot be copied. Pick a single prop.';
+    case 'source_not_a_prop': return 'Only a 3D prop’s settings can be copied.';
     case 'not_fittable': return 'This one has several pieces, so fit it in the Studio where each piece has its own handles.';
     case 'is_draft': return 'That item is still a draft. Publish or discard it from Bulk import.';
     case 'invalid_asset': return 'The uploaded file is not where the import expected it. Try importing it again.';

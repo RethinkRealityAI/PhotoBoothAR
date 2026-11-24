@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, useNavigate } from 'react-router-dom';
 import {
   BookImage, Box, Check, ChevronDown, ChevronRight, FileUp, FolderTree, ImagePlus, LayoutGrid, List, Loader2, Lock, Maximize2,
-  Minimize2, Plus, RefreshCw, ScanFace, Search, Sparkles, Tag, Upload, Wand2, X,
+  Copy, Minimize2, Plus, RefreshCw, ScanFace, Search, Sparkles, Tag, Upload, Wand2, X,
 } from 'lucide-react';
 import {
   bulkUpdateLibraryItems,
@@ -97,6 +97,7 @@ import CategoryManager from '../../components/admin/library/CategoryManager';
 import TagManager from '../../components/admin/library/TagManager';
 import ModelViewerModal, { type ViewerTarget } from '../../components/admin/library/ModelViewerModal';
 import TryOnModal, { type TryOnItem } from '../../components/admin/library/TryOnModal';
+import CopySettingsModal, { type CopyItem } from '../../components/admin/library/CopySettingsModal';
 import CategorySelect from '../../components/admin/library/CategorySelect';
 import { useHeldModel, useRenderedPictures } from '../../components/admin/library/useRenderedPictures';
 import AccessPicker, { accessSummary, sameAccess, type AccessValue } from '../../components/admin/library/AccessPicker';
@@ -358,6 +359,8 @@ interface DetailProps {
   onAddEvent: (item: CmsItem, opts: { name: string; categoryId: string | null; picture?: File }) => Promise<void>;
   /** Opens a workshop copy of a library item in the full Studio. */
   onEditInStudio: (item: CmsItem) => void;
+  /** Copy this prop's settings onto other library items; absent = it cannot give settings. */
+  onCopySettings?: (item: CmsItem) => void;
   /** The id being opened in the Studio ('new' for a blank one), else null. */
   opening: string | null;
   /** Height of the live 3D view, in px (the side panel and the phone sheet differ). */
@@ -502,6 +505,11 @@ function DetailPanel(p: DetailProps) {
               <p className="font-sans text-[11px] text-brand-muted/55 leading-snug">
                 Opens a copy in your private workshop. Publishing it makes a new version; events using this one keep it.
               </p>
+              {p.onCopySettings && (
+                <button type="button" onClick={() => p.onCopySettings?.(item)} className={`${SOFT_BTN} mt-1`}>
+                  <Copy className="w-3.5 h-3.5" aria-hidden /> Copy its settings to other items
+                </button>
+              )}
             </div>
           )}
 
@@ -660,6 +668,8 @@ export default function SharedLibrary() {
   const [viewer, setViewer] = useState<ViewerTarget | null>(null);
   // Try on: the id it opened on; the strip is the current filtered 3D list.
   const [tryOnStart, setTryOnStart] = useState<string | null>(null);
+  // Copy settings: the prop to copy from (null = pick one) and pre-ticked targets.
+  const [copying, setCopying] = useState<{ sourceId: string | null; targetIds: string[] } | null>(null);
   const [managing, setManaging] = useState(false);
   const [managingTags, setManagingTags] = useState(false);
   const [autoSort, setAutoSort] = useState(false);
@@ -757,6 +767,19 @@ export default function SharedLibrary() {
       })),
     [visible, capped],
   );
+  // Copy settings works on library rows only (drafts live in Bulk import).
+  const copyItems = useMemo<CopyItem[]>(() => {
+    const byId = new Map(libRows.map((r) => [r.id, r]));
+    return items
+      .filter((i) => i.source === 'library' && i.state !== 'withdrawn')
+      .map((i) => {
+        const r = byId.get(i.id);
+        return {
+          id: i.id, name: i.name, kind: i.kind, thumb: i.thumb, linkCount: i.linkCount,
+          copyable: r?.copyable === true, modelSize: r?.modelSize ?? null, fileName: r?.fileName ?? null,
+        };
+      });
+  }, [items, libRows]);
   const active = useMemo(() => items.find((i) => i.key === activeKey) ?? null, [items, activeKey]);
   const selectedItems = useMemo(() => items.filter((i) => selected.has(i.key)), [items, selected]);
 
@@ -1098,6 +1121,9 @@ export default function SharedLibrary() {
       onState={(item, to) => setPending({ item, to })}
       onAddEvent={addEvent}
       onEditInStudio={(item) => void editInStudio(item)}
+      onCopySettings={copyItems.some((c) => c.id === active.id && c.copyable)
+        ? (i) => setCopying({ sourceId: i.id, targetIds: [] })
+        : undefined}
       opening={opening}
       onOptimize={openOptimize}
       onReplaceFile={(item, file) => { setReplaceOptimize(true); setReplaceAsk({ item, file }); }}
@@ -1558,6 +1584,21 @@ export default function SharedLibrary() {
                     {unionKeywords.map((k) => <option key={k} value={k}>{keywordLabel(k)}</option>)}
                   </select>
                 )}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    const ids = librarySelected.map((i) => i.id);
+                    // The open item gives its settings when it is a prop and not
+                    // itself ticked; otherwise the admin picks the source.
+                    const src = active?.source === 'library' && !ids.includes(active.id) && copyItems.some((c) => c.id === active.id && c.copyable)
+                      ? active.id : null;
+                    setCopying({ sourceId: src, targetIds: ids });
+                  }}
+                  className={SOFT_BTN}
+                >
+                  <Copy className="w-3.5 h-3.5" aria-hidden /> Paste settings…
+                </button>
                 <button type="button" disabled={busy} onClick={() => setBulkTags('add')} className={SOFT_BTN}>Occasion, colour, style…</button>
                 {accessReady && (
                   <button type="button" disabled={busy} onClick={() => setBulkAccess(true)} className={SOFT_BTN}>
@@ -1597,6 +1638,15 @@ export default function SharedLibrary() {
       )}
 
       {viewer && <ModelViewerModal target={viewer} onClose={() => setViewer(null)} />}
+      {copying && (
+        <CopySettingsModal
+          items={copyItems}
+          sourceId={copying.sourceId}
+          targetIds={copying.targetIds}
+          onClose={() => setCopying(null)}
+          onApplied={(ids) => push(`Settings copied to ${ids.length} item${ids.length === 1 ? '' : 's'}`, 'success')}
+        />
+      )}
       {tryOnStart !== null && tryOnItems.length > 0 && (
         <TryOnModal items={tryOnItems} startId={tryOnStart} onClose={() => setTryOnStart(null)} />
       )}

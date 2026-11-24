@@ -5,8 +5,8 @@
  * src/lib/libraryTaxonomy.test.ts can import THIS file under vitest and run the
  * same fixtures against both copies. Change one, change both.
  *
- * DEPLOY NOTE: admin-api deploys as FIVE files (index.ts, library.ts,
- * libraryImport.ts, taxonomy.ts, deno.json). A deploy missing a sibling is an
+ * DEPLOY NOTE: admin-api deploys as SIX files (index.ts, library.ts,
+ * libraryImport.ts, taxonomy.ts, librarySettings.ts, deno.json). A deploy missing a sibling is an
  * import error at boot, i.e. EVERY admin-api request 500s.
  */
 

@@ -17,8 +17,8 @@
  * belong to the import screen); `publish_library_drafts` is the only way out
  * of the state.
  *
- * DEPLOY NOTE: admin-api now deploys as FOUR files (index.ts, library.ts,
- * libraryImport.ts, deno.json). A deploy missing a sibling is an import error
+ * DEPLOY NOTE: admin-api deploys as SIX files (index.ts, library.ts,
+ * libraryImport.ts, taxonomy.ts, librarySettings.ts, deno.json). A deploy missing a sibling is an import error
  * at boot, i.e. EVERY admin-api request 500s.
  */
 import {
