@@ -17,6 +17,10 @@
  *
  * The camera starts only on a tap — an iframe must never ask for the camera
  * just because its slide came into view.
+ *
+ * Brand v2 (2026-11-24): the periwinkle field (`app-bg`) and liquid glass
+ * instead of the old near-black page, the wall in the site's `.bw-wall`
+ * glass, sentence-case labels (no wide-tracked caps), white pill actions.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -28,6 +32,11 @@ import { useNoIndex } from './components/pageMeta';
 import { salesImage } from './salesImages';
 
 /** Other "guests" already on the wall, so the first beam lands in a room. */
+const DISPLAY = 'font-[family-name:var(--bw-font-display)] tracking-[-0.022em]';
+/** The booth's well before the camera starts: frosted indigo glass. */
+const WELL = 'bg-[rgba(36,32,120,0.42)] backdrop-blur-xl shadow-[inset_1px_1px_0_rgba(255,255,255,0.55),inset_-1px_-1px_0_rgba(255,255,255,0.10),inset_0_0_0_1px_rgba(255,255,255,0.14),0_30px_60px_-30px_rgba(22,18,78,0.7)]';
+const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent';
+
 const SAMPLE_TILES = ['event-wedding', 'event-birthday', 'event-gala', 'event-activation', 'event-conference', 'event-tradeshow', 'hero-wall', 'event-wedding', 'event-gala'];
 
 interface WallShot { id: number; src: string; }
@@ -50,29 +59,28 @@ function LiveWall({ shots, onAgain }: { shots: WallShot[]; onAgain?: () => void 
   return (
     <section
       aria-label="Live wall preview"
-      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-white/10 p-3"
-      style={{ background: 'radial-gradient(120% 80% at 50% 0%, rgba(124,108,247,0.22), rgba(5,6,11,0.96) 70%)' }}
+      className="bw-wall relative flex h-full min-h-0 flex-col overflow-hidden !rounded-[22px] !p-3"
     >
       <div className="flex items-center justify-between px-1 pb-2">
-        <p className="flex items-center gap-2 font-label text-[11px] font-semibold uppercase tracking-[0.24em] text-brand-fg">
+        <p className="flex items-center gap-2 text-[13px] font-medium text-white">
           <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-70 motion-reduce:hidden" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[color:var(--bw-danger)] opacity-70 motion-reduce:hidden" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-[color:var(--bw-danger)]" />
           </span>
           Live wall
         </p>
-        <p className="font-label text-[10px] uppercase tracking-[0.2em] text-brand-muted">{shots.length === 0 ? 'Waiting for you' : `${shots.length} from you`}</p>
+        <p className="text-[12px] text-white/80">{shots.length === 0 ? 'Waiting for you' : `${shots.length} from you`}</p>
       </div>
       <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-3 gap-2">
         {tiles.map((t, i) => (
           <div
             key={`${t.key}-${i}`}
-            className={`relative overflow-hidden rounded-xl bg-white/[0.04] ${t.mine && i === 0 ? 'try-arrive' : ''}`}
-            style={t.mine ? { boxShadow: '0 0 0 2px rgba(232,121,249,0.85), 0 0 28px -4px rgba(232,121,249,0.9)' } : undefined}
+            className={`bw-tile ${t.mine && i === 0 ? 'try-arrive' : ''}`}
+            style={t.mine ? { boxShadow: '0 0 0 2px #FFFFFF, 0 0 28px -2px rgba(212,214,255,0.95)' } : undefined}
           >
             {t.src !== '' && <img src={t.src} alt={t.mine ? 'Your photo on the wall' : ''} className="h-full w-full object-cover" draggable={false} />}
             {t.mine && (
-              <span className="absolute bottom-1 left-1 rounded-full bg-black/60 px-2 py-0.5 font-label text-[10px] font-semibold uppercase tracking-[0.14em] text-white">
+              <span className="absolute bottom-1 left-1 z-10 rounded-full bg-[rgba(26,23,64,0.72)] px-2 py-0.5 text-[11px] font-semibold text-white">
                 {i === 0 ? 'Just now' : 'You'}
               </span>
             )}
@@ -83,7 +91,7 @@ function LiveWall({ shots, onAgain }: { shots: WallShot[]; onAgain?: () => void 
         <button
           type="button"
           onClick={onAgain}
-          className="mt-3 inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-foil px-5 font-label text-[12px] font-bold uppercase tracking-[0.18em] text-white glow-accent"
+          className={`mt-3 inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-foil px-5 text-[15px] font-semibold active:scale-[0.98] ${FOCUS}`}
         >
           <RotateCcw className="h-4 w-4" aria-hidden /> Take another
         </button>
@@ -132,31 +140,31 @@ export default function TryPage() {
             src={f.thumb}
             alt=""
             draggable={false}
-            className="h-36 w-[81px] rounded-xl object-cover shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/15"
+            className="h-36 w-[81px] rounded-xl object-cover shadow-[0_20px_40px_-18px_rgba(22,18,78,0.85)] ring-1 ring-white/30"
             style={{ transform: `rotate(${(i - 1) * 7}deg) translateY(${i === 1 ? -8 : 0}px)` }}
           />
         ))}
       </div>
       <div>
-        <p className="font-label text-[11px] font-semibold uppercase tracking-[0.26em] text-[color:var(--color-accent)]">Try it yourself</p>
-        <h1 className="mt-2 font-serif text-[28px] font-semibold leading-tight text-brand-fg">The {kit.label.toLowerCase()} booth</h1>
-        <p className="mx-auto mt-2 max-w-[30ch] text-[14.5px] leading-snug text-brand-muted">{kit.blurb}</p>
+        <p className="text-[14px] font-medium text-white/[0.86]">Try it yourself</p>
+        <h1 className={`mt-1.5 text-[30px] font-[720] leading-tight text-white ${DISPLAY}`}>The {kit.label.toLowerCase()} booth</h1>
+        <p className="mx-auto mt-2 max-w-[30ch] text-[15px] leading-snug text-white/[0.86]">{kit.blurb}</p>
       </div>
       <button
         type="button"
         onClick={() => setStarted(true)}
-        className="inline-flex min-h-12 items-center gap-2 rounded-full bg-foil px-7 font-label text-[13px] font-bold uppercase tracking-[0.2em] text-white glow-accent active:scale-[0.98]"
+        className={`inline-flex min-h-12 items-center gap-2 rounded-full bg-foil px-7 text-[16px] font-semibold active:scale-[0.98] ${FOCUS}`}
       >
         <Camera className="h-5 w-5" aria-hidden /> Start the camera
       </button>
-      <p className="flex items-center gap-1.5 text-[12px] text-brand-muted/80">
-        <Lock className="h-3.5 w-3.5" aria-hidden /> Your photos stay on this device. Nothing is uploaded.
+      <p className="max-w-[32ch] text-balance text-[13px] leading-snug text-white/80">
+        <Lock className="mr-1.5 inline h-3.5 w-3.5 -translate-y-px align-middle" aria-hidden />Your photos stay on this device. Nothing is uploaded.
       </p>
     </div>
   );
 
   const booth = (
-    <div className="relative h-full w-full overflow-hidden rounded-[22px] border border-white/10 bg-[#05060b]">
+    <div className={`relative h-full w-full overflow-hidden rounded-[22px] ${started ? 'bg-[#1A1740]' : WELL}`}>
       {started ? (
         <CameraExperience
           enabled={cameraOn}
@@ -188,18 +196,18 @@ export default function TryPage() {
   );
 
   return (
-    <div className={`flex flex-col bg-[#03040a] text-brand-fg ${embed ? 'h-[100dvh] p-2' : 'h-[100dvh] p-3 sm:p-5'}`}>
+    <div className={`app-bg flex flex-col text-white [font-family:var(--bw-font-text)] ${embed ? 'h-[100dvh] p-2' : 'h-[100dvh] p-3 sm:p-5'}`}>
       <style>{ARRIVE_CSS}</style>
       {!embed && (
         <header className="mx-auto mb-3 flex w-full max-w-[1100px] items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/'))}
-            className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/12 bg-white/[0.05] px-4 font-label text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-fg"
+            className={`inline-flex min-h-11 items-center gap-2 rounded-full border-[1.5px] border-white/70 bg-[rgba(26,23,64,0.12)] px-4 text-[14px] font-semibold text-white hover:border-white ${FOCUS}`}
           >
             <ArrowLeft className="h-4 w-4" aria-hidden /> Back
           </button>
-          <Link to="/" className="inline-flex min-h-11 items-center font-label text-[13px] font-bold uppercase tracking-[0.3em] text-foil-static">Beamwall</Link>
+          <Link to="/" className={`inline-flex min-h-11 items-center rounded text-[22px] font-[750] leading-none tracking-[-0.035em] text-white ${FOCUS} font-[family-name:var(--bw-font-display)]`}>Beamwall</Link>
         </header>
       )}
       {body}

@@ -107,7 +107,7 @@ export const OFFERS: Offer[] = [
     unit: 'per event',
     blurb: 'We design and build it all remotely; you get the event links.',
     features: [
-      'Custom 2D AR frames and filters',
+      'Custom AR frames and effects',
       'Live photo feed and wall link',
       'Keepsake cards after the event',
       'Event links + Signage Kit, ready to share',
@@ -125,7 +125,7 @@ export const OFFERS: Offer[] = [
     unit: 'per event',
     blurb: 'Done for you for bigger rooms, from first frame to the keepsakes.',
     features: [
-      'Custom 2D frames, 3D AR assets and filters',
+      'Custom frames, 3D props and effects',
       'Challenges, live photo feed and wall link',
       'Keepsake cards and highlight film',
       'Event links, Signage Kit and setup guide',
@@ -162,7 +162,7 @@ export const OFFERS: Offer[] = [
     blurb: 'A licence to build and run Beamwall experiences for your clients and set your own price.',
     features: [
       'Studio licence for many events',
-      'Build custom frames and filters',
+      'Build custom frames, props and effects',
       'Run Beamwall experiences for your clients',
       'You set your own client price',
       'Monthly or annual',
@@ -183,7 +183,7 @@ export const OFFERS: Offer[] = [
     unit: 'per event',
     blurb: 'Every guest becomes the booth. We design and build it; you get the links.',
     features: [
-      'Custom frames and filters in your colours',
+      'Custom frames and effects in your colours',
       'Live photo feed and wall link',
       'Keepsake cards after the event',
       'Event links + Signage Kit, ready to share',
@@ -237,7 +237,7 @@ export const OFFERS: Offer[] = [
     blurb: 'A licence to build and run Beamwall experiences for your clients and set your own price.',
     features: [
       'Studio licence for many events',
-      'Build custom frames and filters',
+      'Build custom frames, props and effects',
       'Run Beamwall experiences for your clients',
       'You set your own client price',
       'Monthly or annual, invoiced',
