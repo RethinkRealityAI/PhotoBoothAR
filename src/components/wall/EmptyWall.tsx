@@ -14,6 +14,8 @@
  * elements — no rAF, no WebGL, nothing that costs anything over six hours —
  * and the whole thing goes still under `prefers-reduced-motion: reduce`.
  */
+import { Link } from 'react-router-dom';
+import { Camera } from 'lucide-react';
 import { QRPanel } from './WallQRCodes';
 
 interface Props {
@@ -29,6 +31,11 @@ interface Props {
    * there it stays true and the empty wall can still be joined.
    */
   showOwnQR?: boolean;
+  /** Platform walls only: on a phone the guest is the audience, and "Step
+   *  into the booth" was an instruction with nothing to tap. When set, phones
+   *  get a button to the booth in place of a QR they cannot scan with the
+   *  same phone. Absent (legacy, projection) = unchanged. */
+  boothHref?: string;
 }
 
 /** Three waiting frames, hand-placed so the group reads as a composition. */
@@ -38,7 +45,7 @@ const FRAMES = [
   { x: 30, y: -2, rot: 8, w: 15, delay: 4.8 },
 ];
 
-export default function EmptyWall({ origin, joinUrl, showOwnQR = true }: Props) {
+export default function EmptyWall({ origin, joinUrl, showOwnQR = true, boothHref }: Props) {
   return (
     <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
       <style>{`
@@ -147,15 +154,28 @@ export default function EmptyWall({ origin, joinUrl, showOwnQR = true }: Props) 
           className="wall-idle-hint font-label uppercase tracking-luxe text-champagne/40"
           style={{
             marginTop: 'calc(10px * var(--wall-scale, 1))',
-            fontSize: 'calc(10px * var(--wall-scale, 1))',
+            // Never under the 10px type floor on a phone (scale < 1 there).
+            fontSize: 'max(10px, calc(10px * var(--wall-scale, 1)))',
             opacity: 0.45,
           }}
         >
           Your photo appears here the second you send it
         </p>
 
+        {boothHref !== undefined && (
+          <Link
+            to={boothHref}
+            className="pressable mt-7 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-foil px-7 font-label uppercase tracking-luxe text-[11px] text-[color:var(--on-accent)] glow-accent sm:hidden"
+          >
+            <Camera className="h-4 w-4" aria-hidden /> Open the booth
+          </Link>
+        )}
+
         {showOwnQR && (
-          <div style={{ marginTop: 'calc(28px * var(--wall-scale, 1))' }}>
+          <div
+            className={boothHref !== undefined ? 'hidden sm:block' : undefined}
+            style={{ marginTop: 'calc(28px * var(--wall-scale, 1))' }}
+          >
             <QRPanel url={joinUrl ?? `${origin}/`} label="Scan to join the booth" />
           </div>
         )}

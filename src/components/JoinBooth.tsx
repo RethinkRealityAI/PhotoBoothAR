@@ -6,7 +6,7 @@
  *
  * Built to read clearly on a small projector: a huge scannable QR on the LEFT,
  * and the terse 3–4-word steps as big pills on the RIGHT
- * ("Scan QR · Select a Filter · Snap Photo · Share"). All copy is still
+ * ("Scan QR · Pick a Look · Snap Photo · Share"). All copy is still
  * admin-editable (app_settings key='landing'): fetched on mount via
  * getLandingContent() and kept live with subscribeToLanding().
  */
@@ -31,7 +31,7 @@ function prefersReducedMotion(): boolean {
 }
 
 export default function JoinBooth() {
-  const { eventId, config, basePath } = useEvent();
+  const { eventId, config, basePath, source } = useEvent();
   const defaults = useMemo(() => defaultLanding(config.copy), [config]);
   const [content, setContent] = useState<LandingContent>(defaults);
   const reduced = useMemo(prefersReducedMotion, []);
@@ -73,7 +73,7 @@ export default function JoinBooth() {
             transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
           >
             <p className="font-label uppercase tracking-luxe text-[11px] sm:text-sm text-[color:var(--color-accent)] mb-4">
-              Scan to Join
+              Scan to join
             </p>
             <motion.div
               className="relative rounded-3xl p-4 sm:p-5"
@@ -102,7 +102,9 @@ export default function JoinBooth() {
               <span className="pointer-events-none absolute bottom-2 left-2 w-6 h-6 border-b-2 border-l-2 rounded-bl-lg" style={{ borderColor: 'rgba(var(--accent-rgb),0.6)' }} aria-hidden />
               <span className="pointer-events-none absolute bottom-2 right-2 w-6 h-6 border-b-2 border-r-2 rounded-br-lg" style={{ borderColor: 'rgba(var(--accent-rgb),0.6)' }} aria-hidden />
 
-              <div className="w-[min(88vw,72vh,640px)] h-[min(88vw,72vh,640px)]">
+              {/* Width budget on a phone: the page's 1.5rem gutters plus this
+                  panel's padding and ring, so the code never runs edge to edge. */}
+              <div className="w-[min(calc(100vw-6.5rem),72vh,640px)] h-[min(calc(100vw-6.5rem),72vh,640px)]">
                 <QRCodeSVG
                   value={qrUrl}
                   fgColor="#1a1108"
@@ -174,9 +176,14 @@ export default function JoinBooth() {
               ))}
             </ol>
 
-            <p className="mt-6 font-label uppercase tracking-luxe text-[9px] sm:text-[10px] text-brand-muted/45">
-              {content.footer}
-            </p>
+            {/* The default footer is the event name, which the eyebrow above
+                already says; print it only when the host wrote something else.
+                The frozen coded events keep printing it as they always have. */}
+            {content.footer && (source !== 'db' || content.footer.trim() !== (content.eyebrow ?? '').trim()) && (
+              <p className="mt-6 font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">
+                {content.footer}
+              </p>
+            )}
           </motion.div>
         </div>
       </div>

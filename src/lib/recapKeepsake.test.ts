@@ -88,6 +88,13 @@ describe('recapGreeting', () => {
     now: Date.parse('2026-11-15T09:00:00Z'),
     orgName: '',
   };
+  it('drops the photo count from the stock message on an empty album, but keeps a host-written one', () => {
+    const empty = { ...ctx, photos: 0 };
+    expect(recapGreeting(normalizeKeepsakeSettings({}), empty).message).toBe('Thanks for being part of it.');
+    const own = normalizeKeepsakeSettings({ copy: { message: 'We took {photos}!' } });
+    expect(recapGreeting(own, empty).message).toBe('We took 0 photos!');
+  });
+
   it('fills the default copy with real counts and signs as the host', () => {
     const s = normalizeKeepsakeSettings({ copy: { hostName: 'Ada' } });
     const g = recapGreeting(s, ctx);

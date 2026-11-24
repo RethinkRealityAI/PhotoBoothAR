@@ -279,7 +279,7 @@ export default function CardContribute() {
       <Shell>
         <GoldFrameCard contentClassName="px-8 py-12">
           <div className="w-14 h-14 rounded-full bg-foil glow-accent flex items-center justify-center">
-            <Heart className="w-6 h-6 text-white" />
+            <Heart className="w-6 h-6 text-[color:var(--on-accent)]" />
           </div>
           <h1 className="mt-5 font-serif italic text-3xl text-foil-static">Beautifully done</h1>
           <p className="mt-3 font-sans text-sm text-brand-muted/70 leading-relaxed">
@@ -291,7 +291,7 @@ export default function CardContribute() {
               setMessage('');
               setDone(false);
             }}
-            className="mt-7 rounded-full border border-white/15 bg-white/[0.05] px-6 py-2.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg hover:bg-white/[0.1] transition"
+            className="mt-7 min-h-11 rounded-full border border-white/15 bg-white/[0.05] px-6 py-2.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg hover:bg-white/[0.1] transition"
           >
             Add another
           </button>
@@ -310,7 +310,7 @@ export default function CardContribute() {
     <Shell>
       {/* Header card */}
       <GoldFrameCard className="mb-5" contentClassName="px-7 py-8">
-        <p className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
+        <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
           {meta?.eventName ?? 'Greeting card'}
         </p>
         <h1 className="mt-2 font-serif italic text-2xl leading-snug text-foil-static">{meta?.title}</h1>
@@ -322,7 +322,7 @@ export default function CardContribute() {
       <div className="flex flex-col gap-4">
         {/* Name + message */}
         <label className="flex flex-col gap-1.5">
-          <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">Your name</span>
+          <span className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">Your name</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -332,7 +332,7 @@ export default function CardContribute() {
           />
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
+          <span className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70">
             {isText ? 'Your note' : 'A few words (optional)'}
           </span>
           <textarea
@@ -342,7 +342,7 @@ export default function CardContribute() {
             placeholder={`Wishing you all the joy, ${meta?.recipientName ?? 'friend'}…`}
             className={`${inputClass} resize-none`}
           />
-          <span className="self-end font-mono text-[9px] text-brand-muted/40">{message.length}/{MESSAGE_MAX}</span>
+          <span className="self-end font-mono text-[10px] text-brand-muted/40">{message.length}/{MESSAGE_MAX}</span>
         </label>
 
         {/* Media source tabs */}
@@ -351,8 +351,8 @@ export default function CardContribute() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex-1 flex items-center justify-center gap-1.5 rounded-full px-2 py-2 font-label uppercase tracking-luxe text-[9px] transition ${
-                tab === t.id ? 'is-selected bg-foil text-white font-bold' : 'text-brand-muted/60 hover:text-brand-fg'
+              className={`flex-1 flex min-h-11 items-center justify-center gap-1.5 rounded-full px-2 py-2 font-label uppercase tracking-luxe text-[10px] transition ${
+                tab === t.id ? 'is-selected bg-foil text-[color:var(--on-accent)] font-bold' : 'text-brand-muted/60 hover:text-brand-fg'
               }`}
             >
               <t.icon className="w-3.5 h-3.5" /> {t.label}
@@ -369,7 +369,7 @@ export default function CardContribute() {
               style={{ background: 'radial-gradient(120% 140% at 0% 0%, rgba(var(--accent-rgb),0.16), rgba(255,255,255,0.02) 60%)' }}
               aria-label="Open the photo booth"
             >
-              <span className="relative h-36 w-[81px] shrink-0 overflow-hidden rounded-xl bg-black ring-1 ring-white/15 shadow-lg">
+              <span className="relative h-36 w-[81px] shrink-0 overflow-hidden rounded-xl bg-[radial-gradient(circle_at_50%_32%,rgba(var(--accent-rgb),0.55),rgba(var(--accent-rgb),0.12)_60%,rgba(255,255,255,0.04))] ring-1 ring-white/15 shadow-lg">
                 {boothKit.frames[0] ? (
                   <img
                     src={boothKit.frames[0].thumb}
@@ -391,7 +391,7 @@ export default function CardContribute() {
                 <span className="font-sans text-xs leading-relaxed text-brand-muted/75">
                   Frames, sparkle effects and 3D props that follow your face. Take a photo or record up to {CARD_VIDEO_MAX_SEC} seconds.
                 </span>
-                <span className="mt-1 inline-flex min-h-11 w-fit items-center gap-2 rounded-full bg-foil px-5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent">
+                <span className="mt-1 inline-flex min-h-11 w-fit items-center gap-2 rounded-full bg-foil px-5 font-label uppercase tracking-luxe text-[10px] font-bold text-[color:var(--on-accent)] glow-accent">
                   <Camera className="h-4 w-4" /> Open the booth
                 </span>
               </span>
@@ -412,7 +412,7 @@ export default function CardContribute() {
               <div className="flex items-center gap-1 rounded-full bg-white/[0.04] border border-white/10 p-1">
                 <button
                   onClick={() => setRecordMode('photo')}
-                  className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] transition ${
+                  className={`flex min-h-11 items-center gap-1.5 rounded-full px-4 py-1.5 font-label uppercase tracking-luxe text-[10px] transition ${
                     recordMode === 'photo' ? 'bg-white/[0.14] text-brand-fg' : 'text-brand-muted/50'
                   }`}
                 >
@@ -420,7 +420,7 @@ export default function CardContribute() {
                 </button>
                 <button
                   onClick={() => setRecordMode('video')}
-                  className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 font-label uppercase tracking-luxe text-[9px] transition ${
+                  className={`flex min-h-11 items-center gap-1.5 rounded-full px-4 py-1.5 font-label uppercase tracking-luxe text-[10px] transition ${
                     recordMode === 'video' ? 'bg-white/[0.14] text-brand-fg' : 'text-brand-muted/50'
                   }`}
                 >
@@ -480,7 +480,7 @@ export default function CardContribute() {
                 // Retaking from the booth goes straight back into it.
                 if (tab === 'record' && !simpleCamera) setBoothOpen(true);
               }}
-              className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/60 border border-white/15 px-3 py-1.5 font-label uppercase tracking-luxe text-[9px] text-brand-fg"
+              className="absolute top-3 right-3 flex min-h-11 items-center gap-1.5 rounded-full bg-black/60 border border-white/15 px-3 py-1.5 font-label uppercase tracking-luxe text-[10px] text-brand-fg"
             >
               <RotateCcw className="w-3 h-3" /> Redo
             </button>
@@ -492,7 +492,7 @@ export default function CardContribute() {
         <button
           onClick={handleSubmit}
           disabled={!canSubmit}
-          className="mt-1 w-full rounded-full bg-foil px-6 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
+          className="mt-1 w-full rounded-full bg-foil px-6 py-4 font-label uppercase tracking-luxe text-[11px] font-bold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-40 flex items-center justify-center gap-2"
         >
           {submitting ? (
             <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>

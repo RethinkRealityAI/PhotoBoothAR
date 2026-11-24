@@ -67,11 +67,14 @@ export default function CardViewer() {
     setState({ phase: 'loading' });
     viewCard(publicId).then(({ data, error }) => {
       if (!alive) return;
-      if (error || !data) {
+      // A body without a card (an older or misbehaving card-view deployment)
+      // used to reach `data.card.title` and crash the whole page into the
+      // app error screen. It is the same thing to a guest as a missing card.
+      if (error || !data || data.card == null) {
         setState({ phase: 'missing' });
         return;
       }
-      setState({ phase: 'ready', card: data.card, contributions: data.contributions });
+      setState({ phase: 'ready', card: data.card, contributions: Array.isArray(data.contributions) ? data.contributions : [] });
       document.title = `${data.card.title} · Beamwall`;
     });
     return () => { alive = false; };
