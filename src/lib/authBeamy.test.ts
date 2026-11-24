@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BEAMY_LINES, BEAT_MS, REDUCED_BEAT_MS, beatClip, beatMs, nextLineIndex, type AuthBeamyPage } from './authBeamy';
 
-const PAGES: AuthBeamyPage[] = ['signin', 'signup'];
+const PAGES: AuthBeamyPage[] = ['signin', 'signup', 'reset'];
 
 describe('authBeamy lines', () => {
   it.each(PAGES)('%s has several lines that fit the phone bubble', (page) => {

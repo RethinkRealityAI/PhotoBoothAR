@@ -194,7 +194,7 @@ export default function SupportDialog() {
                 : "We'll get back to you as soon as we've looked into it."}
           </p>
           {ref !== null && (
-            <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50 mb-6">
+            <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-6">
               Reference {ref}
             </p>
           )}
@@ -220,7 +220,7 @@ export default function SupportDialog() {
       <div className="space-y-5">
         {/* Category pills — pre-ordered by context, one already chosen. */}
         <div>
-          <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/50 mb-2.5">
+          <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/70 mb-2.5">
             What kind of thing is it?
           </p>
           <div className="flex flex-wrap gap-2">
@@ -234,7 +234,7 @@ export default function SupportDialog() {
                   type="button"
                   onClick={() => { setCategory(id); setTouchedCategory(true); haptic('tap'); }}
                   aria-pressed={active}
-                  className={`pressable inline-flex items-center gap-1.5 rounded-full px-3 py-2 min-h-9
+                  className={`pressable inline-flex items-center gap-1.5 rounded-full px-3 py-2 min-h-11
                     font-label uppercase tracking-luxe text-[10px] border transition-colors ${
                     active
                       ? 'bg-[color:var(--color-accent)]/15 border-[color:var(--color-accent)]/50 text-brand-fg'
@@ -245,13 +245,13 @@ export default function SupportDialog() {
                   {def.label}
                   {/* The lead pill is our guess; say so rather than hiding it. */}
                   {i === 0 && !touchedCategory && (
-                    <span className="text-[8px] text-[color:var(--color-accent)]/80">suggested</span>
+                    <span className="text-[10px] text-[color:var(--color-accent)]">suggested</span>
                   )}
                 </button>
               );
             })}
           </div>
-          <p className="font-sans text-xs text-brand-muted/50 mt-2.5">{categoryDef(category).hint}</p>
+          <p className="font-sans text-xs text-brand-muted/70 mt-2.5">{categoryDef(category).hint}</p>
         </div>
 
         <div>
@@ -289,7 +289,7 @@ export default function SupportDialog() {
               onChange={(e) => setEmail(e.target.value)}
               required={needsEmail}
             />
-            <p className="font-sans text-xs text-brand-muted/50 mt-2">
+            <p className="font-sans text-xs text-brand-muted/70 mt-2">
               {needsEmail
                 ? "We need this to reply — it's the only way to reach you."
                 : "Optional — but without it we have no way to tell you when it's fixed."}
@@ -325,7 +325,7 @@ export default function SupportDialog() {
                   type="button"
                   onClick={() => pickShot(null)}
                   aria-label="Remove the screenshot"
-                  className="p-1 rounded-lg text-brand-muted/50 hover:text-brand-fg"
+                  className="-my-2 -mr-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-brand-muted/70 hover:text-brand-fg"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -336,7 +336,7 @@ export default function SupportDialog() {
             )}
           </div>
         ) : (
-          <p className="font-sans text-xs text-brand-muted/40">
+          <p className="font-sans text-xs text-brand-muted/70">
             Sign in to attach a screenshot.
           </p>
         )}
@@ -358,11 +358,11 @@ export default function SupportDialog() {
             <div className="px-3.5 pb-3.5 space-y-1">
               {Object.entries(diagnostics).map(([k, v]) => (
                 <div key={k} className="flex gap-2 font-sans text-[11px]">
-                  <span className="text-brand-muted/40 shrink-0 w-20">{k}</span>
+                  <span className="text-brand-muted/60 shrink-0 w-20">{k}</span>
                   <span className="text-brand-muted/70 break-all">{String(v)}</span>
                 </div>
               ))}
-              <p className="font-sans text-[11px] text-brand-muted/40 pt-2 leading-relaxed">
+              <p className="font-sans text-[11px] text-brand-muted/60 pt-2 leading-relaxed">
                 Sign-in tokens are stripped before anything is sent. We never include
                 your password or session.
               </p>

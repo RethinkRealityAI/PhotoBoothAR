@@ -32,11 +32,15 @@ const BeamyActor = lazy(() => import('../../components/beamy/BeamyActor'));
 const HERO_COPY: Record<AuthBeamyPage, { title: string; body: string }> = {
   signin: {
     title: 'Welcome back to the booth.',
-    body: 'AR filters, 3D props and a live photo wall for your event. All in the browser, no app for your guests.',
+    body: 'AR looks, 3D props and a live photo wall for your event. All in the browser, no app for your guests.',
   },
   signup: {
     title: 'Your event’s own AR photo booth.',
-    body: 'AR filters, 3D props and a live photo wall, all in the browser. Guests scan a code and they’re in.',
+    body: 'AR looks, 3D props and a live photo wall, all in the browser. Guests scan a code and they’re in.',
+  },
+  reset: {
+    title: 'Back to the booth in a minute.',
+    body: 'Set a fresh password and pick up where you left off. Your events, looks and photos are all still there.',
   },
 };
 
@@ -178,9 +182,11 @@ export default function AuthShell({ page, children }: { page: AuthBeamyPage; chi
       <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:gap-14 lg:px-10 lg:py-10">
         {desktop && (
           <section className="relative hidden min-w-0 flex-1 flex-col lg:flex">
-            <h2 className="font-serif text-[clamp(34px,3.4vw,52px)] font-semibold leading-[1.05] tracking-[-0.03em] text-brand-fg">
+            {/* A tagline, not a heading: as an h2 it came BEFORE the form's h1
+                in the outline on desktop (heading order skipped back up). */}
+            <p className="font-serif text-[clamp(34px,3.4vw,52px)] font-semibold leading-[1.05] tracking-[-0.03em] text-brand-fg">
               {copy.title}
-            </h2>
+            </p>
             <p className="mt-4 max-w-lg text-[17px] leading-relaxed text-brand-fg/85">{copy.body}</p>
 
             <div className="relative mt-6 flex h-[min(54vh,480px)] min-h-[300px] flex-col items-center">
