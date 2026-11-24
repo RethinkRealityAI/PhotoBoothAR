@@ -146,18 +146,37 @@ export async function getCameraStream(opts: CameraOptions = {}): Promise<MediaSt
   // Add a microphone track when requested. Failure here is non-fatal — the guest
   // simply records without sound rather than losing the camera entirely.
   if (withAudio) {
-    try {
-      const mic = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      const track = mic.getAudioTracks()[0];
-      if (track) stream.addTrack(track);
-    } catch (e) {
-      console.warn('[camera] microphone unavailable — recording without audio', e);
-    }
+    const track = await acquireMicTrack();
+    if (track) stream.addTrack(track);
   }
 
   return stream;
+}
+
+/**
+ * Microphone settings for a booth CLIP, not a call. Echo cancellation and
+ * noise suppression are call processing: on Android they switch the mic into
+ * the voice-call source, which on some phones (Samsung) hands a page that also
+ * holds the camera a silent track. That is what a Nov 2026 platform clip
+ * shows: an audio stream that is 97% exact zeros. Phone camera apps record
+ * without that processing too. Gain control stays on, so a guest at arm's
+ * length still records at a usable level.
+ */
+export const BOOTH_MIC_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: true,
+};
+
+/** One microphone track, or null when the mic is refused or missing. Never throws. */
+export async function acquireMicTrack(): Promise<MediaStreamTrack | null> {
+  try {
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: BOOTH_MIC_CONSTRAINTS });
+    return mic.getAudioTracks()[0] ?? null;
+  } catch (e) {
+    console.warn('[camera] microphone unavailable — recording without audio', e);
+    return null;
+  }
 }
 
 export async function listVideoInputs(): Promise<MediaDeviceInfo[]> {

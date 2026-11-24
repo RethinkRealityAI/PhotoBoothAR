@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { Download, Share2, RefreshCw, Send, Upload, ChevronDown } from 'lucide-react';
+import { Download, Share2, RefreshCw, Send, Upload, ChevronDown, Volume2, VolumeX } from 'lucide-react';
 import { GalleryIcon, MediaStackIcon } from '../ui/MediaIcons';
 import { getGuestName } from '../../lib/session';
 import { haptic } from '../../lib/haptics';
@@ -53,6 +53,9 @@ export default function ReviewPanel({
    *  starts, but a double-tap inside the same frame must not fire onSend twice. */
   const [submitted, setSubmitted] = useState(false);
   const [extrasOpen, setExtrasOpen] = useState(false);
+  /** Review plays the clip muted so autoplay is allowed; this tap (a real
+   *  gesture) turns the sound on, so the guest can hear what they recorded. */
+  const [soundOn, setSoundOn] = useState(false);
   // "Or explore" leave-confirm: the capture in review is un-sent, so leaving
   // destroys it — intercept the link and ask first (client-side navigation via
   // react-router, event-scoped by basePath; the old raw hrefs full-reloaded
@@ -143,7 +146,7 @@ export default function ReviewPanel({
               src={dataUrl}
               autoPlay
               loop
-              muted
+              muted={!soundOn}
               playsInline
               className="max-h-full max-w-full object-contain rounded-2xl shadow-2xl"
               style={{ border: '1px solid rgba(var(--accent-rgb),0.2)' }}
@@ -157,6 +160,18 @@ export default function ReviewPanel({
             />
           )}
         </motion.div>
+        {mediaType === 'video' && (
+          <button
+            type="button"
+            onClick={() => { haptic('toggle'); setSoundOn((on) => !on); }}
+            aria-label={soundOn ? 'Mute video' : 'Play video with sound'}
+            aria-pressed={soundOn}
+            className="absolute top-4 left-4 glass rounded-full h-11 min-w-11 px-3 flex items-center justify-center gap-1.5 text-champagne/85"
+          >
+            {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            {!soundOn && <span className="font-label text-[10px] uppercase tracking-wide">Sound</span>}
+          </button>
+        )}
         {mediaType === 'video' && durationSec > 0 && (
           <div className="absolute top-6 right-6 glass rounded-full px-2.5 py-1 flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-red-400" />

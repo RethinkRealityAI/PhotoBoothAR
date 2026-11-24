@@ -150,6 +150,18 @@ export class StreamRecorder {
   }
 }
 
+/** Just the track state `liveAudioTrack` reads (keeps it testable in node). */
+type AudioTrackLike = Pick<MediaStreamTrack, 'readyState' | 'enabled' | 'muted'>;
+
+/**
+ * The stream's first audio track if it can actually deliver sound right now.
+ * An ended, disabled or muted track records silence, so the booth swaps in a
+ * fresh microphone instead of recording a silent clip.
+ */
+export function liveAudioTrack<T extends AudioTrackLike>(tracks: readonly T[]): T | null {
+  return tracks.find((t) => t.readyState === 'live' && t.enabled && !t.muted) ?? null;
+}
+
 /** Build a recordable stream from a compositing canvas + optional source audio. */
 export function buildRecordStream(canvas: HTMLCanvasElement, audioFrom?: MediaStream | null, fps = 30): MediaStream {
   const stream = canvas.captureStream(fps);

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { pickVideoMimeType } from './recorder';
+import { liveAudioTrack, pickVideoMimeType } from './recorder';
 
 type MR = { isTypeSupported: (t: string) => boolean };
 
@@ -37,5 +37,26 @@ describe('pickVideoMimeType', () => {
   it('returns "" when nothing is supported', () => {
     stubMediaRecorder([]);
     expect(pickVideoMimeType()).toBe('');
+  });
+});
+
+describe('liveAudioTrack', () => {
+  const t = (readyState: 'live' | 'ended', enabled = true, muted = false) => ({ readyState, enabled, muted });
+
+  it('picks a live, enabled, unmuted track', () => {
+    const good = t('live');
+    expect(liveAudioTrack([good])).toBe(good);
+  });
+
+  it('rejects tracks that would record silence', () => {
+    expect(liveAudioTrack([t('ended')])).toBeNull();
+    expect(liveAudioTrack([t('live', false)])).toBeNull();
+    expect(liveAudioTrack([t('live', true, true)])).toBeNull();
+    expect(liveAudioTrack([])).toBeNull();
+  });
+
+  it('skips a dead track and finds a later live one', () => {
+    const good = t('live');
+    expect(liveAudioTrack([t('ended'), good])).toBe(good);
   });
 });
