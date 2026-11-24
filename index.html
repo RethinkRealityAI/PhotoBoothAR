@@ -132,6 +132,8 @@
           text.appendChild(t); text.appendChild(s);
           d.appendChild(icon); d.appendChild(text); d.appendChild(bar);
           document.body.appendChild(d);
+          // Never strand anyone behind it (an error page, a slow load): lift it after 8 s.
+          setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 8000);
         } catch (e) { /* no storage: no screen */ }
       })();
     </script>
