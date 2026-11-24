@@ -110,6 +110,8 @@ import TestOnPhone from './TestOnPhone';
 import PublishToLibrary from './PublishToLibrary';
 import { useStudioDnd } from './useStudioDnd';
 import Tooltip from '../ui/Tooltip';
+import RailToggle from '../ui/RailToggle';
+import { useRailCollapsed } from '../../lib/useRailCollapsed';
 import HelpButton from './HelpButton';
 import { FeatureHelpProvider } from './FeatureHelpContext';
 
@@ -176,6 +178,43 @@ function DrawerClose({ label, onClose }: { label: string; onClose: () => void })
   );
 }
 
+/** Desktop (lg+) dock header: the dock's name and its collapse control.
+ *  Collapsed, the dock becomes a slim strip: the expand control plus the
+ *  dock's name written vertically, which also expands it on a click. Below lg
+ *  the docks are drawers and this renders nothing (DrawerClose covers it). */
+function DockRail({ label, side, collapsed, onToggle, controls }: {
+  label: string;
+  side: 'left' | 'right';
+  collapsed: boolean;
+  onToggle: () => void;
+  controls: string;
+}) {
+  if (collapsed) {
+    return (
+      <div className="hidden lg:flex flex-col items-center gap-2 py-2">
+        <RailToggle collapsed onToggle={onToggle} label={`${label} panel`} controls={controls} side={side} />
+        {/* Mouse convenience only: the toggle above is the accessible control. */}
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden
+          onClick={onToggle}
+          className="px-2 py-3 rounded-lg font-label uppercase tracking-widest text-[10px] text-brand-muted/60 hover:text-brand-fg hover:bg-white/[0.05] [writing-mode:vertical-rl] transition-colors"
+          style={side === 'left' ? { transform: 'rotate(180deg)' } : undefined}
+        >
+          {label}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="hidden lg:flex items-center justify-between gap-2 py-1 pl-4 pr-1.5 border-b border-white/10">
+      <span className="font-label uppercase tracking-widest text-[10px] text-brand-muted/70">{label}</span>
+      <RailToggle collapsed={false} onToggle={onToggle} label={`${label} panel`} controls={controls} side={side} />
+    </div>
+  );
+}
+
 export default function StudioShell({ eventStatus }: {
   /** Platform only (EventStudio passes its live status): a draft event gets
    *  a compact badge in this bar, which is the only chrome on screen here.
@@ -225,6 +264,10 @@ export default function StudioShell({ eventStatus }: {
   // Below lg the docks are slide-in drawers (they'd otherwise have no room);
   // this tracks which one is open. At lg+ both are always-visible columns.
   const [mobilePanel, setMobilePanel] = useState<'assets' | 'props' | null>(null);
+  // lg+ only: either side dock can shrink to a slim strip so the stage gets
+  // the room. Remembered per browser; the phone/tablet drawers ignore it.
+  const assetsRail = useRailCollapsed('studio-assets');
+  const propsRail = useRailCollapsed('studio-props');
 
   // Experience name lives in the centered header field (moved out of the props
   // dock). `editingName` swaps the label for an inline input; `nameDraft` holds
@@ -929,13 +972,19 @@ export default function StudioShell({ eventStatus }: {
         )}
 
         <aside
+          id="studio-assets-dock"
           data-panel="assets"
           className={`overflow-y-auto hide-scrollbar bg-brand-bg lg:bg-transparent border-white/10
             fixed z-40 top-14 bottom-0 left-0 w-[20rem] max-w-[86vw] border-r transition-transform duration-200
-            lg:static lg:z-auto lg:top-0 lg:w-[19rem] lg:max-w-none lg:translate-x-0 lg:shrink-0
+            lg:static lg:z-auto lg:top-0 lg:max-w-none lg:translate-x-0 lg:shrink-0 lg:transition-[width] motion-reduce:transition-none
+            ${assetsRail.collapsed ? 'lg:w-14' : 'lg:w-[19rem]'}
             ${mobilePanel === 'assets' ? 'translate-x-0' : '-translate-x-full'}`}
         >
           <DrawerClose label="Assets" onClose={() => setMobilePanel(null)} />
+          <DockRail label="Assets" side="left" collapsed={assetsRail.collapsed} onToggle={assetsRail.toggle} controls="studio-assets-dock" />
+          {/* Kept mounted while collapsed (lg:hidden, not unmounted) so its
+              tab, scroll and search survive a collapse/expand. */}
+          <div className={assetsRail.collapsed ? 'lg:hidden' : undefined}>
           {/* onOpenProperties: the left dock no longer edits anything, so the
               "Added — edit in Properties" affordance under a just-clicked tile
               has to be able to REACH the right dock. At lg+ that dock is always
@@ -949,8 +998,9 @@ export default function StudioShell({ eventStatus }: {
             beginDrag={dnd.beginDrag}
             consumedDrag={dnd.consumedDrag}
             lighting={lighting}
-            onOpenProperties={() => { setSceneOpen(false); setMobilePanel('props'); }}
+            onOpenProperties={() => { setSceneOpen(false); setMobilePanel('props'); propsRail.setCollapsed(false); }}
           />
+          </div>
         </aside>
 
         <main className="flex-1 min-w-0 relative">
@@ -971,7 +1021,7 @@ export default function StudioShell({ eventStatus }: {
             headMatrixRef={headMatrixRef}
             dropActive={dnd.dragging && dnd.overStage}
             onTestOnPhone={() => setTestPhoneOpen(true)}
-            onOpenAssets={() => { setStarterDismissed(true); setSceneOpen(false); setMobilePanel('assets'); }}
+            onOpenAssets={() => { setStarterDismissed(true); setSceneOpen(false); setMobilePanel('assets'); assetsRail.setCollapsed(false); }}
             onStarterScene={starterDismissed ? undefined : handleStarterScene}
             refusal={dnd.refusal}
           />
@@ -1000,17 +1050,20 @@ export default function StudioShell({ eventStatus }: {
         </aside>
 
         <aside
+          id="studio-props-dock"
           data-panel="props"
           // flex-col + overflow-hidden (not overflow-y-auto): the dock owns its
           // own scroll area so its Assets|Scene tab bar stays pinned while the
           // sections scroll beneath it.
           className={`flex flex-col overflow-hidden bg-brand-bg lg:bg-transparent border-white/10
             fixed z-40 top-14 bottom-0 right-0 w-[20rem] max-w-[86vw] border-l transition-transform duration-200
-            lg:static lg:z-auto lg:top-0 lg:w-[19rem] lg:max-w-none lg:translate-x-0 lg:shrink-0
+            lg:static lg:z-auto lg:top-0 lg:max-w-none lg:translate-x-0 lg:shrink-0 lg:transition-[width] motion-reduce:transition-none
+            ${propsRail.collapsed ? 'lg:w-14' : 'lg:w-[19rem]'}
             ${mobilePanel === 'props' ? 'translate-x-0' : 'translate-x-full'}`}
         >
           <DrawerClose label="Properties" onClose={() => setMobilePanel(null)} />
-          <div className="min-h-0 flex-1">
+          <DockRail label="Properties" side="right" collapsed={propsRail.collapsed} onToggle={propsRail.toggle} controls="studio-props-dock" />
+          <div className={`min-h-0 flex-1 ${propsRail.collapsed ? 'lg:hidden' : ''}`}>
             <PropertiesDock
               state={state}
               dispatch={dispatch}
