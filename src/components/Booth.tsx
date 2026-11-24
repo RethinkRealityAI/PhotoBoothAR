@@ -103,7 +103,8 @@ import { fileToImagePart } from '../lib/imageInput';
 import RevealShimmer from './booth/RevealShimmer';
 import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
 import { setThumbSource } from './booth/filterThumbEngine';
-import { assetUrlsOf, isPending, selectionSignature, withLoaded } from '../lib/boothAssets';
+import { assetUrlsOf, glbPreloadQueue, isPending, layersWantGuestName, selectionSignature, withLoaded } from '../lib/boothAssets';
+import { isModelCached, preloadModel } from '../lib/glbCache';
 import {
   detectSwipe, isDoubleTap, cycleIndex, isCrampedLandscape, type PointerSample,
 } from '../lib/boothGestures';
@@ -178,6 +179,10 @@ const warmedAssets = new Set<string>();
 /** Ceiling on a warm-up, so a hung request can never leave a permanent spinner
  *  on an orb. The asset itself keeps loading; only our "pending" claim expires. */
 const WARM_TIMEOUT_MS = 12_000;
+/** Idle prop preload: wait this long after the booth settles, then pause this
+ *  long between models so parsing never stacks up on the main thread. */
+const PRELOAD_START_MS = 2_500;
+const PRELOAD_GAP_MS = 600;
 
 /**
  * Pull an experience's asset into the browser cache and resolve when it is
@@ -702,6 +707,34 @@ export default function Booth() {
     showBoothHint('That prop didn’t load — frames and effects still work');
   }, [markAssetLoaded, showBoothHint]);
 
+  // ── Props parsed ahead of the tap (platform only) ─────────────────────
+  // warmAsset above only fills the HTTP cache, so every prop switch still
+  // parsed its GLB (hundreds of ms on a phone) before anything could show.
+  // Once the booth is idle — camera and tracker up, nothing loading, not
+  // recording — parse the event's other props into the shared model cache one
+  // at a time, with a pause between, capped by glbPreloadQueue. Legacy events
+  // never run this.
+  useEffect(() => {
+    if (source !== 'db' || phase !== 'camera' || !ready || !trackerReady || recording || selectionPending) return;
+    const queue = glbPreloadQueue(catalog, isModelCached);
+    if (queue.length === 0) return;
+    let alive = true;
+    let timer = 0;
+    const next = () => {
+      const url = queue.shift();
+      if (!alive || url === undefined) return;
+      // preloadModel never rejects (a failed preload just retries on the tap).
+      void preloadModel(url).then(() => {
+        if (alive) timer = window.setTimeout(next, PRELOAD_GAP_MS);
+      });
+    };
+    timer = window.setTimeout(next, PRELOAD_START_MS);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [source, phase, ready, trackerReady, recording, selectionPending, catalog]);
+
   // ── Camera taking too long ────────────────────────────────────────────
   // "Starting camera…" used to be an unbounded spinner: some webviews neither
   // resolve nor reject getUserMedia, and the guest had no way out. After ~8 s
@@ -758,10 +791,22 @@ export default function Booth() {
   );
   /** The name prompt is owed when the frame wants the GUEST's name, we don't
    *  have one, and they haven't already declined for this event. */
+  /** A selected 3D piece engraves the guest's name (a cap's front label).
+   *  db-only: legacy/code events never carry layers. */
+  const propWantsName = source === 'db' && layersWantGuestName(attachExp?.config?.layers);
   const needsGuestName =
-    letteringSpec?.token === 'guestName' && !guestLetteringName && !hasSkippedGuestName(eventId);
+    ((letteringSpec?.token === 'guestName' && !guestLetteringName) || (propWantsName && !guestName.trim()))
+    && !hasSkippedGuestName(eventId);
   const [askName, setAskName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
+  // Picking a name-wearing prop asks for the name right away, so the guest sees
+  // it on the piece while framing instead of an empty front until they shoot.
+  useEffect(() => {
+    if (!propWantsName || !needsGuestName || phase !== 'camera') return;
+    setNameDraft('');
+    setAskName(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachExp?.id]);
   const stageLettering = useMemo(
     () => (letteringSpec ? { spec: letteringSpec, name: guestLetteringName } : null),
     [letteringSpec, guestLetteringName],
@@ -2110,6 +2155,9 @@ export default function Booth() {
                     // PLATFORM only, like `composited` (and a no-op outside 8th Wall).
                     multiFace={is3D && !isLegacyFaceSurface(source !== 'db')}
                     maxFps={boothFpsCap}
+                    // A prop switch shows nothing until the new prop is
+                    // loaded, never the old one at the new spot. PLATFORM only.
+                    hideStaleModels={!isLegacyFaceSurface(source !== 'db')}
                   />
                 )}
               </div>
@@ -2469,7 +2517,9 @@ export default function Booth() {
           <div className="w-full max-w-sm liquid-glass rounded-3xl px-6 py-6 text-center">
             <h3 className="font-serif text-2xl text-ivory mb-1">Put your name on it</h3>
             <p className="font-sans text-[13px] text-champagne/60 leading-relaxed mb-5">
-              This frame writes your name across every shot you take. Skip it and the frame stays as it is.
+              {propWantsName && letteringSpec?.token !== 'guestName'
+                ? 'This piece wears your name. Skip it and it stays plain.'
+                : 'This frame writes your name across every shot you take. Skip it and the frame stays as it is.'}
             </p>
             <input
               type="text"
