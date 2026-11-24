@@ -802,7 +802,7 @@ export default function DirectorPanel({
       {plan.shader && (
         <FilterCard
           name={SHADER_MAP[plan.shader.shaderId]?.name ?? plan.shader.shaderId}
-          description={SHADER_MAP[plan.shader.shaderId]?.description ?? 'A coordinated booth filter.'}
+          description={SHADER_MAP[plan.shader.shaderId]?.description ?? 'A coordinated booth effect.'}
           state={cards.shader}
           onApprove={approveFilter}
           onSkip={skipFilter}

@@ -50,7 +50,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { id: 'library', to: '/admin/library', label: 'Library' },
       { id: 'home-assets', to: '/admin/home-assets', label: 'Homepage' },
-      { id: 'landing', to: '/admin/landing', label: 'Landing' },
+      { id: 'landing', to: '/admin/landing', label: 'Classic landing' },
       { id: 'reveals', to: '/admin/reveals', label: 'Reveals' },
     ],
   },

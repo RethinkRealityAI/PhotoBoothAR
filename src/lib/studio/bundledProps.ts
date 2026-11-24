@@ -84,9 +84,12 @@ export const BUNDLED_PROPS: readonly BundledProp[] = [
     thumb: '/models/props/royal-crown.webp',
     anchor: 'crown',
     finish: 'gold',
-    offset: [0, 2, -0.6],
+    // 6.8 (was 5.5): at 5.5 it read as a child's crown on a phone — about 10cm
+    // across against a ~15cm head. The model is centred, so growing it drops
+    // its base; y +0.7 keeps the base on the hairline where it sat before.
+    offset: [0, 2.7, -0.6],
     rotation: [0, 0, 0],
-    scale: 5.5,
+    scale: 6.8,
     supersedes: 'royal-crown',
     // Its back band sits behind the head: without the occluder the far inside
     // of the crown shows through the forehead (seen on the /try demo).
