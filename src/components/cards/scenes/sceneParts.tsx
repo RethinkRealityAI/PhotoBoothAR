@@ -21,16 +21,17 @@ export function SceneStage({
   backUrl,
   children,
   ...rest
-}: { design: CardDesign; backUrl: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+}: { design: CardDesign; backUrl: string | null; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   return (
     <div className="absolute inset-0 overflow-hidden" style={{ backgroundColor: design.palette.bg }} {...rest}>
-      <img
+      {backUrl !== null && <img
+        key={backUrl}
         src={backUrl}
         alt=""
         aria-hidden
         draggable={false}
         className="absolute inset-0 hidden h-full w-full scale-110 object-cover opacity-55 blur-2xl sm:block"
-      />
+      />}
       <div className="relative mx-auto aspect-[9/16] h-full max-w-full overflow-hidden sm:shadow-[0_0_120px_-20px_rgba(0,0,0,0.7)]">
         {children}
       </div>

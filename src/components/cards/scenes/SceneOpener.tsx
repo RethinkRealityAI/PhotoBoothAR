@@ -460,7 +460,13 @@ export default function SceneOpener({ card, design, reducedMotion, onDone, unloc
   const closed = phase === 'loading' || phase === 'closed';
 
   return (
-    <SceneStage design={design} backUrl={assets.back} data-scene-phase={phase}>
+    // The blurred side panels (desktop) follow the opening too: nothing while
+    // the gate decodes, the locked gate while closed, the opened scene after.
+    <SceneStage
+      design={design}
+      backUrl={phase === 'loading' ? null : closed ? assets.gate : assets.back}
+      data-scene-phase={phase}
+    >
       {/* The scene behind the gateway */}
       {/* Hidden until the gate is ready: the opened scene must never show
           before the locked gateway that hides it. */}
