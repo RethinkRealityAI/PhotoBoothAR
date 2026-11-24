@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assetUrlsOf, selectionSignature, isPending, withLoaded, drawableScene, glbPreloadQueue, MAX_PRELOADED_MODELS, layersWantGuestName } from './boothAssets';
+import { assetUrlsOf, selectionSignature, isPending, withLoaded, drawableScene, glbPreloadQueue, MAX_PRELOADED_MODELS, layersWantGuestName, layersWantGuestInitials } from './boothAssets';
 import type { Experience, ExperienceKind } from '../types';
 
 function exp(over: Partial<Experience> & { kind: ExperienceKind }): Experience {
@@ -199,5 +199,18 @@ describe('layersWantGuestName', () => {
     expect(layersWantGuestName([])).toBe(false);
     expect(layersWantGuestName(undefined)).toBe(false);
     expect(layersWantGuestName([{ kind: '3d_attachment', customization: 'junk' }])).toBe(false);
+  });
+});
+
+describe('layersWantGuestInitials', () => {
+  const mask = (token: string) => ({ kind: '3d_attachment', customization: { label: { slotId: 'crest', token, style: 'serif', hex: '#e2b65a' } } });
+  it('is true only for a 3D layer whose label is the guest initials', () => {
+    expect(layersWantGuestInitials([mask('guestInitials')])).toBe(true);
+    expect(layersWantGuestInitials([mask('guestName')])).toBe(false);
+    expect(layersWantGuestInitials([{ kind: 'border', customization: { label: { token: 'guestInitials' } } }])).toBe(false);
+    expect(layersWantGuestInitials(undefined)).toBe(false);
+  });
+  it('an initials crest also counts as wanting the guest name (it falls back to it)', () => {
+    expect(layersWantGuestName([mask('guestInitials')])).toBe(true);
   });
 });

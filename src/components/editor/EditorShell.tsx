@@ -21,6 +21,9 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, type LucideIcon } from 'lucide-react';
 import { useIsDesktop } from '../../pages/host/wizard/PreviewSheet';
 import SaveChip, { type EditorSaveState } from './SaveChip';
+import RailToggle from '../ui/RailToggle';
+import Tooltip from '../ui/Tooltip';
+import { useRailCollapsed } from '../../lib/useRailCollapsed';
 import EditorSheet from './EditorSheet';
 
 export interface EditorTab {
@@ -89,9 +92,37 @@ function TabBar({ tabs, tab, onTab, label, phone }: { tabs: readonly EditorTab[]
   );
 }
 
+/** Desktop only, collapsed options card: one icon per tab, stacked. Picking a
+ *  tab opens the card on it, so the strip doubles as a shortcut. */
+function CollapsedTabs({ tabs, tab, onPick, label }: { tabs: readonly EditorTab[]; tab: string; onPick: (id: string) => void; label: string }) {
+  return (
+    <div role="group" aria-label={label} className="flex flex-col items-center gap-1.5">
+      {tabs.map(({ id, label: l, Icon }) => (
+        <Tooltip key={id} label={`Open ${l}`} side="right">
+          <button
+            type="button"
+            onClick={() => onPick(id)}
+            aria-label={`Open ${l}`}
+            aria-current={tab === id ? 'true' : undefined}
+            className={`pressable grid place-items-center w-11 h-11 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] ${
+              tab === id ? 'bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]'
+            }`}
+          >
+            {Icon ? <Icon className="h-[18px] w-[18px]" aria-hidden /> : <span aria-hidden className="text-[14px] font-semibold">{l.charAt(0)}</span>}
+          </button>
+        </Tooltip>
+      ))}
+    </div>
+  );
+}
+
 export default function EditorShell(p: EditorShellProps) {
   const desktop = useIsDesktop();
   const active = p.tabs.find((t) => t.id === p.tab) ?? p.tabs[0];
+  // Desktop: the options card can fold to an icon strip so the preview gets
+  // the width. One remembered choice for every editor built on this shell.
+  const rail = useRailCollapsed('editor');
+  const c = rail.collapsed;
 
   const header = (
     <header className="flex-none px-3 sm:px-4 lg:px-6 pt-[max(10px,env(safe-area-inset-top))] pb-2.5">
@@ -135,17 +166,33 @@ export default function EditorShell(p: EditorShellProps) {
       {desktop ? (
         <div
           className={`flex-1 min-h-0 mx-auto w-full max-w-[1600px] px-6 pb-5 grid gap-6 xl:gap-7 ${
-            p.previewSize === 'balanced'
-              ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
-              : 'grid-cols-[minmax(400px,0.85fr)_minmax(0,1.15fr)]'
+            c
+              ? 'grid-cols-[4.5rem_minmax(0,1fr)]'
+              : p.previewSize === 'balanced'
+                ? 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
+                : 'grid-cols-[minmax(400px,0.85fr)_minmax(0,1.15fr)]'
           }`}
         >
-          <section className="liquid-glass rounded-[28px] flex flex-col min-h-0 overflow-hidden">
-            <div className="flex-none px-5 pt-5 pb-3">
-              <TabBar tabs={p.tabs} tab={active.id} onTab={p.onTab} label={p.tabsLabel} phone={false} />
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-1 pb-8 [scrollbar-width:thin]">
-              {panel}
+          <section id="ed-options" aria-label={p.tabsLabel} className="liquid-glass rounded-[28px] flex flex-col min-h-0 overflow-hidden">
+            {c && (
+              <div className="flex flex-col items-center gap-3 py-3 overflow-y-auto hide-scrollbar">
+                <RailToggle collapsed onToggle={rail.toggle} label="options" controls="ed-options" />
+                <div aria-hidden className="h-px w-8 bg-white/10" />
+                <CollapsedTabs tabs={p.tabs} tab={active.id} label={p.tabsLabel} onPick={(id) => { p.onTab(id); rail.setCollapsed(false); }} />
+              </div>
+            )}
+            {/* Hidden, not unmounted, while collapsed: the open panel keeps any
+                local state (a half-typed field, a scroll position). */}
+            <div className={c ? 'hidden' : 'contents'}>
+                <div className="flex-none px-5 pt-5 pb-3 flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <TabBar tabs={p.tabs} tab={active.id} onTab={p.onTab} label={p.tabsLabel} phone={false} />
+                  </div>
+                  <RailToggle collapsed={false} onToggle={rail.toggle} label="options" controls="ed-options" />
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-1 pb-8 [scrollbar-width:thin]">
+                  {panel}
+                </div>
             </div>
           </section>
           <aside aria-label="Preview" className="min-h-0">{previewPane}</aside>

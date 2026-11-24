@@ -350,14 +350,14 @@ function normalizeLabel(raw: unknown): AssetLabelConfig | undefined {
   const o = raw as Record<string, unknown>;
   const slotId = typeof o.slotId === 'string' ? o.slotId.trim().slice(0, ASSET_CUSTOMIZATION.maxSlotIdLength) : '';
   if (!slotId) return undefined;
-  const token = o.token === 'fixed' ? 'fixed' : o.token === 'guestName' ? 'guestName' : null;
+  const token = o.token === 'fixed' || o.token === 'guestName' || o.token === 'guestInitials' ? o.token : null;
   if (!token) return undefined;
   const style = normalizeLabelStyle(o.style);
   if (!style) return undefined;
   const text = typeof o.text === 'string' ? o.text.trim().slice(0, ASSET_CUSTOMIZATION.maxLabelLength) : '';
   // A 'fixed' engraving with nothing to say is the same as no label at all —
   // the same rule letteringFit.normalizeGuestLettering applies to 2D lettering.
-  // 'guestName' keeps its slot with no text: the name arrives at booth time.
+  // The guest tokens keep their slot with no text: it arrives at booth time.
   if (token === 'fixed' && !text) return undefined;
   const hex = normalizeTint(o.hex) ?? (normalizeTint(DEFAULT_LETTERING_COLOR) as string);
   const label: AssetLabelConfig = { slotId, token, style, hex };
@@ -849,7 +849,7 @@ export type StudioAction =
   /** `template` is the asset's configurator descriptor when the library row
    *  ships one (assetTemplate.AssetTemplate). Omitting it — every caller today
    *  — adds a plain, non-configurable model exactly as before. */
-  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; rotationDeg?: { x: number; y: number; z: number }; occlude?: boolean; anchor?: HeadAnchor; handAnchor?: string; anchorVersion?: 2 }
+  | { type: 'SET_MODEL_ASSET'; url: string; name: string | null; scale?: number; template?: unknown; offsetCm?: { x: number; y: number; z: number }; rotationDeg?: { x: number; y: number; z: number }; occlude?: boolean; anchor?: HeadAnchor; handAnchor?: string; anchorVersion?: 2; customization?: AssetCustomization }
   | { type: 'SET_THUMB'; url: string | null; blob: Blob | null }
   | { type: 'TOGGLE_PUBLISHED' }
   | { type: 'TOGGLE_FEATURED' }
@@ -1128,6 +1128,9 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         // existing add path byte-identical.
         occlusion: action.occlude,
         anchorVersion: action.anchorVersion,
+        // A library entry's starting look (a mask arrives emerald with the
+        // guest's initials on its crest). Normalized like any stored value.
+        customization: action.customization,
       });
       // A v2 add: the library's authored nudge was measured against the v1
       // anchor, so convert it (at headScale 1, the default the nudges were

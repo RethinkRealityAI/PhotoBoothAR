@@ -41,6 +41,9 @@ import { HubTopBar, ICP_LABEL, PlaceholderBadge, SectionHead } from './component
 import { asksFor, contactLine, offersFromIds } from './components/deckEnv';
 import { useNoIndex, useStoredString } from './components/pageMeta';
 import { BEAMY } from './salesImages';
+import Tooltip from '../../components/ui/Tooltip';
+import RailToggle from '../../components/ui/RailToggle';
+import { useRailCollapsed } from '../../lib/useRailCollapsed';
 
 const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: 'start', label: 'Start here', Icon: Compass },
@@ -116,7 +119,20 @@ function Section({ id, active, children }: { id: string; active: string; childre
 
 /** The CRM nav item: a link to its own page, styled like a tab but marked as
  *  leaving the hub. */
-function CrmNavLink({ variant }: { variant: 'rail' | 'chip' }) {
+function CrmNavLink({ variant, collapsed = false }: { variant: 'rail' | 'chip'; collapsed?: boolean }) {
+  if (variant === 'rail' && collapsed) {
+    return (
+      <Tooltip label="Open the CRM" side="right">
+        <Link
+          to={SALES_CRM_PATH}
+          aria-label="Open the CRM"
+          className="mt-3 grid place-items-center min-h-12 rounded-xl border border-[color:var(--color-accent)]/35 bg-[color:var(--color-accent)]/10 text-brand-fg transition hover:bg-[color:var(--color-accent)]/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+        >
+          <Users className="h-[18px] w-[18px] text-accent" aria-hidden />
+        </Link>
+      </Tooltip>
+    );
+  }
   if (variant === 'chip') {
     return (
       <Link
@@ -152,6 +168,9 @@ export default function SalesHub() {
   const [presenting, setPresenting] = useState<Deck | null>(null);
   const [objQuery, setObjQuery] = useState('');
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  // Desktop rail only; the phone keeps its chip strip.
+  const rail = useRailCollapsed('sales');
+  const c = rail.collapsed;
 
   const decks = useMemo(() => DECKS.filter((d) => d.market === market), [market]);
   const packages = useMemo(() => offersFor(market), [market]);
@@ -239,9 +258,19 @@ export default function SalesHub() {
 
       <div className="flex min-h-0 flex-1">
         {/* Desktop rail */}
-        <nav aria-label="Hub sections" className="hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] px-3 py-6 md:flex lg:w-64 lg:px-4">
+        <nav
+          id="sales-rail"
+          aria-label="Hub sections"
+          className={`hidden shrink-0 flex-col overflow-y-auto hide-scrollbar border-r border-white/[0.06] md:flex transition-[width] duration-200 motion-reduce:transition-none ${
+            c ? 'w-[4.75rem] px-2 py-4' : 'w-60 px-3 py-6 lg:w-64 lg:px-4'
+          }`}
+        >
+          <div className={`flex mb-2 ${c ? 'justify-center' : 'justify-end -mt-3'}`}>
+            <RailToggle collapsed={c} onToggle={rail.toggle} label="sections" controls="sales-rail" />
+          </div>
           <div role="tablist" aria-orientation="vertical" className="flex flex-col gap-1">
             {SECTIONS.map((s) => (
+              <Tooltip key={s.id} label={s.label} side="right" disabled={!c}>
               <button
                 key={s.id}
                 id={`tab-${s.id}`}
@@ -250,19 +279,23 @@ export default function SalesHub() {
                 aria-selected={active === s.id}
                 aria-controls={s.id}
                 onClick={() => jump(s.id)}
-                className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-left text-[14.5px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] ${
+                aria-label={c ? s.label : undefined}
+                className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-left text-[14.5px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] ${c ? 'justify-center' : ''} ${
                   active === s.id ? 'bg-white/[0.08] font-semibold text-brand-fg' : 'text-brand-muted hover:bg-white/[0.04] hover:text-brand-fg'
                 }`}
               >
-                <s.Icon className={`h-4 w-4 ${active === s.id ? 'text-accent' : ''}`} aria-hidden />
-                {s.label}
+                <s.Icon className={`${c ? 'h-[18px] w-[18px]' : 'h-4 w-4'} shrink-0 ${active === s.id ? 'text-accent' : ''}`} aria-hidden />
+                {!c && s.label}
               </button>
+              </Tooltip>
             ))}
           </div>
-          <CrmNavLink variant="rail" />
-          <p className="mt-auto px-3 pt-6 text-[11.5px] leading-snug text-brand-muted/60">
-            Internal only. Prospects get /pitch links.
-          </p>
+          <CrmNavLink variant="rail" collapsed={c} />
+          {!c && (
+            <p className="mt-auto px-3 pt-6 text-[11.5px] leading-snug text-brand-muted/60">
+              Internal only. Prospects get /pitch links.
+            </p>
+          )}
         </nav>
 
         {/* The open tab — the only thing that scrolls */}

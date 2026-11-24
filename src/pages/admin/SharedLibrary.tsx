@@ -21,11 +21,11 @@
  * picker's matching. Every write goes through admin-api, which re-checks
  * platform-admin and audits it.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   BookImage, Box, Check, ChevronDown, ChevronRight, FileUp, FolderTree, ImagePlus, LayoutGrid, List, Loader2, Lock, Maximize2,
-  Minimize2, Plus, RefreshCw, Search, Sparkles, Tag, Upload, Wand2, X,
+  Copy, Minimize2, Pencil, Plus, RefreshCw, ScanFace, Search, Sparkles, Tag, Trash2, Upload, Wand2, X,
 } from 'lucide-react';
 import {
   bulkUpdateLibraryItems,
@@ -51,6 +51,7 @@ import {
   STATE_CONSEQUENCE,
   emptyLibraryTags,
   normalizeLibraryName,
+  planDelete,
   planStateChange,
   type LibraryState,
   type LibraryTags,
@@ -88,6 +89,8 @@ import { builtInModels } from '../../lib/platformModels';
 import { pictureFromFile, renderPicture, stagePicture } from '../../lib/libraryPictureBrowser';
 import { formatDate } from '../../lib/adminFormat';
 import LoadError from '../../components/ui/LoadError';
+import RailToggle from '../../components/ui/RailToggle';
+import { useRailCollapsed } from '../../lib/useRailCollapsed';
 import Modal from '../../components/ui/Modal';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import StatusPill from '../../components/ui/StatusPill';
@@ -96,11 +99,15 @@ import { useToast } from '../../components/ui/Toast';
 import CategoryManager from '../../components/admin/library/CategoryManager';
 import TagManager from '../../components/admin/library/TagManager';
 import ModelViewerModal, { type ViewerTarget } from '../../components/admin/library/ModelViewerModal';
+import TryOnModal, { type TryOnItem } from '../../components/admin/library/TryOnModal';
+import CopySettingsModal, { type CopyItem } from '../../components/admin/library/CopySettingsModal';
 import CategorySelect from '../../components/admin/library/CategorySelect';
 import { useHeldModel, useRenderedPictures } from '../../components/admin/library/useRenderedPictures';
 import AccessPicker, { accessSummary, sameAccess, type AccessValue } from '../../components/admin/library/AccessPicker';
 import { ModelPreview } from '../../components/studio/DirectorCards';
 import ModelSizeDetails from '../../components/admin/library/ModelSizeDetails';
+import EditorShell, { type EditorTab } from '../../components/editor/EditorShell';
+import type { EditorSaveState } from '../../components/editor/SaveChip';
 import OptimizeCompare from '../../components/admin/library/OptimizeCompare';
 import BulkOptimizeModal, { type BulkOptItem } from '../../components/admin/library/BulkOptimizeModal';
 import { glbFile, replaceModelFile, type ReplaceStep } from '../../lib/libraryImportBrowser';
@@ -128,6 +135,8 @@ const SOFT_BTN =
   'pressable inline-flex items-center justify-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.11] px-3.5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-fg/85 transition-colors disabled:opacity-40';
 const PRIMARY_BTN =
   'pressable inline-flex items-center justify-center gap-1.5 rounded-full bg-foil text-[color:var(--on-accent)] px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold disabled:opacity-40';
+const DANGER_BTN =
+  'pressable inline-flex items-center justify-center gap-1.5 rounded-full bg-red-500/[0.12] hover:bg-red-500/[0.2] px-3.5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-red-300 transition-colors disabled:opacity-40';
 const ICON_BTN =
   'pressable min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.09] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-30';
 
@@ -144,7 +153,8 @@ const STATE_FILTERS: readonly LibraryState[] = ['listed', 'retired', 'withdrawn'
 /** The state buttons a library item offers, in reading order. */
 function targetsFor(item: CmsItem): StateChangeTarget[] {
   if (item.state === null) return [];
-  const all: StateChangeTarget[] = ['listed', 'retired', 'withdrawn', 'deleted'];
+  // Delete has its own button (planDelete), so it is not a visibility step.
+  const all: StateChangeTarget[] = ['listed', 'retired', 'withdrawn'];
   return all.filter((t) => planStateChange(item.state as LibraryState, t, item.linkCount).ok);
 }
 
@@ -348,13 +358,21 @@ interface DetailProps {
   capped: boolean;
   eventRow: EventModelRow | null;
   onView: (item: CmsItem) => void;
+  /** Wear it on the camera (3D library and event pieces); absent = not wearable. */
+  onTryOn?: (item: CmsItem) => void;
   onSaveLibrary: (item: CmsItem, patch: LibraryPatch) => Promise<boolean>;
   /** The server knows who-can-use-it (admin-api with migration 048). */
   accessReady: boolean;
   onState: (item: CmsItem, to: StateChangeTarget) => void;
+  /** Asks to delete this library item (hide + delete in one confirmed step). */
+  onDelete: (item: CmsItem) => void;
+  /** Opens the item editor. */
+  onEdit: (item: CmsItem) => void;
   onAddEvent: (item: CmsItem, opts: { name: string; categoryId: string | null; picture?: File }) => Promise<void>;
   /** Opens a workshop copy of a library item in the full Studio. */
   onEditInStudio: (item: CmsItem) => void;
+  /** Copy this prop's settings onto other library items; absent = it cannot give settings. */
+  onCopySettings?: (item: CmsItem) => void;
   /** The id being opened in the Studio ('new' for a blank one), else null. */
   opening: string | null;
   /** Height of the live 3D view, in px (the side panel and the phone sheet differ). */
@@ -368,45 +386,56 @@ interface DetailProps {
   onClose?: () => void;
 }
 
+/** A live 3D view that fills its box (the editor's preview pane). */
+function FillModel({ url }: { url: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState(0);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el === null) return;
+    const measure = () => setH(el.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return <div ref={box} className="h-full w-full min-h-0">{h > 0 && <ModelPreview url={url} height={h} />}</div>;
+}
+
+/** The small facts row: kind, state, version, events, origin, date. */
+function ItemFacts({ item, capped }: { item: CmsItem; capped: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[11px] text-brand-muted/70">
+      <span className="px-2 py-0.5 rounded-full bg-white/[0.06] text-brand-fg/80">{kindLabel(item.kind)}</span>
+      {item.state && <StatusPill status={item.state} />}
+      {item.version !== null && item.source === 'library' && <span>v{item.version}</span>}
+      {item.source === 'library' && <span>{item.linkCount}{capped ? '+' : ''} event{item.linkCount === 1 ? '' : 's'} use it</span>}
+      {item.origin && <span>{item.origin}</span>}
+      {item.createdAt && <span>Added {formatDate(item.createdAt)}</span>}
+    </div>
+  );
+}
+
+/**
+ * The side panel: the live 3D view and a few quick buttons. Everything you
+ * can change about an item lives in the item editor (ItemEditor), so the
+ * panel never needs its own scroll area.
+ */
 function DetailPanel(p: DetailProps) {
   const { item } = p;
-  const [name, setName] = useState(item.name);
-  const [categoryId, setCategoryId] = useState<string | null>(item.categoryId);
-  const [keywords, setKeywords] = useState<string[]>(item.keywords);
-  const [tags, setTags] = useState<LibraryTags>(item.tags);
-  const [showTags, setShowTags] = useState(false);
-  const [access, setAccess] = useState<AccessValue>(() => accessOf(item));
-  const fileRef = useRef<HTMLInputElement>(null);
-  const glbRef = useRef<HTMLInputElement>(null);
-  const replaceable = canReplaceFile(item);
-
-  useEffect(() => {
-    setName(item.source === 'event' ? tidyEventName(item.name) : item.name);
-    setCategoryId(item.categoryId);
-    setKeywords(item.keywords);
-    setTags(item.tags);
-    setAccess(accessOf(item));
-  }, [item]);
-
-  const dirty = item.source === 'library' && (
-    name !== item.name || categoryId !== item.categoryId ||
-    keywords.join(',') !== item.keywords.join(',') || JSON.stringify(tags) !== JSON.stringify(item.tags) ||
-    !sameAccess(access, accessOf(item))
-  );
-  const pic = p.eventRow ? pictureSourceFor(p.eventRow) : null;
-  const needsUpload = item.source === 'event' && !item.thumb && pic?.kind === 'none';
   // The live view shares the model cache: keep the background picture renderer
   // from freeing the model while it is on screen.
   useHeldModel(item.modelUrl);
+  const editLabel = item.source === 'event' && !item.inLibrary ? 'Add to library…' : item.source === 'builtin' ? 'Details' : 'Edit details';
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <div className="relative rounded-2xl bg-[#05060B] border border-white/10 overflow-hidden">
         {item.modelUrl ? (
           // Live straight away: drag to spin, pinch or scroll to zoom.
           <ModelPreview url={item.modelUrl} height={p.previewHeight} />
         ) : (
-          <div className="aspect-square"><Thumb item={item} className="w-full h-full p-4" /></div>
+          <div style={{ height: p.previewHeight }}><Thumb item={item} className="w-full h-full p-4" /></div>
         )}
         <button
           type="button"
@@ -416,82 +445,134 @@ function DetailPanel(p: DetailProps) {
         >
           <Maximize2 className="w-3.5 h-3.5" aria-hidden /> Larger
         </button>
+        {p.onTryOn && (
+          <button
+            type="button"
+            onClick={() => p.onTryOn?.(item)}
+            aria-label={`Try ${item.name} on with your camera`}
+            className="absolute top-2 left-2 inline-flex items-center gap-1.5 min-h-11 px-3.5 rounded-full bg-[color:var(--color-accent)] text-[color:var(--on-accent)] text-[11px] font-semibold shadow-lg"
+          >
+            <ScanFace className="w-4 h-4" aria-hidden /> Try on
+          </button>
+        )}
       </div>
-      {item.modelUrl && (
-        <p className="-mt-2 font-sans text-[11px] text-brand-muted/55">
-          Drag to spin. Pinch or scroll to zoom.
-          {item.type === 'scene' ? ' Shows the scene’s 3D piece on its own.' : ''}
+
+      <div className="min-w-0">
+        <h3 className="font-serif text-xl text-brand-fg truncate" title={item.name}>{item.name}</h3>
+        <p className="mt-0.5 font-sans text-[11px] text-brand-muted/60 truncate">
+          {categoryPath(item.categoryId, p.categories) ?? 'No category'}
         </p>
-      )}
-      {item.modelUrl && (
-        <div className="flex flex-col gap-3">
-          <ModelSizeDetails key={item.modelUrl} url={item.modelUrl} onOptimize={() => p.onOptimize(item)} />
-          <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={p.busy || p.replaceStep !== null} onClick={() => p.onOptimize(item)} className={SOFT_BTN}>
-              <Minimize2 className="w-3.5 h-3.5" aria-hidden /> {item.source === 'builtin' ? 'Compare optimized' : 'Optimize'}
-            </button>
-            {replaceable && (
-              <>
-                <input
-                  ref={glbRef}
-                  type="file"
-                  accept=".glb,model/gltf-binary"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = '';
-                    if (f) p.onReplaceFile(item, f);
-                  }}
-                />
-                <button type="button" disabled={p.busy || p.replaceStep !== null} onClick={() => glbRef.current?.click()} className={SOFT_BTN}>
-                  {p.replaceStep !== null ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> : <FileUp className="w-3.5 h-3.5" aria-hidden />}
-                  {p.replaceStep ?? 'Replace file'}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-brand-muted/70">
-        <span className="px-2 py-0.5 rounded-full bg-white/[0.06] text-brand-fg/80">{kindLabel(item.kind)}</span>
-        {item.state && <StatusPill status={item.state} />}
-        {item.version !== null && item.source === 'library' && <span>v{item.version}</span>}
-        {item.source === 'library' && <span>{item.linkCount}{p.capped ? '+' : ''} event{item.linkCount === 1 ? '' : 's'} use it</span>}
-        {item.origin && <span>{item.origin}</span>}
-        {item.createdAt && <span>Added {formatDate(item.createdAt)}</span>}
       </div>
+      <ItemFacts item={item} capped={p.capped} />
 
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => p.onEdit(item)} className={`${item.source === 'library' ? SOFT_BTN : PRIMARY_BTN} ${item.source === 'library' ? '' : 'col-span-2'}`}>
+          <Pencil className="w-3.5 h-3.5" aria-hidden /> {editLabel}
+        </button>
+        {item.source === 'library' && (
+          <button type="button" disabled={p.opening !== null} onClick={() => p.onEditInStudio(item)} className={PRIMARY_BTN}>
+            {p.opening === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> : <Wand2 className="w-3.5 h-3.5" aria-hidden />}
+            {p.opening === item.id ? 'Opening…' : 'Edit in Studio'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type EditorTabId = 'details' | 'placement' | 'copy' | 'file' | 'visibility';
+
+/** The tabs an item offers, in reading order. Pure, so card and panel agree. */
+function editorTabsFor(item: CmsItem, has: { tryOn: boolean; copy: boolean }): EditorTab[] {
+  const tabs: EditorTab[] = [{ id: 'details', label: 'Details', Icon: Tag, blurb: 'Name, where it sits in the library, and who can pick it.' }];
+  if (item.source !== 'builtin' && (has.tryOn || item.source === 'library')) {
+    tabs.push({ id: 'placement', label: 'Placement', short: 'Fit', Icon: ScanFace, blurb: 'Where it sits on a guest, and the full Studio for everything else.' });
+  }
+  if (item.source === 'library' && has.copy) {
+    tabs.push({ id: 'copy', label: 'Copy', Icon: Copy, blurb: 'Paste this item’s fit, look or behaviour onto its variants in one go.' });
+  }
+  if (item.modelUrl) tabs.push({ id: 'file', label: '3D file', short: 'File', Icon: Box, blurb: 'Size on a guest’s phone, optimizing, and replacing the model.' });
+  if (item.source === 'library') tabs.push({ id: 'visibility', label: 'Visibility', short: 'Show', Icon: Lock, blurb: 'Show it to hosts, hide it, take it down, or delete it.' });
+  return tabs;
+}
+
+interface EditorProps extends DetailProps {
+  tab: EditorTabId;
+  onTab: (t: EditorTabId) => void;
+  onClose: () => void;
+}
+
+/**
+ * Everything about one item, in the setup wizard's layout (EditorShell):
+ * tabs and fields on the left, the live 3D view on the right, nothing
+ * outside the viewport. Opened from the side panel or a card's pencil.
+ */
+function ItemEditor(p: EditorProps) {
+  const { item } = p;
+  const [name, setName] = useState(item.name);
+  const [categoryId, setCategoryId] = useState<string | null>(item.categoryId);
+  const [keywords, setKeywords] = useState<string[]>(item.keywords);
+  const [tags, setTags] = useState<LibraryTags>(item.tags);
+  const [access, setAccess] = useState<AccessValue>(() => accessOf(item));
+  const [saving, setSaving] = useState<EditorSaveState>('idle');
+  const [leaveAsk, setLeaveAsk] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const glbRef = useRef<HTMLInputElement>(null);
+  const replaceable = canReplaceFile(item);
+
+  // Re-seed when another item opens; a save that updates THIS item keeps
+  // what was typed (it is what was saved).
+  useEffect(() => {
+    setName(item.source === 'event' ? tidyEventName(item.name) : item.name);
+    setCategoryId(item.categoryId);
+    setKeywords(item.keywords);
+    setTags(item.tags);
+    setAccess(accessOf(item));
+    setSaving('idle');
+  }, [item.key]);
+
+  const dirty = item.source === 'library' && (
+    name !== item.name || categoryId !== item.categoryId ||
+    keywords.join(',') !== item.keywords.join(',') || JSON.stringify(tags) !== JSON.stringify(item.tags) ||
+    !sameAccess(access, accessOf(item))
+  );
+  const pic = p.eventRow ? pictureSourceFor(p.eventRow) : null;
+  const needsUpload = item.source === 'event' && !item.thumb && pic?.kind === 'none';
+  useHeldModel(item.modelUrl);
+
+  const tabs = editorTabsFor(item, { tryOn: p.onTryOn !== undefined, copy: p.onCopySettings !== undefined });
+  const tab = tabs.some((t) => t.id === p.tab) ? p.tab : 'details';
+
+  const save = async () => {
+    setSaving('saving');
+    const ok = await p.onSaveLibrary(item, { name, tags, categoryId, keywords, access });
+    setSaving(ok ? 'saved' : 'error');
+  };
+  const close = () => { if (dirty) setLeaveAsk(true); else p.onClose(); };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // A dialog on top owns Escape; only close when nothing is above us.
+      if (e.key !== 'Escape' || document.querySelector('[role="dialog"]')) return;
+      close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  const blockedDelete = item.state !== null && !planDelete(item.state, item.linkCount).ok;
+
+  const details = (
+    <div className="flex flex-col gap-5">
+      <ItemFacts item={item} capped={p.capped} />
       {item.source === 'builtin' ? (
-        <>
-          <h3 className="font-serif text-xl text-brand-fg">{item.name}</h3>
-          <p className="font-sans text-xs text-brand-muted/70 leading-relaxed">
-            Built into the app’s code, so it cannot be edited or retired here, and every host already has it. It is
-            filed under <span className="text-brand-fg">{categoryPath(item.categoryId, p.categories) ?? 'No category'}</span>{' '}
-            automatically, from its name.
-          </p>
-        </>
+        <p className="font-sans text-sm text-brand-muted/80 leading-relaxed">
+          Built into the app’s code, so it cannot be edited or retired here, and every host already has it. It is filed
+          under <span className="text-brand-fg">{categoryPath(item.categoryId, p.categories) ?? 'No category'}</span>{' '}
+          automatically, from its name.
+        </p>
       ) : (
         <>
-          {item.source === 'library' && (
-            <div className="flex flex-col gap-1.5">
-              <button
-                type="button"
-                disabled={p.opening !== null}
-                onClick={() => p.onEditInStudio(item)}
-                className={PRIMARY_BTN}
-              >
-                {p.opening === item.id
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
-                  : <Wand2 className="w-3.5 h-3.5" aria-hidden />}
-                {p.opening === item.id ? 'Opening the Studio…' : 'Edit in Studio'}
-              </button>
-              <p className="font-sans text-[11px] text-brand-muted/55 leading-snug">
-                Opens a copy in your private workshop. Publishing it makes a new version; events using this one keep it.
-              </p>
-            </div>
-          )}
-
           <label className="block">
             <span className={LABEL}>Name</span>
             <input value={name} maxLength={LIBRARY_NAME_MAX} onChange={(e) => setName(e.target.value)} className={`${FIELD} mt-1`} />
@@ -531,30 +612,11 @@ function DetailPanel(p: DetailProps) {
 
           {item.source === 'library' && (
             <div>
-              <button type="button" onClick={() => setShowTags((s) => !s)} className="flex items-center gap-1.5 min-h-11 text-left" aria-expanded={showTags}>
-                {showTags ? <ChevronDown className="w-3.5 h-3.5 text-brand-muted/60" /> : <ChevronRight className="w-3.5 h-3.5 text-brand-muted/60" />}
-                <span className={LABEL}>Occasion, colour, style</span>
-                <span className="font-sans text-[11px] text-brand-muted/50">
-                  {[...tags.occasions, ...tags.colors, ...tags.styles].length || 'none'}
-                </span>
-              </button>
-              <p className="font-sans text-[11px] text-brand-muted/50 leading-snug">
+              <span className={LABEL}>Occasion, colour, style</span>
+              <p className="mt-0.5 font-sans text-[11px] text-brand-muted/50 leading-snug">
                 A fixed set that decides which hosts see it suggested first.
               </p>
-              {showTags && <div className="mt-3"><LibraryTagPicker value={tags} onChange={setTags} disabled={p.busy} /></div>}
-            </div>
-          )}
-
-          {item.source === 'library' && (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={!dirty || p.busy}
-                onClick={() => void p.onSaveLibrary(item, { name, tags, categoryId, keywords, access })}
-                className={`${PRIMARY_BTN} flex-1`}
-              >
-                {p.busy ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
-              </button>
+              <div className="mt-3"><LibraryTagPicker value={tags} onChange={setTags} disabled={p.busy} /></div>
             </div>
           )}
 
@@ -606,18 +668,174 @@ function DetailPanel(p: DetailProps) {
               </div>
             )
           )}
-
-          {item.source === 'library' && targetsFor(item).length > 0 && (
-            <div>
-              <span className={LABEL}>Visibility</span>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {targetsFor(item).map((to) => (
-                  <button key={to} type="button" onClick={() => p.onState(item, to)} className={SOFT_BTN}>{ACTION_WORDS[to]}</button>
-                ))}
-              </div>
-            </div>
-          )}
         </>
+      )}
+    </div>
+  );
+
+  const placement = (
+    <div className="flex flex-col gap-5">
+      {p.onTryOn ? (
+        <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4">
+          <p className="font-sans text-sm text-brand-fg">Try it on your camera</p>
+          <p className="mt-1 font-sans text-xs text-brand-muted/70 leading-relaxed">
+            Wear it live, nudge its size and position, and press Save fit. The new fit is written onto this item, so every
+            event using it gets it too.
+          </p>
+          <button type="button" onClick={() => p.onTryOn?.(item)} className={`${PRIMARY_BTN} mt-3`}>
+            <ScanFace className="w-4 h-4" aria-hidden /> Try on
+          </button>
+        </div>
+      ) : (
+        <p className="font-sans text-xs text-brand-muted/70 leading-relaxed">This item isn’t worn on a face or hand, so it has no fit to set here.</p>
+      )}
+      {item.source === 'library' && (
+        <div className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4">
+          <p className="font-sans text-sm text-brand-fg">Everything else in the Studio</p>
+          <p className="mt-1 font-sans text-xs text-brand-muted/70 leading-relaxed">
+            Opens a copy in your private workshop. Publishing it makes a new version; events using this one keep it.
+          </p>
+          <button type="button" disabled={p.opening !== null} onClick={() => p.onEditInStudio(item)} className={`${SOFT_BTN} mt-3`}>
+            {p.opening === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> : <Wand2 className="w-3.5 h-3.5" aria-hidden />}
+            {p.opening === item.id ? 'Opening the Studio…' : 'Edit in Studio'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const copy = (
+    <div className="flex flex-col gap-4">
+      <p className="font-sans text-xs text-brand-muted/75 leading-relaxed">
+        Pick which settings to copy (fit and placement, look, behaviour) and which items get them. Other colours of this
+        item are ticked for you. You see what will change, and how many events use those items, before anything is saved.
+      </p>
+      <div>
+        <button type="button" onClick={() => p.onCopySettings?.(item)} className={PRIMARY_BTN}>
+          <Copy className="w-3.5 h-3.5" aria-hidden /> Copy its settings to other items…
+        </button>
+      </div>
+    </div>
+  );
+
+  const file = item.modelUrl ? (
+    <div className="flex flex-col gap-4">
+      <ModelSizeDetails key={item.modelUrl} url={item.modelUrl} onOptimize={() => p.onOptimize(item)} />
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={p.busy || p.replaceStep !== null} onClick={() => p.onOptimize(item)} className={SOFT_BTN}>
+          <Minimize2 className="w-3.5 h-3.5" aria-hidden /> {item.source === 'builtin' ? 'Compare optimized' : 'Optimize'}
+        </button>
+        {replaceable && (
+          <>
+            <input
+              ref={glbRef}
+              type="file"
+              accept=".glb,model/gltf-binary"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) p.onReplaceFile(item, f);
+              }}
+            />
+            <button type="button" disabled={p.busy || p.replaceStep !== null} onClick={() => glbRef.current?.click()} className={SOFT_BTN}>
+              {p.replaceStep !== null ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> : <FileUp className="w-3.5 h-3.5" aria-hidden />}
+              {p.replaceStep ?? 'Replace file'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  const visibility = (
+    <div className="flex flex-col gap-5">
+      {targetsFor(item).length > 0 && (
+        <div className="flex flex-col gap-3">
+          {targetsFor(item).map((to) => (
+            <div key={to} className="rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <p className="flex-1 font-sans text-xs text-brand-muted/75 leading-relaxed">{STATE_CONSEQUENCE[to]}</p>
+              <button type="button" disabled={p.busy} onClick={() => p.onState(item, to)} className={`${SOFT_BTN} shrink-0`}>{ACTION_WORDS[to]}</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {item.state !== null && (
+        <div className="rounded-2xl bg-red-500/[0.05] border border-red-400/15 p-4">
+          <p className="font-sans text-sm text-brand-fg">Delete from library</p>
+          {blockedDelete ? (
+            <p className="mt-1 font-sans text-xs text-brand-muted/75 leading-relaxed">
+              {item.linkCount}{p.capped ? '+' : ''} event{item.linkCount === 1 ? '' : 's'} use{item.linkCount === 1 ? 's' : ''} this,
+              so it can’t be deleted without pulling it out of {item.linkCount === 1 ? 'that event' : 'those events'}.
+              Use Hide from hosts to stop new events picking it, or take it out of the event first.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 font-sans text-xs text-brand-muted/75 leading-relaxed">
+                Removed for good, and hosts can no longer pick it. No event uses it.
+              </p>
+              <button type="button" disabled={p.busy} onClick={() => p.onDelete(item)} className={`${DANGER_BTN} mt-3`}>
+                <Trash2 className="w-3.5 h-3.5" aria-hidden /> Delete from library
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const panels: Record<EditorTabId, ReactNode> = { details, placement, copy, file, visibility };
+
+  return (
+    <div className="fixed inset-0 z-[44]" role="region" aria-label={`Edit ${item.name}`}>
+      <EditorShell
+        backTo="/admin/library"
+        backLabel="Library"
+        onBack={(e) => { e.preventDefault(); close(); }}
+        title={item.name}
+        titleAside={item.state ? <StatusPill status={item.state} /> : undefined}
+        saveState={dirty && saving === 'saved' ? 'idle' : saving}
+        onRetrySave={() => void save()}
+        actions={item.source === 'library' ? (
+          <button type="button" disabled={!dirty || p.busy} onClick={() => void save()} className={PRIMARY_BTN}>
+            {saving === 'saving' ? 'Saving…' : 'Save changes'}
+          </button>
+        ) : undefined}
+        tabs={tabs}
+        tab={tab}
+        onTab={(t) => p.onTab(t as EditorTabId)}
+        tabsLabel="Item settings"
+        previewSize="balanced"
+        preview={
+          <div className="relative h-full rounded-[28px] bg-[#05060B] border border-white/10 overflow-hidden">
+            {item.modelUrl ? <FillModel url={item.modelUrl} /> : <Thumb item={item} className="w-full h-full p-8" />}
+            {p.onTryOn && (
+              <button
+                type="button"
+                onClick={() => p.onTryOn?.(item)}
+                className="absolute top-3 left-3 inline-flex items-center gap-1.5 min-h-11 px-3.5 rounded-full bg-[color:var(--color-accent)] text-[color:var(--on-accent)] text-[11px] font-semibold shadow-lg"
+              >
+                <ScanFace className="w-4 h-4" aria-hidden /> Try on
+              </button>
+            )}
+            {item.modelUrl && (
+              <p className="absolute bottom-3 inset-x-3 text-center font-sans text-[11px] text-brand-muted/60 pointer-events-none">
+                Drag to spin. Pinch or scroll to zoom.
+              </p>
+            )}
+          </div>
+        }
+      >
+        {panels[tab]}
+      </EditorShell>
+      {leaveAsk && (
+        <ConfirmModal
+          title="Close without saving?"
+          body="Your changes on the Details tab aren’t saved yet. If you close now, they are lost."
+          confirmLabel="Close anyway"
+          onConfirm={() => { setLeaveAsk(false); p.onClose(); }}
+          onCancel={() => setLeaveAsk(false)}
+        />
       )}
     </div>
   );
@@ -645,12 +863,22 @@ export default function SharedLibrary() {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [mobileDetail, setMobileDetail] = useState(false);
   const [viewer, setViewer] = useState<ViewerTarget | null>(null);
+  // Try on: the id it opened on; the strip is the current filtered 3D list.
+  const [tryOnStart, setTryOnStart] = useState<string | null>(null);
+  // Copy settings: the prop to copy from (null = pick one) and pre-ticked targets.
+  const [copying, setCopying] = useState<{ sourceId: string | null; targetIds: string[] } | null>(null);
   const [managing, setManaging] = useState(false);
   const [managingTags, setManagingTags] = useState(false);
+  // Desktop: the category column folds to a slim strip for more grid room.
+  const catRail = useRailCollapsed('library-categories');
   const [autoSort, setAutoSort] = useState(false);
   const [bulkTags, setBulkTags] = useState<'add' | 'remove' | null>(null);
   const [bulkAccess, setBulkAccess] = useState(false);
   const [pending, setPending] = useState<{ item: CmsItem; to: StateChangeTarget } | null>(null);
+  /** Library items the admin asked to delete (one from the panel, or a bulk selection). */
+  const [deleting, setDeleting] = useState<CmsItem[] | null>(null);
+  /** The item open in the item editor, and its tab. */
+  const [editing, setEditing] = useState<{ key: string; tab: EditorTabId } | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<Progress>(null);
   const navigate = useNavigate();
@@ -730,6 +958,31 @@ export default function SharedLibrary() {
     [matched, rendered],
   );
   const counts = useMemo(() => cmsCounts(items, query, categories), [items, query, categories]);
+  // Everything wearable in the current view, in its order, so Try on flips
+  // through what the admin is looking at. Built-ins are code-placed and have
+  // no row to read, so they are left out.
+  const tryOnItems = useMemo<TryOnItem[]>(
+    () => visible
+      .filter((i) => i.modelUrl !== null && i.source !== 'builtin' && i.state !== 'withdrawn')
+      .map((i) => ({
+        id: i.id, name: i.name, thumb: i.thumb, saveable: i.source === 'library',
+        linkCount: i.linkCount, linkCapped: capped,
+      })),
+    [visible, capped],
+  );
+  // Copy settings works on library rows only (drafts live in Bulk import).
+  const copyItems = useMemo<CopyItem[]>(() => {
+    const byId = new Map(libRows.map((r) => [r.id, r]));
+    return items
+      .filter((i) => i.source === 'library' && i.state !== 'withdrawn')
+      .map((i) => {
+        const r = byId.get(i.id);
+        return {
+          id: i.id, name: i.name, kind: i.kind, thumb: i.thumb, linkCount: i.linkCount,
+          copyable: r?.copyable === true, modelSize: r?.modelSize ?? null, fileName: r?.fileName ?? null,
+        };
+      });
+  }, [items, libRows]);
   const active = useMemo(() => items.find((i) => i.key === activeKey) ?? null, [items, activeKey]);
   const selectedItems = useMemo(() => items.filter((i) => selected.has(i.key)), [items, selected]);
 
@@ -849,6 +1102,50 @@ export default function SharedLibrary() {
     }
     push(to === 'deleted' ? `Deleted “${item.name}”.` : `“${item.name}” is now ${CMS_STATE_LABEL[to].toLowerCase()}.`, 'success');
     setPending(null);
+  };
+
+  /**
+   * Delete each item that no event uses: hide it from hosts first when it is
+   * still listed (the server only deletes hidden items), then delete. One at
+   * a time, so a failure part-way names exactly which items are left.
+   */
+  const applyDelete = async () => {
+    if (!deleting) return;
+    const list = deleting.filter((i) => i.state !== null && planDelete(i.state, i.linkCount).ok);
+    setBusy(true);
+    const gone: string[] = [];
+    const hidden: string[] = [];
+    let lastError: string | null = null;
+    for (let k = 0; k < list.length; k++) {
+      const item = list[k];
+      if (list.length > 1) setProgress({ label: 'Deleting', done: k, total: list.length });
+      const plan = planDelete(item.state as LibraryState, item.linkCount);
+      if (!plan.ok) continue;
+      let ok = true;
+      for (const step of plan.steps) {
+        const { error: err } = await setLibraryItemState(item.id, step);
+        if (err !== null) { ok = false; lastError = err; break; }
+        if (step === 'retired') hidden.push(item.id);
+      }
+      if (ok) gone.push(item.id);
+    }
+    setProgress(null);
+    setBusy(false);
+    const goneSet = new Set(gone);
+    const hiddenOnly = hidden.filter((id) => !goneSet.has(id));
+    setLibRows((rows) => rows.filter((r) => !goneSet.has(r.id)));
+    if (hiddenOnly.length > 0) patchLibRows(hiddenOnly, (r) => ({ ...r, state: 'retired' }));
+    setSelected((s) => { const t = new Set(s); for (const i of list) if (goneSet.has(i.id)) t.delete(i.key); return t; });
+    if (active && goneSet.has(active.id)) { setActiveKey(null); setMobileDetail(false); }
+    const failed = list.length - gone.length;
+    if (failed === 0) {
+      push(gone.length === 1 ? `Deleted “${list[0].name}”.` : `Deleted ${gone.length} items.`, 'success');
+    } else {
+      const why = lastError ? ` ${libraryErrorText(lastError)}` : '';
+      const leftHidden = hiddenOnly.length > 0 ? ` ${hiddenOnly.length} of them ${hiddenOnly.length === 1 ? 'is' : 'are'} now hidden from hosts.` : '';
+      push(`Deleted ${gone.length}, ${failed} could not be deleted.${leftHidden}${why}`, 'error');
+    }
+    setDeleting(null);
   };
 
   /** Copy one event piece in. Returns an error code, or null. */
@@ -1055,27 +1352,33 @@ export default function SharedLibrary() {
   const unionKeywords = [...new Set(librarySelected.flatMap((i) => i.keywords))].sort();
   const autoSortable = uncategorised.filter((u) => u.suggestion !== null);
 
-  const detail = (previewHeight: number) => active && (
-    <DetailPanel
-      previewHeight={previewHeight}
-      item={active}
-      categories={categories}
-      taxonomyReady={taxonomyReady}
-      accessReady={accessReady}
-      busy={busy}
-      capped={capped}
-      eventRow={active.source === 'event' ? eventRows.find((e) => e.id === active.id) ?? null : null}
-      onView={openViewer}
-      onSaveLibrary={saveLibrary}
-      onState={(item, to) => setPending({ item, to })}
-      onAddEvent={addEvent}
-      onEditInStudio={(item) => void editInStudio(item)}
-      opening={opening}
-      onOptimize={openOptimize}
-      onReplaceFile={(item, file) => { setReplaceOptimize(true); setReplaceAsk({ item, file }); }}
-      replaceStep={replaceStep?.id === active.id ? replaceStep.label : null}
-    />
-  );
+  /** What the side panel and the item editor both need for one item. */
+  const itemProps = (it: CmsItem): Omit<DetailProps, 'previewHeight'> => ({
+    item: it,
+    categories,
+    taxonomyReady,
+    accessReady,
+    busy,
+    capped,
+    eventRow: it.source === 'event' ? eventRows.find((e) => e.id === it.id) ?? null : null,
+    onView: openViewer,
+    onTryOn: tryOnItems.some((t) => t.id === it.id) ? (i) => setTryOnStart(i.id) : undefined,
+    onSaveLibrary: saveLibrary,
+    onState: (item, to) => setPending({ item, to }),
+    onDelete: (item) => setDeleting([item]),
+    onEdit: (item) => { setMobileDetail(false); setEditing({ key: item.key, tab: 'details' }); },
+    onAddEvent: addEvent,
+    onEditInStudio: (item) => void editInStudio(item),
+    onCopySettings: copyItems.some((c) => c.id === it.id && c.copyable)
+      ? (i) => setCopying({ sourceId: i.id, targetIds: [] })
+      : undefined,
+    opening,
+    onOptimize: openOptimize,
+    onReplaceFile: (item, file) => { setReplaceOptimize(true); setReplaceAsk({ item, file }); },
+    replaceStep: replaceStep?.id === it.id ? replaceStep.label : null,
+  });
+  const detail = (previewHeight: number) => active && <DetailPanel previewHeight={previewHeight} {...itemProps(active)} />;
+  const editingItem = editing ? items.find((i) => i.key === editing.key) ?? null : null;
   const optimizableSelected = librarySelected.filter((i) => canReplaceFile(i));
 
   return (
@@ -1323,10 +1626,30 @@ export default function SharedLibrary() {
           </div>
 
           {/* Body */}
-          <div className={`grid gap-5 ${taxonomyReady ? 'lg:grid-cols-[220px_minmax(0,1fr)_320px]' : 'lg:grid-cols-[minmax(0,1fr)_320px]'}`}>
+          <div className={`grid gap-5 ${taxonomyReady ? (catRail.collapsed ? 'lg:grid-cols-[3rem_minmax(0,1fr)_320px]' : 'lg:grid-cols-[220px_minmax(0,1fr)_320px]') : 'lg:grid-cols-[minmax(0,1fr)_320px]'}`}>
             {taxonomyReady && (
-              <aside className="hidden lg:block">
-                <div className="sticky top-4">
+              <aside id="library-categories" aria-label="Categories" className="hidden lg:block">
+                {catRail.collapsed && (
+                  <div className="sticky top-4 flex flex-col items-center gap-2">
+                    <RailToggle collapsed onToggle={catRail.toggle} label="categories" controls="library-categories" />
+                    {/* Mouse convenience; the toggle is the accessible control.
+                        Accent when a category filter is on, so a folded column
+                        never hides why the grid is narrowed. */}
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-hidden
+                      onClick={catRail.toggle}
+                      className={`px-2 py-3 rounded-lg font-sans text-[11px] [writing-mode:vertical-rl] rotate-180 hover:bg-white/[0.05] transition-colors ${query.category !== 'all' ? 'text-[color:var(--color-accent)]' : 'text-brand-muted/60 hover:text-brand-fg'}`}
+                    >
+                      {query.category !== 'all' ? 'Category filter on' : 'Categories'}
+                    </button>
+                  </div>
+                )}
+                <div className={`sticky top-4 ${catRail.collapsed ? 'hidden' : ''}`}>
+                  <div className="flex justify-end -mt-2 mb-1">
+                    <RailToggle collapsed={false} onToggle={catRail.toggle} label="categories" controls="library-categories" />
+                  </div>
                   <CategoryNav
                     categories={categories}
                     counts={counts.byCategory}
@@ -1439,6 +1762,16 @@ export default function SharedLibrary() {
                             <span className="w-7 h-7 rounded-lg bg-black/50 inline-flex items-center justify-center text-brand-fg/85"><Maximize2 className="w-3.5 h-3.5" /></span>
                           </button>
                         )}
+                        {i.source !== 'builtin' && !(i.source === 'event' && i.inLibrary) && (
+                          <button
+                            type="button"
+                            onClick={() => { setActiveKey(i.key); setEditing({ key: i.key, tab: 'details' }); }}
+                            aria-label={`Edit ${i.name}`}
+                            className={`absolute ${i.modelUrl ? 'top-11' : 'top-1'} right-1 w-11 h-11 inline-flex items-center justify-center`}
+                          >
+                            <span className="w-7 h-7 rounded-lg bg-black/50 hover:bg-black/70 inline-flex items-center justify-center text-brand-fg/85"><Pencil className="w-3.5 h-3.5" /></span>
+                          </button>
+                        )}
                         {i.source === 'event' && i.inLibrary && (
                           <span className="absolute top-3 right-12 px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-100 text-[10px]">In library</span>
                         )}
@@ -1476,6 +1809,9 @@ export default function SharedLibrary() {
                         {i.modelUrl && (
                           <button type="button" onClick={() => openViewer(i)} aria-label={`Spin ${i.name} in 3D`} className={ICON_BTN}><Maximize2 className="w-4 h-4" /></button>
                         )}
+                        {i.source !== 'builtin' && !(i.source === 'event' && i.inLibrary) && (
+                          <button type="button" onClick={() => { setActiveKey(i.key); setEditing({ key: i.key, tab: 'details' }); }} aria-label={`Edit ${i.name}`} className={ICON_BTN}><Pencil className="w-4 h-4" /></button>
+                        )}
                       </li>
                     );
                   })}
@@ -1484,7 +1820,7 @@ export default function SharedLibrary() {
             </section>
 
             <aside className="hidden lg:block" aria-label="Details">
-              <div className="sticky top-4 liquid-glass rounded-2xl p-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
+              <div className="sticky top-4 liquid-glass rounded-2xl p-4">
                 {detail(288) || (
                   <div className="py-16 text-center">
                     <Sparkles className="w-6 h-6 mx-auto mb-3 text-brand-muted/40" aria-hidden />
@@ -1530,6 +1866,21 @@ export default function SharedLibrary() {
                     {unionKeywords.map((k) => <option key={k} value={k}>{keywordLabel(k)}</option>)}
                   </select>
                 )}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    const ids = librarySelected.map((i) => i.id);
+                    // The open item gives its settings when it is a prop and not
+                    // itself ticked; otherwise the admin picks the source.
+                    const src = active?.source === 'library' && !ids.includes(active.id) && copyItems.some((c) => c.id === active.id && c.copyable)
+                      ? active.id : null;
+                    setCopying({ sourceId: src, targetIds: ids });
+                  }}
+                  className={SOFT_BTN}
+                >
+                  <Copy className="w-3.5 h-3.5" aria-hidden /> Paste settings…
+                </button>
                 <button type="button" disabled={busy} onClick={() => setBulkTags('add')} className={SOFT_BTN}>Occasion, colour, style…</button>
                 {accessReady && (
                   <button type="button" disabled={busy} onClick={() => setBulkAccess(true)} className={SOFT_BTN}>
@@ -1537,6 +1888,9 @@ export default function SharedLibrary() {
                   </button>
                 )}
                 <button type="button" disabled={busy} onClick={() => void runBulk({ categoryId: null }, 'Category cleared')} className={SOFT_BTN}>No category</button>
+                <button type="button" disabled={busy} onClick={() => setDeleting(librarySelected)} className={DANGER_BTN}>
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden /> Delete…
+                </button>
                 {optimizableSelected.length > 0 && (
                   <button
                     type="button"
@@ -1563,12 +1917,34 @@ export default function SharedLibrary() {
         </div>
       )}
 
+      {editingItem && editing && (
+        <ItemEditor
+          previewHeight={0}
+          {...itemProps(editingItem)}
+          tab={editing.tab}
+          onTab={(tab) => setEditing({ key: editingItem.key, tab })}
+          onClose={() => setEditing(null)}
+        />
+      )}
+
       {/* Mobile detail */}
       {mobileDetail && active && (
         <Modal title={active.name} onClose={() => setMobileDetail(false)} maxWidthClass="max-w-lg">{detail(320)}</Modal>
       )}
 
       {viewer && <ModelViewerModal target={viewer} onClose={() => setViewer(null)} />}
+      {copying && (
+        <CopySettingsModal
+          items={copyItems}
+          sourceId={copying.sourceId}
+          targetIds={copying.targetIds}
+          onClose={() => setCopying(null)}
+          onApplied={(ids) => push(`Settings copied to ${ids.length} item${ids.length === 1 ? '' : 's'}`, 'success')}
+        />
+      )}
+      {tryOnStart !== null && tryOnItems.length > 0 && (
+        <TryOnModal items={tryOnItems} startId={tryOnStart} onClose={() => setTryOnStart(null)} />
+      )}
 
       {managing && (
         <CategoryManager categories={categories} counts={ownCounts} onChange={setCategories} onClose={() => { setManaging(false); void load(); }} />
@@ -1626,6 +2002,37 @@ export default function SharedLibrary() {
           onClose={() => setBulkTags(null)}
         />
       )}
+
+      {deleting && (() => {
+        const canGo = deleting.filter((i) => i.state !== null && planDelete(i.state, i.linkCount).ok);
+        const blocked = deleting.length - canGo.length;
+        const one = deleting.length === 1 ? deleting[0] : null;
+        return (
+          <ConfirmModal
+            title={one ? `Delete “${one.name}”?` : `Delete ${canGo.length} of ${deleting.length} selected item${deleting.length === 1 ? '' : 's'}?`}
+            tone="danger"
+            confirmLabel={canGo.length === 1 ? 'Delete' : `Delete ${canGo.length}`}
+            confirmDisabled={canGo.length === 0}
+            busy={busy}
+            body={
+              <>
+                <p>
+                  {canGo.length === 1 ? 'It is removed from the library for good and hosts can no longer pick it.' : 'They are removed from the library for good and hosts can no longer pick them.'}
+                  {' '}This can’t be undone. Their files stay in storage.
+                </p>
+                {blocked > 0 && (
+                  <p className="mt-2">
+                    {blocked} {blocked === 1 ? 'item is' : 'items are'} used by events, so {blocked === 1 ? 'it stays' : 'they stay'}.
+                    Take {blocked === 1 ? 'it' : 'them'} out of those events first, or use Hide from hosts.
+                  </p>
+                )}
+              </>
+            }
+            onConfirm={() => void applyDelete()}
+            onCancel={() => setDeleting(null)}
+          />
+        );
+      })()}
 
       {pending && (
         <ConfirmModal

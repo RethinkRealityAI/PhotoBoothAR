@@ -15,6 +15,10 @@ import {
   scopeCustomizationToTemplate,
   resolveLabelText,
   configuratorKey,
+  normalizeInitials,
+  initialsFrom,
+  MAX_INITIALS,
+  MAX_GUEST_SWATCHES,
   type AssetTemplate,
   type Vec3,
 } from './assetTemplate';
@@ -509,5 +513,80 @@ describe('the legacy guarantee, end to end', () => {
   it('a layer carrying an empty customization object is indistinguishable from one carrying none', () => {
     const t: AssetTemplate | null = normalizeTemplate(goodTemplate());
     expect(scopeCustomizationToTemplate({}, t)).toBe(scopeCustomizationToTemplate(undefined, t));
+  });
+});
+
+describe('initials (masquerade crest)', () => {
+  it('normalizeInitials keeps letters, digits and &, upper-cased, at most 3', () => {
+    expect(normalizeInitials('d.w.')).toBe('DW');
+    expect(normalizeInitials('a & b')).toBe('A&B');
+    expect(normalizeInitials('abcdef')).toBe('ABC');
+    expect(normalizeInitials('é')).toBe('É');
+    expect(normalizeInitials('  ')).toBe('');
+    expect(normalizeInitials(42)).toBe('');
+    expect(MAX_INITIALS).toBe(3);
+  });
+
+  it('initialsFrom takes the first letter of each word', () => {
+    expect(initialsFrom('Dapo Wuyi')).toBe('DW');
+    expect(initialsFrom('alex')).toBe('A');
+    expect(initialsFrom('  "Amara" o. Bello  ')).toBe('AOB');
+    expect(initialsFrom('')).toBe('');
+    expect(initialsFrom(null)).toBe('');
+  });
+
+  it('resolveLabelText: typed initials win, else the name\'s initials, else nothing', () => {
+    const label = { slotId: 'crest', token: 'guestInitials', style: 'serif', hex: '#e2b65a' } as const;
+    expect(resolveLabelText(label, 'Dapo Wuyi', 'xy')).toBe('XY');
+    expect(resolveLabelText(label, 'Dapo Wuyi', '')).toBe('DW');
+    expect(resolveLabelText(label, 'Dapo Wuyi')).toBe('DW');
+    expect(resolveLabelText(label, '', '')).toBe('');
+  });
+});
+
+describe('normalizeTemplate — region map, guest swatches, monogram slot', () => {
+  const raw = {
+    id: 'mask', name: 'Mask', glbUrl: '/models/m.glb', fitCm: 17.5,
+    regions: [{ id: 'lacquer', label: 'Mask', recolourable: true, defaultHex: '#0e6b43', refLuminance: 0.06, guestPick: true }],
+    regionMapUrl: '/models/m-regions.png',
+    guestSwatches: [
+      { hex: '#0E6B43', name: 'Emerald' },
+      { hex: '#0e6b43', name: 'Duplicate' },
+      { hex: 'not-a-colour', name: 'Bad' },
+      { hex: '#9b1028' },
+      'junk',
+      { hex: '#1e1e24', name: 'Onyx' },
+    ],
+    textSlots: [{ id: 'crest', label: 'Crest', position: [0, 0.09, 0.32], normal: [0, 0, 1], up: [0, 1, 0], maxWidthCm: 1.9, maxHeightCm: 1.1, decalDepth: 0.05, finish: 'gilt' }],
+    preparedBy: 'human',
+  };
+
+  it('keeps the region map URL and the cleaned, deduped swatch list', () => {
+    const t = normalizeTemplate(raw);
+    expect(t).not.toBeNull();
+    expect(t!.regionMapUrl).toBe('/models/m-regions.png');
+    expect(t!.guestSwatches).toEqual([
+      { hex: '#0e6b43', name: 'Emerald' },
+      { hex: '#1e1e24', name: 'Onyx' },
+    ]);
+  });
+
+  it('caps the swatch list', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ hex: `#0000${(i + 16).toString(16)}`, name: `C${i}` }));
+    const t = normalizeTemplate({ ...raw, guestSwatches: many });
+    expect(t!.guestSwatches!.length).toBe(MAX_GUEST_SWATCHES);
+  });
+
+  it('keeps the monogram height and gilt finish on the slot', () => {
+    const slot = normalizeTemplate(raw)!.textSlots[0];
+    expect(slot.maxHeightCm).toBe(1.1);
+    expect(slot.finish).toBe('gilt');
+  });
+
+  it('a template without the new fields omits them (old saved scenes unchanged)', () => {
+    const { regionMapUrl: _a, guestSwatches: _b, ...plain } = raw;
+    const t = normalizeTemplate({ ...plain, textSlots: [] })!;
+    expect('regionMapUrl' in t).toBe(false);
+    expect('guestSwatches' in t).toBe(false);
   });
 });

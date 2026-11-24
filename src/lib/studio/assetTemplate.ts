@@ -184,6 +184,19 @@ export interface AssetTextSlot {
    * flat front panel is wrong on a curved crown.
    */
   decalDepth: number;
+  /**
+   * How the lettering is made. Absent = 'stitch' (matte thread, the cap's
+   * embroidery). 'gilt' = polished metal leaf, for a mask's crest plate: the
+   * same artwork rendered metallic so it picks up the environment like the
+   * gold trim around it.
+   */
+  finish?: 'gilt';
+  /**
+   * Present = MONOGRAM fit: the lettering is scaled up (or down) to the largest
+   * size inside maxWidthCm x maxHeightCm, for two or three initials on a crest.
+   * Absent = the name-line rule: a fixed cap height that only ever shrinks.
+   */
+  maxHeightCm?: number;
 }
 
 /**
@@ -238,6 +251,23 @@ export interface AssetTemplate {
    * Ignored entirely unless `modelledHand` says which hand `glbUrl` itself is.
    */
   mirroredGlbUrl?: string;
+  /**
+   * A texture-space region map: a PNG on the SAME UVs as the base colour map,
+   * whose RED byte at each texel is that texel's region index (0, 1, 2 …).
+   *
+   * Per-vertex `regionIds` put a region border on mesh edges, which is fine for
+   * a cap's crown/brim but tears across fine painted detail — gold filigree on
+   * a mask is narrower than the triangles under it. With a map the border
+   * follows the PAINT, texel for texel. When present it wins over `regionIds`
+   * for the tint; `regionIds` may still ship for tools that read vertices.
+   */
+  regionMapUrl?: string;
+  /**
+   * Named colours the GUEST picks from in the booth for every `guestPick`
+   * region at once (a masquerade mask's "Emerald / Ruby / Onyx"). Absent = the
+   * shared Power-Ups palette, which is what every visor/wand/gauntlet uses.
+   */
+  guestSwatches?: GuestSwatch[];
   textSlots: AssetTextSlot[];
   /**
    * 'auto' = derived by the prep pass alone. 'human' = a person checked it.
@@ -248,6 +278,32 @@ export interface AssetTemplate {
    * offers 'auto' regions as if they were authored is lying to the host.
    */
   preparedBy: 'auto' | 'human';
+}
+
+/** One named booth swatch (see AssetTemplate.guestSwatches). */
+export interface GuestSwatch {
+  /** `#rrggbb`, lowercase. */
+  hex: string;
+  /** Short and generic: "Emerald", "Ruby". Read aloud as the button label. */
+  name: string;
+}
+
+/** Most swatches a template may offer — one row on a phone. */
+export const MAX_GUEST_SWATCHES = 8;
+
+function normalizeGuestSwatches(raw: unknown): GuestSwatch[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: GuestSwatch[] = [];
+  for (const entry of raw) {
+    if (out.length >= MAX_GUEST_SWATCHES) break;
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const o = entry as Record<string, unknown>;
+    const hex = normalizeTint(o.hex);
+    const name = cleanId(o.name, 24);
+    if (!hex || !name || out.some((s) => s.hex === hex)) continue;
+    out.push({ hex, name });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 const PREPARED_BY: ReadonlySet<string> = new Set(['auto', 'human']);
@@ -296,6 +352,10 @@ function normalizeTextSlot(raw: unknown, regionIds: ReadonlySet<string>): AssetT
     maxWidthCm: clampRange(o.maxWidthCm, TEMPLATE_BOUNDS.maxWidthCm, 6),
     ...(regionId && regionIds.has(regionId) ? { regionId } : {}),
     decalDepth: clampRange(o.decalDepth, TEMPLATE_BOUNDS.decalDepth, 0.5),
+    ...(o.finish === 'gilt' ? { finish: 'gilt' as const } : {}),
+    ...(o.maxHeightCm !== undefined && o.maxHeightCm !== null
+      ? { maxHeightCm: clampRange(o.maxHeightCm, TEMPLATE_BOUNDS.maxWidthCm, 2) }
+      : {}),
   };
 }
 
@@ -374,6 +434,8 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
   // that would come alive the day someone added the missing field.
   const mirroredRaw = typeof o.mirroredGlbUrl === 'string' ? o.mirroredGlbUrl.trim() : '';
   const mirroredGlbUrl = modelledHand && mirroredRaw ? mirroredRaw : undefined;
+  const regionMapUrl = typeof o.regionMapUrl === 'string' && o.regionMapUrl.trim() ? o.regionMapUrl.trim() : undefined;
+  const guestSwatches = normalizeGuestSwatches(o.guestSwatches);
 
   return {
     id,
@@ -385,6 +447,8 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
     ...(emitter ? { emitter } : {}),
     ...(modelledHand ? { modelledHand } : {}),
     ...(mirroredGlbUrl ? { mirroredGlbUrl } : {}),
+    ...(regionMapUrl ? { regionMapUrl } : {}),
+    ...(guestSwatches ? { guestSwatches } : {}),
     textSlots,
     preparedBy: typeof o.preparedBy === 'string' && PREPARED_BY.has(o.preparedBy)
       ? (o.preparedBy as 'auto' | 'human')
@@ -480,6 +544,31 @@ export function scopeCustomizationToTemplate(
 
 /* ── label text ───────────────────────────────────────────────────────────── */
 
+/** Longest set of initials a crest takes ("DW", "A&B", "JMK"). */
+export const MAX_INITIALS = 3;
+
+/**
+ * Clean what a guest typed into the initials box: letters, digits and '&'
+ * only, upper-cased, at most MAX_INITIALS. "d.w." -> "DW", "a & b" -> "A&B".
+ * Unicode letters are kept (an "É" is somebody's initial).
+ */
+export function normalizeInitials(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return Array.from(raw.toUpperCase().replace(/[^\p{L}\p{N}&]/gu, '')).slice(0, MAX_INITIALS).join('');
+}
+
+/**
+ * Initials derived from a name: the first letter of up to MAX_INITIALS words.
+ * "Dapo Wuyi" -> "DW", "alex" -> "A", "" -> "". Used when the guest gave a
+ * name but never typed initials, so a crest is never blank for a named guest.
+ */
+export function initialsFrom(name: unknown): string {
+  if (typeof name !== 'string') return '';
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters = words.map((w) => Array.from(w.replace(/[^\p{L}\p{N}]/gu, ''))[0] ?? '').join('');
+  return normalizeInitials(letters);
+}
+
 /**
  * UNIFIED (Stage C): this used to be a knowing copy of the module-private
  * `LETTERING_FONT` table in components/booth/StageCanvas.tsx. Both now read the
@@ -498,6 +587,7 @@ export { LETTERING_FONT_CSS as LABEL_FONT_CSS } from '../letteringFit';
  * Mirrors components/booth/StageCanvas.tsx `drawGuestLettering` exactly:
  *   - 'fixed'     -> the stored text (absent text is '')
  *   - 'guestName' -> the guest's own name
+ *   - 'guestInitials' -> the initials the guest typed, else initialsFrom(name)
  *   - whitespace-only, either way, DRAWS NOTHING (returns '')
  *   - 'label' style is upper-cased BEFORE fitting, because uppercase is wider
  *     and fitting the lowercase form would overflow the band
@@ -512,9 +602,14 @@ export { LETTERING_FONT_CSS as LABEL_FONT_CSS } from '../letteringFit';
 export function resolveLabelText(
   label: AssetLabelConfig | null | undefined,
   guestName: string,
+  guestInitials = '',
 ): string {
   if (!label) return '';
-  const raw = label.token === 'fixed' ? (label.text ?? '') : guestName;
+  const raw = label.token === 'fixed'
+    ? (label.text ?? '')
+    : label.token === 'guestInitials'
+      ? (normalizeInitials(guestInitials) || initialsFrom(guestName))
+      : guestName;
   if (typeof raw !== 'string') return '';
   const trimmed = raw.trim();
   if (!trimmed) return '';

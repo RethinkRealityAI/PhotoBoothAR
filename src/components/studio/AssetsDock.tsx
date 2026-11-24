@@ -879,6 +879,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
                   offsetCm: a.defaultNudgeCm,
                   rotationDeg: a.defaultRotationDeg,
                   occlude: a.defaultOcclude,
+                  customization: a.defaultCustomization,
                   // The entry's natural mount: eyewear lands on the nose bridge,
                   // a wand in the tracked hand — not the historical crown default.
                   anchor: isHeadAnchor(a.anchor) ? a.anchor : undefined,
