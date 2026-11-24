@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ChevronUp, Hand, Images, RotateCcw, ScanFace, Sparkles, Upload, X } from 'lucide-react';
+import { AlertCircle, ChevronUp, Hand, Images, Pencil, RotateCcw, ScanFace, Sparkles, Upload, X } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
@@ -2282,6 +2282,21 @@ export default function Booth() {
                 // the hints clear the floating top bar (safe area + 44px row).
                 style={platformBooth ? { top: 'calc(env(safe-area-inset-top, 0px) + 4.25rem)' } : undefined}
               >
+                {/* A name-wearing prop is on: say whose name it shows, and let
+                    the guest set or change it at any time (the one-time prompt
+                    is easy to miss, and skipping it used to be final). */}
+                {propWantsName && phase === 'camera' && !askName && (
+                  <button
+                    type="button"
+                    onClick={() => { setNameDraft(guestName); setAskName(true); }}
+                    className="pointer-events-auto flex min-h-11 items-center gap-2 px-4 py-2 rounded-full glass-strong border border-gold-400/40 active:scale-95 transition-transform"
+                  >
+                    <Pencil className="w-4 h-4 text-gold-300" aria-hidden />
+                    <span className="font-sans text-[13px] text-ivory">
+                      {guestName.trim() ? `Name on your cap: ${guestName.trim()}` : 'Tap to put your name on it'}
+                    </span>
+                  </button>
+                )}
                 {/* First-run hint (platform only — replaces the five-slide intro). */}
                 <AnimatePresence>
                   {cameraHintShown && (
