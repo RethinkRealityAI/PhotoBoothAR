@@ -10,7 +10,7 @@ import { pillClass, statusLabel } from './pillStyles';
 export default function StatusPill({ status, className = '' }: { status: string; className?: string }) {
   return (
     <span
-      className={`inline-block shrink-0 px-2.5 py-1 rounded-full text-[9px] font-label uppercase tracking-widest ${pillClass(status)} ${className}`}
+      className={`inline-block shrink-0 px-2.5 py-1 rounded-full text-[10px] font-label uppercase tracking-widest ${pillClass(status)} ${className}`}
     >
       {statusLabel(status)}
     </span>

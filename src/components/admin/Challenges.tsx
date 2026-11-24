@@ -23,6 +23,7 @@ import {
 import { normalizeValidation } from '../../lib/challengeValidation';
 import { formatCheckStats, summarizeChallengeChecks, type ChallengeCheckStats } from '../../lib/challengeChecks';
 import { useEvent } from '../../events/EventContext';
+import { useStudioBase } from './studioBase';
 import type { Challenge } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -268,19 +269,24 @@ interface RowProps {
   checkStats: ChallengeCheckStats | null;
   /** The stats read failed — say so instead of showing nothing. */
   checksFailed: boolean;
+  /** Host platform (/host/…): 44px controls that wrap under the text on a
+   *  phone. Legacy /admin keeps its compact row byte-for-byte. */
+  platform: boolean;
 }
 
 function ChallengeRow({
   challenge, index, total, onEdit, onDelete, onMove,
   onToggleActive, busy, confirmDelete, onConfirmDelete, onCancelDelete,
-  checkStats, checksFailed,
+  checkStats, checksFailed, platform,
 }: RowProps) {
+  // Platform rows: every control is a 44px target (they measured 22-28px).
+  const hit = platform ? ' min-h-11 min-w-11 inline-flex items-center justify-center' : '';
   const [showFails, setShowFails] = useState(false);
   const hasCheck = challenge.validation?.enabled === true;
   const recentFails = checkStats?.recentFails ?? [];
   return (
     <div
-      className={`flex items-start gap-3 p-4 rounded-2xl border transition-all duration-200 ${
+      className={`flex items-start gap-3 p-4 rounded-2xl border transition-all duration-200${platform ? ' flex-wrap sm:flex-nowrap' : ''} ${
         challenge.active
           ? 'glass border-gold-400/20'
           : 'border-white/6 bg-noir-800/25 opacity-60'
@@ -351,13 +357,13 @@ function ChallengeRow({
       </div>
 
       {/* Controls */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className={`flex items-center gap-1 shrink-0${platform ? ' w-full sm:w-auto justify-end' : ''}`}>
         {/* Reorder */}
-        <div className="flex flex-col">
+        <div className={platform ? 'flex' : 'flex flex-col'}>
           <button
             onClick={() => onMove(-1)}
             disabled={busy || index === 0}
-            className="p-1 text-champagne/30 hover:text-gold-300 disabled:opacity-20 transition-colors"
+            className={`p-1 text-champagne/30 hover:text-gold-300 disabled:opacity-20 transition-colors${hit}`}
             title="Move up"
           >
             <ChevronUp className="w-3.5 h-3.5" />
@@ -365,7 +371,7 @@ function ChallengeRow({
           <button
             onClick={() => onMove(1)}
             disabled={busy || index === total - 1}
-            className="p-1 text-champagne/30 hover:text-gold-300 disabled:opacity-20 transition-colors"
+            className={`p-1 text-champagne/30 hover:text-gold-300 disabled:opacity-20 transition-colors${hit}`}
             title="Move down"
           >
             <ChevronDown className="w-3.5 h-3.5" />
@@ -377,7 +383,7 @@ function ChallengeRow({
           onClick={onToggleActive}
           disabled={busy}
           title={challenge.active ? 'Deactivate' : 'Activate'}
-          className={`p-1.5 rounded-lg transition-colors ${challenge.active ? 'text-emerald-400 bg-emerald-500/15 hover:bg-emerald-500/25' : 'text-champagne/30 glass hover:text-emerald-400'}`}
+          className={`p-1.5 rounded-lg transition-colors${hit} ${challenge.active ? 'text-emerald-400 bg-emerald-500/15 hover:bg-emerald-500/25' : 'text-champagne/30 glass hover:text-emerald-400'}`}
         >
           {challenge.active ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
         </button>
@@ -387,7 +393,7 @@ function ChallengeRow({
           onClick={onEdit}
           disabled={busy}
           title="Edit"
-          className="p-1.5 glass rounded-lg text-champagne/40 hover:text-gold-300 transition-colors"
+          className={`p-1.5 glass rounded-lg text-champagne/40 hover:text-gold-300 transition-colors${hit}`}
         >
           <Pencil className="w-3.5 h-3.5" />
         </button>
@@ -398,14 +404,15 @@ function ChallengeRow({
             <button
               onClick={onDelete}
               disabled={busy}
-              className="p-1.5 rounded-lg bg-red-500/25 text-red-400 hover:bg-red-500/40 transition-colors"
+              className={`p-1.5 rounded-lg bg-red-500/25 text-red-400 hover:bg-red-500/40 transition-colors${hit}`}
               title="Confirm delete"
             >
               <Check className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={onCancelDelete}
-              className="p-1.5 glass rounded-lg text-champagne/40 hover:text-ivory transition-colors"
+              title="Keep it"
+              className={`p-1.5 glass rounded-lg text-champagne/40 hover:text-ivory transition-colors${hit}`}
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -415,7 +422,7 @@ function ChallengeRow({
             onClick={onConfirmDelete}
             disabled={busy}
             title="Delete"
-            className="p-1.5 glass rounded-lg text-champagne/30 hover:text-red-400 transition-colors disabled:opacity-30"
+            className={`p-1.5 glass rounded-lg text-champagne/30 hover:text-red-400 transition-colors disabled:opacity-30${hit}`}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -431,6 +438,7 @@ function ChallengeRow({
 
 export default function Challenges() {
   const { eventId } = useEvent();
+  const platform = useStudioBase().startsWith('/host/');
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);   // null = none, 'new' = add form
@@ -527,24 +535,34 @@ export default function Challenges() {
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
-            <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            {/* Platform: "AR Studio" named a paid add-on (same swap as Settings). */}
+            {platform ? (
+              <p className="font-label uppercase tracking-luxe text-[11px] text-champagne/50 mb-1">Your event</p>
+            ) : (
+              <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40 mb-1">AR Studio</p>
+            )}
             <h1 className="font-serif italic text-3xl text-foil-static">Challenges</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
-              {loading ? 'Loading…' : `${challenges.length} challenges · ${active} active`}
+              {loading
+                ? 'Loading…'
+                : platform
+                  ? `${challenges.length} challenge${challenges.length === 1 ? '' : 's'} · ${active} active`
+                  : `${challenges.length} challenges · ${active} active`}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={load}
               disabled={loading}
-              className="p-2 glass rounded-xl text-champagne/40 hover:text-gold-300 transition-colors disabled:opacity-30"
+              aria-label="Refresh challenges"
+              className={`p-2 glass rounded-xl text-champagne/40 hover:text-gold-300 transition-colors disabled:opacity-30${platform ? ' min-h-11 min-w-11 flex items-center justify-center' : ''}`}
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={() => setEditingId((v) => (v === 'new' ? null : 'new'))}
               disabled={editingId === 'new'}
-              className="flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent hover:scale-[1.02] transition-transform disabled:opacity-50"
+              className={`flex items-center gap-2 px-4 py-2 bg-foil text-noir-900 font-bold text-xs font-label uppercase tracking-widest rounded-xl glow-accent hover:scale-[1.02] transition-transform disabled:opacity-50${platform ? ' min-h-11' : ''}`}
             >
               <Plus className="w-4 h-4" /> Add
             </button>
@@ -610,6 +628,7 @@ export default function Challenges() {
                   onCancelDelete={() => setConfirmDeleteId(null)}
                   checkStats={checks?.stats[c.id] ?? null}
                   checksFailed={checks?.failed === true}
+                  platform={platform}
                 />
               )
             )}

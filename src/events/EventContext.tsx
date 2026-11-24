@@ -13,6 +13,7 @@
 import { isWallPreviewFrame } from '../lib/wallPreview';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { CalendarCheck, Clock3, SearchX, WifiOff } from 'lucide-react';
 import type { EventConfig } from './types';
 import { getRegisteredEvent } from './registry';
 import { codeRuntimeEvent, loadEventConfig, type EventLoad, type RuntimeEvent } from './runtime';
@@ -158,6 +159,7 @@ function CenterScreen({
   body,
   onRetry,
   action,
+  icon,
 }: {
   eyebrow: string;
   title: string;
@@ -168,14 +170,27 @@ function CenterScreen({
   /** A way onward for a screen that is not an error. The ended screen uses it
    *  to hand the guest the event's album instead of a dead end. */
   action?: ReactNode;
+  /** A settled state's emblem. Absent = still working, so the spinner shows;
+   *  a spinner on "Event not found" or "This event has ended" told guests to
+   *  keep waiting for something that was never coming. */
+  icon?: ReactNode;
 }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center app-bg p-6">
       <div className="flex flex-col items-center gap-4 text-center animate-rise-in max-w-sm">
-        <div className="relative h-12 w-12">
-          <div className="absolute inset-0 rounded-full border border-gold-400/30 animate-pulse-glow" />
-          <div className="absolute inset-1 animate-spin rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)]" />
-        </div>
+        {icon === undefined ? (
+          <div className="relative h-12 w-12" role="status" aria-label="Loading">
+            <div className="absolute inset-0 rounded-full border border-gold-400/30 animate-pulse-glow" />
+            <div className="absolute inset-1 animate-spin rounded-full border-2 border-white/10 border-t-[color:var(--color-accent)]" />
+          </div>
+        ) : (
+          <div
+            aria-hidden
+            className="liquid-glass flex h-14 w-14 items-center justify-center rounded-full text-[color:var(--color-accent)]"
+          >
+            {icon}
+          </div>
+        )}
         <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/40">{eyebrow}</p>
         <h1 className="font-serif italic text-3xl text-foil-static">{title}</h1>
         {body && <p className="font-sans text-sm text-champagne/55 leading-relaxed">{body}</p>}
@@ -348,8 +363,9 @@ export default function EventProvider({ slug: slugProp, basePath, previewBanner 
       <CenterScreen
         eyebrow="Photo Booth"
         title="Can't reach this event"
-        body="Your link is fine — we just couldn't load the event. This is usually the venue's wifi. Check your connection and try again."
+        body="Your link is fine. We just couldn't load the event, which is usually the venue's wifi. Check your connection and try again."
         onRetry={() => setAttempt((n) => n + 1)}
+        icon={<WifiOff className="h-6 w-6" strokeWidth={1.6} />}
       />
     );
   }
@@ -358,7 +374,8 @@ export default function EventProvider({ slug: slugProp, basePath, previewBanner 
       <CenterScreen
         eyebrow="Photo Booth"
         title="Event not found"
-        body="We couldn't find an event at this address. Double-check the link or QR code you were given, or the event may not have gone live yet — ask your host."
+        body="We couldn't find an event at this address. Double-check the link or QR code you were given. If the event hasn't gone live yet, ask your host."
+        icon={<SearchX className="h-6 w-6" strokeWidth={1.6} />}
       />
     );
   }
@@ -373,6 +390,7 @@ export default function EventProvider({ slug: slugProp, basePath, previewBanner 
         eyebrow={event.config.copy.eyebrow}
         title="This event has ended"
         body={event.config.copy.thankYou}
+        icon={<CalendarCheck className="h-6 w-6" strokeWidth={1.6} />}
         // The booth is closed, but the night still exists — /r/:slug is the
         // album, and it is a sibling route precisely so it keeps working once
         // this screen is what guests get. Gated on source === 'db': the three
@@ -390,7 +408,8 @@ export default function EventProvider({ slug: slugProp, basePath, previewBanner 
       <CenterScreen
         eyebrow={event.config.copy.eyebrow}
         title="Not open just yet"
-        body="Your host is still putting the finishing touches to this one. Check the link again closer to the event — nothing is wrong with your QR code."
+        body="Your host is still putting the finishing touches to this one. Check the link again closer to the event. Nothing is wrong with your QR code."
+        icon={<Clock3 className="h-6 w-6" strokeWidth={1.6} />}
       />
     );
   }

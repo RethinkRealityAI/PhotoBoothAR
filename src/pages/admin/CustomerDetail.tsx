@@ -8,11 +8,25 @@
  */
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
+import { AdminHeader, AdminNotice, AdminPage, RefreshButton, StatTile } from './AdminChrome';
 import { fetchOrg, adjustCredits, type OrgDetail } from '../../lib/admin';
 import { formatCount, formatDate } from '../../lib/adminFormat';
 import StatusPill from '../../components/ui/StatusPill';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+
+const sectionTitle = 'font-sans text-sm font-semibold text-brand-fg mb-3';
+const emptyRow = 'p-5 font-sans text-sm text-brand-muted/75';
+const fieldLabel = 'font-sans text-[11px] text-brand-muted/75';
+const fieldInput = 'min-h-11 rounded-xl bg-white/[0.06] border border-white/10 px-3 text-sm text-brand-fg placeholder:text-brand-muted/60 outline-none focus:border-[color:var(--color-accent)]/60';
+
+function BackToCustomers() {
+  return (
+    <Link to="/admin/customers" className="-ml-1 mb-2 inline-flex items-center gap-1.5 min-h-11 px-1 font-sans text-[13px] text-brand-muted/75 hover:text-brand-fg">
+      <ArrowLeft className="w-4 h-4" /> Customers
+    </Link>
+  );
+}
 
 export default function CustomerDetail() {
   const { orgId = '' } = useParams<{ orgId: string }>();
@@ -62,31 +76,24 @@ export default function CustomerDetail() {
 
   if (state === 'loading') {
     return (
-      <div className="p-6 md:p-10 max-w-4xl mx-auto">
-        <div className="h-8 w-48 glass rounded-lg animate-pulse mb-8" />
-        <div className="grid gap-4 sm:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 glass rounded-2xl animate-pulse" />)}
+      <AdminPage>
+        <BackToCustomers />
+        <div className="h-8 w-48 glass rounded-lg motion-safe:animate-pulse mb-8" />
+        <div className="grid gap-4 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 glass rounded-2xl motion-safe:animate-pulse" />)}
         </div>
-      </div>
+      </AdminPage>
     );
   }
 
   if (state === 'error' || !detail) {
     return (
-      <div className="p-6 md:p-10 max-w-4xl mx-auto">
-        <Link to="/admin/customers" className="inline-flex items-center gap-1.5 text-xs text-brand-muted/60 hover:text-brand-fg mb-6">
-          <ArrowLeft className="w-3.5 h-3.5" /> Customers
-        </Link>
-        <div className="glass-strong rounded-3xl p-12 text-center max-w-lg mx-auto">
-          <h2 className="font-serif text-2xl text-foil-static mb-2">Couldn't load this organization</h2>
-          <button
-            onClick={load}
-            className="mt-4 inline-flex items-center gap-2 rounded-full bg-foil px-6 py-3 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
-          >
-            <RefreshCw className="w-4 h-4" /> Retry
-          </button>
-        </div>
-      </div>
+      <AdminPage>
+        <BackToCustomers />
+        <AdminNotice title="Couldn’t load this organization" action={{ label: 'Try again', onClick: load }}>
+          The platform API didn’t answer, or this organization no longer exists.
+        </AdminNotice>
+      </AdminPage>
     );
   }
 
@@ -94,61 +101,51 @@ export default function CustomerDetail() {
   const planByEvent = new Map(eventPlans.map((p) => [p.event_id, p]));
 
   return (
-    <div className="p-6 md:p-10 max-w-4xl mx-auto">
-      <Link to="/admin/customers" className="inline-flex items-center gap-1.5 text-xs text-brand-muted/60 hover:text-brand-fg mb-6">
-        <ArrowLeft className="w-3.5 h-3.5" /> Customers
-      </Link>
-
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="font-serif text-3xl text-foil-static">{org.name}</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">Joined {formatDate(org.created_at)}</p>
-        </div>
-        <button
-          onClick={load}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
-      </header>
+    <AdminPage>
+      <BackToCustomers />
+      <AdminHeader
+        title={org.name}
+        subtitle={`Joined ${formatDate(org.created_at)}`}
+        actions={<RefreshButton onClick={load} />}
+      />
 
       <div className="grid gap-4 sm:grid-cols-3 mb-8">
         <div className="glass-strong rounded-2xl p-5">
-          <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">Subscription</p>
+          <p className="font-sans text-[11px] text-brand-muted/75">Subscription</p>
           {subscription ? (
             <div className="mt-2 flex items-center gap-2">
+              <span className="font-serif text-2xl text-foil-static capitalize leading-none">{subscription.tier}</span>
               <StatusPill status={subscription.status} />
-              <span className="font-sans text-xs text-brand-muted/60 capitalize">{subscription.tier}</span>
             </div>
           ) : (
-            <p className="mt-2 font-sans text-sm text-brand-muted/50">No subscription</p>
+            <p className="mt-2 font-sans text-sm text-brand-muted/75">Free, no subscription</p>
+          )}
+          {subscription?.current_period_end && (
+            <p className="mt-2 font-sans text-[11px] text-brand-muted/65">Renews {formatDate(subscription.current_period_end)}</p>
           )}
         </div>
+        <StatTile label="Credits" value={formatCount(creditBalance)} />
         <div className="glass-strong rounded-2xl p-5">
-          <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">Credits</p>
-          <p className="mt-1 font-serif text-2xl text-foil-static">{formatCount(creditBalance)}</p>
-        </div>
-        <div className="glass-strong rounded-2xl p-5">
-          <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">Stripe customer</p>
-          <p className="mt-2 font-sans text-xs text-brand-muted/60">{org.stripe_customer_id ? 'Connected' : 'Not connected'}</p>
+          <p className="font-sans text-[11px] text-brand-muted/75">Stripe customer</p>
+          <p className="mt-2 font-sans text-sm text-brand-fg/90">{org.stripe_customer_id ? 'Connected' : 'Not connected yet'}</p>
         </div>
       </div>
 
       <section className="mb-8">
-        <h2 className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/50 mb-3">
-          Members ({members.length})
+        <h2 className={sectionTitle}>
+          Members <span className="font-normal text-brand-muted/70">({members.length})</span>
         </h2>
-        <div className="glass rounded-2xl divide-y divide-white/[0.04]">
+        <div className="glass rounded-2xl divide-y divide-white/[0.06]">
           {members.length === 0 ? (
-            <p className="p-5 font-sans text-sm text-brand-muted/50">No members.</p>
+            <p className={emptyRow}>No members.</p>
           ) : (
             members.map((m) => (
               <div key={m.userId} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div className="min-w-0">
                   <p className="font-sans text-sm text-brand-fg truncate">{m.displayName || m.email || m.userId}</p>
-                  {m.email && <p className="font-mono text-[10px] text-brand-muted/40 truncate">{m.email}</p>}
+                  {m.email && m.displayName && <p className="font-mono text-[11px] text-brand-muted/75 truncate">{m.email}</p>}
                 </div>
-                <span className="shrink-0 font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">{m.role}</span>
+                <span className="shrink-0 font-sans text-[11px] text-brand-muted/75 capitalize">{m.role}</span>
               </div>
             ))
           )}
@@ -156,12 +153,12 @@ export default function CustomerDetail() {
       </section>
 
       <section className="mb-8">
-        <h2 className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/50 mb-3">
-          Events ({events.length})
+        <h2 className={sectionTitle}>
+          Events <span className="font-normal text-brand-muted/70">({events.length})</span>
         </h2>
-        <div className="glass rounded-2xl divide-y divide-white/[0.04]">
+        <div className="glass rounded-2xl divide-y divide-white/[0.06]">
           {events.length === 0 ? (
-            <p className="p-5 font-sans text-sm text-brand-muted/50">No events yet.</p>
+            <p className={emptyRow}>No events yet.</p>
           ) : (
             events.map((ev) => {
               const plan = planByEvent.get(ev.id);
@@ -169,10 +166,10 @@ export default function CustomerDetail() {
                 <div key={ev.id} className="flex items-center justify-between gap-3 px-5 py-3">
                   <div className="min-w-0">
                     <p className="font-sans text-sm text-brand-fg truncate">{ev.name}</p>
-                    <p className="font-mono text-[10px] text-brand-muted/40">/e/{ev.slug}</p>
+                    <p className="font-mono text-[10px] text-brand-muted/70 truncate">/e/{ev.slug}</p>
                   </div>
                   <div className="shrink-0 flex items-center gap-2">
-                    {plan && <span className="font-label uppercase tracking-luxe text-[9px] text-gold-300 capitalize">{plan.tier}</span>}
+                    {plan && <span className="font-sans text-[11px] text-accent capitalize">{plan.tier}</span>}
                     <StatusPill status={ev.status} />
                   </div>
                 </div>
@@ -183,45 +180,45 @@ export default function CustomerDetail() {
       </section>
 
       <section className="mb-8">
-        <h2 className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/50 mb-3">Grant / adjust credits</h2>
+        <h2 className={sectionTitle}>Grant or remove credits</h2>
         <form onSubmit={grant} className="glass rounded-2xl p-5 flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
-            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">Amount (+ / −)</span>
+            <span className={fieldLabel}>Amount (negative removes)</span>
             <input
               type="number" value={grantAmt} onChange={(e) => setGrantAmt(e.target.value)} placeholder="50 or -10"
-              className="w-32 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 text-sm text-brand-fg outline-none focus:border-[color:var(--color-accent)]/60"
+              className={`w-32 ${fieldInput}`}
             />
           </label>
           <label className="flex flex-1 min-w-[10rem] flex-col gap-1">
-            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">Reason</span>
+            <span className={fieldLabel}>Reason (goes in the audit log)</span>
             <input
               value={grantReason} onChange={(e) => setGrantReason(e.target.value)} placeholder="e.g. goodwill credit"
-              className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 text-sm text-brand-fg outline-none focus:border-[color:var(--color-accent)]/60"
+              className={`w-full ${fieldInput}`}
             />
           </label>
           <button
             type="submit" disabled={granting}
-            className="rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60"
+            className="pressable min-h-11 rounded-full bg-foil px-5 font-sans text-sm font-semibold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-60"
           >
             {granting ? 'Applying…' : 'Apply'}
           </button>
-          {grantMsg && <span className="text-xs text-brand-muted/70">{grantMsg}</span>}
+          {grantMsg && <span role="status" className="text-xs text-brand-muted/80">{grantMsg}</span>}
         </form>
       </section>
 
       <section>
-        <h2 className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/50 mb-3">Recent credit ledger</h2>
-        <div className="glass rounded-2xl divide-y divide-white/[0.04]">
+        <h2 className={sectionTitle}>Recent credit activity</h2>
+        <div className="glass rounded-2xl divide-y divide-white/[0.06]">
           {ledger.length === 0 ? (
-            <p className="p-5 font-sans text-sm text-brand-muted/50">No ledger activity.</p>
+            <p className={emptyRow}>No credit activity yet.</p>
           ) : (
             ledger.map((l) => (
               <div key={l.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div className="min-w-0">
                   <p className="font-sans text-xs text-brand-fg truncate">{l.reason}</p>
-                  <p className="font-sans text-[10px] text-brand-muted/40">{formatDate(l.created_at)}</p>
+                  <p className="font-sans text-[11px] text-brand-muted/65">{formatDate(l.created_at)}</p>
                 </div>
-                <span className={`shrink-0 font-mono text-xs ${l.delta >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                <span className={`shrink-0 font-mono text-xs tabular-nums ${l.delta >= 0 ? 'text-emerald-300' : 'text-amber-300'}`}>
                   {l.delta >= 0 ? '+' : ''}{l.delta}
                 </span>
               </div>
@@ -249,11 +246,11 @@ export default function CustomerDetail() {
                 <span className="text-brand-fg">{(detail?.creditBalance ?? 0) + pendingGrant.delta}</span>
               </p>
               <p className="mt-2">Reason: <span className="text-brand-fg">{pendingGrant.reason}</span></p>
-              <p className="mt-3 text-brand-muted/50">Reversible only by a second manual adjustment.</p>
+              <p className="mt-3 text-brand-muted/75">Reversible only by a second manual adjustment.</p>
             </>
           }
         />
       )}
-    </div>
+    </AdminPage>
   );
 }

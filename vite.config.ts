@@ -1,11 +1,61 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, loadEnv, type Plugin} from 'vite';
 
-export default defineConfig(() => {
+/**
+ * index.html carries the PLATFORM head (brand v2 font preloads, dusk
+ * theme-color). The three legacy single-event sites are frozen, so a
+ * VITE_EVENT build gets the head they shipped with back, byte-for-byte:
+ * each [platform, legacy] pair below is swapped in the emitted HTML. If a
+ * pair stops matching index.html the build FAILS rather than silently
+ * changing a frozen site's head.
+ */
+const LEGACY_HEAD: ReadonlyArray<readonly [string, string]> = [
+  ['<meta name="theme-color" content="#262566" />', '<meta name="theme-color" content="#05060B" />'],
+  ['    <meta property="og:site_name" content="Beamwall" />\n', ''],
+  ['    <meta property="og:image:alt" content="Beamwall, your immersive photo booth, with Beamy the mascot on a dusk-blue background" />\n', ''],
+  [
+    `         remote, frozen) at runtime.
+         PRELOADS = the brand v2 faces every platform page actually paints
+         (Geist = UI text, Bricolage = display; @font-face in styles/brand.css).
+         Without these the browser only discovers them after the CSS + JS
+         have run (~3.5s on a throttled phone) while the old Inter/Cormorant
+         preloads downloaded fonts the platform never renders. Legacy
+         (VITE_EVENT) builds get their original two preloads and theme-color
+         back byte-for-byte from the legacyFrozenHead plugin in vite.config.ts. -->
+    <link rel="preload" href="/fonts/geist-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/bricolage-grotesque-var-latin.woff2" as="font" type="font/woff2" crossorigin />`,
+    `         remote, frozen) at runtime. -->
+    <link rel="preload" href="/fonts/inter-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/cormorant-garamond-500-latin.woff2" as="font" type="font/woff2" crossorigin />`,
+  ],
+];
+
+function legacyFrozenHead(legacy: boolean): Plugin {
   return {
-    plugins: [react(), tailwindcss()],
+    name: 'legacy-frozen-head',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html) {
+        if (!legacy) return html;
+        let out = html;
+        for (const [platform, frozen] of LEGACY_HEAD) {
+          if (!out.includes(platform)) {
+            throw new Error(`legacy-frozen-head: index.html no longer contains:\n${platform.slice(0, 120)}`);
+          }
+          out = out.replace(platform, frozen);
+        }
+        return out;
+      },
+    },
+  };
+}
+
+export default defineConfig(({mode}) => {
+  const legacy = (process.env.VITE_EVENT ?? loadEnv(mode, process.cwd(), 'VITE_').VITE_EVENT ?? '').trim() !== '';
+  return {
+    plugins: [react(), tailwindcss(), legacyFrozenHead(legacy)],
     build: {
       rollupOptions: {
         output: {

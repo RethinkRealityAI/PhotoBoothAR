@@ -543,7 +543,7 @@ export default function AdminHomeAssets() {
               <h1 className="font-serif text-2xl md:text-3xl text-foil-static">Homepage</h1>
               <p className="font-sans text-xs text-brand-muted/80 mt-0.5">
                 {version !== null && <>Live v{version} · </>}
-                {home === null ? 'Loading…' : unsaved ? 'Unsaved changes' : differsFromLive ? 'Saved draft, not live yet' : 'Matches the live page'}
+                {home === null ? (loadErr !== null ? 'Couldn’t load. Nothing can be edited until it does.' : 'Loading…') : unsaved ? 'Unsaved changes' : differsFromLive ? 'Saved draft, not live yet' : 'Matches the live page'}
                 {home !== null && <> · {n === 0 ? 'all built-in' : `${n} custom`}</>}
               </p>
             </div>

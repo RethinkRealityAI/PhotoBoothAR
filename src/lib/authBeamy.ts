@@ -6,12 +6,13 @@
  * Pure and DOM-free (tested in node); AuthShell drives the timing and
  * BeamyActor plays the clip.
  *
- * Copy rule: describe the idea (AR filters, a live photo wall, all in the
+ * Copy rule: describe the idea (AR looks, a live photo wall, all in the
  * browser), never name another company's app. authBeamy.test.ts fails if a
  * competitor's trademark ever appears in a line.
  */
 
-export type AuthBeamyPage = 'signin' | 'signup';
+/** signin/signup, plus 'reset' for the forgot- and new-password pages. */
+export type AuthBeamyPage = 'signin' | 'signup' | 'reset';
 
 /** Clips in public/mascot/beamy.glb that return Beamy to his rest pose. */
 export type GreeterClip = 'Idle' | 'Wave' | 'Hop' | 'SideEye' | 'Dance';
@@ -34,10 +35,16 @@ export const BEAMY_LINES: Record<AuthBeamyPage, readonly BeamyLine[]> = {
   signup: [
     { text: 'Hi, I’m Beamy! Glad you’re on board.', clip: 'Wave' },
     { text: 'Let’s build your own AR photo booth. No app needed.', clip: 'Hop' },
-    { text: 'AR filters, 3D props and challenges guests love.', clip: 'Dance' },
+    { text: 'AR looks, 3D props and challenges guests love.', clip: 'Dance' },
     { text: 'Guests scan a code, strike a pose, and they’re in.', clip: 'SideEye' },
     { text: 'Every photo lands live on the big screen.', clip: 'Hop' },
     { text: 'Plus digital keepsakes they’ll actually keep.', clip: 'Wave' },
+  ],
+  reset: [
+    { text: 'Locked out? Let’s get you back on board.', clip: 'Wave' },
+    { text: 'Happens to the best of us. It only takes a minute.', clip: 'SideEye' },
+    { text: 'Your events and photos are right where you left them.', clip: 'Hop' },
+    { text: 'New password, same booth. Nearly there!', clip: 'Wave' },
   ],
 };
 

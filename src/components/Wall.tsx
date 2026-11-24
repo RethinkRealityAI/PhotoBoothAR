@@ -652,7 +652,13 @@ export default function Wall() {
 
   /** Effective QR visibility: this device's override, else the host's setting.
    *  Declared here because the empty-wall placeholder below needs it. */
-  const showQR = qrOverride ?? wallSettings.showQR;
+  //
+  // A platform wall opened on a PHONE starts with the codes off: that is a
+  // guest browsing the wall, already in the event, and two scan panels would
+  // cover half their screen. The venue screen and tablets keep the host's
+  // setting, and the QR button still turns them on here.
+  const qrDefault = platform && viewport.width < 640 ? false : wallSettings.showQR;
+  const showQR = qrOverride ?? qrDefault;
 
   /**
    * Where the two QR panels live.
@@ -716,6 +722,7 @@ export default function Wall() {
         // The footer already carries a join QR unless it is hidden or we are
         // projecting; two of them stacked was the previous result.
         showOwnQR={projectionMode || !showQR}
+        boothHref={platform && !projectionMode ? `${basePath}/booth` : undefined}
       />
     );
 
@@ -729,8 +736,8 @@ export default function Wall() {
   // value stays where it belongs, under the host's control in Settings; this
   // is now a local override for the device you are looking at.
   const toggleQR = useCallback(() => {
-    setQrOverride((prev) => !(prev ?? wallSettings.showQR));
-  }, [wallSettings.showQR]);
+    setQrOverride((prev) => !(prev ?? qrDefault));
+  }, [qrDefault]);
 
   // Available mode tabs (leaderboard gated by setting)
   // The carousel is a WebGL view; a machine that cannot render it must not be
@@ -1225,7 +1232,9 @@ export default function Wall() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
             transition={{ duration: 0.35 }}
-            className={`relative z-30 shrink-0 flex items-end justify-between px-8 pb-6 pt-2 mt-auto${platform ? ' wall-chrome pointer-events-none' : ''}`}
+            // On a phone the platform tab bar floats over the bottom ~76px, so
+            // the footer's own padding lifts the QR panels clear of it.
+            className={`relative z-30 shrink-0 flex items-end justify-between px-8 pb-6 pt-2 mt-auto${platform ? ' wall-chrome pointer-events-none max-sm:px-3 max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+5.5rem)]' : ''}`}
             style={{
               // Platform walls float their glass panels instead of painting a
               // dark band over the bottom row of photos.

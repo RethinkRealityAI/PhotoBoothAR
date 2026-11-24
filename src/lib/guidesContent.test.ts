@@ -29,6 +29,7 @@ import {
   GREEN_TAIL,
   GUIDES,
   GUIDE_ORDER,
+  GUIDE_SCREENS,
   HOTSPOT_SHOTS,
   PROMPT_CARDS,
   PROMPT_CARD_BY_ID,
@@ -41,6 +42,7 @@ import {
   type FrameCategory,
   type GuideBlock,
   type GuideDoc,
+  type GuideScreenId,
   type GuideSlug,
   type GuideVideoKey,
 } from './guidesContent';
@@ -82,6 +84,9 @@ function textOf(doc: GuideDoc): string[] {
         break;
       case 'film':
         out.push(b.title, b.caption);
+        break;
+      case 'screens':
+        out.push(b.title, b.blurb, ...b.items.map((it) => it.caption));
         break;
       case 'prompts':
       case 'downloads':
@@ -174,6 +179,9 @@ describe('GUIDES — shape', () => {
     expect(counted).toContain(`${downloads?.kind === 'downloads' ? downloads.entryIds.length : 0} free frames`);
     expect(counted).toContain(`${prompts?.kind === 'prompts' ? prompts.cardIds.length : 0} prompts`);
     expect(counted).toContain('Film');
+    // The pictures are counted from the blocks too, distinct screens only.
+    const first = guideHighlights(GUIDES['first-event']);
+    expect(first.some((h) => /^\d+ real screens$/.test(h)), `first-event chips: ${first.join(', ')}`).toBe(true);
   });
 
   it('points every call to action at an in-app route', () => {
@@ -514,6 +522,82 @@ describe('feature films', () => {
   });
 });
 
+/** Every product screen a guide points at: covers, step pictures, prose pictures, strips. */
+function screensUsed(): { slug: GuideSlug; screen: GuideScreenId }[] {
+  const out: { slug: GuideSlug; screen: GuideScreenId }[] = [];
+  for (const doc of ALL_GUIDES) {
+    out.push({ slug: doc.slug, screen: doc.cover });
+    for (const b of doc.blocks) {
+      if (b.kind === 'prose' && b.screen !== undefined) out.push({ slug: doc.slug, screen: b.screen });
+      if (b.kind === 'steps') {
+        for (const st of b.steps) if (st.screen !== undefined) out.push({ slug: doc.slug, screen: st.screen });
+      }
+      if (b.kind === 'screens') for (const it of b.items) out.push({ slug: doc.slug, screen: it.screen });
+    }
+  }
+  return out;
+}
+
+describe('product screens', () => {
+  it('keys each screen by itself, in kebab-case, with alt text a screen reader can use', () => {
+    for (const [key, s] of Object.entries(GUIDE_SCREENS)) {
+      expect(s.id, key).toBe(key);
+      expect(key).toMatch(KEBAB);
+      expect(['phone', 'desktop']).toContain(s.device);
+      expect(s.alt.length, `${key} alt text is too thin to describe the screen`).toBeGreaterThan(40);
+      expect(/screenshot|image of/i.test(s.alt), `${key} alt text says "screenshot"; describe what is on it`).toBe(false);
+    }
+  });
+
+  it('names only screens that exist, and uses every screen it ships', () => {
+    const used = new Set<string>();
+    for (const { slug, screen } of screensUsed()) {
+      expect(GUIDE_SCREENS[screen], `${slug} names unknown screen '${screen}'`).toBeDefined();
+      used.add(screen);
+    }
+    for (const key of Object.keys(GUIDE_SCREENS)) {
+      expect(used.has(key), `screen '${key}' ships in public/guides/screens but no guide shows it`).toBe(true);
+    }
+  });
+
+  it('gives every guide a picture early, so no guide opens on a wall of text', () => {
+    for (const doc of ALL_GUIDES) {
+      const firstPicture = doc.blocks.findIndex(
+        (b) =>
+          b.kind === 'film' ||
+          b.kind === 'hotspots' ||
+          b.kind === 'screens' ||
+          (b.kind === 'prose' && b.screen !== undefined) ||
+          (b.kind === 'steps' && b.steps.some((s) => s.screen !== undefined)),
+      );
+      expect(firstPicture, `${doc.slug} has no picture in its first three blocks`).toBeGreaterThanOrEqual(0);
+      expect(firstPicture, `${doc.slug} has no picture in its first three blocks`).toBeLessThan(3);
+    }
+  });
+
+  it('keeps each strip of screens to a row of two to four, each captioned', () => {
+    for (const { slug, block } of blocksOf('screens')) {
+      if (block.kind !== 'screens') continue;
+      expect(block.items.length, `${slug}: '${block.title}' strip`).toBeGreaterThanOrEqual(2);
+      expect(block.items.length, `${slug}: '${block.title}' strip`).toBeLessThanOrEqual(4);
+      for (const it of block.items) expect(it.caption.length, `${slug}: caption for ${it.screen}`).toBeGreaterThan(15);
+      expect(new Set(block.items.map((it) => it.screen)).size, `${slug}: a strip repeats a screen`).toBe(block.items.length);
+    }
+  });
+});
+
+/**
+ * Width and height from a WebP's own header: the lossy (VP8 ) and extended
+ * (VP8X) layouts, which is everything the screen pipeline writes.
+ */
+function webpSize(b: Buffer): { width: number; height: number } | null {
+  if (b.toString('ascii', 0, 4) !== 'RIFF' || b.toString('ascii', 8, 12) !== 'WEBP') return null;
+  const chunk = b.toString('ascii', 12, 16);
+  if (chunk === 'VP8 ') return { width: b.readUInt16LE(26) & 0x3fff, height: b.readUInt16LE(28) & 0x3fff };
+  if (chunk === 'VP8X') return { width: b.readUIntLE(24, 3) + 1, height: b.readUIntLE(27, 3) + 1 };
+  return null;
+}
+
 describe('media files', () => {
   const repo = join(__dirname, '..', '..');
   const exists = (rel: string) => {
@@ -555,6 +639,18 @@ describe('media files', () => {
       const stem = FEATURE_FILM_STEMS[f.id];
       expect(exists(`src/assets/landing/${stem}-feature.mp4`), `${stem}-feature.mp4 missing (film '${f.id}')`).toBe(true);
       expect(exists(`src/assets/landing/${stem}-feature-poster.jpg`), `${stem}-feature-poster.jpg missing (film '${f.id}')`).toBe(true);
+    }
+  });
+
+  it('records each product screen at the exact size of its committed WebP', () => {
+    // The <img> width/height come from GUIDE_SCREENS; a re-shoot at another
+    // size would squash the picture rather than fail, so it fails here.
+    for (const s of Object.values(GUIDE_SCREENS)) {
+      const rel = `public/guides/screens/${s.id}.webp`;
+      expect(exists(rel), `${rel} missing — see scripts/shoot-guide-screens.mjs`).toBe(true);
+      const size = webpSize(readFileSync(join(repo, rel)));
+      expect(size, `${rel} is not a WebP this test can read`).not.toBeNull();
+      expect(size, `${s.id}: WebP size differs from GUIDE_SCREENS — update width/height`).toEqual({ width: s.width, height: s.height });
     }
   });
 

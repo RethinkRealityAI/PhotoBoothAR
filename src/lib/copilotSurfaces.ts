@@ -576,7 +576,7 @@ export function summarizeAction(action: CopilotAction, snapshot: EventSnapshot |
       line = `Add frame “${GENERIC_FRAMES.find((f) => f.id === action.proposal.borderId)?.name ?? action.proposal.borderId}”`;
       break;
     case 'set_filter':
-      line = `Set filter “${FILTER_SHADERS.find((s) => s.id === action.proposal.shaderId)?.name ?? action.proposal.shaderId}”`;
+      line = `Set effect “${FILTER_SHADERS.find((s) => s.id === action.proposal.shaderId)?.name ?? action.proposal.shaderId}”`;
       break;
     case 'add_head_piece': {
       const hp = action.proposal;
@@ -666,7 +666,7 @@ export function buildHandoffSurface(
     {
       id: 'desc', component: 'Text', variant: 'caption',
       text: director
-        ? 'The studio Scene Director designs the whole look — frame, filter and 3D piece together — from this brief.'
+        ? 'The studio Scene Director designs the whole look — frame, effect and 3D prop together — from this brief.'
         : 'A person will read this and get back to you by email.',
     },
     director

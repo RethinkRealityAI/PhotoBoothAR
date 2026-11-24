@@ -28,7 +28,7 @@ describe('greetingFor', () => {
   it('build names the event, lists what is missing, and nudges by event type', () => {
     const g = greetingFor({ mode: 'build', eventType: 'birthday', name: "Maya's 40th", missing: missingIds(checklistOf(snap())) });
     expect(g).toContain("“Maya's 40th” is created — in draft for now.");
-    expect(g).toContain('Next up: a frame, a filter, a 3D prop and some challenges.');
+    expect(g).toContain('Next up: a frame, an effect, a 3D prop and some challenges.');
     expect(g).toContain('cake-moment challenge');
     expect(g).toMatch(/take you live right here\.$/);
   });

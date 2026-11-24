@@ -9,7 +9,7 @@
  * Edits preview live across the studio; "Save" persists them (and realtime
  * pushes them to the booth + wall). Leaving without saving reverts the preview.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   Palette, Type, ListOrdered, Image as ImageIcon, Save, Check,
   Upload, Trash2, Plus, RefreshCw, Wallpaper, NotebookPen, Sparkles,
@@ -33,6 +33,7 @@ const BRAND_LOOK_ID = 'beamwall';
 import { deriveTheme, normalizeHex } from '../../lib/themeDerive';
 import { accentHexesFor, followAccentFramePalette } from '../../lib/themeMatch';
 import ColourChooser from '../host/ColourChooser';
+import { tabIndexForKey } from '../../lib/wizard/tabKeys';
 
 /** Platform-only: tuck expert controls behind one disclosure. Legacy events
  *  (the frozen sites) render the children exactly as before. */
@@ -146,6 +147,14 @@ function draftToOverrides(d: Draft): BrandingOverrides {
   };
 }
 
+type BrandTab = 'look' | 'words' | 'logo' | 'brief';
+const BRAND_TABS: readonly { id: BrandTab; label: string }[] = [
+  { id: 'look', label: 'Look' },
+  { id: 'words', label: 'Words' },
+  { id: 'logo', label: 'Logo' },
+  { id: 'brief', label: 'AI brief' },
+];
+
 export default function Branding() {
   const { eventId, eventUuid, source, config, refreshConfig } = useEvent();
   const applyBranding = useStore((s) => s.applyBranding);
@@ -195,6 +204,22 @@ export default function Branding() {
 
   // ── Background template picker (runtime DB events only) ──
   const isDbEvent = source === 'db' && Boolean(eventUuid);
+
+  // ── Platform tabs: the page used to be one long scroll of eight cards. The
+  //    host sees one group at a time (same segmented control as the setup
+  //    wizard); every edit lives in `draft`, so switching tabs loses nothing.
+  //    Legacy (non-DB) events render every section, unchanged.
+  const [tab, setTab] = useState<BrandTab>('look');
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const show = (t: BrandTab) => !isDbEvent || tab === t;
+  const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const at = BRAND_TABS.findIndex((t) => t.id === tab);
+    const next = tabIndexForKey(e.key, at, BRAND_TABS.length);
+    if (next === null) return;
+    e.preventDefault();
+    setTab(BRAND_TABS[next].id);
+    tabRefs.current[next]?.focus();
+  };
 
   const handleLogo = async (file: File) => {
     setUploading(true);
@@ -400,13 +425,44 @@ export default function Branding() {
             )}
             <h1 className="font-serif italic text-3xl text-foil-static">Branding & Identity</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
-              Names, onboarding, colours and logo — edits preview live; Save to publish.
+              {isDbEvent
+                ? 'How your event looks and what it says. Changes preview live.'
+                : 'Names, onboarding, colours and logo — edits preview live; Save to publish.'}
             </p>
           </div>
           <Wordmark size="sm" />
         </header>
 
+        {isDbEvent && (
+          <div className="wz-tabs self-start -mb-2" role="tablist" aria-label="Branding sections" onKeyDown={onTabKey}>
+            {BRAND_TABS.map((t, i) => {
+              const on = t.id === tab;
+              return (
+                <button
+                  key={t.id}
+                  ref={(el) => { tabRefs.current[i] = el; }}
+                  type="button"
+                  role="tab"
+                  id={`branding-tab-${t.id}`}
+                  aria-controls="branding-panel"
+                  aria-selected={on}
+                  tabIndex={on ? 0 : -1}
+                  className="wz-tab min-h-11"
+                  onClick={() => setTab(t.id)}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div
+          {...(isDbEvent ? { role: 'tabpanel', id: 'branding-panel', 'aria-labelledby': `branding-tab-${tab}` } : {})}
+          className="flex flex-col gap-8"
+        >
+
         {/* Logo */}
+        {show('logo') && (
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
             <ImageIcon className="w-3.5 h-3.5" /> Logo
@@ -439,8 +495,10 @@ export default function Branding() {
             <p role="alert" className="mt-3 font-sans text-[11px] text-red-300">{logoError}</p>
           )}
         </section>
+        )}
 
         {/* Identity copy */}
+        {show('words') && (
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-4 flex items-center gap-2">
             <Type className="w-3.5 h-3.5" /> Names & Copy
@@ -487,9 +545,10 @@ export default function Branding() {
             <TextArea label="Share text" value={draft.shareText} onChange={(v) => patch({ shareText: v })} rows={2} />
           </div>
         </section>
+        )}
 
         {/* Event brief (runtime DB events only) */}
-        {isDbEvent && (
+        {isDbEvent && show('brief') && (
           <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
               <NotebookPen className="w-3.5 h-3.5" /> Event brief
@@ -529,13 +588,13 @@ export default function Branding() {
         )}
 
         {/* Look (runtime DB events only): change style after create */}
-        {isDbEvent && (
+        {isDbEvent && show('look') && (
           <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
               <Sparkles className="w-3.5 h-3.5" /> Look
             </h2>
             <p className="font-sans text-[11px] text-champagne/40 mb-4">
-              Switch to another style, or build a look from one colour. Your frames, filters and words stay as they are.
+              Switch to another style, or build a look from one colour. Your frames, props and words stay as they are.
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" role="group" aria-label="Style">
               <button
@@ -598,6 +657,7 @@ export default function Branding() {
         )}
 
         {/* Theme colors */}
+        {show('look') && (
         <Advanced enabled={isDbEvent} label="Advanced — every colour">
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-4 flex items-center gap-2">
@@ -610,13 +670,14 @@ export default function Branding() {
           </div>
         </section>
         </Advanced>
+        )}
 
         {/* Event page look — the guest welcome page + booth splash scene
             (runtime DB events only; events.config.scene). */}
-        {isDbEvent && <ScenePicker />}
+        {isDbEvent && show('look') && <ScenePicker />}
 
         {/* Background template (runtime DB events only) */}
-        {isDbEvent && (
+        {isDbEvent && show('look') && (
           <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
               <Wallpaper className="w-3.5 h-3.5" /> Background
@@ -660,13 +721,14 @@ export default function Branding() {
         )}
 
         {/* Onboarding steps */}
+        {show('words') && (
         <Advanced enabled={isDbEvent} label="Advanced — onboarding cards">
         <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-label uppercase tracking-luxe text-[10px] text-gold-300 flex items-center gap-2">
               <ListOrdered className="w-3.5 h-3.5" /> Onboarding Steps
             </h2>
-            <button onClick={addStep} className="flex items-center gap-1 font-label uppercase tracking-widest text-[9px] text-gold-300 hover:text-gold-200 transition-colors">
+            <button onClick={addStep} className={`flex items-center gap-1 font-label uppercase tracking-widest text-gold-300 hover:text-gold-200 transition-colors ${isDbEvent ? 'min-h-11 px-2 -mr-2 text-[11px]' : 'text-[9px]'}`}>
               <Plus className="w-3 h-3" /> Add step
             </button>
           </div>
@@ -685,7 +747,7 @@ export default function Branding() {
                   <textarea value={s.body} onChange={(e) => patchStep(i, { body: e.target.value })} placeholder="Body" rows={2}
                     className="w-full bg-noir-800/70 border border-gold-700/25 rounded-lg px-3 py-2 font-sans text-sm text-ivory/90 placeholder-champagne/25 outline-none focus:border-gold-400/55 transition-colors resize-none" />
                 </div>
-                <button onClick={() => removeStep(i)} title="Remove step" className="text-champagne/30 hover:text-red-400 self-start pt-1.5 transition-colors shrink-0">
+                <button onClick={() => removeStep(i)} title="Remove step" aria-label="Remove step" className={`text-champagne/30 hover:text-red-400 self-start transition-colors shrink-0 ${isDbEvent ? 'min-h-11 min-w-11 -mt-1.5 -mr-2 inline-flex items-center justify-center' : 'pt-1.5'}`}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -693,21 +755,26 @@ export default function Branding() {
           </div>
         </section>
         </Advanced>
+        )}
+        </div>
 
-        {/* Save bar */}
-        {saveError !== null && (
+        {/* Save bar — the brief tab saves itself. On the platform it sticks to
+            the bottom so Save is in view on every tab. */}
+        {saveError !== null && (!isDbEvent || tab !== 'brief') && (
           <p role="alert" className="font-sans text-[11px] text-red-300 -mb-5">{saveError}</p>
         )}
-        <div className="flex items-center gap-3">
+        {(!isDbEvent || tab !== 'brief') && (
+        <div className={isDbEvent ? 'sticky bottom-3 z-20 flex items-center gap-3 rounded-2xl liquid-glass p-2' : 'flex items-center gap-3'}>
           <button onClick={save} disabled={saving}
             className="flex-1 bg-foil text-noir-900 font-label uppercase tracking-luxe text-[11px] rounded-xl py-3 glow-accent flex items-center justify-center gap-2 hover:brightness-110 transition-all disabled:opacity-50">
             {saved ? <><Check className="w-4 h-4" /> Saved</> : saving ? 'Saving…' : <><Save className="w-4 h-4" /> Save Branding</>}
           </button>
-          <button onClick={resetToCoded} title="Reset to coded defaults"
+          <button onClick={resetToCoded} title="Reset to coded defaults" aria-label="Reset to coded defaults"
             className="px-4 py-3 glass rounded-xl text-champagne/50 hover:text-gold-300 transition-colors">
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
+        )}
 
         <div className="h-6" />
       </div>

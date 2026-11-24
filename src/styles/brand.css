@@ -2664,3 +2664,9 @@
 [data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none { width: 100%; height: 100%; }
 [data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none-chip { width: 100%; height: 100%; }
 [data-brand="2"] .bw-ar-track[data-rail="true"] .bw-ar-none-label { display: none; }
+
+/* Homepage story step dots: the 30px buttons were under the 44px touch
+   floor. The hit area grows to 44px TALL with an invisible ::before (no
+   width growth, so neighbours' targets never overlap); nothing visual moves. */
+[data-brand="2"] .bw-cap-dots button { position: relative; }
+[data-brand="2"] .bw-cap-dots button::before { content: ""; position: absolute; inset: -7px 0; }

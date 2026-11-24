@@ -11,7 +11,7 @@
  * public/guides/frames/ by URL, with a small WebP thumbnail beside each one
  * for the gallery grid.
  */
-import type { FeatureFilmId, FramePackId, GuideVideoKey, HotspotShotKey } from './guidesContent';
+import type { FeatureFilmId, FramePackId, GuideScreenId, GuideVideoKey, HotspotShotKey } from './guidesContent';
 import firstEventMp4 from '../assets/guides/guide-first-event.mp4';
 import firstEventPoster from '../assets/guides/guide-first-event.jpg';
 import designAFrameMp4 from '../assets/guides/guide-design-a-frame.mp4';
@@ -37,6 +37,14 @@ import virtualPoster from '../assets/landing/virtual-feature-poster.jpg';
  */
 export function hotspotShotPng(key: HotspotShotKey): string {
   return `/guides/shots/${key}.png`;
+}
+
+/**
+ * A real product screen (GUIDE_SCREENS): WebP, 1600 wide for a desktop screen
+ * and 600 wide for a phone one, so even the tap-to-enlarge view stays sharp.
+ */
+export function guideScreen(id: GuideScreenId): string {
+  return `/guides/screens/${id}.webp`;
 }
 
 /** Full-resolution 1080 × 1920 transparent PNG — what the download link points at. */

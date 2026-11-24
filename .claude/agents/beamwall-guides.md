@@ -22,9 +22,10 @@ read like a manual.
 - `src/lib/guidesMedia.ts`, `src/lib/guidesContent.test.ts`,
   `src/lib/guidesDrift.test.ts`.
 - `src/components/guides/**`, `src/pages/Guides.tsx`.
-- `public/guides/**` (frame PNGs + thumbs, hotspot shots),
+- `public/guides/**` (frame PNGs + thumbs, hotspot shots, the product
+  screens in `public/guides/screens/` that steps, strips and hub cards show),
   `src/assets/guides/**` (films + posters).
-- `scripts/shoot-guides.mjs`, `scripts/key-guide-frames.mjs`,
+- `scripts/shoot-guides.mjs`, `scripts/shoot-guide-screens.mjs`, `scripts/key-guide-frames.mjs`,
   `scripts/guide-frames.json`.
 
 You do NOT change product code to make a guide true. If the product
@@ -269,3 +270,34 @@ placeholder, never a 404 video.
   postinstall download (ECONNRESET at the proxy). (2) An element screenshot of
   a section inside the guides scroller stitches blank slabs. Scroll the target
   into view and take a VIEWPORT shot.
+- 2026-11-24 — Guides made VISUAL (branch `claude/project-thread-wj2b70`;
+  Dapo: "the guides are all text-heavy right now, with no visual
+  information"). New content model: `GUIDE_SCREENS` (19 real product screens,
+  `public/guides/screens/<id>.webp`, phone 600×1298 / desktop 1600×1000,
+  setup-looks 1440×1200 because it is cropped to the picker), an optional
+  `screen` on a step and on a prose block, a `screens` block (a strip of 2–4
+  captioned guest phone screens), and a required `cover` per guide for its hub
+  card. `DeviceShot.tsx` draws a phone bezel or a browser window and opens a
+  native `<dialog>` to enlarge (top layer, so the page's own scroller cannot
+  clip it; Escape and focus come from the browser). A prose block whose every
+  paragraph is "Name — what it does" renders as a glossary grid automatically
+  (use-the-studio's tab list). first-event's one giant step 1 became eleven
+  short steps, eight of them with the wizard screen they describe. Tests: each
+  WebP's header size must equal its GUIDE_SCREENS record (VP8 and VP8X
+  parsed), every screen named exists AND every shipped screen is used, every
+  guide has a picture in its first three blocks, strips hold 2–4 distinct
+  captioned screens. SOURCES: guest + wall screens from
+  `scripts/shoot-guide-screens.mjs` (dev server of the branch with the prod
+  anon key inline, public demo events `the-winter-gala` +
+  `ada-tolu-s-wedding-cav4`, fake camera fed the platform's AI stand-in guest
+  `booth-standin.webp`, wall through `?preview=1` in a same-origin frame served
+  by `page.route` — read-only, it never presses Send). Host setup screens came
+  from the 2026-11-22 one-card wizard walk (`/mnt/project-files/wizard-one-card/`,
+  Ada & Tolu's Wedding); they need a signed-in host to re-shoot. QUALITY BAR:
+  never ship a screen showing the old programmatic neon shades (setup-looks is
+  cropped to keep the try-on head out) or a `localhost:` guest link
+  (desktop-01-create-basics was rejected for that). Headless trap: a FULL-PAGE
+  capture of a guide shows faded or blank steps because the scroll reveals
+  only fire on real scrolling; lazy images need a scroll pass too. Judge
+  layout from viewport shots taken after wheel-scrolling, never from a
+  forced full-page stitch alone.
