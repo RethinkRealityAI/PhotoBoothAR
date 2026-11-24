@@ -78,7 +78,7 @@ function buildRuntimeCopy(name: string, cfg: Record<string, unknown>): EventCopy
     thankYou: `Thank you for celebrating with us at ${name}!`,
     steps: [
       { title: 'Scan QR', body: '' },
-      { title: 'Select a Filter', body: '' },
+      { title: 'Pick a Look', body: '' },
       { title: 'Snap Photo', body: '' },
       { title: 'Share', body: '' },
     ],

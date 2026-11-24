@@ -926,7 +926,7 @@ export function defaultLanding(copy: EventCopy): LandingContent {
       ? copy.steps.map((s) => ({ title: s.title, body: s.body }))
       : [
           { title: 'Scan QR', body: '' },
-          { title: 'Select a Filter', body: '' },
+          { title: 'Pick a Look', body: '' },
           { title: 'Snap Photo', body: '' },
           { title: 'Share', body: '' },
         ],

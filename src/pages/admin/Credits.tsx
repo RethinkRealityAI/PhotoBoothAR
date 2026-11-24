@@ -15,16 +15,22 @@ import {
   fetchPlatformConfig, setSignupCredits, fetchPromos, createPromo, setPromoActive, type PromoCode,
 } from '../../lib/admin';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import { AdminHeader, AdminPage } from './AdminChrome';
 import { registryNote } from './registryNote';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-3.5 py-2.5 text-sm text-brand-fg ' +
-  'placeholder:text-brand-muted/40 outline-none transition focus:border-[color:var(--color-accent)]/60';
+  'min-h-11 placeholder:text-brand-muted/60 outline-none transition focus:border-[color:var(--color-accent)]/60';
+const fieldLabel = 'font-sans text-[11px] text-brand-muted/75';
+const retryBtn =
+  'pressable min-h-11 rounded-full border border-amber-300/40 px-4 font-sans text-[11px] text-amber-200 transition hover:bg-amber-300/10';
+const primaryBtn =
+  'pressable inline-flex items-center gap-1.5 min-h-11 rounded-full bg-foil px-5 font-sans text-sm font-semibold text-[color:var(--on-accent)] glow-accent transition active:scale-[0.98] disabled:opacity-60';
 
 function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return 'No expiry';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+  return Number.isNaN(d.getTime()) ? 'No expiry' : `Expires ${d.toLocaleDateString()}`;
 }
 
 export default function Credits() {
@@ -145,15 +151,15 @@ export default function Credits() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6 sm:p-8">
-      <h1 className="font-serif text-3xl text-foil-static">Credits</h1>
-      <p className="mt-2 text-sm text-brand-muted/70">Welcome credits for new accounts, and promo codes.</p>
+    <AdminPage>
+      <AdminHeader title="Credits" subtitle="Welcome credits for new accounts, and promo codes." />
+      <div className="max-w-3xl">
 
       {/* Welcome credits */}
-      <section className="mt-8 rounded-2xl border border-white/10 bg-white/[0.02] p-6">
-        <h2 className="font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">Welcome credits</h2>
+      <section className="glass rounded-2xl p-5 sm:p-6">
+        <h2 className="font-sans text-base font-semibold text-brand-fg">Welcome credits</h2>
         <p className="mt-2 text-sm text-brand-muted/70">
-          Every new account is granted this many credits when its first event/org is created
+          Every new account gets this many credits when its first event is created
           {bonus !== null && <> (currently <span className="text-brand-fg">{bonus}</span>)</>}.
         </p>
         {configFailed && (
@@ -162,7 +168,7 @@ export default function Credits() {
             <button
               type="button"
               onClick={loadConfig}
-              className="rounded-full border border-amber-300/40 px-3 py-1 font-label uppercase tracking-luxe text-[9px] text-amber-200 transition hover:bg-amber-300/10"
+              className={retryBtn}
             >
               Retry
             </button>
@@ -170,13 +176,14 @@ export default function Credits() {
         )}
         <form onSubmit={saveBonus} className="mt-4 flex items-center gap-3">
           <input
+            aria-label="Welcome credits"
             type="number" min={0} step={1} value={bonusInput}
             onChange={(e) => setBonusInput(e.target.value)}
             className={`${inputClass} max-w-[8rem]`}
           />
           <button
             type="submit" disabled={savingBonus}
-            className="rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60"
+            className={primaryBtn}
           >
             {savingBonus ? 'Saving…' : 'Save'}
           </button>
@@ -185,73 +192,77 @@ export default function Credits() {
       </section>
 
       {/* Promo codes */}
-      <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-6">
-        <h2 className="flex items-center gap-2 font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
+      <section className="mt-6 glass rounded-2xl p-5 sm:p-6">
+        <h2 className="flex items-center gap-2 font-sans text-base font-semibold text-brand-fg">
           <Ticket className="h-4 w-4" /> Promo codes
         </h2>
 
         <form onSubmit={submitPromo} className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1">
-            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">Code</span>
+            <span className={fieldLabel}>Code</span>
             <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="WELCOME50" className={inputClass} />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">Credits</span>
+            <span className={fieldLabel}>Credits</span>
             <input type="number" min={1} value={credits} onChange={(e) => setCredits(e.target.value)} placeholder="50" className={inputClass} />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">Max redemptions (optional)</span>
+            <span className={fieldLabel}>Max redemptions (optional)</span>
             <input type="number" min={1} value={maxRedemptions} onChange={(e) => setMaxRedemptions(e.target.value)} placeholder="Unlimited" className={inputClass} />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/60">Expires (optional)</span>
+            <span className={fieldLabel}>Expires (optional)</span>
             <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} className={inputClass} />
           </label>
           <div className="sm:col-span-2 flex items-center gap-3">
             <button
               type="submit" disabled={creating}
-              className="inline-flex items-center gap-1.5 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98] disabled:opacity-60"
+              className={primaryBtn}
             >
               <Plus className="h-3.5 w-3.5" /> {creating ? 'Creating…' : 'Create code'}
             </button>
-            {promoErr && <span role="alert" className="text-xs text-red-400">{promoErr}</span>}
+            {promoErr && <span role="alert" className="text-xs text-red-300">{promoErr}</span>}
           </div>
         </form>
 
         <div className="mt-6 flex flex-col gap-2">
           {!loadingPromos && promos.length > 0 && (
-            <p className="font-sans text-[11px] text-brand-muted/50" aria-live="polite">
+            <p className="font-sans text-[11px] text-brand-muted/65" aria-live="polite">
               {registryNote(promos.length, 'promo code')}
             </p>
           )}
           {loadingPromos ? (
-            <p className="text-sm text-brand-muted/50">Loading…</p>
+            <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading promo codes">
+              {Array.from({ length: 2 }).map((_, i) => <div key={i} className="h-14 rounded-xl bg-white/[0.04] motion-safe:animate-pulse" />)}
+            </div>
           ) : promos.length === 0 && promosFailed ? (
             <p role="alert" className="flex flex-wrap items-center gap-3 text-sm text-amber-300/90">
               We couldn’t load the promo codes — this is not a list of zero codes.
               <button
                 type="button"
                 onClick={loadPromos}
-                className="rounded-full border border-amber-300/40 px-3 py-1 font-label uppercase tracking-luxe text-[9px] text-amber-200 transition hover:bg-amber-300/10"
+                className={retryBtn}
               >
                 Retry
               </button>
             </p>
           ) : promos.length === 0 ? (
-            <p className="text-sm text-brand-muted/50">No promo codes yet.</p>
+            <p className="rounded-xl border border-dashed border-white/15 px-4 py-6 text-center text-sm text-brand-muted/75">No promo codes yet. Create one above and share it with a customer.</p>
           ) : (
             promos.map((p) => (
-              <div key={p.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm">
+              <div key={p.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm">
                 <span className="font-mono font-semibold text-brand-fg">{p.code}</span>
-                <span className="text-accent">{p.credits} cr</span>
-                <span className="text-brand-muted/60">
+                <span className="text-accent">{p.credits} {p.credits === 1 ? 'credit' : 'credits'}</span>
+                <span className="text-brand-muted/75">
                   {p.redemptions}{p.max_redemptions != null ? `/${p.max_redemptions}` : ''} used
                 </span>
-                <span className="text-brand-muted/60">exp {fmtDate(p.expires_at)}</span>
+                <span className="text-brand-muted/75">{fmtDate(p.expires_at)}</span>
                 <button
                   onClick={() => toggleActive(p)}
-                  className={`ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1 font-label uppercase tracking-luxe text-[9px] font-semibold transition ${
-                    p.active ? 'bg-[color:var(--color-accent)]/15 text-accent' : 'border border-white/15 text-brand-muted/60 hover:text-brand-fg'
+                  aria-pressed={p.active}
+                  title={p.active ? 'Live. Click to switch it off.' : 'Off. Click to switch it back on.'}
+                  className={`pressable ml-auto inline-flex items-center gap-1 min-h-11 rounded-full px-4 font-sans text-[11px] font-semibold transition ${
+                    p.active ? 'bg-[color:var(--color-accent)]/15 text-accent' : 'border border-white/15 text-brand-muted/75 hover:text-brand-fg'
                   }`}
                 >
                   {p.active && <Check className="h-3 w-3" />}{p.active ? 'Active' : 'Inactive'}
@@ -282,6 +293,7 @@ export default function Credits() {
           }
         />
       )}
-    </div>
+      </div>
+    </AdminPage>
   );
 }

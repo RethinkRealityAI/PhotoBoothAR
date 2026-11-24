@@ -19,6 +19,7 @@
  */
 import { hexToRgbTriplet, onAccentForeground } from './branding';
 import {
+  DEFAULT_KEEPSAKE_COPY,
   fillKeepsakeCopy,
   type KeepsakeCopyContext,
   type KeepsakeDownloadId,
@@ -178,9 +179,16 @@ export interface RecapGreeting {
 
 export function recapGreeting(settings: KeepsakeSettings, ctx: KeepsakeCopyContext): RecapGreeting {
   const host = settings.copy.hostName.trim() || ctx.orgName.trim();
+  // The stock message promises "{photos} … are all right here", which read
+  // "0 photos were shared on the night, and they are all right here" on an
+  // album with nothing in it. Only OUR default is swapped; a host's own words
+  // are theirs to keep.
+  const emptyAlbum = !(ctx.photos > 0) && settings.copy.message === DEFAULT_KEEPSAKE_COPY.message;
   return {
     headline: fillKeepsakeCopy(settings.copy.headline, ctx, settings.copy.hostName),
-    message: fillKeepsakeCopy(settings.copy.message, ctx, settings.copy.hostName),
+    message: emptyAlbum
+      ? 'Thanks for being part of it.'
+      : fillKeepsakeCopy(settings.copy.message, ctx, settings.copy.hostName),
     signOff: settings.copy.signOff,
     signer: host !== '' ? host : 'Your host',
   };

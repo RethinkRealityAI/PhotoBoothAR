@@ -51,14 +51,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         role="status"
         aria-live="polite"
         aria-atomic="false"
-        className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 items-end pointer-events-none"
+        className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 right-4 z-[100] flex flex-col gap-2 items-end pointer-events-none sm:left-auto sm:max-w-sm"
       >
         {toasts.map((t) =>
           t.tone === 'error' ? (
             <button
               key={t.id}
               onClick={() => dismiss(t.id)}
-              className={`glass-strong pointer-events-auto rounded-xl px-4 py-3 text-left font-sans text-xs border shadow-lg animate-rise-in ${TONE_CLASS[t.tone]}`}
+              className={`glass-strong pointer-events-auto min-h-11 rounded-xl px-4 py-3 text-left font-sans text-xs border shadow-lg animate-rise-in ${TONE_CLASS[t.tone]}`}
             >
               {t.message}
               <span className="ml-2 opacity-60">— dismiss</span>

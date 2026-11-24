@@ -7,7 +7,7 @@
  */
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search } from 'lucide-react';
+import { AdminHeader, AdminPage, AdminSearch, RefreshButton } from './AdminChrome';
 import { fetchOrgs, type OrgRow } from '../../lib/admin';
 import { formatCount, formatDate } from '../../lib/adminFormat';
 import { listFootnote, type ListQuery } from '../../lib/serverList';
@@ -37,43 +37,38 @@ export default function Customers() {
     {
       key: 'plan',
       label: 'Plan',
+      // The tier is the answer to "what plan are they on"; the subscription's
+      // status only earns a pill when it is NOT the healthy default (past due,
+      // cancelled), which is the case an operator needs to see.
       render: (o) =>
-        o.subscriptionTier ? <StatusPill status={o.subscriptionStatus ?? 'active'} /> : <span className="text-brand-muted/40">Free</span>,
+        o.subscriptionTier ? (
+          <span className="inline-flex items-center gap-2">
+            <span className="capitalize text-brand-fg">{o.subscriptionTier}</span>
+            {o.subscriptionStatus !== null && o.subscriptionStatus !== 'active' && <StatusPill status={o.subscriptionStatus} />}
+          </span>
+        ) : <span className="text-brand-muted/70">Free</span>,
     },
     { key: 'credits', label: 'Credits', render: (o) => formatCount(o.creditBalance) },
     { key: 'created', label: 'Joined', render: (o) => formatDate(o.createdAt) },
   ];
 
   return (
-    <div className="p-6 md:p-10 max-w-5xl mx-auto">
-      <header className="flex items-center justify-between mb-6 gap-4">
-        <div>
-          <h1 className="font-serif text-3xl text-foil-static">Customers</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">
-            {listFootnote(list.rows.length, list.hasMore, 'organization') || 'Loading…'}
-          </p>
-        </div>
-        <button
-          onClick={list.reload}
-          disabled={list.loading}
-          aria-label="Refresh"
-          className="pressable p-2.5 min-h-11 min-w-11 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
-        >
-          <RefreshCw className={`w-4 h-4 ${list.loading ? 'animate-spin' : ''}`} />
-        </button>
-      </header>
+    <AdminPage>
+      <AdminHeader
+        title="Customers"
+        subtitle="Every organization on Beamwall. Open one to see its people, events and credits."
+        note={listFootnote(list.rows.length, list.hasMore, 'organization') || 'Loading…'}
+        actions={<RefreshButton onClick={list.reload} busy={list.loading} />}
+      />
 
       {list.error && <LoadError what="customers" code={list.error} onRetry={list.reload} />}
 
-      <div className="relative mb-4 max-w-xs">
-        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
-        <input
-          value={list.query}
-          onChange={(e) => list.setQuery(e.target.value)}
-          placeholder="Search organizations…"
-          className="w-full pl-9 pr-3 min-h-11 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
-        />
-      </div>
+      <AdminSearch
+        value={list.query}
+        onChange={list.setQuery}
+        placeholder="Search organizations…"
+        label="Search customers"
+      />
 
       <DataTable
         columns={columns}
@@ -89,6 +84,6 @@ export default function Customers() {
         onMore={list.loadMore}
         note={listFootnote(list.rows.length, list.hasMore, 'organization')}
       />
-    </div>
+    </AdminPage>
   );
 }

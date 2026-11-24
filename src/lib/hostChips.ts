@@ -62,12 +62,12 @@ const TYPE_NUDGE: Record<string, string> = {
   gala: 'For a gala, an elegant frame and a table-of-ten challenge get the room posting.',
   birthday: 'For a birthday, a cake-moment challenge and a fun 3D prop are the crowd favourites.',
   corporate: 'For a team event, a team-huddle challenge and a clean branded frame work best.',
-  party: 'For a party, a neon filter and a dance-floor challenge set the tone.',
+  party: 'For a party, a neon effect and a dance-floor challenge set the tone.',
 };
 
 const MISSING_WORDS: Partial<Record<ChecklistId, string>> = {
   frame: 'a frame',
-  filter: 'a filter',
+  filter: 'an effect',
   prop: 'a 3D prop',
   challenges: 'some challenges',
 };
@@ -148,7 +148,7 @@ export function quickChipsFor(input: {
     if (!live) chips.push(goLive);
     chips.push(
       { id: 'checklist', label: 'Checklist', run: { kind: 'checklist' } },
-      { id: 'recommend', label: 'Recommend', run: { kind: 'send', text: 'Recommend a frame and a filter that fit this event, and propose them.' } },
+      { id: 'recommend', label: 'Recommend', run: { kind: 'send', text: 'Recommend a frame and an effect that fit this event, and propose them.' } },
     );
     return chips;
   }
@@ -192,11 +192,11 @@ const EXAMPLES_BY_TYPE: Record<string, string[]> = {
   corporate: [
     'Add a team-huddle challenge worth 15 points',
     'Generate a clean frame with a band for our logo',
-    'Set a subtle filter for the whole booth',
+    'Set a subtle colour effect for the whole booth',
   ],
   party: [
     'Add a dance-floor challenge worth 20 points',
-    'Set a neon filter for the whole booth',
+    'Set a neon colour effect for the whole booth',
     'Make me a 3D crown to wear',
   ],
 };

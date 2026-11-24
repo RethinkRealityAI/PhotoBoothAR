@@ -10,6 +10,7 @@ import { Eye, EyeOff, Trash2, RefreshCw, Check, X, Wifi, Play } from 'lucide-rea
 import EventBackground from '../ui/EventBackground';
 import { fetchPostsResult, setPostHidden, deletePost, subscribeToPosts } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
+import { useStudioBase } from './studioBase';
 import type { Post } from '../../types';
 
 /* ------------------------------------------------------------------ */
@@ -182,6 +183,7 @@ function PostCard({ post, onRefresh, onDelete, onUpdate }: PostCardProps) {
 
 export default function Moderation() {
   const { eventId } = useEvent();
+  const platform = useStudioBase().startsWith('/host/');
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -249,7 +251,10 @@ export default function Moderation() {
         {/* Header */}
         <header className="flex items-center justify-between animate-rise-in">
           <div>
-            <p className="font-label uppercase tracking-luxe text-[10px] text-champagne/40 mb-1">AR Studio</p>
+            {/* Platform: "AR Studio" named a paid add-on (same swap as Settings). */}
+            <p className={`font-label uppercase tracking-luxe mb-1 ${platform ? 'text-[11px] text-champagne/50' : 'text-[10px] text-champagne/40'}`}>
+              {platform ? 'Your wall' : 'AR Studio'}
+            </p>
             <h1 className="font-serif italic text-3xl text-foil-static">Wall Moderation</h1>
             <p className="font-sans text-xs text-champagne/45 mt-1">
               Controls what guests see on the projected photo wall.

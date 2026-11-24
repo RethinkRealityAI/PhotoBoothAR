@@ -21,7 +21,8 @@
  */
 import { useCallback, useEffect, useRef, useState, ReactNode, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Lock, ArrowRight, Camera } from 'lucide-react';
 import EventBackground from '../ui/EventBackground';
 import GoldFrameCard from '../ui/GoldFrameCard';
 import { Wordmark } from '../ui/EventLogo';
@@ -111,7 +112,7 @@ export default function UploadGate({ children }: { children: ReactNode }) {
     (import.meta.env.VITE_ADMIN_PASSCODE as string) ||
     'changeme';
   const eventName = useStore((s) => s.copy.eventName);
-  const { eventId } = useEvent();
+  const { eventId, basePath } = useEvent();
 
   // Legacy keeps the original session key; runtime keys per event.
   const storageKey = IS_LEGACY ? KEY : `pbar.upload.${eventId}`;
@@ -228,18 +229,32 @@ export default function UploadGate({ children }: { children: ReactNode }) {
                         </p>
                       </>
                     ) : uploadsClosed ? (
-                      /* Runtime: host hasn't opened public uploads — doors stay shut */
+                      /* Runtime: host hasn't opened public uploads — doors stay shut.
+                         This screen had no way off it (the gate covers the
+                         page's nav), so it hands the guest the two places that
+                         DO work: the booth and the wall. */
                       <>
                         <h1 className="mt-5 font-serif italic text-3xl text-foil-static">
-                          Uploads Are Closed
+                          Uploads are closed
                         </h1>
-                        <p className="mt-1 font-label uppercase tracking-luxe text-[10px] text-brand-muted/50">
-                          {eventName} · Add to the Wall
+                        <p className="mt-3 max-w-[17rem] font-sans text-[13px] text-brand-muted/70 leading-relaxed">
+                          The host hasn't opened photo uploads for this event.
+                          Photos taken in the booth still go straight to the wall.
                         </p>
-                        <p className="mt-4 max-w-[17rem] font-sans text-[12px] text-brand-muted/55 leading-relaxed">
-                          The host hasn't opened public uploads for this event.
-                          Photos taken in the booth still land on the wall automatically.
-                        </p>
+                        <div className="mt-7 flex w-full flex-col gap-2.5">
+                          <Link
+                            to={`${basePath}/booth`}
+                            className="pressable flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-foil font-label uppercase tracking-luxe text-[11px] text-[color:var(--on-accent)] glow-accent"
+                          >
+                            <Camera className="h-4 w-4" aria-hidden /> Open the booth
+                          </Link>
+                          <Link
+                            to={`${basePath}/wall`}
+                            className="pressable flex min-h-11 w-full items-center justify-center rounded-xl border border-white/15 bg-white/[0.05] font-label uppercase tracking-luxe text-[10px] text-brand-fg hover:bg-white/[0.1]"
+                          >
+                            See the live wall
+                          </Link>
+                        </div>
                       </>
                     ) : (
                       /* Passcode form (legacy env passcode, or runtime hashed passcode) */
