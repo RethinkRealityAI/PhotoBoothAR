@@ -18,6 +18,23 @@ const NEW_ID = '9e8d7c6b-5a4f-4e3d-9c2b-1a0f9e8d7c6b';
 type Engine = typeof edge;
 const ENGINES: Array<[string, Engine]> = [['src', client], ['edge', edge]];
 
+describe('one-click delete (client only)', () => {
+  it('one-click delete hides a listed item first, and refuses an item events use', () => {
+    expect(client.planDelete('listed', 0)).toEqual({ ok: true, steps: ['retired', 'deleted'] });
+    expect(client.planDelete('retired', 0)).toEqual({ ok: true, steps: ['deleted'] });
+    expect(client.planDelete('withdrawn', 0)).toEqual({ ok: true, steps: ['deleted'] });
+    expect(client.planDelete('listed', 2)).toEqual({ ok: false, reason: 'has_links' });
+    expect(client.planDelete('retired', Number.NaN)).toEqual({ ok: false, reason: 'has_links' });
+    // Every step is one the server's own lifecycle accepts, in order.
+    const steps = (client.planDelete('listed', 0) as { steps: client.StateChangeTarget[] }).steps;
+    let state: client.LibraryState = 'listed';
+    for (const s of steps) {
+      expect(client.planStateChange(state, s, 0).ok).toBe(true);
+      if (s !== 'deleted') state = s;
+    }
+  });
+});
+
 describe('mirror pins', () => {
   it('vocabularies and constants are identical in both copies', () => {
     expect(edge.LIBRARY_OCCASIONS).toEqual(client.LIBRARY_OCCASIONS);

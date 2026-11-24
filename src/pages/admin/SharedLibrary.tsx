@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, useNavigate } from 'react-router-dom';
 import {
   BookImage, Box, Check, ChevronDown, ChevronRight, FileUp, FolderTree, ImagePlus, LayoutGrid, List, Loader2, Lock, Maximize2,
-  Copy, Minimize2, Plus, RefreshCw, ScanFace, Search, Sparkles, Tag, Upload, Wand2, X,
+  Copy, Minimize2, Plus, RefreshCw, ScanFace, Search, Sparkles, Tag, Trash2, Upload, Wand2, X,
 } from 'lucide-react';
 import {
   bulkUpdateLibraryItems,
@@ -51,6 +51,7 @@ import {
   STATE_CONSEQUENCE,
   emptyLibraryTags,
   normalizeLibraryName,
+  planDelete,
   planStateChange,
   type LibraryState,
   type LibraryTags,
@@ -130,6 +131,8 @@ const SOFT_BTN =
   'pressable inline-flex items-center justify-center gap-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.11] px-3.5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-brand-fg/85 transition-colors disabled:opacity-40';
 const PRIMARY_BTN =
   'pressable inline-flex items-center justify-center gap-1.5 rounded-full bg-foil text-[color:var(--on-accent)] px-4 min-h-11 font-label uppercase tracking-luxe text-[10px] font-bold disabled:opacity-40';
+const DANGER_BTN =
+  'pressable inline-flex items-center justify-center gap-1.5 rounded-full bg-red-500/[0.12] hover:bg-red-500/[0.2] px-3.5 min-h-11 font-label uppercase tracking-luxe text-[10px] text-red-300 transition-colors disabled:opacity-40';
 const ICON_BTN =
   'pressable min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.09] text-brand-muted/70 hover:text-brand-fg transition-colors disabled:opacity-30';
 
@@ -146,7 +149,8 @@ const STATE_FILTERS: readonly LibraryState[] = ['listed', 'retired', 'withdrawn'
 /** The state buttons a library item offers, in reading order. */
 function targetsFor(item: CmsItem): StateChangeTarget[] {
   if (item.state === null) return [];
-  const all: StateChangeTarget[] = ['listed', 'retired', 'withdrawn', 'deleted'];
+  // Delete has its own button (planDelete), so it is not a visibility step.
+  const all: StateChangeTarget[] = ['listed', 'retired', 'withdrawn'];
   return all.filter((t) => planStateChange(item.state as LibraryState, t, item.linkCount).ok);
 }
 
@@ -356,6 +360,8 @@ interface DetailProps {
   /** The server knows who-can-use-it (admin-api with migration 048). */
   accessReady: boolean;
   onState: (item: CmsItem, to: StateChangeTarget) => void;
+  /** Asks to delete this library item (hide + delete in one confirmed step). */
+  onDelete: (item: CmsItem) => void;
   onAddEvent: (item: CmsItem, opts: { name: string; categoryId: string | null; picture?: File }) => Promise<void>;
   /** Opens a workshop copy of a library item in the full Studio. */
   onEditInStudio: (item: CmsItem) => void;
@@ -638,6 +644,23 @@ function DetailPanel(p: DetailProps) {
               </div>
             </div>
           )}
+
+          {item.source === 'library' && item.state !== null && (
+            <div>
+              <span className={LABEL}>Delete</span>
+              {planDelete(item.state, item.linkCount).ok ? (
+                <button type="button" disabled={p.busy} onClick={() => p.onDelete(item)} className={`${DANGER_BTN} mt-2`}>
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden /> Delete from library
+                </button>
+              ) : (
+                <p className="mt-2 font-sans text-xs text-brand-muted/75 leading-snug">
+                  {item.linkCount}{p.capped ? '+' : ''} event{item.linkCount === 1 ? '' : 's'} use{item.linkCount === 1 ? 's' : ''} this,
+                  so it can’t be deleted without pulling it out of {item.linkCount === 1 ? 'that event' : 'those events'}.
+                  Use Hide from hosts to stop new events picking it, or take it out of the event first.
+                </p>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -676,6 +699,8 @@ export default function SharedLibrary() {
   const [bulkTags, setBulkTags] = useState<'add' | 'remove' | null>(null);
   const [bulkAccess, setBulkAccess] = useState(false);
   const [pending, setPending] = useState<{ item: CmsItem; to: StateChangeTarget } | null>(null);
+  /** Library items the admin asked to delete (one from the panel, or a bulk selection). */
+  const [deleting, setDeleting] = useState<CmsItem[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<Progress>(null);
   const navigate = useNavigate();
@@ -901,6 +926,50 @@ export default function SharedLibrary() {
     setPending(null);
   };
 
+  /**
+   * Delete each item that no event uses: hide it from hosts first when it is
+   * still listed (the server only deletes hidden items), then delete. One at
+   * a time, so a failure part-way names exactly which items are left.
+   */
+  const applyDelete = async () => {
+    if (!deleting) return;
+    const list = deleting.filter((i) => i.state !== null && planDelete(i.state, i.linkCount).ok);
+    setBusy(true);
+    const gone: string[] = [];
+    const hidden: string[] = [];
+    let lastError: string | null = null;
+    for (let k = 0; k < list.length; k++) {
+      const item = list[k];
+      if (list.length > 1) setProgress({ label: 'Deleting', done: k, total: list.length });
+      const plan = planDelete(item.state as LibraryState, item.linkCount);
+      if (!plan.ok) continue;
+      let ok = true;
+      for (const step of plan.steps) {
+        const { error: err } = await setLibraryItemState(item.id, step);
+        if (err !== null) { ok = false; lastError = err; break; }
+        if (step === 'retired') hidden.push(item.id);
+      }
+      if (ok) gone.push(item.id);
+    }
+    setProgress(null);
+    setBusy(false);
+    const goneSet = new Set(gone);
+    const hiddenOnly = hidden.filter((id) => !goneSet.has(id));
+    setLibRows((rows) => rows.filter((r) => !goneSet.has(r.id)));
+    if (hiddenOnly.length > 0) patchLibRows(hiddenOnly, (r) => ({ ...r, state: 'retired' }));
+    setSelected((s) => { const t = new Set(s); for (const i of list) if (goneSet.has(i.id)) t.delete(i.key); return t; });
+    if (active && goneSet.has(active.id)) { setActiveKey(null); setMobileDetail(false); }
+    const failed = list.length - gone.length;
+    if (failed === 0) {
+      push(gone.length === 1 ? `Deleted “${list[0].name}”.` : `Deleted ${gone.length} items.`, 'success');
+    } else {
+      const why = lastError ? ` ${libraryErrorText(lastError)}` : '';
+      const leftHidden = hiddenOnly.length > 0 ? ` ${hiddenOnly.length} of them ${hiddenOnly.length === 1 ? 'is' : 'are'} now hidden from hosts.` : '';
+      push(`Deleted ${gone.length}, ${failed} could not be deleted.${leftHidden}${why}`, 'error');
+    }
+    setDeleting(null);
+  };
+
   /** Copy one event piece in. Returns an error code, or null. */
   const addOneEvent = async (item: CmsItem, opts: { name?: string; categoryId: string | null; picture?: File }): Promise<string | null> =>
     (await addOneEventRow(item, opts)).error;
@@ -1119,6 +1188,7 @@ export default function SharedLibrary() {
       onTryOn={tryOnItems.some((t) => t.id === active.id) ? (i) => setTryOnStart(i.id) : undefined}
       onSaveLibrary={saveLibrary}
       onState={(item, to) => setPending({ item, to })}
+      onDelete={(item) => setDeleting([item])}
       onAddEvent={addEvent}
       onEditInStudio={(item) => void editInStudio(item)}
       onCopySettings={copyItems.some((c) => c.id === active.id && c.copyable)
@@ -1606,6 +1676,9 @@ export default function SharedLibrary() {
                   </button>
                 )}
                 <button type="button" disabled={busy} onClick={() => void runBulk({ categoryId: null }, 'Category cleared')} className={SOFT_BTN}>No category</button>
+                <button type="button" disabled={busy} onClick={() => setDeleting(librarySelected)} className={DANGER_BTN}>
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden /> Delete…
+                </button>
                 {optimizableSelected.length > 0 && (
                   <button
                     type="button"
@@ -1707,6 +1780,37 @@ export default function SharedLibrary() {
           onClose={() => setBulkTags(null)}
         />
       )}
+
+      {deleting && (() => {
+        const canGo = deleting.filter((i) => i.state !== null && planDelete(i.state, i.linkCount).ok);
+        const blocked = deleting.length - canGo.length;
+        const one = deleting.length === 1 ? deleting[0] : null;
+        return (
+          <ConfirmModal
+            title={one ? `Delete “${one.name}”?` : `Delete ${canGo.length} of ${deleting.length} selected item${deleting.length === 1 ? '' : 's'}?`}
+            tone="danger"
+            confirmLabel={canGo.length === 1 ? 'Delete' : `Delete ${canGo.length}`}
+            confirmDisabled={canGo.length === 0}
+            busy={busy}
+            body={
+              <>
+                <p>
+                  {canGo.length === 1 ? 'It is removed from the library for good and hosts can no longer pick it.' : 'They are removed from the library for good and hosts can no longer pick them.'}
+                  {' '}This can’t be undone. Their files stay in storage.
+                </p>
+                {blocked > 0 && (
+                  <p className="mt-2">
+                    {blocked} {blocked === 1 ? 'item is' : 'items are'} used by events, so {blocked === 1 ? 'it stays' : 'they stay'}.
+                    Take {blocked === 1 ? 'it' : 'them'} out of those events first, or use Hide from hosts.
+                  </p>
+                )}
+              </>
+            }
+            onConfirm={() => void applyDelete()}
+            onCancel={() => setDeleting(null)}
+          />
+        );
+      })()}
 
       {pending && (
         <ConfirmModal
