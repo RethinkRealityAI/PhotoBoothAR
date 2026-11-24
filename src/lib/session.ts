@@ -18,6 +18,7 @@ type KeySuffix =
   | 'session'
   | 'gallery'
   | 'guestName'
+  | 'guestInitials'
   | 'completedChallenges'
   | 'guestNameSkipped'
   | 'keepsakeOptIn';
@@ -99,6 +100,30 @@ export function setGuestName(eventId: string, name: string): void {
   if (!n) return;
   try {
     localStorage.setItem(scopedKey(eventId, 'guestName'), n);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/**
+ * Initials for a 3D piece that engraves them (a masquerade mask's crest).
+ * Stored apart from the name: "DW" typed for a crest must never become the
+ * name shown on the guest's wall posts. Callers clean the value with
+ * assetTemplate.normalizeInitials; an empty string clears it.
+ */
+export function getGuestInitials(eventId: string): string {
+  try {
+    return localStorage.getItem(scopedKey(eventId, 'guestInitials')) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function setGuestInitials(eventId: string, initials: string): void {
+  try {
+    const v = initials.trim().slice(0, 8);
+    if (v) localStorage.setItem(scopedKey(eventId, 'guestInitials'), v);
+    else localStorage.removeItem(scopedKey(eventId, 'guestInitials'));
   } catch {
     /* non-fatal */
   }

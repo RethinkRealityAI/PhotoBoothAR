@@ -32,6 +32,7 @@ export type PlatformModelSource = 'prop' | 'customisable' | 'code';
  * public/models/thumbs/. Re-render them when a piece's look changes.
  */
 const BUILT_IN_THUMBS: Record<string, string> = {
+  'masquerade-mask': '/models/thumbs/masquerade-mask.webp',
   'baseball-cap': '/models/thumbs/baseball-cap.webp',
   'cyclops-visor': '/models/thumbs/cyclops-visor.webp',
   'wizard-wand': '/models/thumbs/wizard-wand.webp',

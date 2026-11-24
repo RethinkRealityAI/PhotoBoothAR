@@ -91,7 +91,9 @@ import { submitPostDetailed, getStudioSettings } from '../lib/db';
 import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSettings } from '../lib/studio/occluder';
 import {
   savePhoto, addCompletedChallenge, setGuestName, getGuestName, hasSkippedGuestName, skipGuestName,
+  getGuestInitials, setGuestInitials,
 } from '../lib/session';
+import { MAX_INITIALS, initialsFrom, normalizeInitials } from '../lib/studio/assetTemplate';
 import { normalizeGuestLettering } from '../lib/letteringFit';
 import { StreamRecorder, buildRecordStream, liveAudioTrack, primeEncoderInfo, recordingSupported } from '../lib/recorder';
 import { audioDelayForPicture, audioSyncDefaultOn, createAudioSync, parseAvSyncUrl, type AudioSync } from '../lib/audioSync';
@@ -106,7 +108,7 @@ import { fileToImagePart } from '../lib/imageInput';
 import RevealShimmer from './booth/RevealShimmer';
 import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
 import { setThumbSource } from './booth/filterThumbEngine';
-import { assetUrlsOf, glbPreloadQueue, isPending, layersWantGuestName, selectionSignature, withLoaded } from '../lib/boothAssets';
+import { assetUrlsOf, glbPreloadQueue, isPending, layersWantGuestInitials, layersWantGuestName, selectionSignature, withLoaded } from '../lib/boothAssets';
 import { isModelCached, preloadModel } from '../lib/glbCache';
 import {
   detectSwipe, isDoubleTap, cycleIndex, isCrampedLandscape, type PointerSample,
@@ -862,8 +864,18 @@ export default function Booth() {
   /** A selected 3D piece engraves the guest's name (a cap's front label).
    *  db-only: legacy/code events never carry layers. */
   const propWantsName = source === 'db' && layersWantGuestName(attachExp?.config?.layers);
+  /** The piece engraves INITIALS (a mask's crest) rather than the whole name.
+   *  Stored apart from the name so "DW" never becomes the guest's wall name. */
+  const propWantsInitials = source === 'db' && layersWantGuestInitials(attachExp?.config?.layers);
+  const guestInitials = useMemo(() => {
+    void guestNameTick;
+    return normalizeInitials(getGuestInitials(eventId));
+  }, [eventId, guestNameTick]);
+  /** What the crest actually shows: typed initials, else the name's. */
+  const crestInitials = guestInitials || initialsFrom(guestName);
   const needsGuestName =
-    ((letteringSpec?.token === 'guestName' && !guestLetteringName) || (propWantsName && !guestName.trim()))
+    ((letteringSpec?.token === 'guestName' && !guestLetteringName)
+      || (propWantsName && (propWantsInitials ? !crestInitials : !guestName.trim())))
     && !hasSkippedGuestName(eventId);
   const [askName, setAskName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
@@ -1044,6 +1056,7 @@ export default function Booth() {
       .map((l) => {
         const piece = layerToPiece(l, {
           guestName,
+          guestInitials,
           occlusionEnabled: source === 'db',
           customizationEnabled: source === 'db',
         });
@@ -1051,7 +1064,7 @@ export default function Booth() {
         const pulse = pulseMap.get(l.id);
         return pulse !== undefined ? { ...piece, pulse } : piece;
       });
-  }, [attachLayers, source, layerVisible, guestName, pulseMap]);
+  }, [attachLayers, source, layerVisible, guestName, guestInitials, pulseMap]);
 
   // ── Auto head-size (per-guest transfer) ───────────────────────────────
   // STRICTLY OPT-IN by construction: only kicks in when the occluder is actually
@@ -2291,12 +2304,14 @@ export default function Booth() {
                 {propWantsName && phase === 'camera' && !askName && (
                   <button
                     type="button"
-                    onClick={() => { setNameDraft(guestName); setAskName(true); }}
+                    onClick={() => { setNameDraft(propWantsInitials ? crestInitials : guestName); setAskName(true); }}
                     className="pointer-events-auto flex min-h-11 items-center gap-2 px-4 py-2 rounded-full glass-strong border border-gold-400/40 active:scale-95 transition-transform"
                   >
                     <Pencil className="w-4 h-4 text-gold-300" aria-hidden />
                     <span className="font-sans text-[13px] text-ivory">
-                      {guestName.trim() ? `Name on your cap: ${guestName.trim()}` : 'Tap to put your name on it'}
+                      {propWantsInitials
+                        ? (crestInitials ? `Initials on your mask: ${crestInitials}` : 'Tap to add your initials')
+                        : guestName.trim() ? `Name on your cap: ${guestName.trim()}` : 'Tap to put your name on it'}
                     </span>
                   </button>
                 )}
@@ -2636,28 +2651,44 @@ export default function Booth() {
       )}
 
       {/* ── Name for the frame (asked once, before the first shot) ─────── */}
-      {askName && (
+      {/* A crest prop (masquerade mask) asks for INITIALS instead, unless the
+          frame also writes the whole name — then the name covers both. */}
+      {askName && (() => {
+        const initialsMode = propWantsInitials && letteringSpec?.token !== 'guestName';
+        const draftOk = initialsMode ? normalizeInitials(nameDraft).length >= 1 : nameDraft.trim().length >= 2;
+        const save = () => {
+          if (initialsMode) setGuestInitials(eventId, normalizeInitials(nameDraft));
+          else setGuestName(eventId, nameDraft);
+          setGuestNameTick((t) => t + 1);
+          setAskName(false);
+        };
+        return (
         <div className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-noir-900/70 backdrop-blur-sm px-4 pb-safe-bottom [--safe-bottom:1.5rem]">
           <div className="w-full max-w-sm liquid-glass rounded-3xl px-6 py-6 text-center">
-            <h3 className="font-serif text-2xl text-ivory mb-1">Put your name on it</h3>
+            <h3 className="font-serif text-2xl text-ivory mb-1">
+              {initialsMode ? 'Add your initials' : 'Put your name on it'}
+            </h3>
             <p className="font-sans text-[13px] text-champagne/60 leading-relaxed mb-5">
-              {propWantsName && letteringSpec?.token !== 'guestName'
-                ? 'This piece wears your name. Skip it and it stays plain.'
-                : 'This frame writes your name across every shot you take. Skip it and the frame stays as it is.'}
+              {initialsMode
+                ? `Up to ${MAX_INITIALS} letters, engraved in gold on your mask. Skip it and the crest stays plain.`
+                : propWantsName && letteringSpec?.token !== 'guestName'
+                  ? 'This piece wears your name. Skip it and it stays plain.'
+                  : 'This frame writes your name across every shot you take. Skip it and the frame stays as it is.'}
             </p>
             <input
               type="text"
               autoFocus
               value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value.slice(0, 60))}
+              onChange={(e) => setNameDraft(initialsMode ? normalizeInitials(e.target.value) : e.target.value.slice(0, 60))}
               onKeyDown={(e) => {
-                if (e.key !== 'Enter' || nameDraft.trim().length < 2) return;
-                setGuestName(eventId, nameDraft);
-                setGuestNameTick((t) => t + 1);
-                setAskName(false);
+                if (e.key !== 'Enter' || !draftOk) return;
+                save();
               }}
-              placeholder="Your name"
-              className="w-full text-center bg-noir-800/70 border border-gold-400/25 rounded-xl px-4 py-3 font-sans text-base text-ivory placeholder-champagne/30 outline-none focus:border-gold-400/60 transition-colors mb-4"
+              placeholder={initialsMode ? 'e.g. AB' : 'Your name'}
+              autoCapitalize={initialsMode ? 'characters' : undefined}
+              autoComplete={initialsMode ? 'off' : undefined}
+              aria-label={initialsMode ? 'Your initials' : 'Your name'}
+              className={`w-full text-center bg-noir-800/70 border border-gold-400/25 rounded-xl px-4 py-3 font-sans text-base text-ivory placeholder-champagne/30 outline-none focus:border-gold-400/60 transition-colors mb-4${initialsMode ? ' tracking-[0.3em] uppercase' : ''}`}
             />
             <div className="flex gap-3">
               <button
@@ -2670,15 +2701,11 @@ export default function Booth() {
                 }}
                 className="flex-1 glass rounded-xl px-4 py-3 font-label uppercase tracking-luxe text-[11px] text-champagne/60 hover:text-ivory transition-colors"
               >
-                Continue without a name
+                {initialsMode ? 'Skip' : 'Continue without a name'}
               </button>
               <button
-                onClick={() => {
-                  setGuestName(eventId, nameDraft);
-                  setGuestNameTick((t) => t + 1);
-                  setAskName(false);
-                }}
-                disabled={nameDraft.trim().length < 2}
+                onClick={save}
+                disabled={!draftOk}
                 className="flex-1 bg-foil glow-accent text-[color:var(--on-accent)] font-label uppercase tracking-luxe text-[11px] rounded-xl px-4 py-3 hover:brightness-110 transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
               >
                 Use it
@@ -2686,7 +2713,8 @@ export default function Booth() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Send-off + success ────────────────────────────────────────── */}
       {(phase === 'sending' || phase === 'success') && capturedDataUrl && (

@@ -25,6 +25,7 @@ describe('the shelf a host actually sees', () => {
     // honest state, not the honesty rule. Power-Ups added the visor (worn),
     // wand (held) and gauntlet (hand-worn) — the first hand-anchored entries.
     expect(libraryAssets(false).map((a) => a.id)).toEqual([
+      'masquerade-mask',
       'baseball-cap',
       'cyclops-visor',
       'wizard-wand',

@@ -17,7 +17,13 @@ import { POWER_PALETTE } from './studio/powerFx';
 
 export interface GuestColorSlot {
   layerId: string;
+  /** The first (or only) region the pick recolours. */
   regionId: string;
+  /** EVERY region the pick recolours. One entry for a visor's lens; a
+   *  masquerade mask paints its base AND feathers in one tap. */
+  regionIds: string[];
+  /** Spoken names per swatch hex ("Emerald"), when the template names them. */
+  names?: Record<string, string>;
   /** Short caption over the swatch row ("Lens" / the region's label). */
   label: string;
   /** Host default first, then the curated palette, de-duped, ≤ 7. */
@@ -27,6 +33,8 @@ export interface GuestColorSlot {
 }
 
 const MAX_SWATCHES = 7;
+/** A template's named palette may run one longer (host pick + 8 named). */
+const MAX_TEMPLATE_SWATCHES = 9;
 
 /**
  * The one region a guest may recolour in this scene, or null. First layer
@@ -48,6 +56,36 @@ export function guestColorSlot(
     if (region === undefined) continue;
     const hostHex = layer.customization?.parts?.[region.id]?.hex;
     const currentHex = (hostHex !== undefined && hostHex !== null ? hostHex : region.defaultHex).toLowerCase();
+    // A template with its own named swatches (a masquerade mask) recolours
+    // every guest-pickable region together and offers ITS palette, in order.
+    if (template.guestSwatches) {
+      const regionIds = template.regions
+        .filter((r) => r.guestPick === true && r.recolourable)
+        .map((r) => r.id);
+      const ids = regionIds.length > 0 ? regionIds : [region.id];
+      const names: Record<string, string> = {};
+      const swatches: string[] = [];
+      // The host's own pick leads when it is not one of the template's.
+      if (!template.guestSwatches.some((sw) => sw.hex === currentHex)) {
+        swatches.push(currentHex);
+        names[currentHex] = 'Event colour';
+      }
+      for (const sw of template.guestSwatches) {
+        if (swatches.length >= MAX_TEMPLATE_SWATCHES) break;
+        if (swatches.includes(sw.hex)) continue;
+        swatches.push(sw.hex);
+        names[sw.hex] = sw.name;
+      }
+      return {
+        layerId: layer.id,
+        regionId: ids[0],
+        regionIds: ids,
+        names,
+        label: 'Colour',
+        swatches,
+        currentHex,
+      };
+    }
     const swatches: string[] = [];
     for (const hex of [currentHex, ...POWER_PALETTE.map((p) => p.hex)]) {
       const h = hex.toLowerCase();
@@ -57,6 +95,7 @@ export function guestColorSlot(
     return {
       layerId: layer.id,
       regionId: region.id,
+      regionIds: [region.id],
       label: region.label,
       swatches,
       currentHex,
@@ -82,7 +121,7 @@ export function applyGuestColor<T extends readonly ExperienceLayer[]>(
   return layers.map((l) => {
     if (l.id !== slot.layerId) return l;
     const parts = { ...(l.customization?.parts ?? {}) };
-    parts[slot.regionId] = { ...(parts[slot.regionId] ?? {}), hex: h };
+    for (const id of slot.regionIds) parts[id] = { ...(parts[id] ?? {}), hex: h };
     return { ...l, customization: { ...(l.customization ?? {}), parts } };
   }) as unknown as T;
 }
