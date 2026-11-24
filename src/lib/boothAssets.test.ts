@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assetUrlsOf, selectionSignature, isPending, withLoaded, drawableScene, glbPreloadQueue, MAX_PRELOADED_MODELS } from './boothAssets';
+import { assetUrlsOf, selectionSignature, isPending, withLoaded, drawableScene, glbPreloadQueue, MAX_PRELOADED_MODELS, layersWantGuestName } from './boothAssets';
 import type { Experience, ExperienceKind } from '../types';
 
 function exp(over: Partial<Experience> & { kind: ExperienceKind }): Experience {
@@ -183,5 +183,21 @@ describe('glbPreloadQueue', () => {
       exp({ id: 'e', kind: '3d_attachment', asset_url: '' }),
     ];
     expect(glbPreloadQueue(catalog, none)).toEqual([]);
+  });
+});
+
+describe('layersWantGuestName', () => {
+  const cap = (token: string) => ({ kind: '3d_attachment', customization: { label: { slotId: 'front', token, style: 'block', hex: '#fff' } } });
+  it('is true only for a 3D layer whose label is the guest name', () => {
+    expect(layersWantGuestName([cap('guestName')])).toBe(true);
+    expect(layersWantGuestName([{ kind: '3d_attachment' }, cap('guestName')])).toBe(true);
+  });
+  it('is false for a fixed label, no label, a 2D layer or no layers', () => {
+    expect(layersWantGuestName([cap('fixed')])).toBe(false);
+    expect(layersWantGuestName([{ kind: '3d_attachment', customization: { parts: { crown: { hex: '#c8102e' } } } }])).toBe(false);
+    expect(layersWantGuestName([{ kind: 'border', customization: { label: { token: 'guestName' } } }])).toBe(false);
+    expect(layersWantGuestName([])).toBe(false);
+    expect(layersWantGuestName(undefined)).toBe(false);
+    expect(layersWantGuestName([{ kind: '3d_attachment', customization: 'junk' }])).toBe(false);
   });
 });

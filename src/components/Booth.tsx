@@ -103,7 +103,7 @@ import { fileToImagePart } from '../lib/imageInput';
 import RevealShimmer from './booth/RevealShimmer';
 import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
 import { setThumbSource } from './booth/filterThumbEngine';
-import { assetUrlsOf, glbPreloadQueue, isPending, selectionSignature, withLoaded } from '../lib/boothAssets';
+import { assetUrlsOf, glbPreloadQueue, isPending, layersWantGuestName, selectionSignature, withLoaded } from '../lib/boothAssets';
 import { isModelCached, preloadModel } from '../lib/glbCache';
 import {
   detectSwipe, isDoubleTap, cycleIndex, isCrampedLandscape, type PointerSample,
@@ -791,10 +791,22 @@ export default function Booth() {
   );
   /** The name prompt is owed when the frame wants the GUEST's name, we don't
    *  have one, and they haven't already declined for this event. */
+  /** A selected 3D piece engraves the guest's name (a cap's front label).
+   *  db-only: legacy/code events never carry layers. */
+  const propWantsName = source === 'db' && layersWantGuestName(attachExp?.config?.layers);
   const needsGuestName =
-    letteringSpec?.token === 'guestName' && !guestLetteringName && !hasSkippedGuestName(eventId);
+    ((letteringSpec?.token === 'guestName' && !guestLetteringName) || (propWantsName && !guestName.trim()))
+    && !hasSkippedGuestName(eventId);
   const [askName, setAskName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
+  // Picking a name-wearing prop asks for the name right away, so the guest sees
+  // it on the piece while framing instead of an empty front until they shoot.
+  useEffect(() => {
+    if (!propWantsName || !needsGuestName || phase !== 'camera') return;
+    setNameDraft('');
+    setAskName(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachExp?.id]);
   const stageLettering = useMemo(
     () => (letteringSpec ? { spec: letteringSpec, name: guestLetteringName } : null),
     [letteringSpec, guestLetteringName],
@@ -2505,7 +2517,9 @@ export default function Booth() {
           <div className="w-full max-w-sm liquid-glass rounded-3xl px-6 py-6 text-center">
             <h3 className="font-serif text-2xl text-ivory mb-1">Put your name on it</h3>
             <p className="font-sans text-[13px] text-champagne/60 leading-relaxed mb-5">
-              This frame writes your name across every shot you take. Skip it and the frame stays as it is.
+              {propWantsName && letteringSpec?.token !== 'guestName'
+                ? 'This piece wears your name. Skip it and it stays plain.'
+                : 'This frame writes your name across every shot you take. Skip it and the frame stays as it is.'}
             </p>
             <input
               type="text"

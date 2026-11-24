@@ -140,3 +140,24 @@ export function glbPreloadQueue(
   }
   return out;
 }
+
+/**
+ * Does this selection engrave the GUEST's own name on a 3D piece?
+ *
+ * The booth only asked for a name when a 2D frame wanted one, so a cap whose
+ * label is `token: 'guestName'` rendered with an empty front: nothing ever
+ * collected the name it was waiting for. Hidden layers count too — a reveal
+ * target shows the name the moment its trigger fires.
+ */
+export function layersWantGuestName(
+  layers: readonly { kind?: string; customization?: unknown }[] | null | undefined,
+): boolean {
+  if (!layers) return false;
+  return layers.some((l) => {
+    if (l.kind !== '3d_attachment') return false;
+    const c = l.customization;
+    if (!c || typeof c !== 'object') return false;
+    const label = (c as { label?: unknown }).label;
+    return !!label && typeof label === 'object' && (label as { token?: unknown }).token === 'guestName';
+  });
+}
