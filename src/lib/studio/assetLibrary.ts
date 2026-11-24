@@ -38,6 +38,7 @@
  * enforces it against `BuiltinBorder.legacy` — so branded content cannot arrive
  * here by a later edit either.
  */
+import type { AssetCustomization } from '../../types';
 import { normalizeTemplate, type AssetTemplate } from './assetTemplate';
 
 /** One shelf entry: a model, its descriptor, and how it reads in the grid. */
@@ -94,6 +95,12 @@ export interface ConfigurableAsset {
    * not. Absent = the historical default (off).
    */
   defaultOcclude?: boolean;
+  /**
+   * The look a fresh add starts with: region colours and/or a label (a mask
+   * arrives emerald with the guest's initials on its crest). Validated by the
+   * reducer like any stored customization; the host can change all of it.
+   */
+  defaultCustomization?: AssetCustomization;
 }
 
 /**
@@ -260,6 +267,73 @@ const BASEBALL_CAP_TEMPLATE = {
   preparedBy: 'human',
 } as const;
 
+/* - Masquerade Mask - Meshy image-to-3D sculpt (owner-supplied, 1.25M tris)
+   decimated to 112k tris, then Meshy-retextured as emerald + gold with a PLAIN
+   crest plate (no lettering baked in). Draco geometry + WebP textures, 2.3 MB.
+
+   REGIONS ARE TEXTURE-SPACE (regionMapUrl), not per-vertex: the gold filigree
+   is narrower than the triangles under it, so a vertex border would repaint
+   half of every scroll. Each texel was classified from the bake's own hue
+   (gold 12-78 deg, lacquer 78-150, feather teal 150-215; 3x3 majority filter,
+   dark/gutter texels filled from neighbours) — 30% gold, 17% lacquer, 52%
+   feathers + gems + the inner shell. refLuminance MEASURED per class from the
+   2K albedo (linear): lacquer 0.0639, feathers 0.0210, gold 0.2177.
+
+   Feathers deliberately divide by the LACQUER's reference, not their own: one
+   guest swatch paints both, and sharing the divisor keeps the feathers at the
+   bake's relative depth (about a third of the lacquer's brightness), which is
+   what makes them read as dark plumage instead of a flat second coat.
+
+   SIZE comes from the EYE HOLES, not the feathers: a ray grid through the
+   mesh puts the hole centres at x = +-0.36, y = -0.32 (GLB units, origin at
+   the bbox centre). fitCm 17.5 makes 1 unit = 8.75 cm, so the holes sit
+   6.3 cm apart, the adult mean IPD and the canonical face's +-3.16 cm irises.
+   Nudge (noseBridge = [0, 2.5, 5.8]): y +2.9 lifts the holes to the irises'
+   y 2.63; z -0.8 keeps the shell's nose arch clear of the occluder's nose:
+   at -2.0 the canonical nose (z 6.77 at y 1.0, 7.24 at y 0.5) poked 0.3-0.6 cm
+   through the arch's back (6.52 / 6.84) and the occluder hid the mask there
+   on a phone (owner, 2026-11-24). +1.2 cm leaves ~1 cm on the centreline.
+
+   Crest slot: raycast at x=0 onto the plate (front z 0.3235 at y 0.09, surface normal within 4 deg of +z, back
+   shell at z 0.2878). The plate is 0.28 units wide there (2.45 cm), so 1.9 cm
+   of lettering; decalDepth 0.05 reaches the plate's 0.02 curvature without
+   touching the back shell. */
+const MASQUERADE_MASK_TEMPLATE = {
+  id: 'masquerade-mask',
+  name: 'Masquerade Mask',
+  glbUrl: '/models/masquerade-mask.glb',
+  regionMapUrl: '/models/masquerade-mask-regions.png',
+  fitCm: 17.5,
+  regions: [
+    { id: 'lacquer', label: 'Mask', recolourable: true, defaultHex: '#0e6b43', refLuminance: 0.0639203, guestPick: true },
+    { id: 'feathers', label: 'Feathers', recolourable: true, defaultHex: '#0e6b43', refLuminance: 0.0639203, guestPick: true },
+    { id: 'gold', label: 'Gold trim', recolourable: false, defaultHex: '#a3723a', refLuminance: 0.21769263 },
+  ],
+  guestSwatches: [
+    { hex: '#0e6b43', name: 'Emerald' },
+    { hex: '#9b1028', name: 'Ruby' },
+    { hex: '#1e1e24', name: 'Onyx' },
+    { hex: '#143f8f', name: 'Sapphire' },
+    { hex: '#5a2a86', name: 'Amethyst' },
+    { hex: '#b9566f', name: 'Rose' },
+    { hex: '#e6dccb', name: 'Ivory' },
+  ],
+  textSlots: [
+    {
+      id: 'crest',
+      label: 'Crest plate',
+      position: [0, 0.09, 0.3235],
+      normal: [0, 0, 1],
+      up: [0, 1, 0],
+      maxWidthCm: 1.9,
+      maxHeightCm: 1.1,
+      decalDepth: 0.05,
+      finish: 'gilt',
+    },
+  ],
+  preparedBy: 'human',
+} as const;
+
 /**
  * The shipped, host-facing shelf. Add entries here, never to
  * DEMO_LIBRARY_ASSETS.
@@ -344,6 +418,20 @@ const POWER_GAUNTLET_TEMPLATE = {
 } as const;
 
 export const LIBRARY_ASSETS: ConfigurableAsset[] = [
+  {
+    id: 'masquerade-mask',
+    name: 'Masquerade Mask',
+    blurb: 'A feathered masquerade mask with gold filigree. Guests pick its colour and put their initials on the crest.',
+    swatch: ['#0e6b43', '#d4a54a'],
+    template: MASQUERADE_MASK_TEMPLATE,
+    anchor: 'noseBridge',
+    defaultNudgeCm: { x: 0, y: 2.9, z: -0.8 },
+    defaultOcclude: true,
+    defaultCustomization: {
+      parts: { lacquer: { hex: '#0e6b43' }, feathers: { hex: '#0e6b43' } },
+      label: { slotId: 'crest', token: 'guestInitials', style: 'serif', hex: '#e2b65a' },
+    },
+  },
   {
     id: 'baseball-cap',
     name: 'Baseball cap',

@@ -1986,7 +1986,10 @@
     aspect-ratio: 1;
     transform: translateX(-50%);
     border-radius: 999px;
-    box-shadow: inset 0 0 0 2px #FFFFFF, inset 0 0 0 4px rgba(14, 12, 46, 0.6), inset 0 0 0 40px rgba(255, 255, 255, 0.9);
+    /* Mirrors the real brand shutter (.bw-shutter): white outer ring,
+       purple core, soft white inner ring. */
+    background: radial-gradient(circle, #5F50E2 0 52%, rgba(255, 255, 255, 0.92) 55% 60%, #4436BC 63% 84%, rgba(255, 255, 255, 0.16) 86%);
+    box-shadow: inset 0 0 0 2px #FFFFFF, 0 0 14px -2px rgba(111, 102, 232, 0.7);
   }
   .bw-wl-screen[data-flash="true"] .bw-wl-shutter { animation: bw-wl-press 0.35s ease-out both; }
   .bw-wl-toast {
@@ -2670,3 +2673,83 @@
    width growth, so neighbours' targets never overlap); nothing visual moves. */
 [data-brand="2"] .bw-cap-dots button { position: relative; }
 [data-brand="2"] .bw-cap-dots button::before { content: ""; position: absolute; inset: -7px 0; }
+
+/* ── Brand shutter (2026-11-24) ─────────────────────────────────────────
+   The photo shutter on every platform capture UI (booth, card contribution
+   camera, homepage demo). Rich purple glass core, a crisp white outer ring,
+   and a soft glowing inner ring that is mostly white with the brand hues
+   (periwinkle, peach, rose) woven through it. A thin dark hairline and drop
+   shadow outside the white ring keep it legible on a bright camera feed.
+   Markup: <button class="bw-shutter"><ShutterFace/></button>
+   (components/ui/BrandShutter.tsx). Size: --bw-shutter-size. */
+.bw-shutter {
+  --bw-shutter-size: 74px;
+  position: relative;
+  display: block;
+  width: var(--bw-shutter-size);
+  height: var(--bw-shutter-size);
+  flex: none;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow:
+    0 0 0 1px rgba(26, 23, 64, 0.32),
+    0 6px 20px -4px rgba(26, 23, 64, 0.55),
+    0 0 28px -6px rgba(111, 102, 232, 0.75);
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+.bw-shutter::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 3px solid #FFFFFF;
+  pointer-events: none;
+}
+.bw-shutter:focus-visible { box-shadow: 0 0 0 3px #1A1740, 0 0 0 6px #D4D6FF; }
+.bw-shutter:disabled { opacity: 0.45; }
+.bw-shutter > span { position: absolute; border-radius: 999px; pointer-events: none; }
+.bw-shutter__glass {
+  inset: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.bw-shutter__core {
+  inset: 8%;
+  background: radial-gradient(circle at 34% 28%, #9389F7 0%, #5F50E2 36%, #4436BC 68%, #2B2A8C 100%);
+  box-shadow:
+    inset 0 -6px 12px rgba(20, 16, 70, 0.45),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.4);
+  transition: filter 160ms ease;
+}
+.bw-shutter:active .bw-shutter__core { filter: brightness(1.12); }
+.bw-shutter__halo,
+.bw-shutter__ring {
+  inset: 21%;
+  background: conic-gradient(
+    from 0deg,
+    #FFFFFF 0deg, #E4E3FF 50deg, #FFCBA8 105deg, #FFFFFF 150deg,
+    #D4D6FF 205deg, #F4B9D2 265deg, #FFF1DD 315deg, #FFFFFF 360deg
+  );
+  animation: bw-shutter-turn 16s linear infinite;
+}
+.bw-shutter__ring {
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+}
+.bw-shutter__halo {
+  filter: blur(3px);
+  opacity: 0.6;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 3px), #000 100%, transparent 100%);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 3px), #000 100%, transparent 100%);
+}
+.bw-shutter__sheen {
+  inset: 8%;
+  background: radial-gradient(ellipse 72% 46% at 50% 10%, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 70%);
+}
+@keyframes bw-shutter-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .bw-shutter__halo,
+  .bw-shutter__ring { animation: none; }
+}

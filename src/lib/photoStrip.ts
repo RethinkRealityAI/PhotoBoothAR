@@ -22,8 +22,40 @@
 export const STRIP_SHOTS = 3;
 
 /** The shot counts the booth's picker offers. */
-export type StripShotCount = 2 | 3;
-export const STRIP_SHOT_CHOICES: readonly StripShotCount[] = [2, 3];
+export type StripShotCount = 2 | 3 | 4;
+export const STRIP_SHOT_CHOICES: readonly StripShotCount[] = [2, 3, 4];
+
+/**
+ * The strip formats the booth's picker offers. A format is a shot count plus
+ * a column count: the 4-shot long strip and the 2×2 grid both take four
+ * shots, so the count alone cannot say which card to build.
+ */
+export type StripFormatId = 'duo' | 'classic' | 'long' | 'grid';
+
+export interface StripFormat {
+  id: StripFormatId;
+  shots: StripShotCount;
+  /** 1 = panels stacked down the card; 2 = a two-column grid. */
+  cols: 1 | 2;
+  label: string;
+  blurb: string;
+}
+
+/** Picker order. `classic` is the default armed format. */
+export const STRIP_FORMATS: readonly StripFormat[] = [
+  { id: 'duo', shots: 2, cols: 1, label: '2 shots', blurb: 'Two big moments' },
+  { id: 'classic', shots: 3, cols: 1, label: '3 shots', blurb: 'The classic strip' },
+  { id: 'long', shots: 4, cols: 1, label: '4 shots', blurb: 'The long strip' },
+  { id: 'grid', shots: 4, cols: 2, label: '2 × 2', blurb: 'Four in a grid' },
+];
+
+export const DEFAULT_STRIP_FORMAT: StripFormatId = 'classic';
+
+/** The format for an id; an unknown id falls back to the classic strip. */
+export function stripFormat(id: StripFormatId | string): StripFormat {
+  return STRIP_FORMATS.find((f) => f.id === id)
+    ?? STRIP_FORMATS.find((f) => f.id === DEFAULT_STRIP_FORMAT)!;
+}
 
 /** Milliseconds of "hold that" between the shutter of one panel and the
  *  countdown of the next. Long enough to change your face, short enough that
@@ -65,8 +97,13 @@ export interface StripLayout {
  * classic strip fills the card edge to edge.
  */
 export function stripPanelAspect(shots: number): number {
-  return shots <= 2 ? 4 / 5 : 5 / 4;
+  // 4 stacked shots go a little wider again (3:2) so the long strip does not
+  // shrink into a narrow column with wide empty margins.
+  return shots <= 2 ? 4 / 5 : shots === 3 ? 5 / 4 : 3 / 2;
 }
+
+/** Grid cells keep the capture's own portrait 9:16 shape as their widest. */
+const GRID_CELL_ASPECT = 9 / 16;
 
 /**
  * Lay `shots` panels down a 9:16 card.
@@ -76,11 +113,13 @@ export function stripPanelAspect(shots: number): number {
  * never stretched — and faces keep a flattering shape. The stack is centred
  * horizontally.
  */
-export function stripLayout(width: number, height: number, shots = STRIP_SHOTS): StripLayout {
+export function stripLayout(width: number, height: number, shots = STRIP_SHOTS, cols = 1): StripLayout {
   const safeShots = Math.max(1, Math.floor(shots));
   const pad = Math.round(width * 0.04);
   const gap = Math.round(width * 0.028);
   const footerH = Math.round(height * 0.062);
+
+  if (cols >= 2 && safeShots >= 2) return gridLayout(width, height, safeShots, pad, gap, footerH);
 
   const usableH = height - pad * 2 - footerH - gap * (safeShots - 1);
   const panelH = Math.max(1, Math.floor(usableH / safeShots));
@@ -93,6 +132,35 @@ export function stripLayout(width: number, height: number, shots = STRIP_SHOTS):
   const panels: PanelRect[] = [];
   for (let i = 0; i < safeShots; i += 1) {
     panels.push({ x, y: pad + i * (panelH + gap), w: panelW, h: panelH });
+  }
+  return { width, height, panels, pad, gap, footerH, radius: Math.round(width * 0.024) };
+}
+
+/**
+ * Two-column grid (the 2×2 format). Cells fill the card's width and take
+ * the usable height in equal rows, but never grow wider than the capture's
+ * own 9:16, so a cell is at most a light crop of the shot. Rows are centred
+ * vertically above the footer.
+ */
+function gridLayout(
+  width: number, height: number, shots: number, pad: number, gap: number, footerH: number,
+): StripLayout {
+  const cols = 2;
+  const rows = Math.ceil(shots / cols);
+  let cellW = Math.floor((width - pad * 2 - gap) / cols);
+  const usableH = height - pad * 2 - footerH - gap * (rows - 1);
+  let cellH = Math.floor(usableH / rows);
+  if (cellW / cellH > GRID_CELL_ASPECT) cellW = Math.floor(cellH * GRID_CELL_ASPECT);
+  else cellH = Math.floor(cellW / GRID_CELL_ASPECT);
+  const gridW = cellW * cols + gap;
+  const gridH = cellH * rows + gap * (rows - 1);
+  const x0 = Math.round((width - gridW) / 2);
+  const y0 = pad + Math.round((height - pad * 2 - footerH - gridH) / 2);
+  const panels: PanelRect[] = [];
+  for (let i = 0; i < shots; i += 1) {
+    const c = i % cols;
+    const r = Math.floor(i / cols);
+    panels.push({ x: x0 + c * (cellW + gap), y: y0 + r * (cellH + gap), w: cellW, h: cellH });
   }
   return { width, height, panels, pad, gap, footerH, radius: Math.round(width * 0.024) };
 }
@@ -146,9 +214,11 @@ export async function composeStrip(
     palette?: string[];
     /** Footer line; omitted when the event has no signature to add. */
     footer?: string;
+    /** 2 = the 2×2 grid; omitted = panels stacked in one column. */
+    cols?: number;
   },
 ): Promise<string> {
-  const layout = stripLayout(opts.width, opts.height, sources.length);
+  const layout = stripLayout(opts.width, opts.height, sources.length, opts.cols ?? 1);
   const canvas = document.createElement('canvas');
   canvas.width = opts.width;
   canvas.height = opts.height;

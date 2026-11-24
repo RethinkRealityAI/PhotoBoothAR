@@ -518,6 +518,12 @@ export const REGION_TINT_CACHE_KEY = `beamwall-regionTint-v2-${MAX_REGIONS}`;
 /** Name of the per-vertex attribute the patch reads. */
 export const REGION_ATTRIBUTE = 'aRegion';
 
+/** Sampler uniform for a texture-space region map (AssetTemplate.regionMapUrl). */
+export const REGION_MAP_UNIFORM = 'uRegionMap';
+
+/** Program cache key when the region map is in play — a different program. */
+export const REGION_TINT_MAP_CACHE_KEY = `${REGION_TINT_CACHE_KEY}-map`;
+
 /** A patch result. `patched:false` means an anchor was missing. */
 export interface ShaderPatch {
   source: string;
@@ -570,9 +576,20 @@ vRegion = ${REGION_ATTRIBUTE};`,
  * because `roughnessFactor` / `metalnessFactor` do not exist yet at this point
  * in the generated program.
  */
-export function regionTintFragmentPatch(source: string): ShaderPatch {
+export function regionTintFragmentPatch(
+  source: string,
+  opts: { regionMap?: boolean } = {},
+): ShaderPatch {
+  // Texture-space regions (AssetTemplate.regionMapUrl): the index is read from
+  // the map's red byte at this fragment's UV instead of the vertex attribute,
+  // so a border follows the paint rather than the triangles. The read happens
+  // at the top of the colour patch (after <map_fragment>, where vMapUv exists)
+  // into a global that every later chunk shares.
+  const mapped = opts.regionMap === true;
   const declarations = `#include <common>
-varying float vRegion;
+varying float vRegion;${mapped ? `
+uniform sampler2D ${REGION_MAP_UNIFORM};
+int beamwallMapRegion = 0;` : ''}
 uniform vec3 uRegionTint[${MAX_REGIONS}];
 uniform float uRegionAmount[${MAX_REGIONS}];
 uniform float uRegionRef[${MAX_REGIONS}];
@@ -582,7 +599,7 @@ uniform float uRegionMatAmount[${MAX_REGIONS}];
 uniform vec3 uRegionEmissive[${MAX_REGIONS}];
 uniform float uRegionEmissiveAmount[${MAX_REGIONS}];
 int beamwallRegionIndex() {
-  int ri = int(vRegion + 0.5);
+  int ri = ${mapped ? 'beamwallMapRegion' : 'int(vRegion + 0.5)'};
   return clamp(ri, 0, ${MAX_REGIONS - 1});
 }
 // Highlight shoulder — exact twin of regionTint.ts softShoulder(). Identity
@@ -594,7 +611,13 @@ vec3 beamwallShoulder(vec3 c) {
   return min(b, ${TINT_SHOULDER_KNEE.toFixed(2)}) + s * (t / (t + s));
 }`;
 
-  const tint = `#include <map_fragment>
+  const readMap = mapped
+    ? `
+#ifdef USE_MAP
+beamwallMapRegion = int(texture2D(${REGION_MAP_UNIFORM}, vMapUv).r * 255.0 + 0.5);
+#endif`
+    : '';
+  const tint = `#include <map_fragment>${readMap}
 {
   int ri = beamwallRegionIndex();
   float amt = uRegionAmount[ri];

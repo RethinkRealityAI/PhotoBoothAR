@@ -16,6 +16,8 @@ import { describeGlbError } from '../../lib/glbErrors';
 import { resolveFinish, resolveFinishForRegionTint, type FinishOverride } from '../../lib/studio/finish';
 import {
   REGION_ATTRIBUTE,
+  REGION_MAP_UNIFORM,
+  REGION_TINT_MAP_CACHE_KEY,
   REGION_TINT_CACHE_KEY,
   buildRegionUniforms,
   regionOverridesKey,
@@ -168,6 +170,8 @@ export function applyRegionTint(
   finish: unknown,
   tint: unknown,
   tintStrength: unknown,
+  /** Texture-space region ids (AssetTemplate.regionMapUrl); wins over bytes. */
+  regionMap: THREE.Texture | null = null,
 ): () => void {
   // ONE uniform object shared by every patched material: three keeps a
   // reference, so writing into these typed arrays later updates the draw
@@ -181,6 +185,7 @@ export function applyRegionTint(
     uRegionMatAmount: { value: uniforms.matAmount },
     uRegionEmissive: { value: uniforms.emissive },
     uRegionEmissiveAmount: { value: uniforms.emissiveAmount },
+    ...(regionMap ? { [REGION_MAP_UNIFORM]: { value: regionMap } } : {}),
   };
 
   const created: THREE.Material[] = [];
@@ -221,7 +226,7 @@ export function applyRegionTint(
       }
       clone.onBeforeCompile = (shader) => {
         const vert = regionTintVertexPatch(shader.vertexShader);
-        const frag = regionTintFragmentPatch(shader.fragmentShader);
+        const frag = regionTintFragmentPatch(shader.fragmentShader, { regionMap: regionMap !== null });
         // Both halves or neither: a vertex stage declaring a varying the
         // fragment stage does not consume (or vice versa) is a link error, and
         // a partial patch would tint the whole mesh as region 0.
@@ -235,7 +240,7 @@ export function applyRegionTint(
       };
       // Without this three treats the patched and unpatched programs as the
       // same cache entry — and recompiles from scratch on every material.
-      clone.customProgramCacheKey = () => REGION_TINT_CACHE_KEY;
+      clone.customProgramCacheKey = () => (regionMap ? REGION_TINT_MAP_CACHE_KEY : REGION_TINT_CACHE_KEY);
       clone.needsUpdate = true;
       created.push(clone);
       return clone;
@@ -250,6 +255,33 @@ export function applyRegionTint(
     for (const r of restore) r.mesh.material = r.material;
     for (const m of created) m.dispose();
   };
+}
+
+/**
+ * Region maps are tiny (a 1K one-channel PNG) and shared by every instance of
+ * an asset, so each URL is loaded once per page. A failed load is NOT cached:
+ * the next mount retries.
+ */
+const regionMapCache = new Map<string, Promise<THREE.Texture>>();
+
+export function loadRegionMap(url: string): Promise<THREE.Texture> {
+  const hit = regionMapCache.get(url);
+  if (hit) return hit;
+  const p = new THREE.TextureLoader().loadAsync(url).then((tex) => {
+    // Region INDICES, not colours: no colour space, no filtering between ids
+    // (a linear blend of region 0 and 2 would read as region 1), no mips.
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    // glTF UV convention, matching the base colour map GLTFLoader built.
+    tex.flipY = false;
+    tex.needsUpdate = true;
+    return tex;
+  });
+  regionMapCache.set(url, p);
+  p.catch(() => regionMapCache.delete(url));
+  return p;
 }
 
 export function Model({
@@ -358,6 +390,21 @@ export function Model({
   const partsKey = template ? `${template.id}#${regionOverridesKey(customization?.parts)}` : '';
   const decalKey = configuratorKey(template, customization, guestName ?? '');
 
+  // Texture-space regions, when the template ships a map. Until it arrives the
+  // tint effect WAITS: tinting without it would read every texel as region 0
+  // and repaint gold trim along with the base.
+  const regionMapUrl = template?.regionMapUrl;
+  const [regionMap, setRegionMap] = useState<{ url: string; tex: THREE.Texture } | null>(null);
+  useEffect(() => {
+    if (!regionMapUrl) return;
+    let alive = true;
+    loadRegionMap(regionMapUrl)
+      .then((tex) => { if (alive) setRegionMap({ url: regionMapUrl, tex }); })
+      .catch((e) => console.warn('[Model] region map failed; leaving the asset untinted', regionMapUrl, e));
+    return () => { alive = false; };
+  }, [regionMapUrl]);
+  const regionMapTex = regionMapUrl && regionMap?.url === regionMapUrl ? regionMap.tex : null;
+
   useEffect(() => {
     let alive = true;
     let owned: THREE.Material[] = [];
@@ -441,20 +488,21 @@ export function Model({
     // THE LEGACY GUARANTEE. Nothing overridden -> no clone, no patch, no
     // teardown: the model keeps the cache's own materials and the stock shader.
     if (!uniforms.active) return;
+    if (template.regionMapUrl && !regionMapTex) return;
     const source = template.regionIds ? regionIdsSource(template.regionIds) : null;
     // A sidecar URL is not fetched here — that is a network call on the booth's
     // critical path, and this repo vendors assets precisely to avoid those. Only
     // inline packed ids are honoured; a URL degrades to "one region".
     const bytes = source?.kind === 'packed' ? source.bytes : null;
     return applyRegionTint(
-      scene, uniforms, bytes, template.regionIds ?? template.id, finish, tint, tintStrength,
+      scene, uniforms, bytes, template.regionIds ?? template.id, finish, tint, tintStrength, regionMapTex,
     );
     // `template`/`customization` are read through the serialized partsKey; see
     // the note where it is computed. `mirrorX` is a dep because the mirrored
     // mesh is a DIFFERENT BufferGeometry: without it, flipping hands would drop
     // the region attribute and repaint the whole asset as region 0.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, partsKey, finish, tint, tintStrength, mirrorX]);
+  }, [scene, partsKey, finish, tint, tintStrength, mirrorX, regionMapTex]);
 
   // ENGRAVED NAME — async only because the webfont must be loaded before the
   // artwork is baked into a texture; the carve itself is synchronous.

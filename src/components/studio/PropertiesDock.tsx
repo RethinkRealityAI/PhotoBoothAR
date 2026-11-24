@@ -65,7 +65,7 @@ import { PROP_SCALE_MAX } from '../../lib/studio/bustFit';
 import { OVERLAY_SCALE, OVERLAY_POSITION, OVERLAY_ROTATION, formatAtStep, defaultAnchorConfig } from '../../lib/studio/controlSpecs';
 import { ASSET_CUSTOMIZATION, FINISH_TINT_STRENGTH } from '../../lib/studio/controlSpecs';
 import { FINISHES, normalizeFinish, normalizeTintStrength, type FinishId } from '../../lib/studio/finish';
-import { isConfigurable, normalizeTemplate, type AssetRegion } from '../../lib/studio/assetTemplate';
+import { initialsFrom, isConfigurable, normalizeTemplate, type AssetRegion } from '../../lib/studio/assetTemplate';
 import {
   COLORWAYS,
   COLORWAY_ROLES,
@@ -978,27 +978,38 @@ function AssetPersonalisation({ object, dispatch }: { object: Object3D; dispatch
                   gets its own accented card and says, in words, what each guest
                   will actually get. Same idiom as the Lighting block above —
                   accent-tinted rounded panel, semantic tokens only. */}
-              <div className={`rounded-xl border p-3 flex flex-col gap-2 transition-colors ${
-                label.token === 'guestName' ? 'border-accent/30 bg-accent/[0.07]' : 'border-white/10 bg-white/[0.02]'
-              }`}>
-                <StudioToggle
-                  label="Use each guest's own name"
-                  hint={`Every guest who gives their name gets it engraved on their own copy of this piece — in the booth, in their photo and in their video. Here it previews as “${STUDIO_SAMPLE_GUEST_NAME}”.`}
-                  value={label.token === 'guestName'}
-                  onChange={(on) => setLabel({ token: on ? 'guestName' : 'fixed' })}
-                />
-                <p className="font-sans text-[10px] leading-relaxed text-brand-muted/60">
-                  {label.token === 'guestName' ? (
-                    <>
-                      Each guest sees <span className="text-brand-fg">their own name</span> on this
-                      piece. You are previewing “{STUDIO_SAMPLE_GUEST_NAME}”. A guest who skips the
-                      name prompt simply gets no engraving — never someone else’s name.
-                    </>
-                  ) : (
-                    <>Everyone gets the same line, exactly as you type it below.</>
-                  )}
-                </p>
-              </div>
+              {(() => {
+                // A crest (a slot with a height cap) holds initials, not a
+                // whole name, so its per-guest option engraves initials.
+                const perGuest = slot.maxHeightCm !== undefined ? 'guestInitials' : 'guestName';
+                const isPerGuest = label.token !== 'fixed';
+                const what = perGuest === 'guestInitials' ? 'initials' : 'name';
+                const sample = perGuest === 'guestInitials' ? initialsFrom(STUDIO_SAMPLE_GUEST_NAME) : STUDIO_SAMPLE_GUEST_NAME;
+                return (
+                  <div className={`rounded-xl border p-3 flex flex-col gap-2 transition-colors ${
+                    isPerGuest ? 'border-accent/30 bg-accent/[0.07]' : 'border-white/10 bg-white/[0.02]'
+                  }`}>
+                    <StudioToggle
+                      label={`Use each guest's own ${what}`}
+                      hint={`Every guest who gives their ${what} gets it engraved on their own copy of this piece — in the booth, in their photo and in their video. Here it previews as “${sample}”.`}
+                      value={isPerGuest}
+                      onChange={(on) => setLabel({ token: on ? perGuest : 'fixed' })}
+                    />
+                    <p className="font-sans text-[10px] leading-relaxed text-brand-muted/60">
+                      {isPerGuest ? (
+                        <>
+                          Each guest sees <span className="text-brand-fg">their own {what}</span> on this
+                          piece. You are previewing “{sample}”. {perGuest === 'guestInitials'
+                            ? 'A guest who skips it gets the initials of the name they gave, or a plain crest.'
+                            : 'A guest who skips the name prompt simply gets no engraving — never someone else’s name.'}
+                        </>
+                      ) : (
+                        <>Everyone gets the same line, exactly as you type it below.</>
+                      )}
+                    </p>
+                  </div>
+                );
+              })()}
               {label.token === 'fixed' && (
                 <div>
                   <SectionLabel>The line to engrave</SectionLabel>

@@ -6,29 +6,30 @@
  *
  * The strip button used to arm a fixed 3-shot strip in place; guests had no
  * idea what the toggle meant until three countdowns fired at them. Now the
- * button opens this small dialog: pick 2 or 3 shots (with a mini layout
- * preview of the card each produces), or drop back to a single photo.
+ * button opens this small dialog: pick a format (2, 3 or 4 shots stacked, or
+ * four in a 2x2 grid), each with a mini layout preview of the card it
+ * produces, or drop back to a single photo.
  */
 import { Camera } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { haptic } from '../../lib/haptics';
-import { STRIP_SHOT_CHOICES, type StripShotCount } from '../../lib/photoStrip';
+import { STRIP_FORMATS, type StripFormat, type StripFormatId } from '../../lib/photoStrip';
 
-function StripGlyph({ shots }: { shots: number }) {
+/** A square tile previewing the card: stacked bars, or a 2x2 of cells. */
+function StripGlyph({ format }: { format: StripFormat }) {
+  const panelStyle = {
+    background:
+      'linear-gradient(135deg, rgba(var(--accent-rgb),0.75), rgba(var(--accent-rgb),0.3))',
+  };
   return (
     <span
       aria-hidden
-      className="flex h-16 w-11 flex-col gap-1 rounded-lg border border-white/15 bg-white/[0.04] p-1"
+      className={`grid h-14 w-14 gap-1 rounded-lg border border-white/15 bg-white/[0.04] p-1.5 ${
+        format.cols === 2 ? 'grid-cols-2' : 'grid-cols-1'
+      }`}
     >
-      {Array.from({ length: shots }, (_, i) => (
-        <span
-          key={i}
-          className="w-full flex-1 rounded-[3px]"
-          style={{
-            background:
-              'linear-gradient(135deg, rgba(var(--accent-rgb),0.75), rgba(var(--accent-rgb),0.3))',
-          }}
-        />
+      {Array.from({ length: format.shots }, (_, i) => (
+        <span key={i} className="rounded-[3px]" style={panelStyle} />
       ))}
     </span>
   );
@@ -43,8 +44,8 @@ export default function StripPicker({
 }: {
   /** Whether strip mode is currently armed (shows the way back to single). */
   stripMode: boolean;
-  current: StripShotCount;
-  onPick: (n: StripShotCount) => void;
+  current: StripFormatId;
+  onPick: (id: StripFormatId) => void;
   onSingle: () => void;
   onClose: () => void;
 }) {
@@ -54,26 +55,27 @@ export default function StripPicker({
         A quick series of poses, arranged into one keepsake card in your event&rsquo;s colours.
       </p>
       <div className="grid grid-cols-2 gap-3">
-        {STRIP_SHOT_CHOICES.map((n) => {
-          const on = stripMode && current === n;
+        {STRIP_FORMATS.map((f) => {
+          const on = stripMode && current === f.id;
           return (
             <button
-              key={n}
+              key={f.id}
               type="button"
-              onClick={() => { haptic('select'); onPick(n); }}
+              onClick={() => { haptic('select'); onPick(f.id); }}
               aria-pressed={on}
+              aria-label={`${f.label}: ${f.blurb}`}
               className={`pressable flex flex-col items-center gap-2.5 rounded-2xl border p-4 transition-colors ${
                 on
                   ? 'border-[color:var(--color-accent)]/60 bg-[color:var(--color-accent)]/10'
                   : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'
               }`}
             >
-              <StripGlyph shots={n} />
+              <StripGlyph format={f} />
               <span className="font-label text-[11px] uppercase tracking-luxe text-brand-fg">
-                {n} shots
+                {f.label}
               </span>
               <span className="font-sans text-[11px] leading-snug text-brand-muted/70">
-                {n === 2 ? 'Two big moments' : 'The classic strip'}
+                {f.blurb}
               </span>
             </button>
           );

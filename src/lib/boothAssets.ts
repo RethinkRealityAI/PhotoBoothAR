@@ -158,6 +158,26 @@ export function layersWantGuestName(
     const c = l.customization;
     if (!c || typeof c !== 'object') return false;
     const label = (c as { label?: unknown }).label;
-    return !!label && typeof label === 'object' && (label as { token?: unknown }).token === 'guestName';
+    if (!label || typeof label !== 'object') return false;
+    const token = (label as { token?: unknown }).token;
+    return token === 'guestName' || token === 'guestInitials';
+  });
+}
+
+/**
+ * True when a selected 3D piece engraves the guest's INITIALS (a masquerade
+ * mask's crest plate) rather than their whole name — the booth then asks for
+ * initials and words its chip for them.
+ */
+export function layersWantGuestInitials(
+  layers: readonly { kind?: string; customization?: unknown }[] | null | undefined,
+): boolean {
+  if (!layers) return false;
+  return layers.some((l) => {
+    if (l.kind !== '3d_attachment') return false;
+    const c = l.customization;
+    if (!c || typeof c !== 'object') return false;
+    const label = (c as { label?: unknown }).label;
+    return !!label && typeof label === 'object' && (label as { token?: unknown }).token === 'guestInitials';
   });
 }
