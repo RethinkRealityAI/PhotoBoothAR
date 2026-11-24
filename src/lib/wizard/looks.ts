@@ -42,6 +42,8 @@ import { normalizeFacePaint } from '../facePaint/spec';
 import { createOverlay, deriveKind, initialDraft, type StudioDraft, type StudioObject } from '../studio/state';
 import { draftToPayload, existingUrlResolver, experienceToDraft } from '../studio/draftMapping';
 import type { TriggerConfig } from '../studio/triggers';
+import { isHandObject } from '../studio/sceneFamilies';
+import { GUEST_HAND_TRACKING } from '../handPose';
 import type { FramePalette } from '../borders';
 import { LOOK_TABS, type LookTab } from '../lookTerms';
 
@@ -526,6 +528,15 @@ export function readyFilters(): StarterScene[] {
 
 export function powerScenes(): StarterScene[] {
   return offeredStarterScenes().filter((s) => POWER_SCENE_IDS.includes(s.id));
+}
+
+/** The power gear the host wizard offers: hand-held gear (the gauntlet) only
+ *  while guest booths track hands (handPose.GUEST_HAND_TRACKING); without the
+ *  tracker it would never appear on a guest. */
+export function offeredPowerScenes(handTracking: boolean = GUEST_HAND_TRACKING): StarterScene[] {
+  const all = powerScenes();
+  if (handTracking) return all;
+  return all.filter((s) => !(buildStarterDraft(s.id)?.objects.some((o) => o.type !== 'overlay' && isHandObject(o)) ?? false));
 }
 
 /** A starter scene as a filter row (optionally carrying extra triggers). */

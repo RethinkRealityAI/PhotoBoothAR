@@ -120,6 +120,18 @@ export function handAnchorDef(id: string, version: unknown): HandAnchorDef {
   return map[id] ?? map.grip;
 }
 
+/**
+ * Hand tracking on GUEST surfaces (the booth on a public event link). OFF since
+ * Nov 24 2026 (owner: no hand tracking on any public link or Power-Up, nothing
+ * that could cost face tracking, frame rate or quality). The hand landmarker is
+ * a 7.8 MB download plus a second blocking inference on the same main thread as
+ * the face tracker. While false the guest booth never loads it: hand gestures
+ * never fire and hand-held gear is not drawn, and the host wizard stops
+ * offering both. The studio editor keeps hands so existing scenes stay
+ * editable. Flip to true to bring it all back; nothing else changes.
+ */
+export const GUEST_HAND_TRACKING = false;
+
 export function isHandAnchorId(v: unknown): v is HandAnchorDef['id'] {
   return typeof v === 'string' && v in HAND_ANCHOR_MAP;
 }

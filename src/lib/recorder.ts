@@ -17,16 +17,8 @@
  * kept last as the Safari fallback (Safari's MediaRecorder only emits MP4).
  */
 export function pickVideoMimeType(): string {
-  const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm;codecs=h264,opus',
-    'video/webm',
-    'video/mp4;codecs=h264,aac', // Safari
-    'video/mp4',
-  ];
   if (typeof MediaRecorder === 'undefined') return '';
-  for (const t of candidates) {
+  for (const t of orderVideoCandidates(encoderInfo)) {
     try {
       if (MediaRecorder.isTypeSupported(t)) return t;
     } catch {
@@ -34,6 +26,83 @@ export function pickVideoMimeType(): string {
     }
   }
   return '';
+}
+
+/** What the browser says about encoding one codec at the booth's clip size. */
+export interface EncoderInfo {
+  supported: boolean;
+  /** true = a hardware encoder (the browser's "power efficient"). */
+  powerEfficient: boolean;
+}
+export type EncoderInfoMap = Partial<Record<'vp8' | 'vp9', EncoderInfo>>;
+
+/**
+ * Candidate order. VP8 before VP9 by default: the booth encodes WHILE it
+ * tracks a face and draws 3D, on a phone. VP9 is a far heavier encoder in
+ * software, and its CPU comes straight out of the face tracker, which is what
+ * made the live picture lag while recording. Same WebM container, same
+ * players; at the booth's 4-5 Mbps a 720p clip looks the same in either.
+ *
+ * The one exception is measured, not assumed: when the browser reports a
+ * HARDWARE VP9 encoder and no hardware VP8 one (primeEncoderInfo), VP9 is the
+ * cheaper of the two on that phone and goes first.
+ */
+export function orderVideoCandidates(info: EncoderInfoMap | null): string[] {
+  const vp9Cheaper = info?.vp9?.supported === true && info.vp9.powerEfficient && !(info.vp8?.supported === true && info.vp8.powerEfficient);
+  const webm = vp9Cheaper
+    ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus']
+    : ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus'];
+  return [
+    ...webm,
+    'video/webm;codecs=h264,opus',
+    'video/webm',
+    'video/mp4;codecs=h264,aac', // Safari
+    'video/mp4',
+  ];
+}
+
+let encoderInfo: EncoderInfoMap | null = null;
+let encoderInfoPromise: Promise<EncoderInfoMap | null> | null = null;
+
+/**
+ * Ask the browser (once) whether it encodes VP8 / VP9 in hardware at the clip
+ * size. Best-effort: a browser without MediaCapabilities, or one that rejects
+ * the question, leaves the default order. Call early (booth mount) so the
+ * answer is in by the time a guest records.
+ */
+export function primeEncoderInfo(width: number, height: number): Promise<EncoderInfoMap | null> {
+  if (encoderInfoPromise) return encoderInfoPromise;
+  encoderInfoPromise = (async () => {
+    const mc = typeof navigator !== 'undefined' ? navigator.mediaCapabilities : undefined;
+    if (!mc || typeof mc.encodingInfo !== 'function') return null;
+    const ask = async (codec: 'vp8' | 'vp9'): Promise<EncoderInfo | undefined> => {
+      try {
+        const r = await mc.encodingInfo({
+          type: 'record',
+          video: { contentType: `video/webm;codecs=${codec}`, width, height, bitrate: 5_000_000, framerate: 30 },
+        });
+        return { supported: r.supported === true, powerEfficient: r.powerEfficient === true };
+      } catch {
+        return undefined;
+      }
+    };
+    const [vp8, vp9] = await Promise.all([ask('vp8'), ask('vp9')]);
+    const map: EncoderInfoMap = {};
+    if (vp8) map.vp8 = vp8;
+    if (vp9) map.vp9 = vp9;
+    encoderInfo = map;
+    return map;
+  })();
+  return encoderInfoPromise;
+}
+
+/** "vp8 · hardware" for the tester readout: the codec a clip would use now, and how it encodes. */
+export function describeEncoder(): string {
+  const mime = pickVideoMimeType();
+  if (!mime) return 'none';
+  const codec = /codecs=([a-z0-9]+)/i.exec(mime)?.[1] ?? mime.split('/')[1];
+  const i = codec === 'vp8' || codec === 'vp9' ? encoderInfo?.[codec] : undefined;
+  return i ? `${codec} · ${i.powerEfficient ? 'hardware' : 'software'}` : codec;
 }
 
 export function recordingSupported(): boolean {
@@ -162,10 +231,27 @@ export function liveAudioTrack<T extends AudioTrackLike>(tracks: readonly T[]): 
   return tracks.find((t) => t.readyState === 'live' && t.enabled && !t.muted) ?? null;
 }
 
-/** Build a recordable stream from a compositing canvas + optional source audio. */
-export function buildRecordStream(canvas: HTMLCanvasElement, audioFrom?: MediaStream | null, fps = 30): MediaStream {
-  const stream = canvas.captureStream(fps);
-  const audioTrack = audioFrom?.getAudioTracks()[0];
+/**
+ * Build a recordable stream from a compositing canvas + optional sound.
+ *
+ * `audio`: a stream (its first audio track is used) or one track, e.g. the
+ * delayed microphone from lib/audioSync.ts.
+ *
+ * `fps`: a number samples the canvas on the browser's own timer at that rate.
+ * null records EVERY frame the canvas draws, for a canvas that already draws
+ * at a capped rate: a second 30 Hz timer beside a 30 Hz draw loop drifts
+ * against it, so some drawn frames were never recorded and others waited up to
+ * a frame (a choppy clip, and a picture that much later than its sound).
+ */
+export function buildRecordStream(
+  canvas: HTMLCanvasElement,
+  audio?: MediaStream | MediaStreamTrack | null,
+  fps: number | null = 30,
+): MediaStream {
+  const stream = fps === null ? canvas.captureStream() : canvas.captureStream(fps);
+  let audioTrack: MediaStreamTrack | null | undefined;
+  if (audio && typeof (audio as MediaStream).getAudioTracks === 'function') audioTrack = (audio as MediaStream).getAudioTracks()[0];
+  else audioTrack = audio as MediaStreamTrack | null | undefined;
   if (audioTrack) stream.addTrack(audioTrack);
   return stream;
 }

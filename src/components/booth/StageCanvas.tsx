@@ -39,6 +39,7 @@ import { useStore } from '../../store';
 import { animateTransform2D } from '../../lib/studio/animation';
 import { getTrackedFrame, retainFrameLock } from '../../lib/faceEngine';
 import { boothFrameCounters, createFrameGate, frameGateShouldDraw, runPreCompositeRender } from '../../lib/frameBudget';
+import { boothPictureClock, liveAgeMs, lockedAgeMs, notePictureAge, stopWatchingCameraFrames, watchCameraFrames } from '../../lib/pictureClock';
 
 export interface StageCanvasHandle {
   canvas: HTMLCanvasElement | null;
@@ -134,6 +135,13 @@ interface Props {
    * Absent/0 ⇒ redraw on every screen refresh, exactly as before this prop.
    */
   maxFps?: number;
+  /**
+   * Measure how old each composited picture is (lib/pictureClock.ts): the
+   * camera's own delay plus, when frame-locked, the tracker's. The booth
+   * delays a clip's sound by that age so lips and words line up, and the
+   * tester readout shows it. Absent/false ⇒ nothing is measured or watched.
+   */
+  pictureClock?: boolean;
 }
 
 /** Live preview / record buffer. Exported so callers reporting a recording's
@@ -383,7 +391,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     videoRef, effectId, mirror, sparkles = false,
     overlayUrl, overlayTransform, overlayOpacity, overlays,
     threeCanvasId, active = true, watermark = true, effectsCanvas, lettering,
-    burnSignature = false, frameLock = false, maxFps = 0,
+    burnSignature = false, frameLock = false, maxFps = 0, pictureClock = false,
   },
   ref,
 ) {
@@ -446,6 +454,13 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   useEffect(() => { burnSignatureRef.current = burnSignature ?? false; }, [burnSignature]);
   const frameGateRef = useRef(createFrameGate(maxFps));
   useEffect(() => { frameGateRef.current = createFrameGate(maxFps); }, [maxFps]);
+  const pictureClockRef = useRef(pictureClock);
+  useEffect(() => {
+    pictureClockRef.current = pictureClock;
+    return pictureClock ? stopWatchingCameraFrames : undefined;
+  }, [pictureClock]);
+  /** What the last drawFrame drew: the tracker's frame time, or NaN for the live camera. */
+  const drawnFrameMsRef = useRef(Number.NaN);
   const frameLockRef = useRef(frameLock);
   useEffect(() => {
     frameLockRef.current = frameLock;
@@ -501,6 +516,9 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     // Frame-lock: the analysed frame (full video frame, unmirrored, video pixel
     // size — drawn exactly like the element) when the engine has one.
     const tracked = frameLockRef.current ? getTrackedFrame() : null;
+    // For the picture clock: which frame this draw shows (NaN = the live camera).
+    // A locked frame without a reported time is aged from its sample's time.
+    drawnFrameMsRef.current = tracked === null ? Number.NaN : (Number.isFinite(tracked.frameMs) ? tracked.frameMs : tracked.key);
     const camera: CanvasImageSource = tracked !== null ? tracked.source : video;
     const vw = tracked !== null ? tracked.width : (video.videoWidth || w);
     const vh = tracked !== null ? tracked.height : (video.videoHeight || h);
@@ -661,6 +679,18 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
         burnSignatureRef.current,
         shadeGateRef.current,
       );
+      // How old is the picture just drawn? (This canvas is also the recording.)
+      if (pictureClockRef.current) {
+        watchCameraFrames(videoRef.current);
+        const t = performance.now();
+        const frameMs = drawnFrameMsRef.current;
+        const locked = Number.isFinite(frameMs);
+        notePictureAge(
+          boothPictureClock, t,
+          locked ? lockedAgeMs(boothPictureClock, t, frameMs) : liveAgeMs(boothPictureClock),
+          locked,
+        );
+      }
     }
 
     rafRef.current = requestAnimationFrame(tick);

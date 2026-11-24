@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseTriggers } from '../studio/triggers';
-import { POWER_UP_PRESETS, normalizePowerUps, powerUpTriggers, powerUpsConfig, togglePowerUp } from './powerUps';
+import { POWER_UP_PRESETS, normalizePowerUps, offeredPowerUpPresets, powerUpTriggers, powerUpsConfig, togglePowerUp } from './powerUps';
+import { GUEST_HAND_TRACKING } from '../handPose';
 
 describe('power-ups', () => {
   it('absent or junk config means no triggers', () => {
@@ -23,5 +24,23 @@ describe('power-ups', () => {
     const on = togglePowerUp([], 'peace-hearts');
     expect(on).toEqual(['peace-hearts']);
     expect(togglePowerUp(on, 'peace-hearts')).toEqual([]);
+  });
+});
+
+describe('offeredPowerUpPresets', () => {
+  it('offers face gestures only while guest booths do not track hands', () => {
+    const off = offeredPowerUpPresets(false);
+    expect(off.length).toBeGreaterThan(0);
+    expect(off.every((p) => !p.usesHands)).toBe(true);
+    expect(off.map((p) => p.id)).toEqual(['smile-sparkles', 'mouth-confetti']);
+  });
+
+  it('offers every gesture when hand tracking is on', () => {
+    expect(offeredPowerUpPresets(true)).toEqual(POWER_UP_PRESETS);
+  });
+
+  it('guest booths ship with hand tracking off', () => {
+    expect(GUEST_HAND_TRACKING).toBe(false);
+    expect(offeredPowerUpPresets()).toEqual(offeredPowerUpPresets(false));
   });
 });

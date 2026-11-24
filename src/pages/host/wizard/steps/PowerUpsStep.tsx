@@ -19,8 +19,8 @@ import { fetchExperiences } from '../../../../lib/db';
 import { setOpeningLook } from '../../../../lib/host';
 import { buildStarterDraft } from '../../../../lib/studio/starterScenes';
 import type { Experience } from '../../../../types';
-import { composeDraft, powerScenes, starterRow, wizardRefOf } from '../../../../lib/wizard/looks';
-import { POWER_UP_PRESETS, normalizePowerUps, powerUpsConfig, togglePowerUp, type PowerUpId, type PowerUpPreset } from '../../../../lib/wizard/powerUps';
+import { composeDraft, offeredPowerScenes, starterRow, wizardRefOf } from '../../../../lib/wizard/looks';
+import { normalizePowerUps, offeredPowerUpPresets, powerUpsConfig, togglePowerUp, type PowerUpId, type PowerUpPreset } from '../../../../lib/wizard/powerUps';
 import { addFilterRow, removeFilterRow } from '../../../../lib/wizard/wizardApi';
 import { StepShell } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
@@ -91,14 +91,14 @@ export default function PowerUpsStep() {
     setBusy(null);
   };
 
-  const gearOn = rows ? powerScenes().filter((s) => rows.some((r) => wizardRefOf(r) === `starter:${s.id}`)).length : 0;
+  const gearOn = rows ? offeredPowerScenes().filter((s) => rows.some((r) => wizardRefOf(r) === `starter:${s.id}`)).length : 0;
   const counts = <span className="rounded-full bg-white/12 px-3 py-1 text-[12.5px] font-medium" aria-live="polite">{on.length} gesture{on.length === 1 ? '' : 's'} · {gearOn} gear on</span>;
   const controls = (
             <div {...sub.panelProps} className="outline-none">
             {tab === 'gestures' && (<>
-            <p className="text-[13px] text-white/65">A smile or an open mouth sets off an effect, whatever look a guest has on. Hand signs work on looks that track a hand, like the gauntlet. Turn on as many as you like.</p>
+            <p className="text-[13px] text-white/65">A smile or an open mouth sets off an effect, whatever look a guest has on. Turn on as many as you like.</p>
             <ul className="mt-4 grid sm:grid-cols-2 gap-2.5">
-              {POWER_UP_PRESETS.map((p) => {
+              {offeredPowerUpPresets().map((p) => {
                 const active = on.includes(p.id);
                 const G = GESTURE_ICON[p.glyph];
                 const E = EFFECT_ICON[p.id];
@@ -132,7 +132,7 @@ export default function PowerUpsStep() {
             </>)}
             {tab === 'gear' && (<>
             <div className="wz-shelf">
-              {powerScenes().map((s) => {
+              {offeredPowerScenes().map((s) => {
                 const active = rows?.some((r) => wizardRefOf(r) === `starter:${s.id}`) ?? false;
                 return (
                   <button key={s.id} type="button" className="wz-tile" aria-pressed={active} disabled={rows === null || (busy !== null && busy !== s.id)} onClick={() => void toggleGear(s.id)} onMouseEnter={() => setStageScene(s.id)} onFocus={() => setStageScene(s.id)} title={s.blurb}>
@@ -148,7 +148,7 @@ export default function PowerUpsStep() {
   );
   const previewNode = (
     <div className="flex flex-col items-center w-full">
-          <LookStage draft={draft} caption={stageScene ? powerScenes().find((s) => s.id === stageScene)?.name : 'Tap Preview to see a gesture'}>
+          <LookStage draft={draft} caption={stageScene ? offeredPowerScenes().find((s) => s.id === stageScene)?.name : 'Tap Preview to see a gesture'}>
             <TriggerEffects ref={fx} className="absolute inset-0 w-full h-full pointer-events-none z-20" />
           </LookStage>
           <p className="mt-3 text-center text-[12.5px] text-white/65">{on.length === 0 ? 'No gestures on yet' : `${on.length} gesture${on.length === 1 ? '' : 's'} on`}</p>
