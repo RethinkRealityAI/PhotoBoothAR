@@ -121,6 +121,11 @@ export interface EventConfig {
    *  gradient, colour, photo or frame. DB events only; undefined = today's
    *  background. Always normalized (lib/sceneThemes.normalizeScene). */
   scene?: EventScene;
+  /** The photo on the welcome page's and booth splash's phone screen
+   *  (events.config.boothScreen), drawn under the event's frame in place of
+   *  the stand-in guest. DB events only; absent = scenePage.boothScreen's default.
+   *  Validated like a scene image (root-relative or public storage only). */
+  boothScreen?: string;
   /** The shared event brief (events.config.brief) the concierge captures and
    *  the Platform Copilot / Scene Director read. DB events only — undefined
    *  when the row carries none, and always undefined for legacy coded events. */

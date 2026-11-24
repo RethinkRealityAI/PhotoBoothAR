@@ -424,10 +424,13 @@ export const BOOTH_SCREEN_FALLBACK = '/starters/confetti-party.webp';
  * (heroFrameUrl) it is a stand-in guest wearing the event's own frame;
  * without one, a finished booth look. Live-wall photos never appear here:
  * a guest's shot inside a marketing-style phone read as noise, and could be
- * anything a guest posted.
+ * anything a guest posted. A host-chosen photo (`own`:
+ * events.config.boothScreen, e.g. the guest of honour) takes the stand-in's
+ * place under the frame, or fills the screen alone when there is no frame.
  */
-export function boothScreen(frameUrl: string | undefined, standin: string): BoothScreen {
-  return frameUrl ? { photo: standin, frame: frameUrl } : { photo: BOOTH_SCREEN_FALLBACK };
+export function boothScreen(frameUrl: string | undefined, standin: string, own?: string): BoothScreen {
+  if (frameUrl) return { photo: own || standin, frame: frameUrl };
+  return { photo: own || BOOTH_SCREEN_FALLBACK };
 }
 
 /* ── Booth showcase (the cards floating round the welcome page's phone) ── */

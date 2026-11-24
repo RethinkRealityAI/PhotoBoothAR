@@ -17,7 +17,7 @@ import { createGenericVisuals } from './generic';
 import { resolveBackgroundTemplate } from '../components/theme/backgrounds';
 import { isEmptyBrief, normalizeBrief } from '../lib/eventBrief';
 import { isUntouchedTemplateTheme } from '../lib/eventTemplates';
-import { normalizeScene } from '../lib/sceneThemes';
+import { normalizeScene, resolveSceneImageUrl } from '../lib/sceneThemes';
 import { powerUpTriggers } from '../lib/wizard/powerUps';
 
 export interface RuntimeEvent {
@@ -153,6 +153,8 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     : {});
   // Guest-page scene (lib/sceneThemes): absent/invalid = today's background.
   const scene = normalizeScene(cfg.scene);
+  // The splash phone's own photo (under the event frame); invalid = default.
+  const boothScreen = resolveSceneImageUrl(cfg.boothScreen);
   // Event-wide power-ups (setup wizard): preset ids → booth triggers.
   const powerUps = powerUpTriggers(cfg.powerUps);
   const brandLook = cfg.look === 'beamwall' || (cfg.look === undefined && isUntouchedTemplateTheme(rawThemeVars));
@@ -176,6 +178,7 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     ...(brief !== undefined && !isEmptyBrief(brief) ? { brief } : {}),
     ...(brandLook ? { look: 'beamwall' as const } : {}),
     ...(scene ? { scene } : {}),
+    ...(boothScreen ? { boothScreen } : {}),
     ...(powerUps.length > 0 ? { powerUps } : {}),
   };
 }

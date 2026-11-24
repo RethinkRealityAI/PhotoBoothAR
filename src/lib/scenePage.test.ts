@@ -247,6 +247,11 @@ describe('boothScreen', () => {
     expect(boothScreen(undefined, '/standin.webp')).toEqual({ photo: BOOTH_SCREEN_FALLBACK });
     expect(boothScreen('', '/standin.webp')).toEqual({ photo: BOOTH_SCREEN_FALLBACK });
   });
+  it('puts the host-chosen photo under the frame, or alone without one', () => {
+    expect(boothScreen('/frames/b.png', '/standin.webp', '/events/x/me.jpg')).toEqual({ photo: '/events/x/me.jpg', frame: '/frames/b.png' });
+    expect(boothScreen(undefined, '/standin.webp', '/events/x/me.jpg')).toEqual({ photo: '/events/x/me.jpg' });
+    expect(boothScreen('/frames/b.png', '/standin.webp', undefined)).toEqual({ photo: '/standin.webp', frame: '/frames/b.png' });
+  });
 });
 
 describe('wallFieldColumns', () => {
