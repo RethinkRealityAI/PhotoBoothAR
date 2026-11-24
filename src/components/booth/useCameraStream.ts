@@ -14,7 +14,7 @@
  */
 import { useRef, useEffect, useState, useCallback } from 'react';
 import {
-  getCameraStream, hasMultipleCameras, stopStream, classifyCameraError,
+  acquireMicTrack, getCameraStream, hasMultipleCameras, stopStream, classifyCameraError,
   type Facing, type CameraFailure,
 } from '../../lib/camera';
 
@@ -25,6 +25,8 @@ export type CameraError = CameraFailure;
 interface UseCameraStream {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   stream: MediaStream | null;
+  /** The microphone on `stream` while `withAudio` is on (null = none yet / refused). */
+  micTrack: MediaStreamTrack | null;
   ready: boolean;
   error: CameraError | null;
   retry: () => void;
@@ -33,9 +35,15 @@ interface UseCameraStream {
   canFlip: boolean;
 }
 
-export function useCameraStream(enabled = true, withAudio = false): UseCameraStream {
+/**
+ * `primeMic`: ask for the microphone in the same prompt as the camera when the
+ * stream first opens (lib/camera.ts), so video mode never prompts later. Read
+ * when the camera opens; changing it never restarts the camera.
+ */
+export function useCameraStream(enabled = true, withAudio = false, primeMic = false): UseCameraStream {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [micTrack, setMicTrack] = useState<MediaStreamTrack | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<CameraError | null>(null);
   const [facingMode, setFacingMode] = useState<Facing>('user');
@@ -43,6 +51,10 @@ export function useCameraStream(enabled = true, withAudio = false): UseCameraStr
   const retryCounter = useRef(0);
   const [retryTick, setRetryTick] = useState(0);
   const streamRef = useRef<MediaStream | null>(null);
+  const primeMicRef = useRef(primeMic);
+  primeMicRef.current = primeMic;
+  /** One combined prompt per page: a camera flip or re-acquire asks for the picture only. */
+  const micPrimedRef = useRef(false);
 
   const retry = useCallback(() => {
     retryCounter.current += 1;
@@ -82,7 +94,9 @@ export function useCameraStream(enabled = true, withAudio = false): UseCameraStr
 
     async function start() {
       try {
-        localStream = await getCameraStream({ facingMode, withAudio });
+        const prime = primeMicRef.current && !micPrimedRef.current;
+        micPrimedRef.current = micPrimedRef.current || prime;
+        localStream = await getCameraStream({ facingMode, primeMic: prime }); // the microphone itself joins below
         if (cancelled) {
           stopStream(localStream);
           return;
@@ -127,7 +141,35 @@ export function useCameraStream(enabled = true, withAudio = false): UseCameraStr
       setReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryTick, enabled, facingMode, withAudio, retry, playVideo]);
+  }, [retryTick, enabled, facingMode, retry, playVideo]);
+
+  // The microphone joins and leaves the RUNNING camera stream. It used to be a
+  // dependency of the camera effect above, so switching photo -> video stopped
+  // the camera and started it again: a blank preview, the face tracker reset,
+  // and the guest out of the flow. Now only the microphone opens (the browser
+  // asks for it the first time), the picture never stops, and going back to
+  // photo releases the microphone so its indicator goes off.
+  useEffect(() => {
+    if (!withAudio || !stream) return;
+    let cancelled = false;
+    let mine: MediaStreamTrack | null = null;
+    void acquireMicTrack().then((track) => {
+      if (!track) return; // refused or missing: recording says so and retries at the record tap
+      if (cancelled) { track.stop(); return; }
+      mine = track;
+      for (const old of stream.getAudioTracks()) { stream.removeTrack(old); old.stop(); }
+      stream.addTrack(track);
+      setMicTrack(track);
+    });
+    return () => {
+      cancelled = true;
+      if (mine) {
+        try { stream.removeTrack(mine); } catch { /* stream already torn down */ }
+        mine.stop();
+      }
+      setMicTrack(null);
+    };
+  }, [withAudio, stream]);
 
   // Resume when the tab/app returns to the foreground. If the track died while
   // hidden, re-acquire; otherwise just resume the paused element.
@@ -156,5 +198,5 @@ export function useCameraStream(enabled = true, withAudio = false): UseCameraStr
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
   }, []);
 
-  return { videoRef, stream, ready, error, retry, facingMode, flipCamera, canFlip };
+  return { videoRef, stream, micTrack, ready, error, retry, facingMode, flipCamera, canFlip };
 }

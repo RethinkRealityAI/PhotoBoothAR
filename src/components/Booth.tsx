@@ -376,11 +376,14 @@ export default function Booth() {
     if (!videoAllowed && mediaMode === 'video') setMediaMode('photo');
   }, [videoAllowed, mediaMode]);
 
-  // Audio only needed in video mode; restart stream when mode changes to add audio
+  // Audio is only needed in video mode: the microphone joins the running
+  // camera stream then (no camera restart), and `micTrack` says when it is on.
   const {
-    videoRef, stream, ready, error, retry,
+    videoRef, stream, micTrack, ready, error, retry,
     facingMode, flipCamera, canFlip,
-  } = useCameraStream(started, mediaMode === 'video');
+  // Platform booths with video ask for camera AND microphone in one prompt at
+  // entry (Dapo, Nov 24 2026), so switching to video never asks again.
+  } = useCameraStream(started, mediaMode === 'video', source === 'db' && entitlements.videoEnabled);
 
   const feedContainerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<StageCanvasHandle>(null);
@@ -431,7 +434,7 @@ export default function Booth() {
       if (audioSyncRef.current === sync) audioSyncRef.current = null;
       sync.dispose();
     };
-  }, [avSync, mediaMode, stream]);
+  }, [avSync, mediaMode, stream, micTrack]);
   // Ask once which video encoder this phone runs in hardware (lib/recorder.ts).
   useEffect(() => {
     if (source === 'db') void primeEncoderInfo(PREVIEW_W, PREVIEW_H);
