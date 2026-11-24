@@ -90,6 +90,11 @@
      (specular). Lifts glass cards off the dusk field. */
   --pf-halo: 0 0 0 1px rgba(var(--pf-accent-rgb), 0.26), 0 0 48px 4px rgba(var(--pf-accent-rgb), 0.3);
   --pf-edge: inset 0 0 28px rgba(255, 255, 255, 0.09), inset 0 14px 20px -16px rgba(255, 255, 255, 0.7);
+  /* The same edge light scaled to a pill or round button (owner,
+     2026-11-24: every control should have the initials modal's "Skip"
+     look): a light bleed inside the rim and a specular lip along the top,
+     without the card's 48px halo (on a chip that reads as a smudge). */
+  --pf-pill-edge: inset 0 0 14px rgba(255, 255, 255, 0.10), inset 0 10px 12px -10px rgba(255, 255, 255, 0.72);
 }
 
 :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) [data-surface="night"],
@@ -247,6 +252,21 @@
      (.liquid-glass-raised) keep their own frosted pill. */
   :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.glass, .glass-strong, .liquid-glass):not(.rounded-full, .rounded-none, .fixed, .sticky) {
     --pf-card-glow: var(--pf-edge), var(--pf-halo);
+  }
+  /* Pills, round buttons and every raised glass button get the pill-sized
+     edge light, so a chip, a tab, the top bar and a modal's buttons all read
+     as the same liquid glass. */
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) :is(.glass, .liquid-glass, .liquid-glass-raised).rounded-full,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"], [data-platform]) .liquid-glass-raised:not(.rounded-none, .fixed, .sticky) {
+    --pf-card-glow: var(--pf-pill-edge);
+  }
+  /* Booth and welcome page (boothViewport.ts sets data-viewport-lock while
+     a platform booth is mounted): controls float over a live camera, so
+     their glass is a notch denser than on the dusk field to stay legible
+     over a bright room. */
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"])[data-viewport-lock] :is(.glass, .liquid-glass, .liquid-glass-raised).rounded-full,
+  :is(:root:not([data-event], [data-look="previous"]), :root[data-event-look="beamwall"])[data-viewport-lock] .liquid-glass-raised:not(.rounded-none, .fixed, .sticky) {
+    background: rgba(54, 52, 150, 0.46);
   }
 
   /* The lit rim on every glass surface (owner, 2026-11-19: "all the borders
