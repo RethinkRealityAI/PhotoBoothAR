@@ -196,6 +196,20 @@ export function planStateChange(from: LibraryState, to: unknown, linkCount: numb
 }
 
 /**
+ * The admin's one-click Delete, as the steps the server's lifecycle allows.
+ * A listed item is hidden from hosts first (the server refuses to delete a
+ * listed row outright), then deleted. An item any event still uses cannot be
+ * deleted at all, because deleting it would pull it out of that event.
+ */
+export function planDelete(
+  from: LibraryState,
+  linkCount: number,
+): { ok: true; steps: StateChangeTarget[] } | { ok: false; reason: 'has_links' } {
+  if (!(Number.isFinite(linkCount) && linkCount === 0)) return { ok: false, reason: 'has_links' };
+  return { ok: true, steps: from === 'listed' ? ['retired', 'deleted'] : ['deleted'] };
+}
+
+/**
  * Must this item carry a thumbnail before it can be published? A 3D or
  * layered scene has no flat image the picker could fall back to (a 2D frame
  * or filter IS its asset), so a tile without a thumbnail is a blank square.

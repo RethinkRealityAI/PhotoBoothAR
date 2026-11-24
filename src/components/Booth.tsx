@@ -117,9 +117,10 @@ import {
 import { playCue, primeAudio } from '../lib/boothAudio';
 import {
   composeStrip, stripComplete, stripProgressLabel,
-  STRIP_SHOTS, STRIP_GAP_MS, STRIP_LEAD_SEC, type StripShotCount,
+  STRIP_GAP_MS, STRIP_LEAD_SEC, DEFAULT_STRIP_FORMAT, stripFormat, type StripFormatId,
 } from '../lib/photoStrip';
 import StripPicker from './booth/StripPicker';
+import { ShutterFace } from './ui/BrandShutter';
 import type { Transform2D, Experience, ExperienceLayer, AnchorConfig, Challenge } from '../types';
 import { layerToPiece } from '../lib/studio/draftMapping';
 import { applyGuestColor, guestColorSlot } from '../lib/guestPalette';
@@ -477,8 +478,9 @@ export default function Booth() {
   // review, the AI challenge check, submitPost, the wall and the keepsake card
   // all receive exactly the shape they already handle.
   const [stripMode, setStripMode] = useState(false);
-  /** How many shots the armed strip takes (2 or 3), chosen in StripPicker. */
-  const [stripCount, setStripCount] = useState<StripShotCount>(STRIP_SHOTS as StripShotCount);
+  /** Which strip the guest armed in StripPicker (2, 3 or 4 stacked, or 2x2). */
+  const [stripFormatId, setStripFormatId] = useState<StripFormatId>(DEFAULT_STRIP_FORMAT);
+  const stripCount = stripFormat(stripFormatId).shots;
   const [stripPickerOpen, setStripPickerOpen] = useState(false);
   /** `capturePhoto` is a plain function reached through MEMOIZED callbacks
    *  (handleCountdownComplete memoizes on [mediaMode]), so reading `stripMode`
@@ -488,8 +490,8 @@ export default function Booth() {
   const stripModeRef = useRef(stripMode);
   useEffect(() => { stripModeRef.current = stripMode; }, [stripMode]);
   /** Same call-time-read reasoning: `advanceStrip` runs from `capturePhoto`. */
-  const stripCountRef = useRef<StripShotCount>(stripCount);
-  useEffect(() => { stripCountRef.current = stripCount; }, [stripCount]);
+  const stripFormatRef = useRef<StripFormatId>(stripFormatId);
+  useEffect(() => { stripFormatRef.current = stripFormatId; }, [stripFormatId]);
   /** Same reasoning as `stripModeRef` — read the mode at call time, not at the
    *  time the enclosing callback was last memoized. */
   const mediaModeRef = useRef(mediaMode);
@@ -1473,7 +1475,8 @@ export default function Booth() {
     stripShotsRef.current = shots;
     setStripTaken(shots.length);
 
-    if (!stripComplete(shots.length, stripCountRef.current)) {
+    const format = stripFormat(stripFormatRef.current);
+    if (!stripComplete(shots.length, format.shots)) {
       // Back to a LIVE viewfinder between panels so the guest can see the pose
       // they are changing into, then auto-run the next countdown. A strip is
       // one decision, not three taps.
@@ -1498,6 +1501,7 @@ export default function Booth() {
         // is a smudge — the card-level line is the legible one, and it stays
         // entitlement-gated exactly like the per-photo watermark.
         footer: entitlements.watermark ? copy.eventName : undefined,
+        cols: format.cols,
       });
       setCapturedDataUrl(card);
     } catch (e) {
@@ -1949,7 +1953,18 @@ export default function Booth() {
      the SAME control rather than two copies that drift apart. */
   const shutterNode = (
     <div className="relative flex items-center justify-center">
-      {mediaMode === 'photo' ? (
+      {mediaMode === 'photo' && source === 'db' ? (
+        // Platform booths: the brand shutter (purple glass core, white ring,
+        // soft brand-hued inner glow). Coded legacy events keep their own.
+        <motion.button
+          onClick={() => { haptic('capture'); handleShutterPress(); }}
+          whileTap={reducedMotionPref ? undefined : { scale: 0.9 }}
+          className="bw-shutter"
+          aria-label="Take photo"
+        >
+          <ShutterFace />
+        </motion.button>
+      ) : mediaMode === 'photo' ? (
         <motion.button
           onClick={() => { haptic('capture'); handleShutterPress(); }}
           whileTap={reducedMotionPref ? undefined : { scale: 0.88 }}
@@ -2558,9 +2573,9 @@ export default function Booth() {
       {stripPickerOpen && (
         <StripPicker
           stripMode={stripMode}
-          current={stripCount}
-          onPick={(n) => {
-            setStripCount(n);
+          current={stripFormatId}
+          onPick={(id) => {
+            setStripFormatId(id);
             setMediaMode('photo');
             setStripMode(true);
             setStripPickerOpen(false);
