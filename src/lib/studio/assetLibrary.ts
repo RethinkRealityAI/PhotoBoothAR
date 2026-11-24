@@ -289,8 +289,10 @@ const BASEBALL_CAP_TEMPLATE = {
    the bbox centre). fitCm 17.5 makes 1 unit = 8.75 cm, so the holes sit
    6.3 cm apart, the adult mean IPD and the canonical face's +-3.16 cm irises.
    Nudge (noseBridge = [0, 2.5, 5.8]): y +2.9 lifts the holes to the irises'
-   y 2.63; z -2.0 puts the back shell at the bridge (back z 0.257 units =
-   2.25 cm) 0.3 cm proud of the skin.
+   y 2.63; z -0.8 keeps the shell's nose arch clear of the occluder's nose:
+   at -2.0 the canonical nose (z 6.77 at y 1.0, 7.24 at y 0.5) poked 0.3-0.6 cm
+   through the arch's back (6.52 / 6.84) and the occluder hid the mask there
+   on a phone (owner, 2026-11-24). +1.2 cm leaves ~1 cm on the centreline.
 
    Crest slot: raycast at x=0 onto the plate (front z 0.3235 at y 0.09, surface normal within 4 deg of +z, back
    shell at z 0.2878). The plate is 0.28 units wide there (2.45 cm), so 1.9 cm
@@ -423,7 +425,7 @@ export const LIBRARY_ASSETS: ConfigurableAsset[] = [
     swatch: ['#0e6b43', '#d4a54a'],
     template: MASQUERADE_MASK_TEMPLATE,
     anchor: 'noseBridge',
-    defaultNudgeCm: { x: 0, y: 2.9, z: -2.0 },
+    defaultNudgeCm: { x: 0, y: 2.9, z: -0.8 },
     defaultOcclude: true,
     defaultCustomization: {
       parts: { lacquer: { hex: '#0e6b43' }, feathers: { hex: '#0e6b43' } },

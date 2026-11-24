@@ -62,6 +62,7 @@ import {
 } from '../lib/faceEngine';
 import { parseFaceTrackingMode } from '../lib/faceEngine/engineSelect';
 import TrackingReadout from './ar/TrackingReadout';
+import LightingTuner from './booth/LightingTuner';
 import { getHandTrackerError, initializeHandLandmarker } from '../lib/handTracking';
 import { fitStageBox, type StageBox } from '../lib/studio/stageLayout';
 import ReportIssueButton from './support/ReportIssueButton';
@@ -2027,6 +2028,8 @@ export default function Booth() {
       <EventBackground density={44} sparkle={0.7} />
       {/* Tester-only (?faceEngine= / ?trackdebug); renders nothing otherwise. */}
       <TrackingReadout />
+      {/* Tester-only (?lightdebug): live sliders for the 3D props' light. */}
+      <LightingTuner presetId={boothLighting} />
 
       {/* ── Welcome gate ──────────────────────────────────────────────── */}
       <AnimatePresence>
