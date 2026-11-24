@@ -38,7 +38,11 @@ import BoothLookDeck from './booth/BoothLookDeck';
 import LooksSheet from './booth/LooksSheet';
 import WorldStage from './booth/WorldStage';
 import { isWorldLook, withWorldLooks, worldLookFrameUrl, WORLD_LOOK_PREFIX } from '../lib/world/worldLooks';
-import { arFrameIdFrom, enterArUrl, leaveArUrl, worldTrackerFrom, CAMERA_ON_PARAM } from '../lib/world/arSession';
+import {
+  arFrameIdFrom, enterArUrl, leaveArUrl, worldTrackerFrom, CAMERA_ON_PARAM,
+  AR_SWITCH_KEY, arSwitchDirFor, arSwitchNote, readArSwitchNote, type ArSwitchDir,
+} from '../lib/world/arSession';
+import ArSwitchScreen from './booth/ArSwitchScreen';
 import { WorldSession, isPhoneUa } from '../lib/world/xr8World';
 import type { CameraSourceOverride } from './booth/useCameraStream';
 import { TimerControl } from './booth/BoothCaptureControls';
@@ -425,8 +429,36 @@ export default function Booth() {
       release: () => worldSession.stop(),
     };
   }, [worldSession]);
-  /** Full page loads: the two 8th Wall engines never share a page. */
-  const goTo = useCallback((url: string) => { window.location.assign(url); }, []);
+  /**
+   * Full page loads: the two 8th Wall engines never share a page. A short
+   * "Switching to AR mode" screen covers the reload on both sides: this page
+   * shows it and leaves a note, index.html repaints it from the note before
+   * any JS runs, and the arriving booth keeps it up until it is ready.
+   */
+  const switchAccent = eventConfig.accentHexes?.[0] ?? '#d4af37';
+  const [switching, setSwitching] = useState<ArSwitchDir | null>(null);
+  const goTo = useCallback((url: string) => {
+    const dir = arSwitchDirFor(url);
+    try { sessionStorage.setItem(AR_SWITCH_KEY, arSwitchNote(dir, switchAccent, Date.now())); } catch { /* private mode */ }
+    setSwitching(dir);
+    // Let the screen paint before the page goes.
+    window.setTimeout(() => window.location.assign(url), 180);
+  }, [switchAccent]);
+  const [arrival, setArrival] = useState<{ dir: ArSwitchDir; accent: string } | null>(() => {
+    if (source !== 'db' || typeof window === 'undefined') return null;
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem(AR_SWITCH_KEY); sessionStorage.removeItem(AR_SWITCH_KEY); } catch { /* private mode */ }
+    return readArSwitchNote(raw, Date.now());
+  });
+  const arrivalSinceRef = useRef(typeof performance !== 'undefined' ? performance.now() : 0);
+  // React's copy is up: drop the plain one index.html painted.
+  useEffect(() => { document.getElementById('ar-switch-boot')?.remove(); }, []);
+  // Back-button return from the bfcache: this page never left, so lift its screen.
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) setSwitching(null); };
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
+  }, []);
 
   const [started, setStarted] = useState(() =>
     skipBoothSplash(source === 'db', location.state)
@@ -1145,6 +1177,17 @@ export default function Booth() {
   const worldSelected = arFrameId !== null && isWorldLook(attachExp);
   const worldFrameUrl: string | null = worldSelected ? worldLookFrameUrl(attachExp) : null;
   const worldMode = worldFrameUrl !== null;
+  // The switch screen lifts once this booth can show something real: the AR
+  // intro (its frame picked) or the live selfie camera. Never under 0.45 s (no
+  // flicker), never over 4.5 s (a slow camera has its own screen).
+  const arrivalReady = arrival !== null && (arrival.dir === 'enter' ? worldMode : ready);
+  useEffect(() => {
+    if (arrival === null) return;
+    const since = performance.now() - arrivalSinceRef.current;
+    const wait = arrivalReady ? Math.max(0, 450 - since) : Math.max(0, 4500 - since);
+    const t = window.setTimeout(() => setArrival(null), wait);
+    return () => window.clearTimeout(t);
+  }, [arrival, arrivalReady]);
   // The world-mode page opens on its frame's 3D tile once the catalog is in.
   const arAppliedRef = useRef(false);
   useEffect(() => {
@@ -2965,6 +3008,13 @@ export default function Booth() {
           </div>
         </div>
       )}
+
+      {/* ── Between the normal booth and AR mode (two page loads) ──── */}
+      <AnimatePresence>
+        {(switching ?? arrival?.dir ?? null) !== null && (
+          <ArSwitchScreen key="ar-switch" dir={(switching ?? arrival!.dir)} accent={switching !== null ? switchAccent : arrival!.accent} />
+        )}
+      </AnimatePresence>
 
       {/* ── Send failed — retry or save locally, never silently lost ──── */}
       {phase === 'sendFailed' && capturedDataUrl && (

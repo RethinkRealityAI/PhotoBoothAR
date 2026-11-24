@@ -104,6 +104,37 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Booth <-> AR mode is a page load (two 8th Wall engines can't share a
+         page). When the booth left a fresh note (src/lib/world/arSession.ts,
+         AR_SWITCH_KEY) paint a plain "Switching…" screen at once, so there is
+         no blank page before the app loads; the booth replaces it with its own.
+         Does nothing without the note (every other page, every legacy build). -->
+    <script>
+      (function () {
+        try {
+          var n = JSON.parse(sessionStorage.getItem('bw.arSwitch') || 'null');
+          if (!n || (n.dir !== 'enter' && n.dir !== 'leave') || !(Date.now() - n.t >= 0 && Date.now() - n.t < 15000)) return;
+          var a = /^#[0-9a-fA-F]{3,8}$/.test(n.accent) ? n.accent : '#8f8cf5';
+          var d = document.createElement('div');
+          d.id = 'ar-switch-boot';
+          d.setAttribute('role', 'status');
+          d.style.cssText = 'position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;text-align:center;padding:0 32px;color:#fff;font-family:Geist,system-ui,sans-serif;background:radial-gradient(60% 45% at 50% 46%,' + a + '33,transparent 70%),#0b0b1a';
+          var t = document.createElement('p');
+          t.style.cssText = 'margin:0;font-size:20px;line-height:28px;font-weight:600';
+          t.textContent = n.dir === 'enter' ? 'Switching to AR mode' : 'Back to the booth';
+          var s = document.createElement('p');
+          s.style.cssText = 'margin:0;font-size:14px;line-height:20px;opacity:.65';
+          s.textContent = n.dir === 'enter' ? 'Getting your space ready' : 'Turning the selfie camera on';
+          // Same layout as the booth's own screen (icon space, text, bar), so nothing jumps.
+          var icon = document.createElement('div'); icon.style.cssText = 'height:112px';
+          var text = document.createElement('div'); text.style.cssText = 'display:flex;flex-direction:column;gap:8px';
+          var bar = document.createElement('div'); bar.style.cssText = 'height:4px;width:128px;border-radius:9px;background:rgba(255,255,255,.1)';
+          text.appendChild(t); text.appendChild(s);
+          d.appendChild(icon); d.appendChild(text); d.appendChild(bar);
+          document.body.appendChild(d);
+        } catch (e) { /* no storage: no screen */ }
+      })();
+    </script>
     <noscript>
       <p>
         Beamwall turns every guest&rsquo;s phone into your event photo booth, with a live photo

@@ -7,7 +7,10 @@ import {
 import type { Experience } from '../../types';
 import { WORLD_LOOK_PREFIX, frameArtUrl, isWorldLook, withWorldLooks, worldLookFrameUrl } from './worldLooks';
 import { MIN_PATCH_STD, goodMatch, grabPatch, matchPatch, median, toGray } from './patchTrack';
-import { arFrameIdFrom, createSettleGate, enterArUrl, isSettled, leaveArUrl, settleRestart, settleStep, worldTrackerFrom } from './arSession';
+import {
+  AR_SWITCH_FRESH_MS, arFrameIdFrom, arSwitchCopy, arSwitchDirFor, arSwitchNote, createSettleGate, enterArUrl, isSettled, leaveArUrl,
+  readArSwitchNote, settleRestart, settleStep, worldTrackerFrom,
+} from './arSession';
 import { isPhoneUa } from './xr8World';
 import { buildStandeeWalls, contourSegments, gridFromImageData, type StandeeGrid } from './standeeMesh';
 
@@ -375,5 +378,29 @@ describe('settle gate', () => {
     g = settleStep(g, 1700, false, 900);
     expect(isSettled(g)).toBe(true);
     expect(isSettled(settleRestart(g, 2000))).toBe(false);
+  });
+});
+
+describe('AR switch screen note', () => {
+  it('round-trips a fresh note', () => {
+    const n = readArSwitchNote(arSwitchNote('enter', '#d4af37', 1000), 1500)!;
+    expect(n).toEqual({ dir: 'enter', accent: '#d4af37', t: 1000 });
+  });
+  it('ignores stale, future, malformed or missing notes', () => {
+    expect(readArSwitchNote(arSwitchNote('leave', '#fff', 0), AR_SWITCH_FRESH_MS + 1)).toBeNull();
+    expect(readArSwitchNote(arSwitchNote('leave', '#fff', 5000), 1000)).toBeNull();
+    expect(readArSwitchNote('{nope', 0)).toBeNull();
+    expect(readArSwitchNote(JSON.stringify({ dir: 'sideways', t: 0 }), 0)).toBeNull();
+    expect(readArSwitchNote(null, 0)).toBeNull();
+  });
+  it('never lets a non-hex accent through (it is painted into a style)', () => {
+    expect(readArSwitchNote(arSwitchNote('enter', 'red;background:url(x)', 0), 0)!.accent).toBe('#8f8cf5');
+    expect(readArSwitchNote(JSON.stringify({ dir: 'enter', accent: 'url(x)', t: 0 }), 0)!.accent).toBe('#8f8cf5');
+  });
+  it('tells which way a booth URL goes', () => {
+    expect(arSwitchDirFor('/e/x/booth?ar=abc-1')).toBe('enter');
+    expect(arSwitchDirFor('/e/x/experience/abc?cam=1')).toBe('leave');
+    expect(arSwitchDirFor('/e/x/booth')).toBe('leave');
+    expect(arSwitchCopy('enter').title).toBe('Switching to AR mode');
   });
 });
