@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
 import { OrientationHistory, orientationToQuaternion, stageVerticalFov } from './orientation';
 import {
-  CAMERA_HEIGHT_M, DEFAULT_PLACE_M, MAX_SCALE, placementSpot, MIN_SCALE, createGesture, floorHit, gestureDown, gestureMove, gestureUp, standeeSize, yawToFace,
+  CAMERA_HEIGHT_M, DEFAULT_PLACE_M, MAX_SCALE, NEAR_PLACE_M, placementSpot, MIN_SCALE, createGesture, floorHit, gestureDown, gestureMove, gestureUp, standeeSize, yawToFace,
 } from './placement';
 import type { Experience } from '../../types';
 import { WORLD_LOOK_PREFIX, frameArtUrl, isWorldLook, withWorldLooks, worldLookFrameUrl } from './worldLooks';
@@ -107,9 +107,25 @@ describe('placementSpot', () => {
     expect(placementSpot(eye, { x: 1, y: 0, z: 0 })).toEqual({ x: DEFAULT_PLACE_M, y: 0, z: 0 });
     expect(placementSpot(eye, { x: 0, y: -0.05, z: -1 })!.z).toBeCloseTo(-DEFAULT_PLACE_M, 6);
   });
-  it('no spot when aiming at your feet or straight down', () => {
-    expect(placementSpot(eye, { x: 0, y: -1, z: -0.1 })).toBeNull();
+  // Changed Nov 24 2026 at Dapo's request: pointing down must always show the
+  // frame (it used to give no spot at your feet).
+  it('aiming at your feet still gives a spot, just in front of you', () => {
+    const p = placementSpot(eye, { x: 0, y: -1, z: -0.1 })!;
+    expect(p.x).toBeCloseTo(0, 6);
+    expect(p.z).toBeCloseTo(-NEAR_PLACE_M, 6);
+  });
+  it('straight down uses the top edge of the phone as ahead', () => {
+    const p = placementSpot(eye, { x: 0, y: -1, z: 0 }, { x: 0.6, y: 0, z: -0.8 })!;
+    expect(p.x).toBeCloseTo(0.6 * NEAR_PLACE_M, 6);
+    expect(p.z).toBeCloseTo(-0.8 * NEAR_PLACE_M, 6);
+    expect(p.y).toBe(0);
+  });
+  it('straight down with no heading, or straight up, gives no spot', () => {
     expect(placementSpot(eye, { x: 0, y: -1, z: 0 })).toBeNull();
+    expect(placementSpot(eye, { x: 0, y: 1, z: 0 })).toBeNull();
+  });
+  it('a close but not-too-close hit is used as is', () => {
+    expect(placementSpot(eye, { x: 0, y: -1, z: -0.5 })!.z).toBeCloseTo(-0.7, 6);
   });
 });
 

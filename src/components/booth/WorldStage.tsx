@@ -419,6 +419,7 @@ function WorldScene({
   const reticle = useRef<THREE.Mesh>(null);
   const q = useMemo(() => new THREE.Quaternion(), []);
   const tmp = useMemo(() => new THREE.Vector3(), []);
+  const upTmp = useMemo(() => new THREE.Vector3(), []);
   const hadAim = useRef(false);
   const lock = useMemo(() => new FloorLock(), []);
   const lockStarted = useRef(false);
@@ -471,7 +472,9 @@ function WorldScene({
 
     if (store.phase === 'placing') {
       tmp.set(AIM_NDC.x, AIM_NDC.y, 0.5).unproject(camera).sub(camera.position);
-      const hit = ready ? placementSpot(camera.position, tmp) : null;
+      // The phone's top edge says which way is ahead when it points straight down.
+      upTmp.set(0, 1, 0).applyQuaternion(camera.quaternion);
+      const hit = ready ? placementSpot(camera.position, tmp, upTmp) : null;
       if (hit) {
         const first = store.aim === null;
         store.aim = (store.aim ?? new THREE.Vector3()).set(hit.x, 0, hit.z);
@@ -745,7 +748,10 @@ export default function WorldStage({
           dpr={[1, 1.75]}
           gl={{ alpha: true, preserveDrawingBuffer: true, antialias: true }}
           camera={{ fov: 60, near: 0.05, far: 60, position: [0, CAM_H, 0] }}
-          style={{ width: '100%', height: '100%', background: 'transparent' }}
+          // R3F turns pointer events back ON for its own wrapper, which put
+          // this (unseen) canvas over the gesture surface and ate every pinch,
+          // twist and tap. The surface below handles all touches.
+          style={{ width: '100%', height: '100%', background: 'transparent', pointerEvents: 'none' }}
           frameloop={capped ? 'never' : 'always'}
         >
           {capped && <CompositeDriver fps={maxFps} />}
