@@ -103,7 +103,8 @@ import { fileToImagePart } from '../lib/imageInput';
 import RevealShimmer from './booth/RevealShimmer';
 import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
 import { setThumbSource } from './booth/filterThumbEngine';
-import { assetUrlsOf, isPending, selectionSignature, withLoaded } from '../lib/boothAssets';
+import { assetUrlsOf, glbPreloadQueue, isPending, selectionSignature, withLoaded } from '../lib/boothAssets';
+import { isModelCached, preloadModel } from '../lib/glbCache';
 import {
   detectSwipe, isDoubleTap, cycleIndex, isCrampedLandscape, type PointerSample,
 } from '../lib/boothGestures';
@@ -178,6 +179,10 @@ const warmedAssets = new Set<string>();
 /** Ceiling on a warm-up, so a hung request can never leave a permanent spinner
  *  on an orb. The asset itself keeps loading; only our "pending" claim expires. */
 const WARM_TIMEOUT_MS = 12_000;
+/** Idle prop preload: wait this long after the booth settles, then pause this
+ *  long between models so parsing never stacks up on the main thread. */
+const PRELOAD_START_MS = 2_500;
+const PRELOAD_GAP_MS = 600;
 
 /**
  * Pull an experience's asset into the browser cache and resolve when it is
@@ -701,6 +706,34 @@ export default function Booth() {
     markAssetLoaded(url);
     showBoothHint('That prop didn’t load — frames and effects still work');
   }, [markAssetLoaded, showBoothHint]);
+
+  // ── Props parsed ahead of the tap (platform only) ─────────────────────
+  // warmAsset above only fills the HTTP cache, so every prop switch still
+  // parsed its GLB (hundreds of ms on a phone) before anything could show.
+  // Once the booth is idle — camera and tracker up, nothing loading, not
+  // recording — parse the event's other props into the shared model cache one
+  // at a time, with a pause between, capped by glbPreloadQueue. Legacy events
+  // never run this.
+  useEffect(() => {
+    if (source !== 'db' || phase !== 'camera' || !ready || !trackerReady || recording || selectionPending) return;
+    const queue = glbPreloadQueue(catalog, isModelCached);
+    if (queue.length === 0) return;
+    let alive = true;
+    let timer = 0;
+    const next = () => {
+      const url = queue.shift();
+      if (!alive || url === undefined) return;
+      // preloadModel never rejects (a failed preload just retries on the tap).
+      void preloadModel(url).then(() => {
+        if (alive) timer = window.setTimeout(next, PRELOAD_GAP_MS);
+      });
+    };
+    timer = window.setTimeout(next, PRELOAD_START_MS);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [source, phase, ready, trackerReady, recording, selectionPending, catalog]);
 
   // ── Camera taking too long ────────────────────────────────────────────
   // "Starting camera…" used to be an unbounded spinner: some webviews neither
@@ -2110,6 +2143,9 @@ export default function Booth() {
                     // PLATFORM only, like `composited` (and a no-op outside 8th Wall).
                     multiFace={is3D && !isLegacyFaceSurface(source !== 'db')}
                     maxFps={boothFpsCap}
+                    // A prop switch shows nothing until the new prop is
+                    // loaded, never the old one at the new spot. PLATFORM only.
+                    hideStaleModels={!isLegacyFaceSurface(source !== 'db')}
                   />
                 )}
               </div>

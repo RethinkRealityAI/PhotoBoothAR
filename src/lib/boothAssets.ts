@@ -87,3 +87,56 @@ export function withLoaded(loaded: ReadonlySet<string>, url: string): ReadonlySe
   next.add(url);
   return next;
 }
+
+/**
+ * Which scene may a Model draw right now?
+ *
+ * A Model keeps the scene it last loaded until the next one is parsed. When the
+ * guest swaps sunglasses for a beanie, the rig around it already holds the
+ * beanie's anchor and offset, so drawing the kept scene put the sunglasses on
+ * top of the head for as long as the beanie took to load. With `hideStale`, a
+ * scene is drawn only for the url it was loaded from: nothing shows until the
+ * new model is ready. Without it the kept scene is drawn, as before.
+ */
+export function drawableScene<T>(
+  loaded: { url: string; scene: T } | null,
+  url: string,
+  hideStale: boolean,
+): T | null {
+  if (loaded === null) return null;
+  if (hideStale && loaded.url !== url) return null;
+  return loaded.scene;
+}
+
+/** Most models the booth parses ahead of a tap. Parsed models stay in memory
+ *  for the session, and one can be 0.5-6 MB, so this is kept small. */
+export const MAX_PRELOADED_MODELS = 6;
+
+/**
+ * The 3D model files worth parsing before the guest taps them: every GLB a
+ * 3D or composite experience in the catalogue wears, in catalogue order, minus
+ * the ones already parsed, capped at `max`. 2D layers and procedural pieces
+ * have no GLB and are skipped.
+ */
+export function glbPreloadQueue(
+  catalog: readonly Experience[],
+  isCached: (url: string) => boolean,
+  max: number = MAX_PRELOADED_MODELS,
+): string[] {
+  const out: string[] = [];
+  const push = (u: string | null | undefined) => {
+    if (out.length >= max) return;
+    if (typeof u !== 'string' || u.length === 0) return;
+    if (out.includes(u) || isCached(u)) return;
+    out.push(u);
+  };
+  for (const exp of catalog) {
+    if (exp.kind === '3d_attachment') push(exp.asset_url);
+    if (exp.kind === '3d_attachment' || exp.kind === 'composite') {
+      for (const l of exp.config?.layers ?? []) {
+        if (l.kind === '3d_attachment') push(l.asset_url);
+      }
+    }
+  }
+  return out;
+}
