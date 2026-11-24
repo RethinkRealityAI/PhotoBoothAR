@@ -101,14 +101,14 @@ export default class ErrorBoundary extends Component<Props, State> {
           <div className="mt-2 flex items-center gap-3">
             <button
               onClick={() => window.location.reload()}
-              className="flex items-center gap-1.5 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
+              className="flex min-h-11 items-center gap-1.5 rounded-full bg-foil px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-bold text-white glow-accent transition active:scale-[0.98]"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               Reload
             </button>
             <button
               onClick={() => this.setState({ error: null })}
-              className="rounded-full border border-white/15 bg-white/[0.04] px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08]"
+              className="min-h-11 rounded-full border border-white/15 bg-white/[0.04] px-5 py-2.5 font-label uppercase tracking-luxe text-[10px] font-semibold text-brand-fg transition hover:bg-white/[0.08]"
             >
               Try again
             </button>
@@ -116,7 +116,7 @@ export default class ErrorBoundary extends Component<Props, State> {
           <div className="mt-1 flex flex-col items-center gap-1.5">
             <button
               onClick={() => openSupportDialog(this.reportPrefill())}
-              className="flex items-center gap-1.5 text-[11px] text-brand-muted/70 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
+              className="flex min-h-11 items-center gap-1.5 px-2 text-[11px] text-brand-muted/80 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
             >
               <AlertTriangle className="h-3 w-3" />
               Something broke — tell us
@@ -124,7 +124,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             {/* Last resort: if the database is down, the ticket cannot be filed. */}
             <a
               href={supportMailto(label, this.state.error)}
-              className="flex items-center gap-1.5 text-[10px] text-brand-muted/50 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
+              className="flex min-h-11 items-center gap-1.5 px-2 text-[11px] text-brand-muted/70 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
             >
               <Mail className="h-3 w-3" />
               or email us directly
@@ -141,20 +141,20 @@ export default class ErrorBoundary extends Component<Props, State> {
         </p>
         <button
           onClick={() => this.setState({ error: null })}
-          className="flex items-center gap-1.5 rounded-full liquid-glass px-4 py-2 text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
+          className="flex min-h-11 items-center gap-1.5 rounded-full liquid-glass px-5 py-2 text-[10px] font-label uppercase tracking-widest text-accent-2 hover:text-brand-fg transition-colors"
         >
           <RotateCcw className="w-3 h-3" />
           Try again
         </button>
         <button
           onClick={() => openSupportDialog(this.reportPrefill())}
-          className="text-[10px] text-brand-muted/60 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
+          className="inline-flex min-h-11 items-center px-2 text-[11px] text-brand-muted/80 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
         >
           Something broke — tell us
         </button>
         <a
           href={supportMailto(label, this.state.error)}
-          className="text-[10px] text-brand-muted/40 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
+          className="inline-flex min-h-11 items-center px-2 text-[11px] text-brand-muted/70 underline-offset-4 transition-colors hover:text-brand-fg hover:underline"
         >
           or email us directly
         </a>

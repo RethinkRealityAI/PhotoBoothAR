@@ -12,6 +12,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { updatePassword } from '../../lib/auth';
 import { usePageTitle } from '../../lib/usePageTitle';
+import AuthShell from './AuthShell';
 
 const inputClass =
   'w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-brand-fg ' +
@@ -63,9 +64,12 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="h-full w-full app-bg flex items-center justify-center px-5 py-12 overflow-y-auto">
-      <div className="w-full max-w-sm animate-rise-in">
-        <div className="glass-strong rounded-3xl px-8 py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
+    // Same frame as sign-in (AuthShell: Beamy beside the card on desktop, a
+    // compact peek above it on phones), so the recovery pages stop looking
+    // like a different product from the page that links to them.
+    <AuthShell page="reset">
+      <div className="w-full animate-rise-in">
+        <div className="glass-strong rounded-3xl px-6 py-7 sm:px-8 sm:py-10 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
           <Link
             to="/"
             className="block text-center font-serif text-4xl font-semibold tracking-wide text-foil-static"
@@ -88,9 +92,10 @@ export default function ResetPassword() {
             </div>
           ) : (
             <>
-              <p className="mt-2 text-center font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">
+              {/* The page's title (it had no h1 at all), styled like sign-in's. */}
+              <h1 className="mt-2 text-center font-label uppercase tracking-luxe text-[11px] text-brand-muted/70">
                 Choose a new password
-              </p>
+              </h1>
               <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-4">
                 <label className="flex flex-col gap-1.5">
                   <span className="font-label uppercase tracking-luxe text-[9px] text-brand-muted/70">
@@ -140,6 +145,6 @@ export default function ResetPassword() {
           )}
         </div>
       </div>
-    </div>
+    </AuthShell>
   );
 }
