@@ -16,7 +16,8 @@
  * rules live in the pure lib/adminTriage.ts.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CircleHelp, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { AlertTriangle, CircleHelp, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { AdminHeader, AdminNotice, AdminPage, RefreshButton, StatTile } from './AdminChrome';
 import { Link } from 'react-router-dom';
 import { fetchOverviewMetrics, fetchOrders, type OverviewMetrics } from '../../lib/admin';
 import { adminSupportCounts } from '../../lib/support';
@@ -25,16 +26,6 @@ import {
   type TriageSeverity, type TriageSignal,
 } from '../../lib/adminTriage';
 import { formatCount, formatCents } from '../../lib/adminFormat';
-
-function StatTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="glass-strong rounded-2xl p-5 flex flex-col gap-1">
-      <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">{label}</p>
-      <p className="mt-1 font-serif text-3xl text-foil-static leading-none">{value}</p>
-      {sub && <p className="mt-1 font-sans text-[11px] text-brand-muted/50">{sub}</p>}
-    </div>
-  );
-}
 
 /** How many recent orders the money signal scans. Every claim it makes is
  *  scoped to this number in the UI — `list_orders` has no status filter, so a
@@ -57,8 +48,8 @@ function TriageTile({ signal }: { signal: TriageSignal }) {
     >
       <tone.Icon className={`w-5 h-5 shrink-0 ${tone.text}`} />
       <div className="min-w-0 flex-1">
-        <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">{signal.label}</p>
-        <p className="font-sans text-[11px] text-brand-muted/60 leading-snug">{signal.detail}</p>
+        <p className="font-sans text-[13px] font-medium text-brand-fg">{signal.label}</p>
+        <p className="font-sans text-[11px] text-brand-muted/75 leading-snug">{signal.detail}</p>
       </div>
       <p className={`shrink-0 font-serif text-2xl leading-none tabular-nums ${tone.text}`}>{signal.value}</p>
     </Link>
@@ -103,21 +94,12 @@ export default function Overview() {
   const worst = overallSeverity(signals);
 
   return (
-    <div className="p-4 sm:p-6 md:p-10 max-w-5xl mx-auto pb-safe-bottom [--safe-bottom:1.5rem]">
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="font-serif text-3xl text-foil-static">Platform overview</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">Everything across every customer, at a glance.</p>
-        </div>
-        <button
-          onClick={load}
-          disabled={state === 'loading'}
-          className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
-          title="Refresh"
-        >
-          <RefreshCw className={`w-4 h-4 ${state === 'loading' ? 'animate-spin' : ''}`} />
-        </button>
-      </header>
+    <AdminPage>
+      <AdminHeader
+        title="Platform overview"
+        subtitle="Everything across every customer, at a glance."
+        actions={<RefreshButton onClick={load} busy={state === 'loading'} />}
+      />
 
       {/* Triage first: this is the part that is read in three seconds on the
           way past. It renders whether or not the metrics call succeeded. */}
@@ -128,7 +110,7 @@ export default function Overview() {
           </div>
         ) : (
           <>
-            <p className={`mb-3 font-sans text-sm ${worst === 'calm' ? 'text-brand-muted/50' : 'text-brand-fg'}`}>
+            <p className={`mb-3 font-sans text-sm ${worst === 'calm' ? 'text-brand-muted/75' : 'text-brand-fg'}`}>
               {triageHeadline(signals)}
             </p>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -140,37 +122,28 @@ export default function Overview() {
 
       {state === 'loading' ? (
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-28 glass rounded-2xl animate-pulse" />)}
+          {Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-28 glass rounded-2xl motion-safe:animate-pulse" />)}
         </div>
       ) : state === 'error' ? (
-        <div className="liquid-glass rounded-3xl p-12 text-center max-w-lg mx-auto">
-          <h2 className="font-serif text-2xl text-foil-static mb-2">Couldn’t load metrics</h2>
-          <p className="font-sans text-sm text-brand-muted/70 leading-relaxed mb-6">
-            The platform API didn’t respond. Check your connection and try again.
-          </p>
-          <button
-            onClick={load}
-            className="inline-flex items-center gap-2 rounded-full bg-foil px-6 py-3 font-label uppercase tracking-luxe text-[11px] font-bold text-white glow-accent transition active:scale-[0.98]"
-          >
-            <RefreshCw className="w-4 h-4" /> Retry
-          </button>
-        </div>
+        <AdminNotice title="Couldn’t load metrics" action={{ label: 'Try again', onClick: load }}>
+          The platform API didn’t respond. Check your connection and try again.
+        </AdminNotice>
       ) : metrics ? (
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
           <StatTile label="Organizations" value={formatCount(metrics.orgs)} />
-          <StatTile label="People" value={formatCount(metrics.users)} sub="accounts on the platform" />
+          <StatTile label="People" value={formatCount(metrics.users)} sub="Accounts on the platform" />
           <StatTile
             label="Events"
             value={formatCount(metrics.events.total)}
             sub={`${metrics.events.live} live · ${metrics.events.draft} draft · ${metrics.events.ended} ended`}
           />
-          <StatTile label="Active Pro" value={formatCount(metrics.activeSubscriptions)} sub="monthly subscriptions" />
-          <StatTile label="Revenue" value={formatCents(metrics.revenueCents)} sub="live once Stripe is connected" />
+          <StatTile label="Active Pro" value={formatCount(metrics.activeSubscriptions)} sub="Pro subscriptions running now" />
+          <StatTile label="Revenue" value={formatCents(metrics.revenueCents)} sub="Paid orders in USD, all time" />
           <StatTile label="Credits outstanding" value={formatCount(metrics.outstandingCredits)} />
-          <StatTile label="Photos & videos" value={formatCount(metrics.engagement.posts)} sub="posted to walls" />
+          <StatTile label="Photos & videos" value={formatCount(metrics.engagement.posts)} sub="Posted to walls" />
           <StatTile label="Greeting cards" value={formatCount(metrics.engagement.cards)} />
         </div>
       ) : null}
-    </div>
+    </AdminPage>
   );
 }

@@ -10,10 +10,10 @@
  * re-checks on every request.
  */
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Building2, CalendarRange, Receipt, Coins, Users, ScrollText, ShieldCheck,
-  LifeBuoy, Tags, ToggleLeft, Megaphone, LogOut, BookImage, House, Sparkles,
+  LifeBuoy, Tags, ToggleLeft, Megaphone, LogOut, BookImage, House, Sparkles, Menu, X,
   type LucideIcon,
 } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
@@ -21,28 +21,103 @@ import { checkIsPlatformAdmin } from '../../lib/admin';
 import { adminSupportCounts } from '../../lib/support';
 import { ToastProvider } from '../../components/ui/Toast';
 import { haptic } from '../../lib/haptics';
+import { useDialog } from '../../lib/useDialog';
+import { ADMIN_NAV_GROUPS, currentAdminNav, type AdminNavEntry, type AdminNavId } from './adminNav';
 
-interface NavItem { to: string; end?: boolean; label: string; Icon: LucideIcon; ready: boolean }
+const ICONS: Record<AdminNavId, LucideIcon> = {
+  overview: LayoutDashboard,
+  customers: Building2,
+  events: CalendarRange,
+  support: LifeBuoy,
+  payments: Receipt,
+  catalog: Tags,
+  credits: Coins,
+  library: BookImage,
+  'home-assets': House,
+  landing: Megaphone,
+  reveals: Sparkles,
+  features: ToggleLeft,
+  users: Users,
+  audit: ScrollText,
+  admins: ShieldCheck,
+};
 
-// The full suite structure; `ready` flips true as each phase lands so the rail
-// never shows a link to a route that doesn't exist yet.
-const NAV: NavItem[] = [
-  { to: '/admin', end: true, label: 'Overview', Icon: LayoutDashboard, ready: true },
-  { to: '/admin/customers', label: 'Customers', Icon: Building2, ready: true },
-  { to: '/admin/events', label: 'Events', Icon: CalendarRange, ready: true },
-  { to: '/admin/support', label: 'Support', Icon: LifeBuoy, ready: true },
-  { to: '/admin/payments', label: 'Payments', Icon: Receipt, ready: true },
-  { to: '/admin/catalog', label: 'Catalog', Icon: Tags, ready: true },
-  { to: '/admin/library', label: 'Library', Icon: BookImage, ready: true },
-  { to: '/admin/features', label: 'Features', Icon: ToggleLeft, ready: true },
-  { to: '/admin/home-assets', label: 'Homepage', Icon: House, ready: true },
-  { to: '/admin/landing', label: 'Landing', Icon: Megaphone, ready: true },
-  { to: '/admin/reveals', label: 'Reveals', Icon: Sparkles, ready: true },
-  { to: '/admin/credits', label: 'Credits', Icon: Coins, ready: true },
-  { to: '/admin/users', label: 'Users', Icon: Users, ready: true },
-  { to: '/admin/audit', label: 'Audit', Icon: ScrollText, ready: true },
-  { to: '/admin/admins', label: 'Admins', Icon: ShieldCheck, ready: true },
-];
+// 44px rows for touch; a mouse-driven desktop rail packs to 40px so all
+// fifteen fit a 900px laptop without scrolling.
+const railLink =
+  'pressable flex items-center gap-2.5 rounded-xl px-3 min-h-11 md:min-h-10 font-sans text-[13px] transition-colors shrink-0';
+const groupLabel = 'px-3 pt-3 pb-1 font-sans text-[10px] font-medium tracking-wide text-brand-muted/60';
+
+/** One labelled rail link. Shared by the desktop rail and the phone menu. */
+function RailItem({ item, unread, onPick }: { item: AdminNavEntry; unread: number; onPick?: () => void }) {
+  const Icon = ICONS[item.id];
+  const showUnread = item.id === 'support' && unread > 0;
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      onClick={() => { haptic('tap'); onPick?.(); }}
+      className={({ isActive }) =>
+        `${railLink} ${isActive ? 'is-selected bg-white/[0.10] text-brand-fg' : 'text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.05]'}`
+      }
+    >
+      <Icon className="w-4 h-4 shrink-0" />
+      <span className="truncate">{item.label}</span>
+      {showUnread && (
+        <span
+          className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-[color:var(--color-accent)] text-[10px] font-semibold leading-5 text-center text-[color:var(--on-accent)] tabular-nums"
+          aria-label={`${unread} unread`}
+        >
+          {unread}
+        </span>
+      )}
+    </NavLink>
+  );
+}
+
+/** Phone: every destination, labelled and grouped, one tap from anywhere.
+ *  The old phone rail was fifteen bare icons in a sideways strip that clipped
+ *  mid-icon, with no hint it scrolled and no names to read. */
+function MobileMenu({ unread, onClose, onSignOut }: { unread: number; onClose: () => void; onSignOut: () => void }) {
+  const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Admin menu');
+  return (
+    <div className="md:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" onClick={onClose}>
+      <div
+        ref={panelRef}
+        {...dialogProps}
+        onClick={(e) => e.stopPropagation()}
+        className="liquid-glass-raised absolute inset-x-2 top-2 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-2xl p-3 pt-safe-top [--safe-top:0.75rem] outline-none"
+      >
+        <div className="flex items-center justify-between px-1 pb-1">
+          <p className="font-serif text-lg font-semibold text-foil-static">Beamwall admin</p>
+          <button
+            onClick={onClose}
+            aria-label="Close menu"
+            className="pressable grid place-items-center w-11 h-11 rounded-xl text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.06]"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <nav aria-label="Admin">
+          {ADMIN_NAV_GROUPS.map((g) => (
+            <div key={g.label}>
+              <p className={groupLabel}>{g.label}</p>
+              <div className="grid grid-cols-2 gap-1">
+                {g.items.map((item) => <RailItem key={item.to} item={item} unread={unread} onPick={onClose} />)}
+              </div>
+            </div>
+          ))}
+        </nav>
+        <div className="mt-3 border-t border-white/10 pt-2">
+          <button onClick={onSignOut} className={`${railLink} w-full text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.05]`}>
+            <LogOut className="w-4 h-4 shrink-0" />
+            Sign out
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Spinner() {
   return (
@@ -54,9 +129,14 @@ function Spinner() {
 
 export default function AdminLayout() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { session, loading } = useSession();
   const [adminState, setAdminState] = useState<'checking' | 'yes' | 'no'>('checking');
   const [unread, setUnread] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // A route change (a link, back/forward) always lands with the menu shut.
+  useEffect(() => { setMenuOpen(false); }, [pathname]);
 
   // Only once the admin check has passed — support_api would 403 otherwise, and
   // a console full of 403s on every non-admin page load is its own bug report.
@@ -83,79 +163,72 @@ export default function AdminLayout() {
   if (adminState !== 'yes') return <Navigate to="/host" replace />;
 
   const handleSignOut = async () => { await signOut(); navigate('/'); };
-
-  const railLink =
-    'pressable flex items-center gap-2.5 rounded-xl px-3.5 min-h-11 min-w-11 font-label uppercase tracking-luxe text-[10px] transition-colors shrink-0';
+  const here = currentAdminNav(pathname);
 
   return (
     <div data-surface="night" className="absolute inset-0 app-bg text-brand-fg flex flex-col md:flex-row overflow-hidden md:gap-0">
-      {/* Floating rail: inset from the window edge with its own rounding,
-          bevel and shadow, so it reads as a panel resting on the canvas rather
-          than a wall bolted to the side. Below md it becomes a scrollable
-          strip — nine destinations in a non-wrapping row inside an
-          overflow-hidden parent used to clip Audit, Admins and Sign out
-          entirely at 390px, with no way to reach them. */}
-      {/* On a phone this rail is the TOP strip, so it sits under the status bar
-          / notch without a safe-area inset. Composed via --safe-top so the 8px
-          design padding survives on a device with no inset at all. */}
+      {/* Phone: a slim top bar saying where you are, with the whole suite one
+          tap away in a labelled menu. It sits under the status bar / notch, so
+          it pads by --safe-top (8px on a device with no inset). */}
+      <header
+        className="md:hidden liquid-glass-raised shrink-0 z-20 m-2 rounded-2xl flex items-center gap-2 pl-4 pr-1.5 pb-1.5 pt-safe-top [--safe-top:0.375rem]"
+      >
+        <Link to="/admin" onClick={() => haptic('tap')} className="font-serif text-lg font-semibold text-foil-static min-h-11 flex items-center shrink-0">
+          Beamwall
+        </Link>
+        {here && (
+          <p className="min-w-0 truncate font-sans text-[13px] text-brand-muted/80">
+            <span aria-hidden className="mr-2 text-brand-muted/40">/</span>{here.label}
+          </p>
+        )}
+        <button
+          onClick={() => { haptic('tap'); setMenuOpen(true); }}
+          aria-label={unread > 0 ? `Menu, ${unread} unread support` : 'Menu'}
+          aria-expanded={menuOpen}
+          className="pressable relative ml-auto grid place-items-center w-11 h-11 rounded-xl text-brand-fg hover:bg-white/[0.06]"
+        >
+          <Menu className="w-5 h-5" />
+          {unread > 0 && (
+            <span aria-hidden className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-[color:var(--color-accent)] ring-2 ring-[color:var(--color-brand-bg)]" />
+          )}
+        </button>
+      </header>
+      {menuOpen && <MobileMenu unread={unread} onClose={() => setMenuOpen(false)} onSignOut={handleSignOut} />}
+
+      {/* Desktop: a floating rail inset from the window edge, so it reads as a
+          panel resting on the canvas. The destinations sit in four named
+          groups and scroll on their own, so a short laptop screen never clips
+          Admins or Sign out. */}
       <aside
-        className="liquid-glass-raised shrink-0 z-20 flex md:flex-col items-center md:items-stretch gap-1
-                   m-2 md:my-3 md:ml-3 md:mr-0 md:w-56 rounded-2xl px-3 pb-2 md:px-3 md:pb-5
-                   pt-safe-top [--safe-top:0.5rem] md:[--safe-top:1.25rem]
-                   overflow-x-auto md:overflow-x-visible hide-scrollbar"
+        className="hidden md:flex liquid-glass-raised shrink-0 z-20 flex-col my-3 ml-3 w-60 rounded-2xl px-3 pb-3 pt-5 min-h-0"
       >
         <Link
           to="/admin"
           onClick={() => haptic('tap')}
-          className="font-serif text-lg md:text-2xl font-semibold tracking-wide text-foil-static md:px-2 shrink-0 flex items-center min-h-11"
+          className="font-serif text-2xl font-semibold text-foil-static px-3 shrink-0 flex items-center min-h-11"
         >
           Beamwall
         </Link>
-        <p className="hidden md:block px-2 pb-4 font-label uppercase tracking-luxe text-[9px] text-brand-muted/50">
-          Platform admin
-        </p>
+        <p className="px-3 font-sans text-[11px] text-brand-muted/60">Platform admin</p>
 
-        <div className="flex md:flex-col gap-1 md:flex-1 items-center md:items-stretch ml-auto md:ml-0">
-          {NAV.filter((n) => n.ready).map(({ to, end, label, Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              onClick={() => haptic('tap')}
-              aria-label={label}
-              title={label}
-              className={({ isActive }) =>
-                `${railLink} ${isActive ? 'is-selected bg-white/[0.10] text-brand-fg' : 'text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05]'}`
-              }
-            >
-              <span className="relative shrink-0">
-                <Icon className="w-4 h-4" />
-                {to === '/admin/support' && unread > 0 && (
-                  <span
-                    aria-hidden
-                    className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[color:var(--color-accent)] ring-2 ring-[color:var(--color-brand-bg)]"
-                  />
-                )}
-              </span>
-              <span className="hidden sm:inline">
-                {label}
-                {to === '/admin/support' && unread > 0 && (
-                  <span className="ml-1.5 text-[color:var(--color-accent)]">{unread}</span>
-                )}
-              </span>
-            </NavLink>
+        <nav aria-label="Admin" className="mt-1 flex-1 min-h-0 overflow-y-auto hide-scrollbar -mx-1 px-1 pb-2">
+          {ADMIN_NAV_GROUPS.map((g) => (
+            <div key={g.label}>
+              <p className={groupLabel}>{g.label}</p>
+              <div className="flex flex-col">
+                {g.items.map((item) => <RailItem key={item.to} item={item} unread={unread} />)}
+              </div>
+            </div>
           ))}
+        </nav>
 
-          <button
-            onClick={handleSignOut}
-            aria-label="Sign out"
-            title="Sign out"
-            className={`${railLink} text-brand-muted/70 hover:text-brand-fg hover:bg-white/[0.05] md:mt-auto`}
-          >
-            <LogOut className="w-4 h-4 shrink-0" />
-            <span className="hidden sm:inline">Sign out</span>
-          </button>
-        </div>
+        <button
+          onClick={handleSignOut}
+          className={`${railLink} border-t border-white/10 rounded-t-none pt-1 text-brand-muted/80 hover:text-brand-fg hover:bg-white/[0.05]`}
+        >
+          <LogOut className="w-4 h-4 shrink-0" />
+          Sign out
+        </button>
       </aside>
 
       <main className="flex-1 relative overflow-y-auto">

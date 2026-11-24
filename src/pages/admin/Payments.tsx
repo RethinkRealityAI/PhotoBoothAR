@@ -9,7 +9,7 @@
  * this renders that plainly instead of a fake zeroed dashboard.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Search } from 'lucide-react';
+import { AdminHeader, AdminNotice, AdminPage, AdminSearch, RefreshButton, StatTile } from './AdminChrome';
 import { fetchOrders, fetchRevenueSummary, type OrderRow } from '../../lib/admin';
 import type { RevenueSummary } from '../../lib/revenue';
 import { formatCents, formatDate } from '../../lib/adminFormat';
@@ -24,6 +24,12 @@ import StatusPill from '../../components/ui/StatusPill';
  *  aggregates SERVER-side over every order — so paging the table below cannot
  *  make the money numbers wrong. */
 const PAGE_SIZE = 50;
+
+const ORDER_KIND: Record<OrderRow['kind'], string> = {
+  event_package: 'Event package',
+  credit_pack: 'Credit pack',
+  pro_subscription: 'Pro subscription',
+};
 
 function currencyTotals(byCurrency: Record<string, number>): string {
   const entries = Object.entries(byCurrency);
@@ -63,81 +69,49 @@ export default function Payments() {
 
   const columns: Column<OrderRow>[] = [
     { key: 'org', label: 'Organization', render: (o) => <span className="text-brand-fg font-medium">{o.orgName}</span> },
-    { key: 'kind', label: 'Kind', render: (o) => <span className="capitalize">{o.kind.replace('_', ' ')}</span> },
-    { key: 'tier', label: 'Tier', render: (o) => <span className="capitalize">{o.tier ?? '—'}</span> },
+    { key: 'kind', label: 'Kind', render: (o) => <span>{ORDER_KIND[o.kind] ?? o.kind}</span> },
+    { key: 'tier', label: 'Tier', render: (o) => (o.tier ? <span className="capitalize">{o.tier}</span> : <span className="text-brand-muted/60">None</span>) },
     { key: 'amount', label: 'Amount', render: (o) => formatCents(o.amount_total, o.currency) },
     { key: 'status', label: 'Status', render: (o) => <StatusPill status={o.status} /> },
     { key: 'date', label: 'Date', render: (o) => formatDate(o.created_at) },
   ];
 
   return (
-    <div className="p-6 md:p-10 max-w-5xl mx-auto">
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="font-serif text-3xl text-foil-static">Payments</h1>
-          <p className="mt-1 font-sans text-xs text-brand-muted/60">Revenue across every customer.</p>
-        </div>
-        <button
-          onClick={load}
-          disabled={state === 'loading'}
-          className="pressable p-2.5 min-h-11 min-w-11 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-brand-muted/50 hover:text-brand-fg transition-colors disabled:opacity-30"
-        >
-          <RefreshCw className={`w-4 h-4 ${state === 'loading' ? 'animate-spin' : ''}`} />
-        </button>
-      </header>
+    <AdminPage>
+      <AdminHeader
+        title="Payments"
+        subtitle="Revenue across every customer, from Stripe orders."
+        actions={<RefreshButton onClick={load} busy={state === 'loading'} />}
+      />
 
       {state === 'loading' ? (
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 glass rounded-2xl animate-pulse" />)}
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 glass rounded-2xl motion-safe:animate-pulse" />)}
         </div>
       ) : state === 'error' ? (
-        <div className="glass-strong rounded-3xl p-12 text-center max-w-lg mx-auto">
-          <h2 className="font-serif text-2xl text-foil-static mb-2">Couldn't load payments</h2>
-          <button
-            onClick={load}
-            className="mt-4 inline-flex items-center gap-2 rounded-full bg-foil px-6 py-3 font-label uppercase tracking-luxe text-[11px] font-bold text-noir-900 glow-accent transition active:scale-[0.98]"
-          >
-            <RefreshCw className="w-4 h-4" /> Retry
-          </button>
-        </div>
+        <AdminNotice title="Couldn’t load payments" action={{ label: 'Try again', onClick: load }}>
+          The platform API didn’t answer. Nothing here means nothing was charged; it means we couldn’t ask.
+        </AdminNotice>
       ) : summary && summary.orderCount === 0 ? (
-        <div className="glass-strong rounded-3xl p-12 text-center max-w-lg mx-auto">
-          <h2 className="font-serif text-2xl text-foil-static mb-2">No live payments yet</h2>
-          <p className="font-sans text-sm text-brand-muted/70 leading-relaxed">
-            Stripe keys aren't provisioned yet, so nothing has been charged. Once billing goes live, every checkout
-            and Pro renewal will show up here automatically.
-          </p>
-        </div>
+        <AdminNotice title="No payments yet">
+          Every checkout, credit pack and Pro renewal shows up here as soon as a customer pays.
+        </AdminNotice>
       ) : summary ? (
         <>
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-3 mb-8">
-            <div className="glass-strong rounded-2xl p-5">
-              <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">Total revenue</p>
-              <p className="mt-1 font-serif text-2xl text-foil-static">{currencyTotals(summary.totalsByCurrency)}</p>
-            </div>
-            <div className="glass-strong rounded-2xl p-5">
-              <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">One-time</p>
-              <p className="mt-1 font-serif text-2xl text-foil-static">{currencyTotals(summary.oneTimeByCurrency)}</p>
-              <p className="mt-1 font-sans text-[11px] text-brand-muted/50">event packages + credit packs</p>
-            </div>
-            <div className="glass-strong rounded-2xl p-5">
-              <p className="font-label uppercase tracking-luxe text-[10px] text-brand-muted/60">Subscriptions</p>
-              <p className="mt-1 font-serif text-2xl text-foil-static">{currencyTotals(summary.subscriptionByCurrency)}</p>
-              <p className="mt-1 font-sans text-[11px] text-brand-muted/50">Pro, incl. renewals</p>
-            </div>
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-3 mb-8">
+            <StatTile label="Total revenue" value={currencyTotals(summary.totalsByCurrency)} sub={`${summary.orderCount} ${summary.orderCount === 1 ? 'order' : 'orders'}, refunds excluded`} />
+            <StatTile label="One-time" value={currencyTotals(summary.oneTimeByCurrency)} sub="Event packages and credit packs" />
+            <StatTile label="Subscriptions" value={currencyTotals(summary.subscriptionByCurrency)} sub="Pro, including renewals" />
           </div>
 
           {list.error !== null && <LoadError what="payments" code={list.error} onRetry={list.reload} />}
 
-          <div className="relative mb-4 max-w-xs">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted/40" />
-            <input
-              value={list.query}
-              onChange={(e) => list.setQuery(e.target.value)}
-              placeholder="Search by Stripe reference…"
-              className="w-full pl-9 pr-3 min-h-11 rounded-xl bg-white/[0.04] border border-white/10 font-sans text-xs text-brand-fg placeholder:text-brand-muted/40 focus:outline-none focus:border-white/20"
-            />
-          </div>
+          <AdminSearch
+            value={list.query}
+            onChange={list.setQuery}
+            placeholder="Search by Stripe reference…"
+            label="Search payments by Stripe reference"
+          />
 
           <DataTable
             columns={columns}
@@ -154,6 +128,6 @@ export default function Payments() {
           />
         </>
       ) : null}
-    </div>
+    </AdminPage>
   );
 }

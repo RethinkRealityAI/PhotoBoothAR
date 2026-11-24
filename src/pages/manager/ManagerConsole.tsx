@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * /m/:slug — day-of staff console (moderation + wall settings), authenticated
- * by a manager access token (see host ManagerAccess). Deliberately plain
- * internal-tool styling: no EventProvider, no event theming.
+ * by a manager access token (see host ManagerAccess). No EventProvider and no
+ * event theming: it wears the platform's own dusk field and glass (opted in
+ * with data-platform), with mint for "approved" as in the setup wizard.
  *
  * Token intake: ?t= param (persisted to sessionStorage, then stripped from the
  * URL to avoid shoulder-surfing) → stored value → manual entry.
@@ -49,6 +50,12 @@ const DEFAULT_WALL_SETTINGS: WallSettings = {
 
 type Phase = 'boot' | 'entry' | 'checking' | 'invalid' | 'ready';
 
+/** The approve colour: the setup wizard's solid mint tick, dark ink on it. */
+const MINT_SOLID = 'bg-[#5FD9A8] text-[#0B3B2C] hover:bg-[#74E2B6]';
+const MINT_SOFT = 'bg-[#5FD9A8]/15 text-[color:var(--bw-success)] hover:bg-[#5FD9A8]/25';
+/** Every full-screen state shares one root: the platform field, work-screen depth. */
+const ROOT = 'absolute inset-0 app-bg text-brand-fg';
+
 function fmtTime(ts: string): string {
   try {
     return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -79,12 +86,12 @@ function PostCard({
     <article
       onPointerDown={onSelect}
       data-selected={selected ? 'true' : undefined}
-      className={`relative rounded-2xl border overflow-hidden flex sm:flex-col bg-white/[0.03] transition-colors ${
-        post.hidden ? 'border-white/5 opacity-60' : 'border-white/10'
-      } ${selected ? 'ring-2 ring-sky-400/70 border-sky-400/40' : ''}`}
+      className={`glass relative rounded-2xl overflow-hidden flex sm:flex-col transition-colors ${
+        post.hidden ? 'opacity-60' : ''
+      } ${selected ? 'ring-2 ring-[color:var(--color-accent)]/80' : ''}`}
     >
       {isNew && (
-        <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-sky-500 text-[9px] font-bold uppercase tracking-widest text-black">
+        <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-[color:var(--color-accent)] text-[10px] font-bold uppercase tracking-widest text-[color:var(--on-accent)]">
           New
         </span>
       )}
@@ -99,22 +106,22 @@ function PostCard({
         )}
         <div className="absolute top-1.5 left-1.5 flex flex-wrap gap-1">
           {post.hidden && (
-            <span className="px-2 py-0.5 rounded-full bg-black/70 text-[9px] font-semibold uppercase tracking-widest text-red-300">Hidden</span>
+            <span className="px-2 py-0.5 rounded-full bg-black/70 text-[10px] font-semibold uppercase tracking-widest text-red-300">Hidden</span>
           )}
           {!post.approved && !post.hidden && (
-            <span className="px-2 py-0.5 rounded-full bg-black/70 text-[9px] font-semibold uppercase tracking-widest text-amber-300">Pending</span>
+            <span className="px-2 py-0.5 rounded-full bg-black/70 text-[10px] font-semibold uppercase tracking-widest text-amber-300">Pending</span>
           )}
           {post.media_type === 'video' && (
-            <span className="px-2 py-0.5 rounded-full bg-black/70 text-[9px] font-semibold uppercase tracking-widest text-sky-300">Video</span>
+            <span className="px-2 py-0.5 rounded-full bg-black/70 text-[10px] font-semibold uppercase tracking-widest text-[color:var(--color-accent)]">Video</span>
           )}
         </div>
       </div>
       <div className="flex-1 min-w-0 p-3 flex flex-col gap-2">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="text-sm sm:text-xs text-white/80 font-medium truncate">{post.guest_name || 'Anonymous'}</p>
-          <p className="text-[11px] sm:text-[10px] text-white/35 shrink-0 tabular-nums">{fmtTime(post.created_at)}</p>
+          <p className="text-sm sm:text-xs text-brand-fg font-medium truncate">{post.guest_name || 'Anonymous'}</p>
+          <p className="text-[11px] sm:text-[10px] text-brand-muted/70 shrink-0 tabular-nums">{fmtTime(post.created_at)}</p>
         </div>
-        {post.message && <p className="text-[11px] text-white/45 line-clamp-2 sm:hidden">{post.message}</p>}
+        {post.message && <p className="text-[11px] text-brand-muted/80 line-clamp-2 sm:hidden">{post.message}</p>}
         {/* ≥44px on every control: this is operated one-handed, at speed, by
             someone watching a room rather than the screen. */}
         <div className="mt-auto flex gap-1.5">
@@ -123,7 +130,7 @@ function PostCard({
             disabled={busy}
             title={post.approved ? 'Remove approval' : 'Approve for the wall'}
             className={`flex-1 flex items-center justify-center gap-1.5 min-h-11 px-2 rounded-xl text-[10px] font-semibold uppercase tracking-widest transition-colors disabled:opacity-40 ${
-              post.approved ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25' : 'bg-emerald-500 text-black hover:bg-emerald-400'
+              post.approved ? MINT_SOFT : MINT_SOLID
             }`}
           >
             {post.approved ? <ShieldCheck className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
@@ -133,7 +140,7 @@ function PostCard({
             onClick={() => onHide(!post.hidden)}
             disabled={busy}
             title={post.hidden ? 'Put back on the wall' : 'Take off the wall'}
-            className="flex-1 flex items-center justify-center gap-1.5 min-h-11 px-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-[10px] font-semibold uppercase tracking-widest text-white/70 transition-colors disabled:opacity-40"
+            className="flex-1 flex items-center justify-center gap-1.5 min-h-11 px-2 rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.12] text-[10px] font-semibold uppercase tracking-widest text-brand-fg/85 transition-colors disabled:opacity-40"
           >
             {post.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
             {post.hidden ? 'Show' : 'Hide'}
@@ -143,7 +150,8 @@ function PostCard({
               <button
                 onClick={onDelete}
                 disabled={busy}
-                title="Delete permanently — this cannot be undone"
+                title="Delete permanently. This cannot be undone."
+                aria-label="Confirm delete"
                 className="min-w-11 min-h-11 flex items-center justify-center rounded-xl bg-red-500/30 text-red-200 hover:bg-red-500/50 transition-colors"
               >
                 <Check className="w-4 h-4" />
@@ -151,7 +159,8 @@ function PostCard({
               <button
                 onClick={() => setConfirmDelete(false)}
                 title="Cancel"
-                className="min-w-11 min-h-11 flex items-center justify-center rounded-xl bg-white/[0.06] text-white/50 hover:text-white transition-colors"
+                aria-label="Cancel delete"
+                className="min-w-11 min-h-11 flex items-center justify-center rounded-xl bg-white/[0.06] text-brand-muted/80 hover:text-brand-fg transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -161,7 +170,8 @@ function PostCard({
               onClick={() => setConfirmDelete(true)}
               disabled={busy}
               title="Delete permanently"
-              className="min-w-11 min-h-11 flex items-center justify-center rounded-xl bg-white/[0.06] text-white/40 hover:text-red-400 transition-colors disabled:opacity-40"
+              aria-label="Delete permanently"
+              className="min-w-11 min-h-11 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-brand-muted/75 hover:text-red-300 transition-colors disabled:opacity-40"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -177,14 +187,15 @@ function PostCard({
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <div className="flex items-center justify-between py-3 border-b border-white/5 last:border-0">
-      <p className="text-sm text-white/80">{label}</p>
+      <p className="text-sm text-brand-fg/90">{label}</p>
       <button
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         onClick={() => onChange(!checked)}
-        className={`relative shrink-0 w-11 h-6 rounded-full transition-colors ${checked ? 'bg-emerald-500' : 'bg-white/15'}`}
+        className={`relative shrink-0 w-11 h-6 rounded-full transition-colors ${checked ? 'bg-[#5FD9A8]' : 'bg-white/20'}`}
       >
-        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-black/80 shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full shadow transition-transform ${checked ? 'translate-x-5 bg-[#0B3B2C]' : 'translate-x-0 bg-white/90'}`} />
       </button>
     </div>
   );
@@ -248,18 +259,18 @@ function WallSettingsDrawer({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
       {/* A side drawer, so not Modal-shaped — but day-of staff operating a wall
           from a laptop had no Escape and no focus trap here. */}
       <div
         ref={panelRef}
         {...dialogProps}
-        className="w-full max-w-sm h-full bg-[#101014] border-l border-white/10 p-6 overflow-y-auto flex flex-col gap-4 outline-none"
+        className="glass-strong w-full max-w-sm h-full rounded-l-3xl border-l border-white/15 p-6 pt-safe-top [--safe-top:1.5rem] pb-safe-bottom [--safe-bottom:1.5rem] overflow-y-auto flex flex-col gap-4 outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-white/70">Wall settings</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg bg-white/[0.05] text-white/50 hover:text-white transition-colors">
+          <h2 className="font-serif text-xl text-foil-static">Wall settings</h2>
+          <button onClick={onClose} aria-label="Close wall settings" className="grid place-items-center w-11 h-11 rounded-xl bg-white/[0.06] text-brand-muted/80 hover:text-brand-fg transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -268,20 +279,20 @@ function WallSettingsDrawer({
              overwrite settings we were never able to read. */
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
             <WifiOff className="w-7 h-7 text-amber-400/70" />
-            <p className="text-sm text-white/70">Couldn’t load the wall settings.</p>
-            <p className="text-xs text-white/40 max-w-[16rem]">
-              Nothing is shown or saved until we can read them — the wall keeps its current setup.
+            <p className="text-sm text-brand-fg/90">Couldn’t load the wall settings.</p>
+            <p className="text-xs text-brand-muted/75 max-w-[16rem]">
+              Nothing is shown or saved until we can read them. The wall keeps its current setup.
             </p>
             <button
               onClick={() => void loadSettings()}
-              className="min-h-11 px-5 rounded-xl bg-white/[0.08] text-white/80 text-[11px] font-semibold uppercase tracking-widest"
+              className="min-h-11 px-5 rounded-xl border border-white/10 bg-white/[0.08] text-brand-fg text-[11px] font-semibold uppercase tracking-widest"
             >
               Try again
             </button>
           </div>
         ) : !settings ? (
           <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="w-6 h-6 text-white/40 motion-safe:animate-spin" />
+            <Loader2 className="w-6 h-6 text-brand-muted/70 motion-safe:animate-spin" />
           </div>
         ) : (
           <>
@@ -294,8 +305,8 @@ function WallSettingsDrawer({
             </div>
             <div className="py-2">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-white/80">Slideshow interval</p>
-                <span className="text-xs font-mono text-white/50">{settings.slideshowInterval}s</span>
+                <p className="text-sm text-brand-fg/90">Slideshow interval</p>
+                <span className="text-xs font-mono text-brand-muted/75">{settings.slideshowInterval}s</span>
               </div>
               <input
                 type="range"
@@ -304,19 +315,20 @@ function WallSettingsDrawer({
                 step={1}
                 value={settings.slideshowInterval}
                 onChange={(e) => patch({ slideshowInterval: parseInt(e.target.value, 10) })}
-                className="w-full accent-emerald-500"
+                aria-label="Slideshow interval in seconds"
+                className="w-full accent-[#5FD9A8]"
               />
             </div>
             <div className="mt-auto">
               {saveError && (
                 <p role="alert" className="mb-2 text-xs text-amber-300 leading-relaxed">
-                  Couldn’t save — the wall is still on its previous settings. Try again.
+                  Couldn’t save. The wall is still on its previous settings. Try again.
                 </p>
               )}
               <button
                 onClick={save}
                 disabled={saving}
-                className="w-full min-h-11 py-3 rounded-xl bg-emerald-500 text-black font-semibold text-xs uppercase tracking-widest hover:bg-emerald-400 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                className={`w-full min-h-11 py-3 rounded-xl ${MINT_SOLID} font-semibold text-xs uppercase tracking-widest transition-colors disabled:opacity-50 flex items-center justify-center gap-2`}
               >
                 {saved ? <><Check className="w-4 h-4" /> Saved</> : saving ? 'Saving…' : saveError ? 'Retry save' : 'Save settings'}
               </button>
@@ -577,15 +589,15 @@ export default function ManagerConsole() {
   /* ── Entry / invalid states ── */
   if (phase === 'boot' || phase === 'checking') {
     return (
-      <div className="absolute inset-0 bg-[#0b0b0e] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-white/40 animate-spin" />
+      <div data-platform data-surface="night" className={`${ROOT} flex items-center justify-center`}>
+        <Loader2 className="w-8 h-8 text-brand-muted/70 motion-safe:animate-spin" />
       </div>
     );
   }
 
   if (phase === 'entry' || phase === 'invalid') {
     return (
-      <div className="absolute inset-0 bg-[#0b0b0e] flex items-center justify-center p-6">
+      <div data-platform data-surface="night" className={`${ROOT} flex items-center justify-center p-6`}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -595,16 +607,16 @@ export default function ManagerConsole() {
             setEntryVal('');
             setToken(v);
           }}
-          className="w-full max-w-sm rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-center"
+          className="liquid-glass w-full max-w-sm rounded-3xl p-8 text-center"
         >
-          <div className="w-12 h-12 mx-auto mb-5 rounded-full bg-white/[0.06] flex items-center justify-center">
-            <KeyRound className="w-5 h-5 text-white/60" />
+          <div className="w-12 h-12 mx-auto mb-5 rounded-full bg-white/[0.08] flex items-center justify-center">
+            <KeyRound className="w-5 h-5 text-brand-fg/80" />
           </div>
-          <h1 className="text-lg font-semibold text-white/90">Manager console</h1>
-          <p className="mt-1 text-xs text-white/40 font-mono">{slug}</p>
+          <h1 className="font-serif text-2xl text-foil-static">Manager console</h1>
+          <p className="mt-1 text-xs text-brand-muted/70 font-mono">{slug}</p>
           {phase === 'invalid' && (
-            <p className="mt-4 text-xs text-red-400 leading-relaxed">
-              This access link is invalid or has expired — ask the event host for a new one.
+            <p role="alert" className="mt-4 text-xs text-red-300 leading-relaxed">
+              This access link is invalid or has expired. Ask the event host for a new one.
             </p>
           )}
           <input
@@ -612,12 +624,13 @@ export default function ManagerConsole() {
             value={entryVal}
             onChange={(e) => setEntryVal(e.target.value)}
             placeholder="Enter access code"
-            className="mt-6 w-full text-center rounded-xl bg-white/[0.05] border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/25 outline-none focus:border-white/30 transition-colors"
+            aria-label="Access code"
+            className="mt-6 w-full min-h-11 text-center rounded-xl bg-white/[0.08] border border-white/15 px-4 text-sm text-brand-fg placeholder:text-brand-muted/60 outline-none focus:border-[color:var(--color-accent)]/60 transition-colors"
           />
           <button
             type="submit"
             disabled={entryVal.trim().length < 6}
-            className="mt-4 w-full py-3 rounded-xl bg-white text-black font-semibold text-xs uppercase tracking-widest hover:bg-white/90 transition-colors disabled:opacity-30"
+            className="pressable mt-4 w-full min-h-11 rounded-full bg-foil glow-accent text-[color:var(--on-accent)] font-semibold text-sm transition disabled:opacity-40"
           >
             Enter
           </button>
@@ -630,21 +643,21 @@ export default function ManagerConsole() {
   const state = listState({ count: visible.length, loaded: loadedOnce, failed: loadFailed });
 
   return (
-    <div className="absolute inset-0 bg-[#0b0b0e] flex flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-white/10 bg-white/[0.02] pt-safe-top [--safe-top:0.5rem]">
+    <div data-platform data-surface="night" className={`${ROOT} flex flex-col overflow-hidden`}>
+      <header className="liquid-glass-raised shrink-0 z-10 mx-2 mt-2 rounded-2xl pt-safe-top [--safe-top:0.5rem]">
         <div className="flex items-center gap-2 px-3 pb-2">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-white/90 leading-tight">Manager console</p>
-            <p className="flex items-center gap-1.5 text-[10px] font-mono text-white/35 truncate">
+            <p className="font-serif text-base font-semibold text-foil-static leading-tight">Manager console</p>
+            <p className="flex items-center gap-1.5 text-[10px] font-mono text-brand-muted/70 truncate">
               <span className="truncate">{slug}</span>
               <span aria-hidden>·</span>
               {loadFailed ? (
-                <span className="inline-flex items-center gap-1 text-amber-400 shrink-0">
+                <span className="inline-flex items-center gap-1 text-amber-300 shrink-0">
                   <WifiOff className="w-3 h-3" /> reconnecting
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-emerald-400/80 shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 motion-safe:animate-pulse" /> live
+                <span className="inline-flex items-center gap-1 text-[color:var(--bw-success)] shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#5FD9A8] motion-safe:animate-pulse" /> live
                 </span>
               )}
             </p>
@@ -653,7 +666,7 @@ export default function ManagerConsole() {
             onClick={() => token && load(token, { soft: true })}
             disabled={refreshing}
             aria-label="Refresh now"
-            className="min-w-11 min-h-11 flex items-center justify-center rounded-xl bg-white/[0.05] text-white/50 hover:text-white transition-colors disabled:opacity-40"
+            className="min-w-11 min-h-11 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-brand-muted/80 hover:text-brand-fg transition-colors disabled:opacity-40"
             title="Refresh now"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'motion-safe:animate-spin' : ''}`} />
@@ -664,13 +677,13 @@ export default function ManagerConsole() {
             label="Report a problem"
             iconSize={16}
             prefill={{ source: 'manager_console', eventSlug: slug, category: 'bug' }}
-            className="min-w-11 min-h-11 flex items-center justify-center rounded-xl bg-white/[0.05] text-white/50 hover:text-white transition-colors [&>span]:sr-only"
+            className="min-w-11 min-h-11 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-brand-muted/80 hover:text-brand-fg transition-colors [&>span]:sr-only"
           />
           <button
             onClick={() => setDrawerOpen(true)}
             aria-label="Wall settings"
             title="Wall settings"
-            className="min-w-11 min-h-11 flex items-center justify-center gap-1.5 px-2 sm:px-3 rounded-xl bg-white/[0.05] text-white/70 hover:text-white text-xs font-semibold transition-colors"
+            className="min-w-11 min-h-11 flex items-center justify-center gap-1.5 px-2 sm:px-3 rounded-xl border border-white/10 bg-white/[0.06] text-brand-fg/90 hover:text-brand-fg text-xs font-semibold transition-colors"
           >
             <Settings2 className="w-4 h-4" />
             <span className="hidden sm:inline">Wall settings</span>
@@ -691,13 +704,13 @@ export default function ManagerConsole() {
                 aria-selected={active}
                 onClick={() => setFilter(f)}
                 className={`shrink-0 min-h-11 px-3.5 rounded-xl text-[11px] font-semibold uppercase tracking-widest transition-colors ${
-                  active ? 'bg-white/[0.14] text-white' : 'bg-white/[0.04] text-white/50 hover:text-white/80'
+                  active ? 'is-selected bg-white/[0.14] text-brand-fg' : 'bg-white/[0.05] text-brand-muted/80 hover:text-brand-fg'
                 }`}
               >
                 {f === 'all' ? 'All' : f}
                 <span
                   className={`ml-1.5 tabular-nums ${
-                    urgent ? 'text-amber-300' : active ? 'text-white/70' : 'text-white/35'
+                    urgent ? 'text-amber-300' : active ? 'text-brand-fg/80' : 'text-brand-muted/65'
                   }`}
                 >
                   {n}
@@ -717,39 +730,39 @@ export default function ManagerConsole() {
               behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
             });
           }}
-          className="shrink-0 mx-3 mt-2 min-h-11 flex items-center justify-center gap-2 rounded-xl bg-sky-500 text-black text-[11px] font-bold uppercase tracking-widest"
+          className="pressable shrink-0 mx-3 mt-2 min-h-11 flex items-center justify-center gap-2 rounded-full bg-foil glow-accent text-[color:var(--on-accent)] text-[11px] font-bold uppercase tracking-widest"
         >
           <ArrowDown className="w-4 h-4" />
-          {newCount} new {newCount === 1 ? 'post' : 'posts'} — tap to clear
+          {newCount} new {newCount === 1 ? 'post' : 'posts'} · tap to clear
         </button>
       )}
 
       <main ref={scrollRef} className="flex-1 overflow-y-auto p-3 pb-safe-bottom [--safe-bottom:0.75rem]">
         {state === 'loading' ? (
           <div className="h-full flex items-center justify-center">
-            <Loader2 className="w-6 h-6 text-white/40 motion-safe:animate-spin" />
+            <Loader2 className="w-6 h-6 text-brand-muted/70 motion-safe:animate-spin" />
           </div>
         ) : state === 'failed' ? (
           /* Never "no posts yet" on a failed read — that sentence has sent
              staff looking for a broken booth when the wifi was the problem. */
           <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-6">
-            <WifiOff className="w-7 h-7 text-amber-400/70" />
-            <p className="text-sm text-white/70">Couldn’t reach the event.</p>
-            <p className="text-xs text-white/40 max-w-xs">
+            <WifiOff className="w-7 h-7 text-amber-300/80" />
+            <p className="text-sm text-brand-fg/90">Couldn’t reach the event.</p>
+            <p className="text-xs text-brand-muted/75 max-w-xs">
               Retrying automatically. Posts already approved stay on the wall.
             </p>
             <button
               onClick={() => token && load(token, { soft: true })}
-              className="min-h-11 px-5 rounded-xl bg-white/[0.08] text-white/80 text-[11px] font-semibold uppercase tracking-widest"
+              className="min-h-11 px-5 rounded-xl border border-white/10 bg-white/[0.08] text-brand-fg text-[11px] font-semibold uppercase tracking-widest"
             >
               Try now
             </button>
           </div>
         ) : state === 'empty' ? (
           <div className="h-full flex items-center justify-center text-center px-6">
-            <p className="text-sm text-white/35">
+            <p className="text-sm text-brand-muted/75">
               {filter === 'all'
-                ? 'No posts yet — they’ll appear here as guests share.'
+                ? 'No posts yet. They’ll appear here as guests share.'
                 : `Nothing ${filter} right now.`}
             </p>
           </div>
@@ -773,27 +786,27 @@ export default function ManagerConsole() {
       </main>
 
       {/* Keyboard legend — only where there is a keyboard. */}
-      <p className="hidden md:block shrink-0 px-4 py-1.5 border-t border-white/5 text-[10px] text-white/25 font-mono">
+      <p className="hidden md:block shrink-0 px-4 py-1.5 border-t border-white/10 text-[10px] text-brand-muted/65 font-mono">
         j / k move · a approve · h hide · u undo
       </p>
 
       {undo && (
         <div
           role="status"
-          className="fixed inset-x-3 bottom-0 z-40 flex items-center gap-3 rounded-2xl border border-white/10 bg-[#17171c] px-4 py-3 shadow-2xl mb-3 pb-safe-bottom [--safe-bottom:0.75rem] sm:left-auto sm:right-4 sm:w-80"
+          className="glass-strong fixed inset-x-3 bottom-0 z-40 flex items-center gap-3 rounded-2xl px-4 py-3 shadow-2xl mb-3 pb-safe-bottom [--safe-bottom:0.75rem] sm:left-auto sm:right-4 sm:w-80"
         >
-          <p className="flex-1 min-w-0 text-xs text-white/70 truncate">{undo.label}</p>
+          <p className="flex-1 min-w-0 text-xs text-brand-fg/90 truncate">{undo.label}</p>
           <button
             onClick={applyUndo}
             disabled={undoBusy}
-            className="shrink-0 min-h-11 px-4 flex items-center gap-1.5 rounded-xl bg-white text-black text-[11px] font-bold uppercase tracking-widest disabled:opacity-50"
+            className="pressable shrink-0 min-h-11 px-4 flex items-center gap-1.5 rounded-full bg-foil glow-accent text-[color:var(--on-accent)] text-[11px] font-bold uppercase tracking-widest disabled:opacity-50"
           >
             <Undo2 className="w-4 h-4" /> Undo
           </button>
           <button
             onClick={() => setUndo(null)}
             aria-label="Dismiss"
-            className="shrink-0 min-w-11 min-h-11 flex items-center justify-center rounded-xl text-white/40 hover:text-white transition-colors"
+            className="shrink-0 min-w-11 min-h-11 flex items-center justify-center rounded-xl text-brand-muted/75 hover:text-brand-fg transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
