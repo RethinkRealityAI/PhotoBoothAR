@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { liveAudioTrack, pickVideoMimeType } from './recorder';
+import { liveAudioTrack, orderVideoCandidates, pickVideoMimeType } from './recorder';
 
 type MR = { isTypeSupported: (t: string) => boolean };
 
@@ -63,5 +63,30 @@ describe('liveAudioTrack', () => {
   it('skips a dead track and finds a later live one', () => {
     const good = t('live');
     expect(liveAudioTrack([t('ended'), good])).toBe(good);
+  });
+});
+
+describe('orderVideoCandidates', () => {
+  const hw = { supported: true, powerEfficient: true };
+  const sw = { supported: true, powerEfficient: false };
+
+  it('puts vp8 first with no encoder information', () => {
+    expect(orderVideoCandidates(null)[0]).toBe('video/webm;codecs=vp8,opus');
+    expect(orderVideoCandidates({})[0]).toBe('video/webm;codecs=vp8,opus');
+  });
+
+  it('keeps vp8 first when both or neither encode in hardware', () => {
+    expect(orderVideoCandidates({ vp8: hw, vp9: hw })[0]).toBe('video/webm;codecs=vp8,opus');
+    expect(orderVideoCandidates({ vp8: sw, vp9: sw })[0]).toBe('video/webm;codecs=vp8,opus');
+  });
+
+  it('puts vp9 first only when it alone has a hardware encoder', () => {
+    expect(orderVideoCandidates({ vp8: sw, vp9: hw })[0]).toBe('video/webm;codecs=vp9,opus');
+    expect(orderVideoCandidates({ vp9: hw })[0]).toBe('video/webm;codecs=vp9,opus');
+    expect(orderVideoCandidates({ vp8: sw, vp9: { supported: false, powerEfficient: true } })[0]).toBe('video/webm;codecs=vp8,opus');
+  });
+
+  it('always ends with the MP4 fallbacks Safari needs', () => {
+    expect(orderVideoCandidates({ vp8: sw, vp9: hw }).slice(-2)).toEqual(['video/mp4;codecs=h264,aac', 'video/mp4']);
   });
 });

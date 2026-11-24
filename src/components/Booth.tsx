@@ -58,7 +58,7 @@ import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { buildCatalog } from '../lib/catalog';
 import {
-  getActiveFaceEngineInfo, initFaceEngine, isLegacyFaceSurface, resolveSurfaceFaceMode, setFaceTrackingMode, subscribeFaceEngine,
+  getActiveFaceEngineInfo, initFaceEngine, isLegacyFaceSurface, resolveSurfaceFaceMode, setFaceTrackingMode, setFrameLockRecording, subscribeFaceEngine,
 } from '../lib/faceEngine';
 import { parseFaceTrackingMode } from '../lib/faceEngine/engineSelect';
 import TrackingReadout from './ar/TrackingReadout';
@@ -93,7 +93,9 @@ import {
   savePhoto, addCompletedChallenge, setGuestName, getGuestName, hasSkippedGuestName, skipGuestName,
 } from '../lib/session';
 import { normalizeGuestLettering } from '../lib/letteringFit';
-import { StreamRecorder, buildRecordStream, liveAudioTrack, recordingSupported } from '../lib/recorder';
+import { StreamRecorder, buildRecordStream, liveAudioTrack, primeEncoderInfo, recordingSupported } from '../lib/recorder';
+import { audioDelayForPicture, audioSyncDefaultOn, createAudioSync, parseAvSyncUrl, type AudioSync } from '../lib/audioSync';
+import { boothPictureClock, smoothedPictureAgeMs } from '../lib/pictureClock';
 import { acquireMicTrack } from '../lib/camera';
 import { useEntitlements } from '../lib/entitlements';
 import { videoBitsPerSecondFor } from '../lib/plans';
@@ -386,6 +388,50 @@ export default function Booth() {
     }
   }, [stream, videoRef]);
 
+  // ── Lip-sync for clips (lib/audioSync.ts) ─────────────────────────────
+  // A clip's picture is the camera's frame after the camera's delay and, on 3D
+  // looks, the tracker's; its sound is live. So the recorded microphone runs
+  // through a delay that follows the measured age of the picture
+  // (lib/pictureClock.ts). Platform booths only; `?avsync=0` records the raw
+  // microphone, `?avtrim=±ms` nudges the delay for a phone test.
+  const avSync = useMemo(() => {
+    const url = typeof window !== 'undefined' ? parseAvSyncUrl(window.location.search) : { enabled: null, trimMs: 0 };
+    const byDefault = typeof navigator !== 'undefined' && audioSyncDefaultOn(navigator.userAgent, navigator.maxTouchPoints ?? 0);
+    return { on: source === 'db' && (url.enabled ?? byDefault), trimMs: url.trimMs };
+  }, [source]);
+  const audioSyncRef = useRef<AudioSync | null>(null);
+  const recordingNowRef = useRef(false);
+  useEffect(() => {
+    if (!avSync.on || mediaMode !== 'video' || !stream) return;
+    const mic = liveAudioTrack(stream.getAudioTracks());
+    if (!mic) return; // no microphone yet: this clip records whatever the record tap opens, undelayed
+    const wanted = () => {
+      const age = smoothedPictureAgeMs(boothPictureClock, performance.now());
+      return age === null ? null : audioDelayForPicture(age, avSync.trimMs);
+    };
+    const sync = createAudioSync(mic, wanted() ?? 0);
+    if (!sync) return;
+    audioSyncRef.current = sync;
+    // Browsers start an AudioContext only after a tap: any tap in video mode
+    // wakes it, so it is running long before the record button is pressed.
+    const wake = () => sync.resume();
+    window.addEventListener('pointerdown', wake, { passive: true });
+    const id = window.setInterval(() => {
+      const w = wanted();
+      if (w !== null) sync.setTarget(w, recordingNowRef.current);
+    }, 250);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('pointerdown', wake);
+      if (audioSyncRef.current === sync) audioSyncRef.current = null;
+      sync.dispose();
+    };
+  }, [avSync, mediaMode, stream]);
+  // Ask once which video encoder this phone runs in hardware (lib/recorder.ts).
+  useEffect(() => {
+    if (source === 'db') void primeEncoderInfo(PREVIEW_W, PREVIEW_H);
+  }, [source]);
+
   // ── Picker state ──────────────────────────────────────────────────────
   const [effectId, setEffectId] = useState<string>('none');
   // The filter's own Experience. A shader is applied as a bare shaderId, so its
@@ -498,6 +544,22 @@ export default function Booth() {
   /** True while startRecording waits for a fresh microphone (see there). */
   const micCheckPendingRef = useRef(false);
   const [recording, setRecording] = useState(false);
+  recordingNowRef.current = recording;
+  /**
+   * This clip keeps frame-lock (props drawn on the exact frame they were
+   * measured on). True when its sound runs through the lip-sync delay, which
+   * lines the sound up with the locked picture. Without that delay the clip
+   * shows the live camera instead, so lips and words stay close.
+   * `?reclock=0|1` forces it either way for a phone A/B.
+   */
+  const [clipLocked, setClipLocked] = useState(false);
+  // While a clip records, a fall-back to the live camera lasts until it ends:
+  // the picture changes source at most once per clip (frameLockGuard.holdLive).
+  useEffect(() => {
+    if (source !== 'db') return;
+    setFrameLockRecording(recording);
+    return () => setFrameLockRecording(false);
+  }, [recording, source]);
   // Elapsed recording time is published to <RecordingClock> subscribers instead
   // of held as Booth state — see RecordingClock. `recording` (a boolean that
   // flips twice per clip) stays state because the layout genuinely changes.
@@ -1392,6 +1454,16 @@ export default function Booth() {
   }
 
   // ── Video recording ───────────────────────────────────────────────────
+  /** `?reclock=0|1`: force a clip's picture live / frame-locked (tester A/B). null = decide per clip. */
+  function clipLockOverride(): boolean | null {
+    try {
+      const v = new URLSearchParams(window.location.search).get('reclock');
+      return v === '1' ? true : v === '0' ? false : null;
+    } catch {
+      return null;
+    }
+  }
+
   function startRecording() {
     if (!recordingSupported()) {
       showBoothHint('Video recording isn’t supported in this browser');
@@ -1443,7 +1515,24 @@ export default function Booth() {
     };
 
     try {
-      const recStream = buildRecordStream(canvas, streamRef.current ?? undefined, 30);
+      // Sound: the lip-sync delayed microphone when it is running, else the raw
+      // one (a suspended AudioContext would record silence, so it is never used).
+      let audio: MediaStream | MediaStreamTrack | undefined = streamRef.current ?? undefined;
+      let delayed = false;
+      const sync = audioSyncRef.current;
+      const mic = liveAudioTrack(streamRef.current?.getAudioTracks() ?? []);
+      if (sync && mic) {
+        sync.bind(mic); // the record tap may have opened a fresh microphone
+        const track = sync.ready() ? sync.track : null;
+        if (track) {
+          audio = track;
+          delayed = true;
+        }
+      }
+      setClipLocked(clipLockOverride() ?? delayed);
+      // A capped booth already draws at the camera's rate: record every drawn
+      // frame instead of sampling the canvas on a second, drifting 30 Hz timer.
+      const recStream = buildRecordStream(canvas, audio, boothFpsCap > 0 && boothFpsCap <= 30 ? null : 30);
       const rec = new StreamRecorder({
         maxMs: VIDEO_MAX_MS,
         videoBitsPerSecond: videoBitsPerSecondFor(entitlements.videoMaxSec),
@@ -2074,13 +2163,14 @@ export default function Booth() {
                   // renders in that same canvas, so it must reach photos too.
                   threeCanvasId={is3D || powerFxActive ? 'booth-3d-layer' : null}
                   // Draw the frame the pose came from (resolver decides: never
-                  // legacy; on for 8th Wall poses). Photos use it too. NOT while
-                  // recording: the locked frame trails the camera by ~2 tracker
-                  // samples, and the clip's sound is live, so a locked clip has
-                  // lips moving after the words (worse as encoding slows the
-                  // tracker). A clip shows the live camera; props ride the
+                  // legacy; on for 8th Wall poses). Photos use it too. A clip
+                  // keeps it when its sound is delayed to match (clipLocked):
+                  // the locked frame trails the camera by ~2 tracker samples,
+                  // so with live sound the lips would move after the words.
+                  // Otherwise a clip shows the live camera and props ride the
                   // filtered pose.
-                  frameLock={is3D && source === 'db' && !recording}
+                  frameLock={is3D && source === 'db' && (!recording || clipLocked)}
+                  pictureClock={source === 'db'}
                   maxFps={boothFpsCap}
                   active={true}
                   watermark={entitlements.watermark}

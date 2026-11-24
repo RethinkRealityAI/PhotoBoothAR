@@ -455,8 +455,10 @@ export interface TrackedFrame {
   height: number;
   /** Changes when (and only when) the frame changes: t of the pose sample it belongs to. */
   key: number;
+  /** performance.now() when this camera frame was taken by the tracker (pictureClock ages it). */
+  frameMs: number;
 }
-const _tracked: TrackedFrame = { source: null as unknown as HTMLCanvasElement, width: 0, height: 0, key: Number.NaN };
+const _tracked: TrackedFrame = { source: null as unknown as HTMLCanvasElement, width: 0, height: 0, key: Number.NaN, frameMs: Number.NaN };
 
 /**
  * The camera frame the CURRENT pose was computed from, when frame-lock is on
@@ -481,7 +483,17 @@ export function getTrackedFrame(): TrackedFrame | null {
   _tracked.width = src.width;
   _tracked.height = src.height;
   _tracked.key = lastPoseT;
+  _tracked.frameMs = lastPoseFrameMs;
   return _tracked;
+}
+
+/**
+ * A recording is running (or ended). While it runs, a fall-back to the live
+ * camera lasts until the clip ends (frameLockGuard.holdLive): the picture
+ * changes source at most once per clip.
+ */
+export function setFrameLockRecording(recording: boolean): void {
+  lockGuard.holdLive = recording;
 }
 
 /**

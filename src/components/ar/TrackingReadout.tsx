@@ -30,6 +30,9 @@ import { TrackingStatsRing, type TrackingStats } from '../../lib/faceEngine/trac
 import { setRawPoseTap } from '../../lib/faceRig';
 import { formatGranted, formatMax } from '../../lib/cameraQuality';
 import { boothFrameCounters, resolveBoothFpsCap } from '../../lib/frameBudget';
+import { boothPictureClock, cameraDelayMs, smoothedPictureAgeMs } from '../../lib/pictureClock';
+import { getAudioSyncStatus } from '../../lib/audioSync';
+import { describeEncoder } from '../../lib/recorder';
 
 /** The booth/studio camera element, read straight from the DOM (no prop threading). */
 function cameraVideo(): HTMLVideoElement | null {
@@ -135,6 +138,8 @@ export default function TrackingReadout() {
   const [fps, setFps] = useState<{ screen: number; r3d: number; cam: number | null } | null>(null);
   /** Microphone state + live peak level (MicMeter). */
   const [mic, setMic] = useState<string | null>(null);
+  /** How old the drawn picture is, the sound delay matching it, and the clip encoder. */
+  const [sync, setSync] = useState<{ age: number | null; locked: boolean; cam: number; camMeasured: boolean; sound: string; enc: string } | null>(null);
 
   // Fresh numbers per engine: an engine switch restarts the window, so a
   // reading never mixes two engines' samples.
@@ -171,6 +176,15 @@ export default function TrackingReadout() {
       setLockFallbacks(getFrameLockFallbacks());
       setLockLag(getFrameLockLagMs(now));
       setMic(micMeter.read());
+      const snd = getAudioSyncStatus();
+      setSync({
+        age: smoothedPictureAgeMs(boothPictureClock, now),
+        locked: boothPictureClock.locked,
+        cam: cameraDelayMs(boothPictureClock),
+        camMeasured: boothPictureClock.cameraSamples > 0,
+        sound: snd === null ? 'off' : snd.state === 'on' ? `${snd.delayMs.toFixed(0)} ms` : 'waiting for a tap',
+        enc: describeEncoder(),
+      });
       const v = cameraVideo() as RVFC | null;
       if (v !== camVideo) {
         if (camVideo && (camVideo as RVFC).cancelVideoFrameCallback) (camVideo as RVFC).cancelVideoFrameCallback!(camHandle);
@@ -223,6 +237,15 @@ export default function TrackingReadout() {
       {info.error !== null && <div className="text-brand-muted">error: {info.error}</div>}
       {camera !== null && <div className="tabular-nums">cam: <b>{camera}</b></div>}
       {mic !== null && <div className="tabular-nums">mic: <b>{mic}</b></div>}
+      {sync !== null && sync.age !== null && (
+        <div className="tabular-nums">
+          picture <b>{sync.age.toFixed(0)} ms</b> old
+          <span className="text-brand-muted"> ({sync.locked ? 'tracked frame' : 'live camera'} · camera {sync.cam.toFixed(0)}{sync.camMeasured ? '' : ' assumed'})</span>
+        </div>
+      )}
+      {sync !== null && (
+        <div className="tabular-nums">sound delay: <b>{sync.sound}</b> · clip: <b>{sync.enc}</b></div>
+      )}
       {faces !== null && <div className="tabular-nums">faces: <b>{faces[0]}</b>/{faces[1]}</div>}
       {fps !== null && (
         <div className="tabular-nums">

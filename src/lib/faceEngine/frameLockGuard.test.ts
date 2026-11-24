@@ -101,4 +101,29 @@ describe('frameLockShouldUseLive', () => {
     expect(frameLockShouldUseLive(g, 1600, 1600, 1600 - 100)).toBe(true);
     expect(frameLockShouldUseLive(g, 1700, 1700, 1700 - 100)).toBe(false);
   });
+
+  it('holdLive: once live it stays live until released, then re-locks normally', () => {
+    const g = createFrameLockGuard();
+    g.holdLive = true;
+    // Healthy samples: holdLive alone never forces live.
+    expect(frameLockShouldUseLive(g, 1010, 1000, 950)).toBe(false);
+    // A stall falls back...
+    expect(frameLockShouldUseLive(g, 1400, 1000, 950)).toBe(true);
+    expect(g.fallbacks).toBe(1);
+    // ...and healthy samples do NOT re-lock while held (a clip changes source once).
+    for (let t = 1440; t < 2400; t += 40) expect(frameLockShouldUseLive(g, t + 5, t, t - 60)).toBe(true);
+    expect(g.fallbacks).toBe(1);
+    // Released: the usual resume rule applies again.
+    g.holdLive = false;
+    let live = true;
+    for (let i = 0; i < FRAME_LOCK_RESUME_SAMPLES; i++) live = frameLockShouldUseLive(g, 2445 + i * 40, 2440 + i * 40, 2380 + i * 40);
+    expect(live).toBe(false);
+  });
+
+  it('reset keeps holdLive', () => {
+    const g = createFrameLockGuard();
+    g.holdLive = true;
+    resetFrameLockGuard(g);
+    expect(g.holdLive).toBe(true);
+  });
 });

@@ -47,10 +47,18 @@ export interface FrameLockGuard {
   lastKey: number;
   /** How many times the picture fell back to live (tester readout). */
   fallbacks: number;
+  /**
+   * While set, a fallback to live LASTS (no re-lock) until it is cleared. The
+   * booth sets it for the length of a recording: a clip whose picture hops
+   * between the tracker's frame and the live camera repeats or skips a moment
+   * at every hop, and its sound can only follow one of the two. So a clip
+   * changes source at most once, and only toward the live camera.
+   */
+  holdLive: boolean;
 }
 
 export function createFrameLockGuard(): FrameLockGuard {
-  return { live: false, freshRun: 0, lastKey: Number.NaN, fallbacks: 0 };
+  return { live: false, freshRun: 0, lastKey: Number.NaN, fallbacks: 0, holdLive: false };
 }
 
 /**
@@ -71,6 +79,11 @@ export function frameLockShouldUseLive(g: FrameLockGuard, now: number, key: numb
     return true;
   }
   if (!g.live) return false;
+  if (g.holdLive) {
+    g.lastKey = key;
+    g.freshRun = 0;
+    return true;
+  }
   if (key !== g.lastKey) {
     g.lastKey = key;
     // A sample still trailing more than the resume limit keeps the picture live.
@@ -85,7 +98,7 @@ export function frameLockShouldUseLive(g: FrameLockGuard, now: number, key: numb
   return true;
 }
 
-/** Engine switch, camera change or lock toggled: forget the history (the counter is kept). */
+/** Engine switch, camera change or lock toggled: forget the history (the counter and holdLive are kept). */
 export function resetFrameLockGuard(g: FrameLockGuard): void {
   g.live = false;
   g.freshRun = 0;
