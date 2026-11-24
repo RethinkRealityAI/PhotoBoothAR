@@ -321,7 +321,7 @@ export default function BoothLookDeck({
                 <button
                   key={hex}
                   type="button"
-                  aria-label={`Colour ${hex}`}
+                  aria-label={colorSlot.names?.[hex] ?? `Colour ${hex}`}
                   aria-pressed={on}
                   onClick={() => { haptic('toggle'); onGuestHex(hex === colorSlot.currentHex ? null : hex); }}
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"

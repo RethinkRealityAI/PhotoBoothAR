@@ -18,9 +18,10 @@
  */
 import { Environment, ContactShadows } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
 import { lightingFor, type LightformerSpec, type LightingPresetId } from '../../lib/studio/lighting';
+import { applyTune, getLightingTune, subscribeLightingTune } from '../../lib/studio/lightingTuner';
 
 /** Applies the preset's renderer exposure and puts it back on unmount, so a
  *  surface that stops rendering never leaves the next one over-exposed. */
@@ -99,7 +100,9 @@ export default function SceneLighting({
   shadowY,
   shadowScale,
 }: SceneLightingProps) {
-  const p = lightingFor(preset);
+  // Tester tuning (?lightdebug). The identity tune returns the preset itself.
+  const tune = useSyncExternalStore(subscribeLightingTune, getLightingTune, getLightingTune);
+  const p = useMemo(() => applyTune(lightingFor(preset), tune), [preset, tune]);
   const cs = p.contactShadow;
 
   return (
