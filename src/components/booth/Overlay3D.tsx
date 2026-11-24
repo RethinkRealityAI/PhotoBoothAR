@@ -4,7 +4,7 @@
  * selected head anchor. `mirror` must match the video feed (true for selfie).
  */
 import { lazy, Suspense, useRef, useEffect, useSyncExternalStore, type ReactNode } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, advance, useFrame, useThree } from '@react-three/fiber';
 import type { Group } from 'three';
 import { FaceRig, Model } from '../ar/FaceRig';
 import { HandOccluder, HandPlacement, HandRig } from '../ar/HandRig';
@@ -12,6 +12,7 @@ import { HeadPiece, isHeadPiece } from '../ar/HeadPieces';
 import BeamFX, { FxEmitterPoint, pieceEmitterOf } from '../ar/BeamFX';
 import { RIG_CAMERA } from '../../lib/faceRig';
 import { extraFaceSlotCount, subscribeFaceEngine } from '../../lib/faceEngine';
+import { boothFrameCounters, createFrameGate, frameGateShouldDraw, setPreCompositeRender } from '../../lib/frameBudget';
 import { AnchorConfig, AssetCustomization, LayerAnimation } from '../../types';
 import { animate3D, animatePulse3D, PULSE_3D_MS } from '../../lib/studio/animation';
 import type { AnimatePreset } from '../../lib/studio/triggers';
@@ -184,6 +185,56 @@ interface Props {
    * Preview). Absent ⇒ 'booth-3d-layer', as always.
    */
   layerId?: string;
+  /**
+   * COMPOSITED canvases only: render at most this many frames a second, driven
+   * by the StageCanvas right before each composite (lib/frameBudget.ts), so the
+   * 3D is never drawn more often than the picture it sits in. Absent/0 ⇒ R3F's
+   * own every-refresh loop, as before.
+   */
+  maxFps?: number;
+}
+
+/** Composited + capped: this canvas renders only when the composite asks for
+ *  it (same animation frame, just before the read). If no composite has asked
+ *  for a full second (stage not mounted or paused) it keeps itself alive at the
+ *  cap. A shorter wait double-rendered on a slow device whose composite itself
+ *  ran under 4 fps. */
+function CompositeDriver({ fps }: { fps: number }) {
+  const get = useThree((s) => s.get);
+  useEffect(() => {
+    const t0 = performance.now();
+    const gate = createFrameGate(fps);
+    let lastDriven = Number.NEGATIVE_INFINITY;
+    let raf = 0;
+    // Seconds since this driver started: frameloop="never" takes the clock
+    // from the timestamp, so a raw performance.now() would hand every
+    // useFrame a first delta of several minutes.
+    const render = (now: number) => {
+      advance((now - t0) / 1000 + 0.001, true, get());
+      boothFrameCounters.render3d++;
+    };
+    const release = setPreCompositeRender((now) => {
+      lastDriven = now;
+      render(now);
+    });
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      if (now - lastDriven < 1000) return;
+      if (frameGateShouldDraw(gate, now)) render(now);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      release();
+    };
+  }, [fps, get]);
+  return null;
+}
+
+/** Uncapped composited canvas: count R3F's own frames for the tester readout. */
+function RenderCounter() {
+  useFrame(() => { boothFrameCounters.render3d++; });
+  return null;
 }
 
 const noFaceSlots = () => 0;
@@ -253,7 +304,7 @@ function AnimatedPiece({ animation, reveal, pulse, children }: { animation?: Lay
   return <group ref={ref}>{children}</group>;
 }
 
-export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false, multiFace = false, layerId = 'booth-3d-layer' }: Props) {
+export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'booth-video', mirror = true, occlude = false, headScale = 1, onFaceVisible, onHandVisible, pieces, reveal = false, dpr = [1, 2], lightingPreset = 'legacy', onAssetReady, onAssetError, powerFx = false, composited = false, multiFace = false, layerId = 'booth-3d-layer', maxFps = 0 }: Props) {
   // Extra faces 8th Wall can track right now (0 unless opted in AND a multi-face
   // 8th Wall engine is the active pose engine on a platform session).
   const extraSlots = useSyncExternalStore(
@@ -276,6 +327,7 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
   const occluderIdx = firstOptIn !== -1
     ? firstOptIn
     : (occlude && headPieces ? headPieces.findIndex((p) => p.facePaint === undefined) : -1);
+  const capped = composited && maxFps > 0;
   return (
     <div id={layerId} className="absolute inset-0 pointer-events-none z-20" style={composited ? { opacity: 0 } : undefined}>
       <Canvas
@@ -283,7 +335,10 @@ export default function Overlay3D({ assetUrl, proceduralId, anchor, videoId = 'b
         dpr={dpr}
         gl={{ alpha: true, preserveDrawingBuffer: true, antialias: true }}
         style={{ width: '100%', height: '100%', background: 'transparent' }}
+        frameloop={capped ? 'never' : 'always'}
       >
+        {capped && <CompositeDriver fps={maxFps} />}
+        {composited && !capped && <RenderCounter />}
         {/* Lights: the shared definition, never values typed here. No contact
             shadow — this canvas is composited over the guest's camera feed,
             where a shadow catcher has no floor and would smear a grey ellipse

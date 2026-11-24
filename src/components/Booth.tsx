@@ -117,6 +117,7 @@ import { layerToPiece } from '../lib/studio/draftMapping';
 import { applyGuestColor, guestColorSlot } from '../lib/guestPalette';
 import { effectiveOpeningLookId } from '../lib/openingLook';
 import { isPlatformBooth, useViewportLock } from '../lib/boothViewport';
+import { resolveBoothFpsCap } from '../lib/frameBudget';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -802,6 +803,13 @@ export default function Booth() {
    * ride along only on looks that already track a hand; face-gesture
    * power-ups (smile, open mouth) still work on every look.
    */
+  // Drawing budget (lib/frameBudget.ts): platform booths composite + render 3D
+  // at the camera's 30 fps instead of every screen refresh (`?fps=0` = old
+  // behaviour, for a phone A/B). Coded/legacy surfaces keep their loops as shipped.
+  const boothFpsCap = useMemo(
+    () => (source === 'db' && typeof window !== 'undefined' ? resolveBoothFpsCap(window.location.search) : 0),
+    [source],
+  );
   const lookTriggers = useMemo<TriggerConfig[]>(
     () => (source !== 'db' ? [] : collectTriggers([attachExp, frameExp, effectExp])),
     [source, attachExp, frameExp, effectExp],
@@ -2029,6 +2037,7 @@ export default function Booth() {
                   // Draw the frame the pose came from (resolver decides: never
                   // legacy; on for 8th Wall poses). Photo + clip use it too.
                   frameLock={is3D && source === 'db'}
+                  maxFps={boothFpsCap}
                   active={true}
                   watermark={entitlements.watermark}
                   effectsCanvas={triggerFxCanvas}
@@ -2072,6 +2081,7 @@ export default function Booth() {
                     // Group selfies: head pieces on every face 8th Wall tracks.
                     // PLATFORM only, like `composited` (and a no-op outside 8th Wall).
                     multiFace={is3D && !isLegacyFaceSurface(source !== 'db')}
+                    maxFps={boothFpsCap}
                   />
                 )}
               </div>

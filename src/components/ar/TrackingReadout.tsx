@@ -28,6 +28,7 @@ import { trackingReadoutEnabled } from '../../lib/faceEngine/engineSelect';
 import { TrackingStatsRing, type TrackingStats } from '../../lib/faceEngine/trackingStats';
 import { setRawPoseTap } from '../../lib/faceRig';
 import { formatGranted, formatMax } from '../../lib/cameraQuality';
+import { boothFrameCounters, resolveBoothFpsCap } from '../../lib/frameBudget';
 
 /** The booth/studio camera element, read straight from the DOM (no prop threading). */
 function cameraVideo(): HTMLVideoElement | null {
@@ -72,6 +73,8 @@ export default function TrackingReadout() {
   const [camera, setCamera] = useState<string | null>(null);
   /** Times the 3D picture fell back to the live camera because tracking stalled. */
   const [lockFallbacks, setLockFallbacks] = useState(0);
+  /** Per-second rates: composites drawn, 3D renders, new camera frames. */
+  const [fps, setFps] = useState<{ screen: number; r3d: number; cam: number | null } | null>(null);
 
   // Fresh numbers per engine: an engine switch restarts the window, so a
   // reading never mixes two engines' samples.
@@ -83,6 +86,18 @@ export default function TrackingReadout() {
       if (pos !== null && quat !== null) ring.pushPose(s.t, pos.x, pos.y, pos.z, quat.x, quat.y, quat.z, quat.w);
     });
     setStats(null);
+    // New camera frames, counted by the browser's own per-frame callback where
+    // it exists (Chrome/Safari); null elsewhere.
+    let camFrames = 0;
+    let camVideo: HTMLVideoElement | null = null;
+    let camHandle = 0;
+    type RVFC = HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number; cancelVideoFrameCallback?: (h: number) => void };
+    const onCamFrame = () => {
+      camFrames++;
+      const v = camVideo as RVFC | null;
+      if (v?.requestVideoFrameCallback) camHandle = v.requestVideoFrameCallback(onCamFrame);
+    };
+    let last = { t: performance.now(), composite: boothFrameCounters.composite, render3d: boothFrameCounters.render3d, cam: 0 };
     const id = window.setInterval(() => {
       const now = performance.now();
       const st = ring.stats(now);
@@ -93,9 +108,26 @@ export default function TrackingReadout() {
       setFaces(slots === 0 ? null : [(st.detectionsPerSec ?? 0) > 0 ? 1 + extras : 0, slots + 1]);
       setCamera(readCamera());
       setLockFallbacks(getFrameLockFallbacks());
+      const v = cameraVideo() as RVFC | null;
+      if (v !== camVideo) {
+        if (camVideo && (camVideo as RVFC).cancelVideoFrameCallback) (camVideo as RVFC).cancelVideoFrameCallback!(camHandle);
+        camVideo = v;
+        if (v?.requestVideoFrameCallback) camHandle = v.requestVideoFrameCallback(onCamFrame);
+      }
+      const dt = (now - last.t) / 1000;
+      if (dt > 0) {
+        setFps({
+          screen: (boothFrameCounters.composite - last.composite) / dt,
+          r3d: (boothFrameCounters.render3d - last.render3d) / dt,
+          cam: camVideo && (camVideo as RVFC).requestVideoFrameCallback ? (camFrames - last.cam) / dt : null,
+        });
+      }
+      last = { t: now, composite: boothFrameCounters.composite, render3d: boothFrameCounters.render3d, cam: camFrames };
     }, 500);
     return () => {
       window.clearInterval(id);
+      if (camVideo && (camVideo as RVFC).cancelVideoFrameCallback) (camVideo as RVFC).cancelVideoFrameCallback!(camHandle);
+      camVideo = null;
       setRawPoseTap(null);
     };
   }, [enabled, info.active]);
@@ -103,6 +135,8 @@ export default function TrackingReadout() {
   if (!enabled) return null;
 
   const active = info.active ?? (info.failed ? 'none' : 'loading');
+  const cap = resolveBoothFpsCap(window.location.search);
+  const capLabel = cap > 0 ? String(cap) : 'off';
   return (
     <div
       aria-hidden="true"
@@ -124,6 +158,13 @@ export default function TrackingReadout() {
       {info.error !== null && <div className="text-brand-muted">error: {info.error}</div>}
       {camera !== null && <div className="tabular-nums">cam: <b>{camera}</b></div>}
       {faces !== null && <div className="tabular-nums">faces: <b>{faces[0]}</b>/{faces[1]}</div>}
+      {fps !== null && (
+        <div className="tabular-nums">
+          screen <b>{fps.screen.toFixed(0)}</b> · 3D <b>{fps.r3d.toFixed(0)}</b>
+          {fps.cam !== null && <> · cam <b>{fps.cam.toFixed(0)}</b></>} fps
+          <span className="text-brand-muted"> (cap {capLabel})</span>
+        </div>
+      )}
       <div className="tabular-nums">
         {fmt(stats?.detectionsPerSec ?? null, 1)} det/s · pos ±{fmt(stats?.posJitterCm ?? null, 2)} cm · rot ±{fmt(stats?.rotJitterDeg ?? null, 2)}°
       </div>
