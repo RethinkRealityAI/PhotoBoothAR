@@ -40,6 +40,7 @@ import type { ExtraFace } from './types';
 import { claimFrameInference } from './inferenceToken';
 import { estimateEars, type EarEstimate } from './earPoints';
 import { readMaxFacesOverride, resolveMaxFaces } from './multiFace';
+import { createFrameLockGuard, frameLockShouldUseLive, resetFrameLockGuard } from './frameLockGuard';
 export { claimFrameInference, FRAME_INFERENCE_TOKEN } from './inferenceToken';
 
 /** Long enough for a cold 8th Wall download + wasm compile on a mid phone over
@@ -138,6 +139,10 @@ let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 let frameLockHolders = 0;
 /** t of the last POSE sample handed to faceRig — the tracked frame's identity. */
 let lastPoseT = Number.NaN;
+/** `now` of the last pollFaceEngine call (performance.now() in the app): the frame-lock guard's clock. */
+let lastPollNow = Number.NaN;
+/** Frame-lock falls back to the live camera while the tracker has stalled (frameLockGuard.ts). */
+const lockGuard = createFrameLockGuard();
 let xr8: FaceEngine | null = null;
 let xr8Status: Status = 'idle';
 let xr8Reason: string | null = null;
@@ -467,11 +472,19 @@ export function getTrackedFrame(): TrackedFrame | null {
     src = null;
   }
   if (src === null || !(src.width > 0) || !(src.height > 0)) return null;
+  // The tracker has stalled (fast move, no new sample): a held frame is a frozen
+  // picture. Show the live camera until samples flow again.
+  if (frameLockShouldUseLive(lockGuard, lastPollNow, lastPoseT)) return null;
   _tracked.source = src;
   _tracked.width = src.width;
   _tracked.height = src.height;
   _tracked.key = lastPoseT;
   return _tracked;
+}
+
+/** Times frame-lock fell back to the live camera because tracking stalled (tester readout). */
+export function getFrameLockFallbacks(): number {
+  return lockGuard.fallbacks;
 }
 
 /** The tracked frame's image, or null (see getTrackedFrame). */
@@ -694,8 +707,10 @@ export function pollFaceEngine(video: HTMLVideoElement, now: number): FacePoll {
   _poll.pose = null;
   _poll.expr = null;
   _poll.poseHasExpr = true;
+  lastPollNow = now;
   if (video !== lastVideo) {
     lastVideo = video;
+    resetFrameLockGuard(lockGuard);
     prewarmPending(); // first poll (or a new camera element) while 8th Wall is still loading
   }
   pollEngines(video, now);

@@ -21,6 +21,7 @@ import {
   extraFaceSlotCount,
   getActiveFaceEngineInfo,
   getExtraFaces,
+  getFrameLockFallbacks,
   subscribeFaceEngine,
 } from '../../lib/faceEngine';
 import { trackingReadoutEnabled } from '../../lib/faceEngine/engineSelect';
@@ -69,6 +70,8 @@ export default function TrackingReadout() {
   const [faces, setFaces] = useState<[number, number] | null>(null);
   /** Camera granted size/fps (+ the device max where the browser reports it). */
   const [camera, setCamera] = useState<string | null>(null);
+  /** Times the 3D picture fell back to the live camera because tracking stalled. */
+  const [lockFallbacks, setLockFallbacks] = useState(0);
 
   // Fresh numbers per engine: an engine switch restarts the window, so a
   // reading never mixes two engines' samples.
@@ -89,6 +92,7 @@ export default function TrackingReadout() {
       const extras = getExtraFaces().filter((e) => now - e.t < 1000).length;
       setFaces(slots === 0 ? null : [(st.detectionsPerSec ?? 0) > 0 ? 1 + extras : 0, slots + 1]);
       setCamera(readCamera());
+      setLockFallbacks(getFrameLockFallbacks());
     }, 500);
     return () => {
       window.clearInterval(id);
@@ -115,6 +119,7 @@ export default function TrackingReadout() {
       <div>
         frame-lock: <b>{info.frameLock ? 'on' : 'off'}</b>
         <span className="text-brand-muted"> ({info.frameLockSource})</span>
+        {info.frameLock && <span className="tabular-nums"> · stalls→live <b>{lockFallbacks}</b></span>}
       </div>
       {info.error !== null && <div className="text-brand-muted">error: {info.error}</div>}
       {camera !== null && <div className="tabular-nums">cam: <b>{camera}</b></div>}
