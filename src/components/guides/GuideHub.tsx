@@ -12,7 +12,8 @@
  */
 import { Link } from 'react-router-dom';
 import { ArrowRight, Clock, Play } from 'lucide-react';
-import { GUIDES, GUIDE_ORDER, guideHighlights } from '../../lib/guidesContent';
+import { GUIDES, GUIDE_ORDER, GUIDE_SCREENS, guideHighlights } from '../../lib/guidesContent';
+import DeviceShot from './DeviceShot';
 import FeatureFilms from './FeatureFilms';
 
 export default function GuideHub({ notice }: { notice?: string }) {
@@ -71,6 +72,24 @@ export default function GuideHub({ notice }: { notice?: string }) {
                 className="absolute inset-x-0 top-0 h-px"
                 style={{ background: `linear-gradient(90deg, transparent, ${g.hue}80, transparent)` }}
               />
+              {/* The real screen the guide is about, peeking up from the bottom
+                  of a window at the top of the card: enough to recognise it,
+                  never so much that the card turns into a screenshot. */}
+              <span
+                aria-hidden
+                className={`relative -mx-6 -mt-6 mb-2 block overflow-hidden rounded-t-3xl ${i === 0 ? 'h-52 sm:h-64' : 'h-44'}`}
+                style={{ background: `radial-gradient(120% 90% at 50% 110%, ${g.hue}38, transparent 70%)` }}
+              >
+                <DeviceShot
+                  screen={g.cover}
+                  zoom={false}
+                  eager={i === 0}
+                  className={`absolute left-1/2 top-6 -translate-x-1/2 transition-transform duration-500 group-hover:-translate-y-1.5 ${
+                    GUIDE_SCREENS[g.cover].device === 'phone' ? 'w-36' : i === 0 ? 'w-[82%] sm:w-[70%]' : 'w-[86%]'
+                  }`}
+                />
+                <span className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#16133a]/70 to-transparent" />
+              </span>
               <span className="relative flex items-center gap-3">
                 <span
                   className="font-label uppercase tracking-luxe text-[10px] font-semibold"

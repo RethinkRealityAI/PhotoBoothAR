@@ -159,9 +159,88 @@ export const HOTSPOT_SHOTS: Record<HotspotShotKey, HotspotShot> = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* Product screens                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Real product screens that sit beside the words: a step's picture, the
+ * picture beside a section, a strip of guest phone screens, a hub card's cover.
+ *
+ * Every one is a capture of the real product, never a mock-up: host setup
+ * screens come from the setup wizard at 1440 × 900, guest screens from the
+ * booth on a 390 × 844 phone (scripts/shoot-guide-screens.mjs). The person in
+ * the guest screens is the platform's AI stand-in guest, not a real one.
+ *
+ * Served by URL from public/guides/screens/<id>.webp (guidesMedia.guideScreen)
+ * so a visitor only fetches the pictures of the guide they open.
+ * guidesContent.test.ts holds each recorded width/height to the file's own
+ * header, so a re-shoot at another size is a red test, not a squashed image.
+ */
+export type GuideScreenId =
+  | 'setup-basics'
+  | 'setup-welcome'
+  | 'setup-looks'
+  | 'setup-powerups'
+  | 'setup-challenges'
+  | 'setup-livewall'
+  | 'setup-keepsake'
+  | 'setup-launch'
+  | 'wall-gallery'
+  | 'wall-grid'
+  | 'studio-editor'
+  | 'guest-welcome'
+  | 'guest-frame'
+  | 'guest-crown'
+  | 'guest-paint'
+  | 'guest-effects'
+  | 'guest-more-looks'
+  | 'guest-send'
+  | 'guest-challenges';
+
+export interface GuideScreen {
+  id: GuideScreenId;
+  /** phone = drawn in a phone bezel; desktop = in a browser window. */
+  device: 'phone' | 'desktop';
+  width: number;
+  height: number;
+  alt: string;
+}
+
+const DESKTOP = { device: 'desktop', width: 1600, height: 1000 } as const;
+const PHONE = { device: 'phone', width: 600, height: 1298 } as const;
+
+export const GUIDE_SCREENS: Record<GuideScreenId, GuideScreen> = {
+  'setup-basics': { id: 'setup-basics', ...DESKTOP, alt: 'The first setup step: the event name, Ada & Tolu’s Wedding, and its date, with a phone preview of the welcome page beside it' },
+  'setup-welcome': { id: 'setup-welcome', ...DESKTOP, alt: 'Designing the welcome page: Background, Border and Words tabs over a row of background templates, with the phone preview on the right' },
+  // Cropped to the picker: the try-on preview to its right is left out.
+  'setup-looks': { id: 'setup-looks', device: 'desktop', width: 1440, height: 1200, alt: 'The Looks step: Frames, 3D props, Face paint, Effects and Filters tabs, an occasion menu, and a grid of frames each ticked on for guests' },
+  'setup-powerups': { id: 'setup-powerups', ...DESKTOP, alt: 'Power-ups: gestures like Smile, Open your mouth wide and Peace sign, each with Turn on and Preview, beside a 3D head wearing a crown' },
+  'setup-challenges': { id: 'setup-challenges', ...DESKTOP, alt: 'Challenges: suggested photo missions for a wedding reception, like First dance floor and Toast to the couple, each with its points' },
+  'setup-livewall': { id: 'setup-livewall', ...DESKTOP, alt: 'The Live wall step: eight wall styles on the left and the real live wall filled with sample photos on the right, with a Beam a photo button' },
+  'setup-keepsake': { id: 'setup-keepsake', ...DESKTOP, alt: 'The Keepsake step: colour choices and opening moments for the album guests get the morning after, with a live preview of the album' },
+  'setup-launch': { id: 'setup-launch', ...DESKTOP, alt: 'The Launch step: a ticked checklist of every part of the event, a Go live button, Open or print shortcuts, and the real welcome page on a phone' },
+  'wall-gallery': { id: 'wall-gallery', ...DESKTOP, alt: 'The live wall on a big screen in Gallery layout: tall photo cards of guests with their names, two QR codes on the right and a challenge ticker at the bottom' },
+  'wall-grid': { id: 'wall-grid', ...DESKTOP, alt: 'The live wall in Grid layout: sixteen guest photos edge to edge, each with the guest’s name, beside the QR codes' },
+  'studio-editor': { id: 'studio-editor', ...DESKTOP, alt: 'The Studio editor: the library on the left, the stage in the middle and the properties panel on the right' },
+  'guest-welcome': { id: 'guest-welcome', ...PHONE, alt: 'The welcome page on a guest’s phone: the event’s name, a booth preview of a smiling guest wearing a gold crown, and a Step into the booth button' },
+  'guest-frame': { id: 'guest-frame', ...PHONE, alt: 'The booth with a thin gold frame round the camera, the Frames tab open and a row of round look thumbnails above the shutter' },
+  'guest-crown': { id: 'guest-crown', ...PHONE, alt: 'A guest in the booth wearing a 3D gold crown that sits on their head, with confetti falling, inside a gold frame' },
+  'guest-paint': { id: 'guest-paint', ...PHONE, alt: 'A guest wearing tiger face paint in the booth, with the Paint tab open and other designs like Butterfly and Frost beside it' },
+  'guest-effects': { id: 'guest-effects', ...PHONE, alt: 'A guest wearing a snowflake tiara and frost face paint while snow falls across the whole screen' },
+  'guest-more-looks': { id: 'guest-more-looks', ...PHONE, alt: 'The More looks sheet: every look at once, filtered by All, Frames, Props and Paint chips, with a Done button' },
+  'guest-send': { id: 'guest-send', ...PHONE, alt: 'The photo a guest just took, crown and frame included, with Retake and Send to the wall buttons under it' },
+  'guest-challenges': { id: 'guest-challenges', ...PHONE, alt: 'The guest challenges page: six missions like Raise a toast and Royalty for a night, each with its emoji and points, and a progress bar' },
+};
+
 export type GuideBlock =
-  | { kind: 'prose'; title?: string; body: string[] }
-  | { kind: 'steps'; title: string; steps: { title: string; body: string; tip?: string }[] }
+  | { kind: 'prose'; title?: string; body: string[]; screen?: GuideScreenId }
+  | {
+      kind: 'steps';
+      title: string;
+      steps: { title: string; body: string; tip?: string; screen?: GuideScreenId }[];
+    }
+  | { kind: 'screens'; title: string; blurb: string; items: { screen: GuideScreenId; caption: string }[] }
   | { kind: 'film'; videoKey: GuideVideoKey; title: string; caption: string }
   | { kind: 'prompts'; title: string; blurb: string; cardIds: string[] }
   | { kind: 'downloads'; title: string; blurb: string; entryIds: FramePackId[] }
@@ -182,6 +261,8 @@ export interface GuideDoc {
    *  (SPECTRUM in src/components/landing/CameraExperience.tsx). Five distinct
    *  picks so a guide is recognisable by colour alone. */
   hue: string;
+  /** The real screen on this guide's hub card. */
+  cover: GuideScreenId;
   blocks: GuideBlock[];
 }
 
@@ -601,9 +682,11 @@ const MAKE_A_FRAME: GuideDoc = {
   hook: 'Design it like a magazine cover: the face in the middle, the story around the edge.',
   minutes: 8,
   hue: '#FB923C',
+  cover: 'guest-frame',
   blocks: [
     {
       kind: 'prose',
+      screen: 'guest-frame',
       body: [
         'A frame is the artwork wrapped around every photo your guests take. It is the single thing that turns "a picture at a party" into "a picture from YOUR party" — and the one thing people screenshot and post.',
         'The trick is to stop thinking of it as a border. Think of a magazine cover. The person goes in the middle, big. Everything that says whose night it is — the names, the date, the flowers, the logo — lives around the edge where it frames the face instead of covering it.',
@@ -624,6 +707,7 @@ const MAKE_A_FRAME: GuideDoc = {
           title: 'Pick a ready-made one',
           body: 'Open your event and go to the Looks tab. At the top, Pick your looks shows the frames that come with every event: tap one to switch it on or off for guests, press Open with this on the one the booth should start with, and Save. Above them, Ready-made looks adds complete designs from Beamwall, best fit for your event first — tap one to add it to your booth straight away, tap again to take it off. Nothing to design, nothing to upload. This is the two-minute route.',
           tip: 'Even if you plan to make your own, add one first so your booth is never empty while you experiment.',
+          screen: 'setup-looks',
         },
         {
           title: 'Make one with AI, in the same tab',
@@ -747,14 +831,27 @@ const MAKE_3D_PROPS: GuideDoc = {
   hook: 'Pick a prop, paint it your colours, engrave a name — and it lands on every face in the room.',
   minutes: 9,
   hue: '#7C6CF7',
+  cover: 'guest-crown',
   blocks: [
     {
       kind: 'prose',
+      screen: 'guest-crown',
       body: [
         'A 3D prop is an object that sticks to your guest as they move: a crown on the head, a visor over the eyes, a gauntlet on the hand. It tracks their face in real time, so it stays put when they laugh, lean in or pull a friend into the shot.',
         'This is the part guests film themselves doing. A frame gets a photo; a prop gets a video of someone discovering they have antlers.',
         'Props are built in the Studio, which is an add-on for teams and large organisations. No Studio? Ask the Copilot to put a ready-made prop or effect on your booth — it proposes, you confirm.',
         'With the Studio there are four ways to get one, and the first two cost you nothing at all.',
+      ],
+    },
+    {
+      kind: 'screens',
+      title: 'What it looks like on a guest',
+      blurb: 'Real booth screens on a phone. Everything here follows the face as the guest moves, and lands in the photo exactly as it looks on screen.',
+      items: [
+        { screen: 'guest-crown', caption: 'A 3D crown that sits on the head, with confetti on top' },
+        { screen: 'guest-paint', caption: 'Face paint that moves with the face when they smile' },
+        { screen: 'guest-effects', caption: 'A tiara and frost paint, with snow across the whole screen' },
+        { screen: 'guest-more-looks', caption: 'More looks shows every prop, frame and effect at once' },
       ],
     },
     {
@@ -820,6 +917,7 @@ const MAKE_3D_PROPS: GuideDoc = {
     {
       kind: 'prose',
       title: 'Make it react',
+      screen: 'setup-powerups',
       body: [
         `Props get much better when they do something. Magic Triggers watch your guest and fire an effect when they make a gesture: there are ${GUIDE_COUNTS.triggerSources} cues to choose from — smile, open mouth, wink, brow raise, closed fist, open palm, pinch, peace sign and hand-to-temple — and ${GUIDE_COUNTS.triggerActions} things they can set off: a Burst of confetti, an energy Blast, a Reveal that makes a hidden object appear, an Animate that shakes or spins a piece, and an Effect pulse that flashes the whole look.`,
         `You can have up to ${GUIDE_COUNTS.maxTriggers} of these in one scene, and each one waits about 2.5 seconds before it can fire again, so a guest holding a grin does not machine-gun the effect.`,
@@ -856,6 +954,7 @@ const USE_THE_STUDIO: GuideDoc = {
   hook: `One screen, ${GUIDE_COUNTS.studioTabs} tabs, nothing buried. Here is what each one is for.`,
   minutes: 7,
   hue: '#22D3EE',
+  cover: 'studio-editor',
   blocks: [
     {
       kind: 'prose',
@@ -977,6 +1076,7 @@ const FIRST_EVENT: GuideDoc = {
   hook: 'One sentence in, a live booth out. No design skills, no app for your guests to install.',
   minutes: 9,
   hue: '#34D399',
+  cover: 'setup-launch',
   blocks: [
     {
       kind: 'film',
@@ -987,43 +1087,83 @@ const FIRST_EVENT: GuideDoc = {
     {
       kind: 'prose',
       body: [
-        'Press New event and a short guided setup walks you through it, one screen at a time: the name and date, your welcome page, the looks guests can try on, power-ups, photo challenges, your live wall and the keepsake album guests get the morning after. Each step is one card with the steps across its top and a live preview inside it — your camera if you switch it on, or a 3D head wearing your picks if not — so you see what guests will see before you commit to anything.',
-        'Everything saves as you go. Close the tab halfway through and your dashboard shows Continue setup on the event, with how far you got. Rather describe it in a sentence? Use the assistant link on the first screen and the Concierge designs it for you instead.',
+        'Press New event and a short guided setup walks you through it, one screen at a time. Each step is one card with the steps across its top and a live preview inside it — your camera if you switch it on, or a 3D head wearing your picks if not — so you see what guests will see before you commit to anything.',
+        'Everything saves as you go. Close the tab halfway through and your dashboard shows Continue setup on the event, with how far you got. Steps with several separate choices (the welcome page, power-ups and the live wall) walk you through them one part at a time with Next the first time; come back later and every part is a tap away.',
         'Then you go live. Guests scan a QR code and their camera opens in the browser. Nothing to install, on any phone.',
       ],
     },
     {
       kind: 'steps',
-      title: 'Six steps to a live booth',
+      title: 'Set it up, one screen at a time',
       steps: [
         {
           title: 'Name it and pick a date',
-          body: `Type the event’s name, say what you are celebrating (wedding, birthday, party, gala or a work event) and pick the date — or tick Not sure yet. That one choice sets sensible starting colours, frames and challenge ideas, so nothing starts blank. Then design the welcome page guests land on when they scan: a template, a gradient or a single colour, or a photo of your own with a fit tool that shows it on a phone and on the live wall at once. Add a border and a line of welcome in your own words. After the looks and power-ups, tap any of the ${GUIDE_COUNTS.starterPackMissions} challenge ideas for your occasion to add it, or write your own. Last, set up your live wall — the photo wall on a TV or projector at the event. Start from a style (Beamwall, Aurora, Neon night, Gallery and more), then make it yours: the layout (Grid, Gallery, Scrolling, Carousel or Slideshow), the background (your welcome page, a gradient, a plain colour or your own photo), the photo cards (liquid glass, clean, polaroid or neon, with a glow in any colour), how a new photo arrives (a beam, a sparkle or a reveal) and whether it shows the QR code, a spotlight, the leaderboard and the challenges. The preview beside it is your real live wall with sample photos — press Beam a photo to watch one land. Steps with several separate choices (the welcome page, power-ups and the live wall) walk you through them one part at a time with Next the first time; come back later and every part is a tap away. Then the keepsake: the album every guest gets the morning after — its look, greeting, what guests can save, the music and when it is sent — ending on a Review where Save puts it on your guests’ album.`,
+          body: 'Type the event’s name, say what you are celebrating (wedding, birthday, party, gala or a work event) and pick the date, or tick Not sure yet. That one choice sets sensible starting colours, frames and challenge ideas, so nothing starts blank. Rather describe it in a sentence? Use the assistant link on the first screen and the Concierge designs it for you instead.',
+          screen: 'setup-basics',
+        },
+        {
+          title: 'Design the welcome page',
+          body: 'This is the page guests land on when they scan. Pick a template, a gradient or a single colour, or a photo of your own with a fit tool that shows it on a phone and on the live wall at once. Then add a border and a line of welcome in your own words.',
           tip: 'Use a photo at least 1600 pixels on its long side for the welcome page. The setup warns you if yours will look soft on the live wall.',
+          screen: 'setup-welcome',
         },
         {
           title: 'Pick the looks and filters',
-          body: 'On Looks, the tabs are Frames, 3D props, Face paint and Effects. Narrow a tab with the occasion menu (wedding, birthday, party and more) and the quick pills, then tap anything to offer it to guests — it goes straight onto the preview so you can see it on a face. Add all or Clear works on whatever is showing. Below that, Filters bundle a whole look into one tap: switch on a ready-made filter, or press Make your own filter, name it, and pick a frame, up to four props, a face paint and an effect, all on one screen. Open with this chooses the filter the booth starts on. Power-ups adds gestures that work with every look — a smile showers sparkles, an open mouth pops confetti, and on looks that track a hand (like the gauntlet) hand gestures set off hearts, fireworks or a beam — each with a Preview button so you can see it first.',
+          body: 'On Looks, the tabs are Frames, 3D props, Face paint and Effects. Narrow a tab with the occasion menu (wedding, birthday, party and more) and the quick pills, then tap anything to offer it to guests — it goes straight onto the preview so you can see it on a face. Add all or Clear works on whatever is showing. Below that, Filters bundle a whole look into one tap: switch on a ready-made filter, or press Make your own filter, name it, and pick a frame, up to four props, a face paint and an effect, all on one screen. Open with this chooses the filter the booth starts on.',
           tip: 'Want a frame with your names on it? Make a frame with AI in your event’s Looks does it in about a minute — your first 3 are free.',
+          screen: 'setup-looks',
+        },
+        {
+          title: 'Add a power-up or two',
+          body: 'Power-ups adds gestures that work with every look — a smile showers sparkles, an open mouth pops confetti, and on looks that track a hand (like the gauntlet) hand gestures set off hearts, fireworks or a beam. Each has a Preview button so you can see it first. They are optional, so Skip for now is always there.',
+          screen: 'setup-powerups',
+        },
+        {
+          title: 'Give guests some photo challenges',
+          body: `Tap any of the ${GUIDE_COUNTS.starterPackMissions} challenge ideas for your occasion to add it, or write your own. Each one is a little mission worth points, like a toast with your table or a first dance floor shot, and the scores climb the live wall’s leaderboard as guests complete them.`,
+          screen: 'setup-challenges',
+        },
+        {
+          title: 'Style your live wall',
+          body: 'The live wall is the photo wall on a TV or projector at the event. Start from a style (Beamwall, Aurora, Neon night, Gallery and more), then make it yours: the layout (Grid, Gallery, Scrolling, Carousel or Slideshow), the background (your welcome page, a gradient, a plain colour or your own photo), the photo cards (liquid glass, clean, polaroid or neon, with a glow in any colour), how a new photo arrives (a beam, a sparkle or a reveal) and whether it shows the QR code, a spotlight, the leaderboard and the challenges. The preview beside it is your real live wall with sample photos — press Beam a photo to watch one land.',
+          screen: 'setup-livewall',
+        },
+        {
+          title: 'Set up the keepsake',
+          body: 'The keepsake is the album every guest gets the morning after. Choose its look, greeting, what guests can save, the music and when it is sent, ending on a Review where Save puts it on your guests’ album.',
+          screen: 'setup-keepsake',
+        },
+        {
+          title: 'Launch: check it over and go live',
+          body: 'The last screen ticks off every part of your event with an Edit beside each, so anything you skipped is one tap away. Go live is one switch. Until you flip it, the guest link shows a friendly not-yet page, so you can share it in advance without anyone seeing a half-built booth. Open or print has the welcome page, the booth, the live wall and Print signs.',
+          screen: 'setup-launch',
+        },
+        {
+          title: 'Take a test photo yourself',
+          body: 'Press Take a test photo on your event dashboard’s checklist, or scan your own QR code from the Share tab, and take one real shot on your own handset. This is the single highest-value five minutes you will spend — it catches a frame that crops badly or a prop that is too heavy, while there is still time. Until you go live the booth opens only for you, so sign in on that phone first.',
+          tip: 'Test on the phone you will hand to a guest, not just your desktop browser.',
+          screen: 'guest-send',
         },
         {
           title: 'Work the checklist',
           body: 'Your event dashboard shows a short list: name it, choose the look, add frames & effects, take a test photo. Each item links straight to the screen that finishes it — frames open Looks — and it ticks itself off as you go. No design skills needed.',
         },
         {
-          title: 'Take a test photo yourself',
-          body: 'Press Take a test photo on the checklist, or scan your own QR code from the Share tab, and take one real shot on your own handset. This is the single highest-value five minutes you will spend — it catches a frame that crops badly or a prop that is too heavy, while there is still time. Until you go live the booth opens only for you, so sign in on that phone first.',
-          tip: 'Test on the phone you will hand to a guest, not just your desktop browser.',
-        },
-        {
-          title: 'Go live',
-          body: 'One switch. Until you flip it, the guest link shows a friendly not-yet page, so you can share it in advance without anyone seeing a half-built booth.',
-        },
-        {
           title: 'Print the signage',
           body: 'The Share kit gives you QR signage and table cards pointing at your welcome page. Print them, put one on every table, and your job on the night is basically done.',
           tip: 'Put a card at the bar and one by the door. Those two spots get scanned more than every table combined.',
         },
+      ],
+    },
+    {
+      kind: 'screens',
+      title: 'What your guests see',
+      blurb: 'The same night from a guest’s phone: scan, try on a look, snap, and send it to the wall.',
+      items: [
+        { screen: 'guest-welcome', caption: 'They scan your QR and land on your welcome page' },
+        { screen: 'guest-frame', caption: 'The booth opens with your frame already on' },
+        { screen: 'guest-crown', caption: 'They swipe through your looks and try one on' },
+        { screen: 'guest-send', caption: 'One tap sends the photo to the live wall' },
       ],
     },
     {
@@ -1037,6 +1177,7 @@ const FIRST_EVENT: GuideDoc = {
     {
       kind: 'prose',
       title: 'Make the guest page yours',
+      screen: 'guest-welcome',
       body: [
         'Your welcome page is the first thing a guest sees after scanning the QR code, and it already looks like the night itself: the background is your live photo wall, tilted and made of glass, with the newest photos beaming onto it as they are taken. Before anyone has snapped, the empty tiles lift and glow and the page says "Time to fill the wall", so the first guest knows they can be the first photo up there. Beside your event’s name sits a preview of the booth, and its shutter is the button that takes them in.',
         'To change how it looks, open your event, go to Settings, then Branding, and find Event page look. Pick a ready-made template, a gradient, a single colour, a photo of your own (the venue, the couple, your logo wall), or one of your booth frames. The phone beside the picker shows what guests get as you click, and nothing changes for them until you press Save look. Reset to default puts it back. The gold line-art look, Gilded, is there if you want it, but it is never chosen for you.',
@@ -1046,6 +1187,7 @@ const FIRST_EVENT: GuideDoc = {
     {
       kind: 'prose',
       title: 'What guests see in the booth',
+      screen: 'guest-more-looks',
       body: [
         'Inside the booth, every look you left switched on sits above the shutter under four tabs: Frames, Props, Paint and Effects. A tab only shows when your event has something in it, and the booth opens on the tab that holds the look already on. Guests tap a tab, swipe its row and tap a look to try it on; the next one always peeks in from the edge so it is obvious there are more. Looks combine, so a frame, a crown and an effect can go on together. Props and face paint share one spot on the face, so picking one swaps out the other.',
         'Beside the shutter is a More looks button. It opens everything at once with the same Frames, Props, Paint and Effects chips, which is the quickest way through a big set. The first time a guest opens the booth they get a one-off nudge to swipe, and never again on that phone.',
@@ -1073,9 +1215,11 @@ const RUN_THE_NIGHT: GuideDoc = {
   hook: 'Wall on the big screen, moderation set, someone else on the door — and you get to enjoy your own party.',
   minutes: 10,
   hue: '#E879F9',
+  cover: 'wall-gallery',
   blocks: [
     {
       kind: 'prose',
+      screen: 'wall-gallery',
       body: [
         'The booth is only half of it. The live wall is what makes a room turn around: photos arrive in front of everyone, beaming in as they are taken, and people go and take another one so they can watch it land.',
         'Everything below is set once, before the doors open.',
@@ -1089,6 +1233,7 @@ const RUN_THE_NIGHT: GuideDoc = {
           title: 'Pick how it shows',
           body: 'Gallery lays every photo out in a grid. Carousel turns a slow 3D ring of them, and a new photo beams straight onto the card at the front. Slideshow gives each one the whole screen in turn. Leaderboard puts the challenge scores up so the room starts competing. Projection mode is the one to use on an actual projector — it drops the interface and goes edge to edge.',
           tip: 'Slideshow reads best on a big screen far from the crowd; Gallery reads best on a TV people can walk up to; Carousel is the one people stop and watch.',
+          screen: 'wall-grid',
         },
         {
           title: 'Give the wall its own look',
@@ -1114,6 +1259,7 @@ const RUN_THE_NIGHT: GuideDoc = {
     {
       kind: 'prose',
       title: 'Challenges give people a reason to keep going',
+      screen: 'guest-challenges',
       body: [
         'A challenge is a small mission worth points: "get a photo with someone you have never met", "find the couple’s parents". Guests see them in the booth, and the Leaderboard wall mode turns the whole thing into a game.',
         'You can also have AI check the photo against the mission before it counts. Worth knowing how that behaves: if the check cannot run — bad wifi, a slow response — it lets the photo through anyway. A guest is never blocked by a hiccup on our side. If the check runs and disagrees, the guest can retake it or post without the challenge tag.',
@@ -1158,6 +1304,7 @@ const RUN_THE_NIGHT: GuideDoc = {
     {
       kind: 'prose',
       title: 'Make the album yours',
+      screen: 'setup-keepsake',
       body: [
         'Open Share & Print and find Design your keepsake. It is one panel with five steps, Look, Greeting, Take-home, Music and Sending, and the live preview beside them (above them on a phone) shows whatever the step you are on decides. The first time, the editor walks you through each step in order: a tick lands on every step you have seen, Next takes you on to the one after, and a last Review step lists everything you chose, with a Change link beside each line. Once you have seen them all, the steps become tabs you can jump between whenever you like. You can press Save on any step; nothing changes for guests until you do. A small dot marks every step with unsaved changes, and Reset to defaults puts the look and the words back if you change your mind.',
         'Look sets the colours and the opening moment. The theme is the colours: Beamwall (the default, deep night with a warm glow), Golden hour (warm amber), Midnight bloom (inky blue with soft pink), Confetti (bright and playful) and Ivory (light and classic). The opening moment is what guests see when they tap their album link, and the preview plays it in your colours: Beamwall beam (the default, a beam of light sweeping across), Envelope, Satin ribbon, Grand reveal, Paper airplane, Stardust, Pop-up paper, or Straight to the album if you would rather the photos were there the second the link opens.',
@@ -1270,6 +1417,18 @@ export function guideHighlights(doc: GuideDoc): string[] {
   let films = 0;
   let shots = 0;
   let steps = 0;
+  // Distinct real product screens a reader will see (the hub cover is the
+  // card's own picture, so it is not counted as something inside).
+  const screens = new Set<GuideScreenId>();
+  for (const b of doc.blocks) {
+    if (b.kind === 'prose' && b.screen !== undefined) {
+      screens.add(b.screen);
+    } else if (b.kind === 'steps') {
+      for (const st of b.steps) if (st.screen !== undefined) screens.add(st.screen);
+    } else if (b.kind === 'screens') {
+      for (const it of b.items) screens.add(it.screen);
+    }
+  }
   for (const b of doc.blocks) {
     if (b.kind === 'downloads') frames += b.entryIds.length;
     else if (b.kind === 'prompts') prompts += b.cardIds.length;
@@ -1282,6 +1441,7 @@ export function guideHighlights(doc: GuideDoc): string[] {
   if (prompts > 0) out.push(`${prompts} prompts`);
   if (films > 0) out.push(films === 1 ? 'Film' : `${films} films`);
   if (shots > 0) out.push('Labelled screenshot');
+  if (screens.size > 1) out.push(`${screens.size} real screens`);
   // Steps are the filler chip: every guide has them, so they only say anything
   // on a card that has nothing rarer to offer.
   if (steps > 0 && out.length < 2) out.push(`${steps} steps`);
