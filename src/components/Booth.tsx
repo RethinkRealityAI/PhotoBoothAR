@@ -1221,10 +1221,11 @@ export default function Booth() {
   // Picking a cover asks once for the names to print (Skip is remembered; the
   // chip below changes them any time).
   useEffect(() => {
-    if (!coverWantsNames || phase !== 'camera' || hasAskedCoverNames(eventId)) return;
+    // Only once the guest can see the cover (camera live, past the splash).
+    if (!coverWantsNames || phase !== 'camera' || !ready || hasAskedCoverNames(eventId)) return;
     setAskCoverNames(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCover?.template, coverWantsNames]);
+  }, [activeCover?.template, coverWantsNames, ready]);
   // The switch screen lifts once this booth can show something real: the AR
   // intro (its frame picked) or the live selfie camera. Never under 0.45 s (no
   // flicker), never over 4.5 s (a slow camera has its own screen).
