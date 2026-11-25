@@ -11,7 +11,8 @@ export const CAMERA_ON_PARAM = 'cam';
 /** The frame id to stand up, or null for the normal booth. */
 export function arFrameIdFrom(search: string): string | null {
   const v = new URLSearchParams(search).get(AR_PARAM);
-  return v && /^[A-Za-z0-9_-]{1,80}$/.test(v) ? v : null;
+  // `:` because built-in Frame ids carry it (builtin:cover:wedding).
+  return v && /^[A-Za-z0-9_:-]{1,80}$/.test(v) ? v : null;
 }
 
 /** `?wtrack=sensors|xr8` (tester override), else the build default. */
