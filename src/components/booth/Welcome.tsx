@@ -195,14 +195,14 @@ function SplashLinks({ basePath }: { basePath: string }) {
     <>
       <Link
         to={`${basePath}/wall`}
-        className="pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
+        className="sc-link-chip pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
       >
         <Images className="h-4 w-4" aria-hidden />
         See the live wall
       </Link>
       <Link
         to={`${basePath}/me`}
-        className="pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
+        className="sc-link-chip pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
       >
         <MediaStackIcon size={16} />
         My photos
@@ -219,7 +219,7 @@ function SplashLinks({ basePath }: { basePath: string }) {
  *  by the welcome page beside its booth CTA, which skips this splash. */
 export function PrivacyLine() {
   return (
-    <p className="max-w-[40ch] font-sans text-[12px] leading-relaxed sc-faint">
+    <p className="sc-privacy max-w-[40ch] font-sans text-[12px] leading-relaxed sc-faint">
       The camera runs on your device. Your photo only leaves it when you send it to the wall.
       {!IS_LEGACY_BUILD && (
         <>

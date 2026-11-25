@@ -354,3 +354,19 @@
 [data-tp-backdrop][data-compact] *::after { animation: none !important; }
 [data-tp-backdrop][data-compact] .ig-stars,
 [data-tp-backdrop][data-compact] .ig-birds { display: none; }
+
+/* ── Ways out + the privacy line (welcome cards, splash links) ─────────── */
+/* The event's own accent is the border: a solid rim, no travelling light. */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-card .sc-rim {
+  padding: 1.5px;
+  background: var(--color-accent);
+}
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-card .sc-rim > span { display: none; }
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-link-chip {
+  border: 1.5px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-brand-bg) 55%, transparent);
+  color: var(--color-brand-fg);
+  margin-inline: 4px;
+}
+/* The promise sits clear of the links and the phone above it. */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-privacy { margin-top: 1.25rem; }
