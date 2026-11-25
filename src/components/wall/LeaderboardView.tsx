@@ -58,13 +58,13 @@ function RankBadge({ rank, isWinner }: { rank: number; isWinner: boolean }) {
   );
 }
 
-function EntryRow({ entry, rank, delay }: { entry: LeaderboardEntry; rank: number; delay: number }) {
+function EntryRow({ entry, rank, delay, compact = false }: { entry: LeaderboardEntry; rank: number; delay: number; compact?: boolean }) {
   const isWinner = !!entry.completedAll && rank < 3;
   const style = isWinner ? RANK_STYLES[rank] : null;
 
   return (
     <motion.div
-      className="flex items-center gap-4 px-5 py-3.5 rounded-2xl"
+      className={compact ? 'flex items-center gap-3 px-3 py-2.5 rounded-2xl' : 'flex items-center gap-4 px-5 py-3.5 rounded-2xl'}
       initial={{ opacity: 0, x: -24 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] }}
@@ -93,7 +93,7 @@ function EntryRow({ entry, rank, delay }: { entry: LeaderboardEntry; rank: numbe
       </div>
 
       {/* Points */}
-      <div className="text-right shrink-0 w-24">
+      <div className={compact ? 'text-right shrink-0 w-16' : 'text-right shrink-0 w-24'}>
         <p
           className={
             isWinner && rank === 0
@@ -109,20 +109,20 @@ function EntryRow({ entry, rank, delay }: { entry: LeaderboardEntry; rank: numbe
       </div>
 
       {/* Photos */}
-      <div className="text-right shrink-0 w-16">
+      {!compact && <div className="text-right shrink-0 w-16">
         <p className="font-label text-champagne/70 text-base">{entry.photos}</p>
         <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/35">
           photos
         </p>
-      </div>
+      </div>}
 
       {/* Challenges */}
-      <div className="text-right shrink-0 w-20">
+      {!compact && <div className="text-right shrink-0 w-20">
         <p className="font-label text-champagne/70 text-base">{entry.challengesCompleted}</p>
         <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/35 leading-tight">
           challenges
         </p>
-      </div>
+      </div>}
     </motion.div>
   );
 }
@@ -133,7 +133,12 @@ function EntryRow({ entry, rank, delay }: { entry: LeaderboardEntry; rank: numbe
  * centred) inside the room under the header instead of clipping long boards.
  * Legacy walls leave it off and render exactly as before.
  */
-export default function LeaderboardView({ platform = false }: { platform?: boolean } = {}) {
+/**
+ * `compact` — the side panel of the wall's split screen: about a third of the
+ * screen wide, so it keeps rank, name and points and drops the photos and
+ * challenges columns.
+ */
+export default function LeaderboardView({ platform = false, compact = false }: { platform?: boolean; compact?: boolean } = {}) {
   const { leaderboard, fetchLeaderboard, copy } = useStore();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const visible = usePageVisible();
@@ -159,7 +164,7 @@ export default function LeaderboardView({ platform = false }: { platform?: boole
     // is exactly 1× at the 1440×900 design size.
     <div
       className={platform
-        ? 'absolute inset-0 flex flex-col items-center overflow-y-auto hide-scrollbar px-4 py-6 sm:px-6'
+        ? `absolute inset-0 flex flex-col items-center overflow-y-auto hide-scrollbar ${compact ? 'px-0 py-2' : 'px-4 py-6 sm:px-6'}`
         : 'absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-6 py-8'}
       style={platform
         ? { justifyContent: 'safe center' }
@@ -179,7 +184,7 @@ export default function LeaderboardView({ platform = false }: { platform?: boole
               {copy.fullName}
             </p>
           )}
-          <h2 className="font-serif italic text-4xl text-foil-static">
+          <h2 className={`font-serif italic text-foil-static ${compact ? 'text-3xl' : 'text-4xl'}`}>
             Leaderboard
           </h2>
           <div
@@ -189,9 +194,11 @@ export default function LeaderboardView({ platform = false }: { platform?: boole
                 'linear-gradient(to right, transparent, rgba(var(--accent-rgb),0.55), transparent)',
             }}
           />
-          <p className="mt-2 font-label uppercase tracking-luxe text-[9px] text-gold-300/70 flex items-center gap-1.5">
-            <Crown className="w-3 h-3" /> First three to finish every challenge are crowned champions
-          </p>
+          {!compact && (
+            <p className="mt-2 font-label uppercase tracking-luxe text-[9px] text-gold-300/70 flex items-center gap-1.5">
+              <Crown className="w-3 h-3" /> First three to finish every challenge are crowned champions
+            </p>
+          )}
         </div>
       </motion.div>
 
@@ -205,32 +212,36 @@ export default function LeaderboardView({ platform = false }: { platform?: boole
         }}
       >
         {/* Column headers */}
-        <div className="flex items-center gap-4 px-5 py-3 border-b border-gold-400/10">
+        <div className={`flex items-center border-b border-gold-400/10 ${compact ? 'gap-3 px-3 py-2.5' : 'gap-4 px-5 py-3'}`}>
           <div style={{ width: 40 }} />
           <div className="flex-1">
             <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40">
               Guest
             </p>
           </div>
-          <div className="text-right shrink-0 w-24">
+          <div className={compact ? 'text-right shrink-0 w-16' : 'text-right shrink-0 w-24'}>
             <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40">
               Points
             </p>
           </div>
-          <div className="text-right shrink-0 w-16">
-            <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40">
-              Photos
-            </p>
-          </div>
-          <div className="text-right shrink-0 w-20">
-            <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40">
-              Challenges
-            </p>
-          </div>
+          {!compact && (
+            <>
+              <div className="text-right shrink-0 w-16">
+                <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40">
+                  Photos
+                </p>
+              </div>
+              <div className="text-right shrink-0 w-20">
+                <p className="font-label uppercase tracking-luxe text-[9px] text-champagne/40">
+                  Challenges
+                </p>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Rows */}
-        <div className="flex flex-col gap-1 p-3">
+        <div className={`flex flex-col gap-1 ${compact ? 'p-2' : 'p-3'}`}>
           <AnimatePresence mode="popLayout">
             {leaderboard.length === 0 ? (
               <motion.div
@@ -251,6 +262,7 @@ export default function LeaderboardView({ platform = false }: { platform?: boole
                   entry={entry}
                   rank={i}
                   delay={i * 0.04}
+                  compact={compact}
                 />
               ))
             )}

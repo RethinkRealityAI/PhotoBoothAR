@@ -94,7 +94,7 @@ function motionFor(kind: WallTransition, reduced: boolean): Motion {
   }
 }
 
-function TileMedia({ post, canPlay }: { post: Post; canPlay: boolean }) {
+export function TileMedia({ post, canPlay }: { post: Post; canPlay: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const v = videoRef.current;
