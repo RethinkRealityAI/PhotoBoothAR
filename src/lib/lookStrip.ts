@@ -23,6 +23,7 @@
 import type { Experience } from '../types';
 import type { DeckCategory, DeckOption, DeckSection, DeckSelection } from './boothDeck';
 import { LOOK_TABS, type LookTab } from './lookTerms';
+import { guestLookTitles } from './lookLabels';
 
 /** Strip order: the host's own frames lead, generic effects come last. */
 export const LOOK_ORDER: readonly DeckCategory[] = ['frame', 'prop', 'effect'];
@@ -42,6 +43,12 @@ export interface LookItem extends DeckOption {
   category: LookSlot;
   /** The TAB a guest finds it under (lib/lookTerms). */
   tab: LookTab;
+  /**
+   * What a GUEST is shown: the look's name, or "Frame" / "Prop 2" for one the
+   * host never named (lib/lookLabels). `exp.name` stays untouched — it is what
+   * the booth applies and records.
+   */
+  title: string;
 }
 
 /** The slot a deck-section look fills. */
@@ -74,13 +81,15 @@ export function buildLookStrip(sections: readonly DeckSection[]): LookItem[] {
   for (const key of LOOK_ORDER) {
     const section = sections.find((s) => s.key === key);
     if (!section) continue;
-    for (const o of section.options) out.push({ ...o, category: lookSlotOf(key, o.exp), tab: lookTabOf(key, o.exp) });
+    for (const o of section.options) out.push({ ...o, category: lookSlotOf(key, o.exp), tab: lookTabOf(key, o.exp), title: o.exp.name });
   }
   // Stable: paint moves after props, everything else keeps its catalog order.
-  return out
+  const sorted = out
     .map((item, i) => ({ item, i }))
     .sort((a, b) => TAB_INDEX[a.item.tab] - TAB_INDEX[b.item.tab] || a.i - b.i)
     .map((x) => x.item);
+  const titles = guestLookTitles(sorted.map((i) => ({ name: i.exp.name, tab: i.tab })));
+  return sorted.map((item, i) => ({ ...item, title: titles[i] }));
 }
 
 /**
@@ -133,7 +142,7 @@ function idFor(category: LookSlot, strip: readonly LookItem[], sel: DeckSelectio
 }
 
 function nameOf(strip: readonly LookItem[], id: string): string | null {
-  return strip.find((i) => i.exp.id === id)?.exp.name ?? null;
+  return strip.find((i) => i.exp.id === id)?.title ?? null;
 }
 
 /**

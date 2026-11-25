@@ -81,8 +81,11 @@ import {
   canShareFiles,
   shareFiles,
   downloadBlob,
+  oneShareStep,
+  afterFileShare,
   CollectedFile,
   CollectFailure,
+  OneSharePhase,
 } from '../lib/bulkSave';
 import {
   CameraIcon,
@@ -236,8 +239,90 @@ async function downloadOne(media: GalaMedia, filePrefix: string): Promise<boolea
  * URL arrives in the group chat as a link nobody taps, a shared file arrives as
  * the photo. The URL share stays as the fallback for browsers that cannot take
  * files, and both are behind the same feature detection.
+ *
+ * The bytes are fetched BEFORE the tap that shares them. This used to fetch
+ * (and convert a WebM clip) inside the tap and only then call share(), which
+ * on venue wifi outlived the tap's transient activation — iOS then did nothing
+ * at all. Now the viewer prefetches as it opens (`eager`), a grid tile's first
+ * tap prepares and its second shares, and share() is called straight from the
+ * tap (lib/bulkSave oneShareStep / afterFileShare).
  */
-async function shareOne(
+function useOneShare(media: GalaMedia, filePrefix: string, eager: boolean) {
+  // Platform events only: the frozen coded events keep the original flow
+  // (shareOneLegacy) byte-for-byte.
+  const platform = useEvent().source === 'db';
+  const [phase, setPhase] = useState<OneSharePhase>('idle');
+  const [note, setNote] = useState<string | null>(null);
+  const filesRef = useRef<CollectedFile[]>([]);
+  const ctrlRef = useRef<AbortController | null>(null);
+  const can = useMemo(() => ({
+    files: canShareFiles(),
+    url: typeof navigator !== 'undefined' && !!navigator.share,
+  }), []);
+  const { id, image_url, media_type, createdAt } = media;
+
+  const prepare = useCallback(async () => {
+    ctrlRef.current?.abort();
+    const ctrl = new AbortController();
+    ctrlRef.current = ctrl;
+    filesRef.current = [];
+    setPhase('preparing');
+    setNote(null);
+    try {
+      const item: KeepsakeItem = { id, url: image_url, kind: media_type === 'video' ? 'video' : 'image', createdAt };
+      const res = await collectFiles([item], { filePrefix, prepareVideo: shareableVideo, signal: ctrl.signal });
+      if (ctrl.signal.aborted) return;
+      if (res.files.length > 0) {
+        filesRef.current = res.files;
+        setPhase('ready');
+        return;
+      }
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      console.error('[MyPhotos] share prepare failed', err);
+    }
+    setPhase('failed');
+    setNote(can.url ? 'Couldn’t load the file — Share sends a link instead.' : 'Couldn’t load it — tap Share to try again.');
+  }, [id, image_url, media_type, createdAt, filePrefix, can.url]);
+
+  // The viewer prefetches as it opens, so its one tap can share at once.
+  useEffect(() => {
+    if (platform && eager && can.files) void prepare();
+    return () => ctrlRef.current?.abort();
+  }, [platform, eager, can.files, prepare]);
+
+  const shareLink = (meta: { title: string; text: string }) => {
+    // Called straight from the tap (or from a file share that never opened).
+    navigator.share({ title: meta.title, text: meta.text, url: image_url }).catch((err: unknown) => {
+      const name = err instanceof Error ? err.name : '';
+      if (name !== 'AbortError') setNote('Your phone wouldn’t share this one — tap Save to keep it.');
+    });
+  };
+
+  /** MUST run synchronously inside the tap's handler. */
+  const tap = (meta: { title: string; text: string }) => {
+    if (!platform) {
+      setPhase('preparing');
+      void shareOneLegacy(media, filePrefix, meta).then(() => setPhase('idle'));
+      return;
+    }
+    const step = oneShareStep(phase, can);
+    if (step === 'prepare') { void prepare(); return; }
+    if (step === 'share-url') { shareLink(meta); return; }
+    if (step !== 'share-files') return;
+    setNote(null);
+    void shareFiles(filesRef.current, meta).then((out) => {
+      const next = afterFileShare(out, can.url);
+      if (next === 'share-url') shareLink(meta);
+      else if (next === 'save') setNote('Your phone wouldn’t share this one — tap Save to keep it.');
+    });
+  };
+
+  return { phase, note, tap, platform };
+}
+
+/** The original single share, kept verbatim for legacy (coded) events. */
+async function shareOneLegacy(
   media: GalaMedia,
   filePrefix: string,
   meta: { title: string; text: string },
@@ -922,9 +1007,12 @@ function MediaCard({
   removing?: boolean;
 }) {
   const [downloading, setDownloading] = useState(false);
-  const [sharing, setSharing] = useState(false);
   const canShare = typeof navigator !== 'undefined' && !!navigator.share;
   const isVideo = media.media_type === 'video';
+  // A grid tile does not prefetch (a gallery of clips would pull every one
+  // over venue wifi): its first Share tap prepares, its second shares.
+  const share = useOneShare(media, filePrefix, false);
+  const sharing = share.phase === 'preparing';
 
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -934,17 +1022,15 @@ function MediaCard({
     setDownloading(false);
   };
 
-  const handleShare = async (e: React.MouseEvent) => {
+  const handleShare = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!canShare) return;
     haptic('tap');
-    setSharing(true);
     const copy = useStore.getState().copy;
-    await shareOne(media, filePrefix, {
+    share.tap({
       title: copy.momentTitle,
       text: media.message ?? copy.shareText,
     });
-    setSharing(false);
   };
 
   return (
@@ -1011,6 +1097,11 @@ function MediaCard({
             {media.message}
           </p>
         )}
+        {canShare && (share.phase === 'ready' || share.note !== null) && (
+          <p role="status" className="px-0.5 font-sans text-[11px] leading-snug text-brand-fg/85">
+            {share.note ?? 'Ready — tap Share again'}
+          </p>
+        )}
         <div className="flex gap-2">
           <button
             onClick={handleDownload}
@@ -1033,8 +1124,10 @@ function MediaCard({
               onClick={handleShare}
               disabled={sharing}
               className="pressable shrink-0 inline-flex items-center justify-center text-brand-fg rounded-xl bg-white/[0.10] border border-white/15 disabled:opacity-60"
-              style={{ width: 44, minHeight: 44 }}
-              aria-label="Share"
+              style={share.phase === 'ready'
+                ? { width: 44, minHeight: 44, boxShadow: '0 0 0 2px var(--color-accent), 0 0 14px -2px rgba(var(--accent-rgb),0.8)' }
+                : { width: 44, minHeight: 44 }}
+              aria-label={!share.platform ? 'Share' : sharing ? 'Preparing to share' : share.phase === 'ready' ? 'Share — ready' : 'Share'}
             >
               {sharing ? (
                 <span className="block w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
@@ -1093,9 +1186,11 @@ function Lightbox({
 }) {
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Your moment');
   const [downloading, setDownloading] = useState(false);
-  const [sharing, setSharing] = useState(false);
   const canShare = typeof navigator !== 'undefined' && !!navigator.share;
   const isVideo = media.media_type === 'video';
+  // The viewer prefetches as it opens, so one tap opens the share sheet.
+  const share = useOneShare(media, filePrefix, canShare);
+  const sharing = share.phase === 'preparing';
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -1103,15 +1198,13 @@ function Lightbox({
     setDownloading(false);
   };
 
-  const handleShare = async () => {
+  const handleShare = () => {
     if (!canShare) return;
-    setSharing(true);
     const copy = useStore.getState().copy;
-    await shareOne(media, filePrefix, {
+    share.tap({
       title: copy.momentTitle,
       text: media.message ?? copy.shareText,
     });
-    setSharing(false);
   };
 
   return (
@@ -1187,13 +1280,27 @@ function Lightbox({
               onClick={handleShare}
               disabled={sharing}
               className="pressable inline-flex items-center justify-center gap-2 text-brand-fg font-label uppercase tracking-luxe text-[11px] min-h-12 px-5 rounded-xl bg-white/[0.10] border border-white/15 disabled:opacity-60"
-              aria-label="Share"
+              aria-label={share.platform && sharing ? 'Preparing to share' : 'Share'}
             >
-              <ShareIcon size={15} />
-              Share
+              {share.platform && sharing ? (
+                <>
+                  <span className="block w-4 h-4 rounded-full border-2 border-current/30 border-t-current animate-spin" />
+                  Preparing
+                </>
+              ) : (
+                <>
+                  <ShareIcon size={15} />
+                  Share
+                </>
+              )}
             </button>
           )}
         </div>
+        {share.note !== null && (
+          <p role="status" className="mt-3 text-center font-sans text-[12px] text-brand-fg/80 px-4">
+            {share.note}
+          </p>
+        )}
 
         <button
           onClick={onClose}

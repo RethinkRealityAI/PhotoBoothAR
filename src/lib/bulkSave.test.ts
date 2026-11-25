@@ -11,6 +11,8 @@ import {
   archiveOf,
   canShareFiles,
   shareFiles,
+  oneShareStep,
+  afterFileShare,
   ArchiveTooBigError,
   MAX_ARCHIVE_BYTES,
   CollectedFile,
@@ -299,5 +301,47 @@ describe('shareFiles', () => {
         expect(await shareFiles(files, {})).toBe('failed');
       },
     );
+  });
+
+  it('calls share() synchronously, inside the tap — no await before the sheet opens', async () => {
+    const share = vi.fn(() => Promise.resolve());
+    await withNav({ canShare: () => true, share }, async () => {
+      const pending = shareFiles(files, {});
+      // Nothing has been awaited yet: the call must already have happened,
+      // or iOS drops it for lack of transient activation.
+      expect(share).toHaveBeenCalledTimes(1);
+      expect(await pending).toBe('shared');
+    });
+  });
+});
+
+describe('oneShareStep', () => {
+  const both = { files: true, url: true };
+  it('prepares on the first tap, waits while preparing, shares files once ready', () => {
+    expect(oneShareStep('idle', both)).toBe('prepare');
+    expect(oneShareStep('preparing', both)).toBe('wait');
+    expect(oneShareStep('ready', both)).toBe('share-files');
+  });
+  it('falls back to a link when the file could not be fetched', () => {
+    expect(oneShareStep('failed', both)).toBe('share-url');
+    expect(oneShareStep('failed', { files: true, url: false })).toBe('prepare');
+  });
+  it('shares the link straight from the tap when files are unsupported', () => {
+    expect(oneShareStep('idle', { files: false, url: true })).toBe('share-url');
+    expect(oneShareStep('ready', { files: false, url: true })).toBe('share-url');
+    expect(oneShareStep('idle', { files: false, url: false })).toBe('none');
+  });
+});
+
+describe('afterFileShare', () => {
+  it('is done after a share or a cancel', () => {
+    expect(afterFileShare('shared', true)).toBe('done');
+    expect(afterFileShare('cancelled', true)).toBe('done');
+  });
+  it('tries the link, else says to Save, when the phone refused the file', () => {
+    expect(afterFileShare('unsupported', true)).toBe('share-url');
+    expect(afterFileShare('failed', true)).toBe('share-url');
+    expect(afterFileShare('failed', false)).toBe('save');
+    expect(afterFileShare('unsupported', false)).toBe('save');
   });
 });

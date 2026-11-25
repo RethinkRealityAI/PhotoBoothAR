@@ -439,3 +439,22 @@ describe('the paint slot', () => {
     expect(categoryBreaks(PSTRIP).has('fp1')).toBe(true);
   });
 });
+
+describe('guest titles (platform strip)', () => {
+  const UNNAMED = [
+    exp('f1', 'border', 'Gold Border'),
+    exp('f2', 'border', 'Untitled Experience'),
+    exp('p1', '3d_attachment', 'Untitled 3D Experience'),
+  ];
+  const strip = buildLookStrip(buildDeck(UNNAMED));
+
+  it('labels a look the host never named by its kind, leaving exp.name alone', () => {
+    expect(strip.map((i) => i.title)).toEqual(['Gold Border', 'Frame', 'Prop']);
+    expect(strip.find((i) => i.exp.id === 'f2')!.exp.name).toBe('Untitled Experience');
+  });
+
+  it('the name pill announces the guest title, never "Untitled Experience"', () => {
+    const next: DeckSelection = { ...NONE, frameId: 'f2' };
+    expect(changedLook(strip, NONE, next)).toEqual({ id: 'f2', name: 'Frame', on: true });
+  });
+});
