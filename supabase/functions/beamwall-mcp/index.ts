@@ -745,6 +745,12 @@ async function callTool(sb: Client, caller: Caller, params: Record<string, unkno
     }
   }
   const changeId = await writeAudit(sb, caller, name, v.args, outcome, started);
+  // Link an undo to the change it reversed, so it cannot be undone twice and
+  // the change log can show "undone by #n".
+  if (name === 'undo_change' && !outcome.isError && changeId !== null) {
+    const { error } = await sb.from('mcp_audit').update({ reverted_by: changeId }).eq('id', v.args.change_id as number);
+    if (error) console.error('[beamwall-mcp] reverted_by stamp failed', error);
+  }
   const wrote = outcome.table && outcome.status !== 'dry_run' && !outcome.isError && def.readOnly !== true;
   const result = wrote && isPlainObject(outcome.result) && changeId !== null
     ? { ...outcome.result, changeId }

@@ -12,7 +12,7 @@ export type AdminNavId =
   | 'overview' | 'customers' | 'events' | 'support'
   | 'payments' | 'catalog' | 'credits'
   | 'library' | 'home-assets' | 'landing' | 'reveals' | 'qr-cards'
-  | 'features' | 'users' | 'audit' | 'admins';
+  | 'features' | 'users' | 'audit' | 'admins' | 'connector';
 
 export interface AdminNavEntry {
   id: AdminNavId;
@@ -62,6 +62,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { id: 'users', to: '/admin/users', label: 'Users' },
       { id: 'audit', to: '/admin/audit', label: 'Audit log' },
       { id: 'admins', to: '/admin/admins', label: 'Admins' },
+      { id: 'connector', to: '/admin/connector', label: 'Claude connector' },
     ],
   },
 ];
