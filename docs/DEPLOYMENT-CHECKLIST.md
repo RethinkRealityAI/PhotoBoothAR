@@ -358,6 +358,39 @@ on free public-repo runners (renders with the runner's Chrome; ~3.5 min per film
   (`config.keepsakes.autoSend = false`).
 - Inspect runs (service role): `select * from keepsake_runs order by claimed_at desc`.
 
+## 4e. Session + error monitoring — PostHog (added 2026-11-25)
+
+Free tier covers us many times over (Nov 2026: 5,000 replays, 100,000
+exceptions, 1M events a month, no card needed). Without a key nothing breaks:
+errors still land in Supabase `client_errors`, now with a `breadcrumbs` trail
+and surface/event/user/device in `context`.
+
+1. Sign up at posthog.com → **US Cloud** (the `/ingest` proxy in netlify.toml
+   points at US; an EU project needs both hosts there changed to `eu.*`).
+2. Project settings → copy the **Project API key** (`phc_…`; public by design).
+3. Netlify → site `beamwall` → Site configuration → Environment variables →
+   add `VITE_POSTHOG_KEY` = that key (all deploy contexts) → trigger a deploy
+   (Vite inlines it at build time, so a deploy is required).
+4. PostHog project settings: turn **Session replay** ON, **Error tracking**
+   (exception autocapture) ON, **Record canvas** OFF (we also block every
+   `<video>`/`<canvas>` in code), **Capture console logs** ON.
+5. Claude access: claude.ai → Settings → Connectors → add the official
+   PostHog MCP (`https://mcp.posthog.com/mcp`) so a thread can query errors,
+   replays and per-session timelines directly.
+6. Check: open a booth on a phone, switch looks, background the tab, come
+   back. PostHog → Activity shows `booth_opened`, `camera_started`,
+   `look_switched`, `booth_hidden`/`booth_visible`; Replay shows the session
+   with the camera area blacked out.
+
+What is recorded (src/lib/telemetry.ts, components/booth/useBoothTelemetry.ts):
+`camera_started/lost/regained` (with outage ms), `camera_flapping` and
+`camera_stuck` (also written to `client_errors` as `BoothIncident`),
+`camera_error`, `tracker_state`/`tracker_failed`, `look_switched`,
+`booth_hidden/visible`, pageviews, exceptions. Guests are anonymous; signed-in
+hosts/admins are identified by account id + email. The live wall never
+records a replay. Find a session in Supabase with
+`select created_at, message, context from client_errors where session_id = '<telemetry_session>'`.
+
 ## 5. Keepsake MP4 film — HeyGen HyperFrames (Deluxe add-on)
 
 Ships **disabled** by default (`card-render` returns `render_not_configured`,
