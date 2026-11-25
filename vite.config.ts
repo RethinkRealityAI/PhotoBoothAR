@@ -14,6 +14,8 @@ import {defineConfig, loadEnv, type Plugin} from 'vite';
 const LEGACY_HEAD: ReadonlyArray<readonly [string, string]> = [
   ['<meta name="theme-color" content="#262566" />', '<meta name="theme-color" content="#05060B" />'],
   // "Virtual photo booth" positioning (2026-11-25) is platform copy only.
+  ['choose ready-made Looks (frames, 3D props and effects); guests', 'choose ready-made frames and filters; guests'],
+  ['choose ready-made Looks (frames, 3D props and effects), and', 'choose ready-made frames and filters, and'],
   ['<meta name="description" content="An immersive virtual photo booth on every guest phone. Think Snapchat and Instagram, in the browser with no sign-in. Every shot beams to your live wall. Free to start." />', '<meta name="description" content="Every guest phone becomes the booth. Guests scan, snap in AR, and every shot beams to your live wall. No app for guests, and free to start." />'],
   ['<meta property="og:title" content="Beamwall · Your immersive virtual photo booth" />', '<meta property="og:title" content="Beamwall · Your immersive photo booth" />'],
   ['<meta property="og:description" content="An immersive virtual photo booth on every guest phone. Think Snapchat and Instagram, in the browser with no sign-in. Free to start." />', '<meta property="og:description" content="Every guest phone becomes the booth. Guests scan, snap in AR, and every shot beams to your live wall. Free to start." />'],

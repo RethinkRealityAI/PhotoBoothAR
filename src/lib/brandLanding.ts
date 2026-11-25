@@ -209,7 +209,7 @@ export type StoryClip = 'Wave' | 'Hop' | 'BeamyBlast' | 'Dance' | 'ShadesOn';
 
 export const STORY_STEPS: { id: StoryFxId; title: string; body: string; clip: StoryClip; yaw: number }[] = [
   { id: 'qr', title: 'Guests scan a QR code', body: 'Their own phone becomes your booth. No app, no sign-in.', clip: 'Wave', yaw: 0.55 },
-  { id: 'prop', title: 'They dress up in augmented reality (AR)', body: 'Frames, filters and 3D props in your colours, tracked on every face.', clip: 'ShadesOn', yaw: 0.45 },
+  { id: 'prop', title: 'They dress up in augmented reality (AR)', body: 'Frames, 3D props, face paint and effects in your colours, tracked on every face.', clip: 'ShadesOn', yaw: 0.45 },
   { id: 'wall', title: 'Every shot beams to your wall', body: 'Photos land on the live wall the moment they are taken.', clip: 'BeamyBlast', yaw: 0.6 },
   { id: 'medal', title: 'Challenges keep it going', body: 'Missions and points get the whole room mingling.', clip: 'Dance', yaw: 0.35 },
   { id: 'keepsake', title: 'Everyone gets a digital keepsake', body: KEEPSAKE_PROMISE.step, clip: 'Hop', yaw: 0.5 },

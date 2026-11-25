@@ -27,7 +27,8 @@ describe('beamyStory', () => {
   });
 
   it('says what the AR picker offers, on-brand', () => {
-    expect(AR_COPY.line).toMatch(/filters/);
+    expect(AR_COPY.line).toMatch(/frames/);
+    expect(AR_COPY.line).not.toMatch(/filters/); // Looks vocabulary (owner rule)
     expect(AR_COPY.line).toMatch(/props/);
     expect(AR_COPY.line).toMatch(/effects/);
     for (const l of Object.values(AR_COPY)) {
