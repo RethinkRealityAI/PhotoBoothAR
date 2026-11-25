@@ -11,7 +11,7 @@
 export type AdminNavId =
   | 'overview' | 'customers' | 'events' | 'support'
   | 'payments' | 'catalog' | 'credits'
-  | 'library' | 'home-assets' | 'landing' | 'reveals'
+  | 'library' | 'home-assets' | 'landing' | 'reveals' | 'qr-cards'
   | 'features' | 'users' | 'audit' | 'admins';
 
 export interface AdminNavEntry {
@@ -52,6 +52,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { id: 'home-assets', to: '/admin/home-assets', label: 'Homepage' },
       { id: 'landing', to: '/admin/landing', label: 'Classic landing' },
       { id: 'reveals', to: '/admin/reveals', label: 'Reveals' },
+      { id: 'qr-cards', to: '/admin/qr-cards', label: 'QR cards' },
     ],
   },
   {
