@@ -96,9 +96,13 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
         <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-center gap-x-14 gap-y-5 px-7 pt-safe-top pb-safe-bottom [--safe-top:2rem] [--safe-bottom:1.75rem] sm:px-12 lg:flex-row">
           {/* ── The name and the room's pulse ── */}
           <div className="flex min-w-0 flex-col items-center text-center lg:flex-1 lg:items-start lg:text-left">
-            <motion.div className="flex items-center gap-2.5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.04)}>
-              <Emblem size={30} className="shrink-0" />
-              <span className="font-sans text-[13px] font-medium sc-faint">Photo booth</span>
+            {/* The product line beside the event's badge (Dapo, 2026-11-25:
+                "much bigger and a little bit more prominent"). */}
+            <motion.div className="flex items-center gap-3.5 sm:gap-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.04)}>
+              <Emblem size={56} className="shrink-0" />
+              <span className="max-w-[16ch] text-left font-sans text-[19px] font-semibold leading-[1.15] tracking-[0.005em] sc-ink sm:max-w-none sm:text-[22px]">
+                Immersive Virtual Photo Booth
+              </span>
             </motion.div>
             <motion.h1
               className="sc-display mt-3 max-w-[13ch] break-words text-[clamp(38px,10vw,84px)] font-semibold leading-[0.98] sc-ink"
