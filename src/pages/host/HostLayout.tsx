@@ -18,6 +18,7 @@ import { usePageTitle } from '../../lib/usePageTitle';
 import { haptic } from '../../lib/haptics';
 import { readTextSize, writeTextSize, type TextSize, type TextSizeStore } from '../../lib/textSize';
 import { useAiJobSweep } from '../../lib/useAiJobSweep';
+import { useAiAccess } from '../../lib/aiAccess';
 import { ToastProvider } from '../../components/ui/Toast';
 import Tooltip from '../../components/ui/Tooltip';
 import RailToggle from '../../components/ui/RailToggle';
@@ -57,6 +58,8 @@ function applyTextSize(size: TextSize) {
 
 export default function HostLayout() {
   const navigate = useNavigate();
+  // Concierge is an AI surface: hidden while the owner's AI switch (054) is off.
+  const ai = useAiAccess();
   const { session, loading } = useSession();
   const [orgName, setOrgName] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
@@ -259,12 +262,14 @@ export default function HostLayout() {
           </NavLink>
           </Tooltip>
 
+          {ai === true && (
           <Tooltip label="Concierge" side="right" disabled={!c}>
           <NavLink to="/host/concierge" onClick={() => haptic('tap')} aria-label="Concierge" className={({ isActive }) => `${deskOnly} ${railState(isActive)}`}>
             <Sparkles className="w-[18px] h-[18px] shrink-0 text-[color:var(--color-accent)]" />
             <span className={lbl}>Concierge</span>
           </NavLink>
           </Tooltip>
+          )}
 
           <Tooltip label={credits !== null ? `Billing · ${credits} credit${credits === 1 ? '' : 's'}` : 'Billing'} side="right" disabled={!c}>
           <NavLink to="/host/billing" onClick={() => haptic('tap')} aria-label="Billing" className={({ isActive }) => `${deskOnly} ${railState(isActive)}`}>
@@ -386,9 +391,11 @@ export default function HostLayout() {
             onKeyDown={onMenuKey}
             className="liquid-glass-raised rounded-2xl p-1.5 flex flex-col"
           >
+            {ai === true && (
             <Link role="menuitem" tabIndex={-1} to="/host/concierge" className={menuItem}>
               <Sparkles className="w-[18px] h-[18px] text-[color:var(--color-accent)]" aria-hidden /> Concierge
             </Link>
+            )}
             <Link role="menuitem" tabIndex={-1} to="/host/billing" className={menuItem}>
               <CreditCard className="w-[18px] h-[18px]" aria-hidden /> Billing
               {credits !== null && <span className="ml-auto text-[12px] text-brand-muted">{credits} credit{credits === 1 ? '' : 's'}</span>}

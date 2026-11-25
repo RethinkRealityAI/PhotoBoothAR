@@ -15,6 +15,7 @@
  */
 import { lazy, Suspense, useLayoutEffect, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { useAiAccess } from './lib/aiAccess';
 // Eager: the auth/legal surfaces a first-time visitor hits. Kept in the
 // initial bundle so first paint doesn't wait on a chunk fetch. The homepage
 // (BeamyPage, below) is lazy: it pulls the 3D stack, which must never reach
@@ -110,13 +111,25 @@ const CopilotPanel = lazy(() => import('./components/copilot/CopilotPanel'));
  *  critical path. Its state lives in the zustand store, not here. */
 function HostCopilot() {
   const { pathname } = useLocation();
+  // Owner's AI switch (migration 054): hosts see no Copilot while it is off.
+  const ai = useAiAccess();
   if (!pathname.startsWith('/host')) return null;
+  if (ai !== true) return null;
   return (
     <>
       <CopilotFab />
       <CopilotPanel />
     </>
   );
+}
+/** AI-only host pages (/host/concierge, /host/new/assistant): while the
+ *  owner's AI switch is off for this user, send them to the non-AI path
+ *  instead of a chat the server would refuse. Renders nothing until known. */
+function AiRoute({ children, fallback }: { children: ReactNode; fallback: string }) {
+  const ai = useAiAccess();
+  if (ai === null) return null;
+  if (ai === false) return <Navigate to={fallback} replace />;
+  return <>{children}</>;
 }
 // Lazy too: nothing is loaded until somebody actually reports something.
 const SupportDialog = lazy(() => import('./components/support/SupportDialog'));
@@ -405,8 +418,8 @@ export default function App() {
               <Route path="/host/setup/:eventId/:step?" element={<EventWizard />} />
               <Route path="/host" element={<HostLayout />}>
                 <Route index element={<EventsList />} />
-                <Route path="new/assistant" element={<NewEvent />} />
-                <Route path="concierge" element={<Concierge />} />
+                <Route path="new/assistant" element={<AiRoute fallback="/host/new"><NewEvent /></AiRoute>} />
+                <Route path="concierge" element={<AiRoute fallback="/host"><Concierge /></AiRoute>} />
                 <Route path="billing" element={<Billing />} />
                 <Route path="support" element={<HostSupport />} />
                 {/* Deep-linked asset import (?src=…) — reached from a link, not

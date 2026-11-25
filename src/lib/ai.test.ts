@@ -74,6 +74,8 @@ const COVERAGE: Record<AiErrorCode, 'retryable' | 'hard'> = {
   content_blocked: 'hard',
   insufficient_credits: 'hard',
   upgrade_required: 'hard',
+  // The owner's switch is off for this user — retrying cannot change that.
+  ai_disabled: 'hard',
   unauthorized: 'hard',
   forbidden: 'hard',
 };

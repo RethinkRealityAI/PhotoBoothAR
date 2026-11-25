@@ -926,6 +926,17 @@ Deno.serve(async (req: Request) => {
     if (memErr) throw memErr;
     if (!member) return json(403, { error: 'forbidden' });
 
+    // 3b. Platform switch (migration 054): host-facing AI is owner-controlled.
+    //     ai_allowed_for = platform admin OR platform_settings.ai_for_hosts.
+    //     BEFORE the trial allowance, the entitlement gate and any spend.
+    //     Fails CLOSED: an unreadable switch never opens AI to hosts.
+    const { data: aiOk, error: aiErr } = await sb.rpc('ai_allowed_for', { p_user: user.id });
+    if (aiErr) {
+      console.error('[ai-generate-image] ai_allowed_for failed', aiErr);
+      return json(503, { error: 'ai_unavailable' });
+    }
+    if (aiOk !== true) return json(403, { error: 'ai_disabled' });
+
     // 4·. Charge-safe retry (jobPolicy.retryEligibility). A read-only check
     //     here; the ATOMIC claim that makes double use impossible happens just
     //     before the job insert. Ineligible → an ordinary, charged generation

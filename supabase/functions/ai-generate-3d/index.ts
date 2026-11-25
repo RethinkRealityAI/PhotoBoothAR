@@ -256,6 +256,17 @@ Deno.serve(async (req: Request) => {
     if (memErr) throw memErr;
     if (!member) return json(403, { error: 'forbidden' });
 
+    // 3b. Platform switch (migration 054): host-facing AI is owner-controlled.
+    //     ai_allowed_for = platform admin OR platform_settings.ai_for_hosts.
+    //     BEFORE the trial allowance, the entitlement gate and any spend.
+    //     Fails CLOSED: an unreadable switch never opens AI to hosts.
+    const { data: aiOk, error: aiErr } = await sb.rpc('ai_allowed_for', { p_user: user.id });
+    if (aiErr) {
+      console.error('[ai-generate-3d] ai_allowed_for failed', aiErr);
+      return json(503, { error: 'ai_unavailable' });
+    }
+    if (aiOk !== true) return json(403, { error: 'ai_disabled' });
+
     // 4. aiStudio entitlement, resolved by the DATABASE (migration 028).
     //    Same three rules as the local constants encoded — paid event tier,
     //    active org Pro, legacy slug — plus per-customer comps.
