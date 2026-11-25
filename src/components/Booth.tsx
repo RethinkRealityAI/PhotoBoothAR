@@ -464,7 +464,11 @@ export default function Booth() {
     skipBoothSplash(source === 'db', location.state)
     || arFrameId !== null
     || (source === 'db' && new URLSearchParams(location.search).get(CAMERA_ON_PARAM) === '1'));
-  const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
+  // `?mode=video` opens a platform booth straight in Video mode (tester and
+  // preview links; the entitlement effect below still snaps it back to photo
+  // when the plan has no video). Legacy builds ignore it.
+  const [mediaMode, setMediaMode] = useState<MediaMode>(() =>
+    source === 'db' && new URLSearchParams(location.search).get('mode') === 'video' ? 'video' : 'photo');
 
   // Video capture is entitlement-gated. If the flag resolves after the guest
   // already toggled, snap back to photo mode.
@@ -1821,6 +1825,9 @@ export default function Booth() {
   async function stopRecording(recOverride?: StreamRecorder) {
     const rec = recOverride ?? recorderRef.current;
     if (!rec) return;
+    // Clip length is measured at the tap: stop() then spends a moment turning
+    // the recording into a plain MP4 (lib/mp4Export.ts).
+    const stoppedAt = performance.now();
     const blob = await rec.stop();
     rec.dispose();
     recorderRef.current = null;
@@ -1829,7 +1836,7 @@ export default function Booth() {
     recordVideoUrlRef.current = url;
     setCapturedDataUrl(url);
     setCapturedBlobRef(blob);
-    setCapturedDurationMs(Math.max(0, Math.round(performance.now() - recordStartRef.current)));
+    setCapturedDurationMs(Math.max(0, Math.round(stoppedAt - recordStartRef.current)));
     capturedMediaTypeRef.current = 'video';
     setRecording(false);
     publishRecordingMs(0);

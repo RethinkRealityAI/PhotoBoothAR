@@ -295,9 +295,10 @@ export default function CameraExperience({
     const rec = recOverride ?? recorderRef.current;
     if (!rec || recorderRef.current !== rec) return;
     recorderRef.current = null;
+    // Measured at the tap: stop() then spends a moment tidying the MP4.
+    const durationMs = Math.max(0, Math.round(performance.now() - recordStartRef.current));
     const blob = await rec.stop();
     rec.dispose();
-    const durationMs = Math.max(0, Math.round(performance.now() - recordStartRef.current));
     setRecording(false);
     setRecordingMs(0);
     // A clip with no data (stream died at once) is not worth handing over.
