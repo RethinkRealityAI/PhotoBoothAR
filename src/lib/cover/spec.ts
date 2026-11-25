@@ -21,6 +21,8 @@ export interface CoverSettings {
   template: CoverTemplateId;
   /** Masthead override ("AMOUR" by default). Short, so it fits one line. */
   title?: string;
+  /** Printed along the bottom, without its "#" ("ForeverWeDo"). */
+  hashtag?: string;
   /** Up to three names the cover is about ("Ada", "Tunde"). */
   honorees?: string[];
   /** Replaces the lead cover line's headline. */
@@ -31,7 +33,8 @@ export interface CoverSettings {
   guestNames?: boolean;
 }
 
-export const COVER_TITLE_MAX = 12;
+export const COVER_TITLE_MAX = 18;
+export const COVER_HASHTAG_MAX = 30;
 export const COVER_NAME_MAX = 24;
 export const COVER_HEADLINE_MAX = 48;
 export const COVER_MAX_HONOREES = 3;
@@ -53,6 +56,15 @@ export function normalizeNames(raw: unknown, max: number): string[] {
   return out;
 }
 
+/**
+ * "#Forever We Do!" → "ForeverWeDo": no "#", no spaces or punctuation, only
+ * letters, digits and underscores (what a hashtag can hold), capped.
+ */
+export function normalizeHashtag(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.normalize('NFC').replace(/[^\p{L}\p{N}_]/gu, '').slice(0, COVER_HASHTAG_MAX);
+}
+
 /** One stored entry → settings, or null when it is not a cover. */
 export function normalizeCover(raw: unknown): CoverSettings | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -61,6 +73,8 @@ export function normalizeCover(raw: unknown): CoverSettings | null {
   const out: CoverSettings = { template: r.template };
   const title = clip(r.title, COVER_TITLE_MAX);
   if (title !== '') out.title = title;
+  const hashtag = normalizeHashtag(r.hashtag);
+  if (hashtag !== '') out.hashtag = hashtag;
   const honorees = normalizeNames(r.honorees, COVER_MAX_HONOREES);
   if (honorees.length > 0) out.honorees = honorees;
   const headline = clip(r.headline, COVER_HEADLINE_MAX);
@@ -171,6 +185,8 @@ export interface ResolvedCover {
   left: ResolvedLine[];
   right: ResolvedLine[];
   banner: [string, string, string];
+  /** "#ForeverWeDo", or '' when the host set none. */
+  hashtag: string;
 }
 
 export function resolveCover(settings: CoverSettings, eventName: string, guests: readonly string[], now = new Date()): ResolvedCover {
@@ -199,6 +215,7 @@ export function resolveCover(settings: CoverSettings, eventName: string, guests:
     left,
     right: lines(template.right),
     banner: [...template.banner],
+    hashtag: settings.hashtag ? `#${settings.hashtag}` : '',
   };
 }
 

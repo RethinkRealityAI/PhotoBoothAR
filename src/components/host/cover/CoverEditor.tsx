@@ -7,7 +7,7 @@
  * all inside the viewport.
  *
  *   Style   pick the occasion's cover and turn it on for guests
- *   Words   the masthead title and the lead headline
+ *   Words   the masthead title, the lead headline, the date and the hashtag
  *   Names   who the cover is about (up to three) and whether guests are
  *           asked to put their own names on it
  *
@@ -21,7 +21,7 @@ import type { EditorSaveState } from '../../editor/SaveChip';
 import FitFrame from '../../editor/FitFrame';
 import { CoverRoomPreview, CoverSelfiePreview } from './CoverPreview';
 import {
-  COVER_HEADLINE_MAX, COVER_MAX_HONOREES, COVER_NAME_MAX, COVER_TITLE_MAX,
+  COVER_HASHTAG_MAX, COVER_HEADLINE_MAX, COVER_MAX_HONOREES, COVER_NAME_MAX, COVER_TITLE_MAX,
   normalizeCover, normalizeNames, removeCover, resolveCover, upsertCover, type CoverSettings,
 } from '../../../lib/cover/spec';
 import { COVER_TEMPLATES, COVER_TEMPLATE_MAP, type CoverTemplateId } from '../../../lib/cover/templates';
@@ -42,13 +42,13 @@ export interface CoverEditorProps {
 
 const TABS: readonly EditorTab[] = [
   { id: 'style', label: 'Style', Icon: Palette, blurb: 'One cover per occasion. Turn on as many as you like: guests find them first in Frames, and as 3D in Props.' },
-  { id: 'words', label: 'Words', Icon: Type, blurb: 'The title across the top and the lead story. Keep the title short: it is cut in 3D letters.' },
+  { id: 'words', label: 'Words', Icon: Type, blurb: 'The title across the top, the lead story and the hashtag along the bottom. Keep the title short: it is cut in 3D letters.' },
   { id: 'names', label: 'Names', Icon: Users, blurb: 'Who the cover celebrates. Guests can add their own names as the cover stars.' },
 ];
 
 const SAMPLE_GUESTS = ['Your guests'];
 
-interface Form { title: string; headline: string; date: string; honorees: string[]; guestNames: boolean }
+interface Form { title: string; hashtag: string; headline: string; date: string; honorees: string[]; guestNames: boolean }
 
 export default function CoverEditor({ eventName, eventDate, covers, initial, onSave, onClose, backTo }: CoverEditorProps) {
   const [list, setList] = useState<CoverSettings[]>(() => [...covers]);
@@ -69,6 +69,7 @@ export default function CoverEditor({ eventName, eventDate, covers, initial, onS
     const c = listRef.current.find((x) => x.template === t);
     return {
       title: c?.title ?? '',
+      hashtag: c?.hashtag ?? '',
       headline: c?.headline ?? '',
       date: c?.date ?? eventDate ?? '',
       honorees: c?.honorees && c.honorees.length > 0 ? [...c.honorees] : [''],
@@ -78,7 +79,7 @@ export default function CoverEditor({ eventName, eventDate, covers, initial, onS
   const [form, setForm] = useState<Form>(() => formFor(initial));
   useEffect(() => { setForm(formFor(template)); }, [template]); // eslint-disable-line react-hooks/exhaustive-deps
   const draft: CoverSettings = normalizeCover({
-    template, title: form.title, headline: form.headline, date: form.date, honorees: form.honorees,
+    template, title: form.title, hashtag: form.hashtag, headline: form.headline, date: form.date, honorees: form.honorees,
     ...(form.guestNames ? {} : { guestNames: false }),
   }) ?? { template };
 
@@ -89,7 +90,7 @@ export default function CoverEditor({ eventName, eventDate, covers, initial, onS
     if (!on) return;
     dirty.current = true;
     setList((l) => upsertCover(l, {
-      template, title: next.title, headline: next.headline, date: next.date, honorees: next.honorees,
+      template, title: next.title, hashtag: next.hashtag, headline: next.headline, date: next.date, honorees: next.honorees,
       ...(next.guestNames ? {} : { guestNames: false }),
     }));
   };
@@ -248,6 +249,24 @@ export default function CoverEditor({ eventName, eventDate, covers, initial, onS
                 onChange={(e) => edit({ date: e.target.value })}
               />
               <p className="mt-1.5 text-[12.5px] text-white/55">No date? The event name goes there instead.</p>
+            </div>
+            <div>
+              <label className={label} htmlFor="cover-hashtag">Hashtag</label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-white/55" aria-hidden>#</span>
+                <input
+                  id="cover-hashtag"
+                  className={field.replace('px-4', 'pl-8 pr-4')}
+                  value={form.hashtag}
+                  maxLength={COVER_HASHTAG_MAX + 8}
+                  placeholder="ForeverWeDo"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onChange={(e) => edit({ hashtag: e.target.value.replace(/^#+/, '') })}
+                />
+              </div>
+              <p className="mt-1.5 text-[12.5px] text-white/55">Printed along the bottom of the cover. Spaces and punctuation are left out. Leave it empty for none.</p>
             </div>
           </div>
         )}
