@@ -724,11 +724,14 @@ export default function Wall() {
   /** Effective QR visibility: this device's override, else the host's setting.
    *  Declared here because the empty-wall placeholder below needs it. */
   //
-  // A platform wall opened on a PHONE starts with the codes off: that is a
-  // guest browsing the wall, already in the event, and two scan panels would
-  // cover half their screen. The venue screen and tablets keep the host's
-  // setting, and the QR button still turns them on here.
-  const qrDefault = platform && viewport.width < 640 ? false : wallSettings.showQR;
+  // Platform walls start with the codes OFF unless the host opted them on for
+  // every screen (`qrOnWall`); the Display menu turns them on for this screen.
+  // A PHONE always starts off: that is a guest browsing the wall, already in
+  // the event, and two scan panels would cover half their screen. Legacy
+  // walls keep `showQR` exactly as before.
+  const qrDefault = platform
+    ? viewport.width >= 640 && wallSettings.qrOnWall === true
+    : wallSettings.showQR;
   const showQR = qrOverride ?? qrDefault;
 
   /**

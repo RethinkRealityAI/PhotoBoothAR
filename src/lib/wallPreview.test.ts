@@ -19,6 +19,11 @@ describe('wall preview', () => {
     expect(parseWallPreviewMessage({ type: 'beamwall:wall-preview:beam' })).toEqual({ type: 'beamwall:wall-preview:beam' });
     expect(parseWallPreviewMessage({ type: 'beamwall:wall-preview:settings', settings: { showQR: false, wallLook: { card: 'glass' } } }))
       .toEqual({ type: 'beamwall:wall-preview:settings', settings: { showQR: false, wallLook: { card: 'glass' } } });
+    // The wizard's platform QR opt-in rides the same channel.
+    expect(parseWallPreviewMessage({ type: 'beamwall:wall-preview:settings', settings: { qrOnWall: true } }))
+      .toEqual({ type: 'beamwall:wall-preview:settings', settings: { qrOnWall: true } });
+    expect(parseWallPreviewMessage({ type: 'beamwall:wall-preview:settings', settings: { qrOnWall: 'on' } }))
+      .toEqual({ type: 'beamwall:wall-preview:settings', settings: {} });
     // Non-boolean toggles, unknown keys and array looks are dropped.
     expect(parseWallPreviewMessage({ type: 'beamwall:wall-preview:settings', settings: { showQR: 'yes', defaultExperienceId: 'x', wallLook: [] } }))
       .toEqual({ type: 'beamwall:wall-preview:settings', settings: {} });

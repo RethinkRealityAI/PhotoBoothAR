@@ -336,7 +336,15 @@ export interface Challenge {
 
 /** Wall/feature settings, synced live from app_settings (key='wall'). */
 export interface WallSettings {
+  /** Legacy walls' QR panels (and the admin Settings toggle). Platform walls
+   *  read `qrOnWall` instead, so their codes start OFF. */
   showQR: boolean;
+  /** Platform walls: the host opted the QR codes ON for every screen. Absent
+   *  = off (Dapo, 2026-11-25: "The QR code should be off by default"); any
+   *  screen can still turn them on for itself from the Display menu. A new
+   *  key, not a new default for `showQR`, because the frozen legacy events
+   *  have no settings row and depend on that default being true. */
+  qrOnWall?: boolean;
   showLeaderboard: boolean;
   showChallenges: boolean;
   /** Gallery mode: false = masonry grid, true = animated scrolling rows (marquee). */
