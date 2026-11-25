@@ -56,10 +56,19 @@ interface Props {
   /** When true (default), mobile shows a fixed bottom tab bar instead of the
    *  inline pill. Set false on screens with their own bottom controls. */
   bottomOnMobile?: boolean;
+  /** When false, no inline pill is drawn at any width: the page shows its
+   *  own compact menu of the same destinations (see useGuestDests) and keeps
+   *  only the mobile bottom tab bar from here. */
+  inline?: boolean;
   className?: string;
 }
 
-export default function GuestNav({ current, extras, bottomOnMobile = true, className = '' }: Props) {
+/**
+ * The destinations this event's guest nav shows, and which one is active.
+ * Shared by GuestNav and any compact menu of the same pages (the live wall's
+ * header), so the two lists can never disagree.
+ */
+export function useGuestDests(current?: NavKey) {
   const { pathname } = useLocation();
   const { basePath } = useEvent();
 
@@ -75,6 +84,11 @@ export default function GuestNav({ current, extras, bottomOnMobile = true, class
 
   const active = current ?? keyForPath(pathname, basePath);
   const dests = DESTS.filter((d) => d.key !== 'challenges' || hasChallenges || active === 'challenges');
+  return { dests, active, basePath };
+}
+
+export default function GuestNav({ current, extras, bottomOnMobile = true, inline = true, className = '' }: Props) {
+  const { dests, active, basePath } = useGuestDests(current);
 
   const inlinePill = (
     <nav
@@ -105,12 +119,12 @@ export default function GuestNav({ current, extras, bottomOnMobile = true, class
   return (
     <>
       {/* Inline pill — desktop always; also mobile when bottom bar is disabled. */}
-      <div
+      {inline && <div
         className={`${bottomOnMobile ? 'hidden sm:flex' : 'flex'} flex-wrap items-center justify-center gap-2 max-w-full ${className}`}
       >
         {inlinePill}
         {extras}
-      </div>
+      </div>}
 
       {/* Mobile bottom tab bar — liquid glass, portalled to <body>. */}
       {bottomOnMobile && typeof document !== 'undefined' &&

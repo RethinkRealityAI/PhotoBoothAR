@@ -297,7 +297,7 @@ function WallSettingsDrawer({
         ) : (
           <>
             <div>
-              <Toggle label="Show QR code" checked={settings.showQR} onChange={(v) => patch({ showQR: v })} />
+              <Toggle label="QR codes on the live wall" checked={settings.qrOnWall === true} onChange={(v) => patch({ qrOnWall: v })} />
               <Toggle label="Featured spotlight" checked={settings.featuredSpotlight} onChange={(v) => patch({ featuredSpotlight: v })} />
               <Toggle label="Show leaderboard" checked={settings.showLeaderboard} onChange={(v) => patch({ showLeaderboard: v })} />
               <Toggle label="Challenges mode" checked={settings.showChallenges} onChange={(v) => patch({ showChallenges: v })} />

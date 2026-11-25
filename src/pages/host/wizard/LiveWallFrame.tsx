@@ -16,7 +16,7 @@ const DESIGN_H = 900;
 
 interface Props {
   slug: string;
-  settings: PreviewSettings;
+  settings: Partial<PreviewSettings>;
   /** Bump to beam one sample photo in. */
   beamSignal: number;
 }

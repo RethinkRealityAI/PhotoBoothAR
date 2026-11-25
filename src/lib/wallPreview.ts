@@ -41,7 +41,7 @@ export function isWallPreviewFrame(): boolean {
 /** The settings a preview may set (display only). */
 export type PreviewSettings = Pick<
   WallSettings,
-  'showQR' | 'showLeaderboard' | 'showChallenges' | 'featuredSpotlight' | 'wallLook'
+  'showQR' | 'qrOnWall' | 'showLeaderboard' | 'showChallenges' | 'featuredSpotlight' | 'wallLook'
 >;
 
 export type WallPreviewMessage =
@@ -50,7 +50,7 @@ export type WallPreviewMessage =
 
 export const WALL_PREVIEW_READY = 'beamwall:wall-preview:ready';
 
-const BOOL_KEYS = ['showQR', 'showLeaderboard', 'showChallenges', 'featuredSpotlight'] as const;
+const BOOL_KEYS = ['showQR', 'qrOnWall', 'showLeaderboard', 'showChallenges', 'featuredSpotlight'] as const;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

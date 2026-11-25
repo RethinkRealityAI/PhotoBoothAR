@@ -61,7 +61,7 @@ import LiveWallFrame from '../LiveWallFrame';
 
 interface WallDraft {
   look: WallLook;
-  showQR: boolean;
+  qrOnWall: boolean;
   showLeaderboard: boolean;
   showChallenges: boolean;
   featuredSpotlight: boolean;
@@ -228,7 +228,7 @@ function Toggle({ label, hint, Icon, checked, disabled, onChange }: {
 }
 
 const SCREEN_TOGGLES: { key: Exclude<keyof WallDraft, 'look'>; label: string; hint: string; Icon: typeof QrCode }[] = [
-  { key: 'showQR', label: 'QR code on the live wall', hint: 'Guests scan it to open the booth.', Icon: QrCode },
+  { key: 'qrOnWall', label: 'QR codes on the live wall', hint: 'Off by default. Guests scan to open the booth.', Icon: QrCode },
   { key: 'featuredSpotlight', label: 'Spotlight a photo now and then', hint: 'One shot fills the screen for a few seconds.', Icon: Sparkles },
   { key: 'showLeaderboard', label: 'Leaderboard tab', hint: 'Points for photos and challenges.', Icon: Trophy },
   { key: 'showChallenges', label: 'Show challenges to guests', hint: 'The missions you picked, on the wall.', Icon: Zap },
@@ -254,7 +254,7 @@ export default function BoothStep() {
       loaded.current = r.settings;
       setDraft({
         look: normalizeWallLook(r.settings.wallLook, r.settings.galleryScroll),
-        showQR: r.settings.showQR,
+        qrOnWall: r.settings.qrOnWall === true,
         showLeaderboard: r.settings.showLeaderboard,
         showChallenges: r.settings.showChallenges,
         featuredSpotlight: r.settings.featuredSpotlight,
@@ -274,7 +274,7 @@ export default function BoothStep() {
     w.reportSave('saving');
     try {
       await setWallSettings(ev.slug, {
-        showQR: d.showQR,
+        qrOnWall: d.qrOnWall,
         showLeaderboard: d.showLeaderboard,
         showChallenges: d.showChallenges,
         featuredSpotlight: d.featuredSpotlight,
@@ -318,7 +318,7 @@ export default function BoothStep() {
 
   const eventScene = useMemo(() => resolveScene(normalizeScene(ev.config.scene)), [ev.config.scene]);
   const previewSettings = useMemo(() => draft && ({
-    showQR: draft.showQR,
+    qrOnWall: draft.qrOnWall,
     showLeaderboard: draft.showLeaderboard,
     showChallenges: draft.showChallenges,
     featuredSpotlight: draft.featuredSpotlight,

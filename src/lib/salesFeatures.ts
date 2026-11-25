@@ -160,7 +160,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         id: 'live-wall',
         title: 'Live wall',
         line: 'Every photo beams onto the venue screen the moment it is sent, with a QR code so the whole room joins in.',
-        detail: 'Runs on any screen with a browser: a TV, a projector, a laptop on a stand.',
+        detail: 'Runs on any screen with a browser. Layout, QR codes and sharing sit in one Display menu.',
         icon: 'monitor',
         image: 'wall-grid',
         demo: { label: 'Open the demo wall', path: `/e/${DEMO_EVENT}/wall` },
@@ -168,7 +168,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         id: 'wall-styles',
         title: 'Wall styles',
-        line: 'Grid, gallery or polaroid layouts with arrival effects, styled to match the event.',
+        line: 'Grid, gallery, 3D carousel or a wall + leaderboard split screen, with arrival effects styled to match the event.',
         icon: 'sparkles',
         image: 'wall-gallery',
       },

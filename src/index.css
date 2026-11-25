@@ -583,6 +583,37 @@ select option:disabled {
     0 0 18px -6px rgba(var(--accent-rgb), 0.65);
 }
 
+/* The header's Display / Pages menus: the same glass, denser so small type
+   reads over a busy wall of photos. */
+.wall-panel {
+  background: rgba(16, 14, 48, 0.86);
+}
+.wall-menu-item { transition: background-color 150ms ease; }
+.wall-menu-item:hover,
+.wall-menu-item:focus-visible { background-color: rgba(255, 255, 255, 0.08); }
+.wall-menu-item[aria-current="page"] { background-color: rgba(var(--accent-rgb), 0.14); }
+.wall-panel .wall-tab:not([aria-pressed="true"]):hover { background-color: rgba(255, 255, 255, 0.06); }
+/* The event name sits on the bar's centre line; a long one ellipsises
+   instead of shoving the side clusters off screen. */
+.wall-title > span > * { max-width: min(46vw, 760px) !important; }
+@media (max-width: 639px) { .wall-title > span > * { max-width: calc(100vw - 150px) !important; } }
+.wall-switch {
+  position: relative; flex: none; width: 40px; height: 24px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  transition: background-color 180ms ease;
+}
+.wall-switch > span {
+  position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 999px;
+  background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.wall-switch.is-on { background: rgba(var(--accent-rgb), 0.85); }
+.wall-switch.is-on > span { transform: translateX(16px); }
+@media (prefers-reduced-motion: reduce) {
+  .wall-switch, .wall-switch > span { transition: none; }
+}
+
 /* Backdrop glow pools: two slow drifts, nothing at all under reduced motion. */
 .wall-backdrop-glow {
   position: absolute;
@@ -750,6 +781,11 @@ select option:disabled {
   .wall-upload-bar { animation-duration: 3s; }
 }
 
+[data-wall-tone="light"] .wall-panel { background: rgba(255, 255, 255, 0.92); }
+[data-wall-tone="light"] .wall-menu-item:hover,
+[data-wall-tone="light"] .wall-menu-item:focus-visible { background-color: rgba(40, 38, 110, 0.06); }
+[data-wall-tone="light"] .wall-switch { background: rgba(40, 38, 110, 0.14); }
+[data-wall-tone="light"] .wall-panel .bg-white\/10 { background-color: rgba(40, 38, 110, 0.1); }
 [data-wall-tone="light"] .wall-tab[aria-pressed="true"] {
   background-color: rgba(var(--accent-rgb), 0.12);
   box-shadow:
