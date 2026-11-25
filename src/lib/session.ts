@@ -21,7 +21,9 @@ type KeySuffix =
   | 'guestInitials'
   | 'completedChallenges'
   | 'guestNameSkipped'
-  | 'keepsakeOptIn';
+  | 'keepsakeOptIn'
+  | 'coverNames'
+  | 'coverNamesAsked';
 
 function scopedKey(eventId: string, suffix: KeySuffix): string {
   return `pbar.${eventId}.${suffix}`;
@@ -146,6 +148,49 @@ export function hasSkippedGuestName(eventId: string): boolean {
 export function skipGuestName(eventId: string): void {
   try {
     localStorage.setItem(scopedKey(eventId, 'guestNameSkipped'), '1');
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/* ── Magazine cover names (the guests in the shot, up to three) ── */
+
+/**
+ * The names a magazine cover Frame prints as its cover stars. Kept apart from
+ * `guestName`: a group of three on one phone is not one guest's wall name.
+ * `[]` = none given. Callers clean the list with cover/spec normalizeNames.
+ */
+export function getCoverNames(eventId: string): string[] {
+  try {
+    const raw = readKey(eventId, 'coverNames');
+    const v = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setCoverNames(eventId: string, names: string[]): void {
+  try {
+    localStorage.setItem(scopedKey(eventId, 'coverNames'), JSON.stringify(names.slice(0, 3)));
+    localStorage.setItem(scopedKey(eventId, 'coverNamesAsked'), '1');
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/** Asked once per event (answered or skipped); the cover's name chip edits later. */
+export function hasAskedCoverNames(eventId: string): boolean {
+  try {
+    return readKey(eventId, 'coverNamesAsked') === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markCoverNamesAsked(eventId: string): void {
+  try {
+    localStorage.setItem(scopedKey(eventId, 'coverNamesAsked'), '1');
   } catch {
     /* non-fatal */
   }

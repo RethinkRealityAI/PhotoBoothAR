@@ -328,6 +328,8 @@ describe('world mode page (arSession)', () => {
     expect(arFrameIdFrom('?ar=abc-123')).toBe('abc-123');
     expect(arFrameIdFrom('?x=1')).toBeNull();
     expect(arFrameIdFrom('?ar=../../x')).toBeNull();
+    expect(arFrameIdFrom('?ar=builtin%3Acover%3Awedding')).toBe('builtin:cover:wedding');
+    expect(arFrameIdFrom('?ar=a/b')).toBeNull();
   });
   it('builds enter/leave URLs and keeps tester params', () => {
     expect(enterArUrl('/e/party', '?faceEngine=xr8&cam=1', 'f1')).toBe('/e/party/booth?faceEngine=xr8&ar=f1');

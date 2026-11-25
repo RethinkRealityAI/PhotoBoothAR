@@ -29,6 +29,8 @@ import { buildStandeeWalls, gridFromImageData } from '../../lib/world/standeeMes
 import { haptic } from '../../lib/haptics';
 import { goodMatch, grabPatch, matchPatch, median, MIN_PATCH_STD, toGray, type Patch } from '../../lib/world/patchTrack';
 import type { WorldSession } from '../../lib/world/xr8World';
+import type { ResolvedCover } from '../../lib/cover/spec';
+import type { CoverObject } from '../../lib/cover/build3d';
 
 /* ------------------------------------------------------------------ */
 /* Tunables (URL knobs for phone A/B tests)                            */
@@ -376,11 +378,12 @@ class FloorLock {
 /* ------------------------------------------------------------------ */
 
 function WorldScene({
-  store, frameUrl, accent, videoRef, onBoardReady, onBoardError, engine,
+  store, frameUrl, cover, accent, videoRef, onBoardReady, onBoardError, engine,
 }: {
   store: WorldStore;
   engine: WorldSession | null;
   frameUrl: string;
+  cover: ResolvedCover | null;
   accent: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onBoardReady: () => void;
@@ -390,10 +393,36 @@ function WorldScene({
   const gl = useThree((s) => s.gl);
   const size = useThree((s) => s.size);
   const [board, setBoard] = useState<BoardParts | null>(null);
+  const [coverObj, setCoverObj] = useState<CoverObject | null>(null);
+  /** What stands up: the flat board, or a magazine cover. */
+  const stand: { w: number } | null = board ?? coverObj;
+
+  // A magazine cover Frame stands up as the 3D cover (lib/cover/build3d.ts),
+  // built on demand so no other booth downloads it.
+  useEffect(() => {
+    if (!cover) { setCoverObj(null); return; }
+    let alive = true;
+    let built: CoverObject | null = null;
+    import('../../lib/cover/build3d')
+      .then(({ buildCover3D }) => buildCover3D(cover, gl.capabilities.getMaxAnisotropy()))
+      .then((c) => {
+        if (!alive) { c.dispose(); return; }
+        built = c;
+        setBoard(null);
+        setCoverObj(c);
+        onBoardReady();
+      })
+      .catch((e) => { console.warn('[WorldStage] cover', e); if (alive) onBoardError(); });
+    return () => {
+      alive = false;
+      built?.dispose();
+    };
+  }, [cover, gl, onBoardReady, onBoardError]);
 
   // Build the board for the selected Frame. Switching Frames swaps the board
   // in place: size, turn and placement are kept.
   useEffect(() => {
+    if (cover) return;
     let alive = true;
     let built: BoardParts | null = null;
     buildBoard(frameUrl, gl.capabilities.getMaxAnisotropy())
@@ -408,7 +437,7 @@ function WorldScene({
       alive = false;
       if (built) { built.texture.dispose(); built.walls.dispose(); }
     };
-  }, [frameUrl, gl, onBoardReady, onBoardError]);
+  }, [frameUrl, cover, gl, onBoardReady, onBoardError]);
 
   const shadowTex = useMemo(makeShadowTexture, []);
   const reticleTex = useMemo(() => makeReticleTexture(accent), [accent]);
@@ -428,6 +457,7 @@ function WorldScene({
 
   useFrame((_, dt) => {
     const now = performance.now();
+    coverObj?.tick(now);
     if (engine) {
       // 8th Wall: the pose and lens of the picture the booth is drawing.
       const p = engine.pose();
@@ -487,10 +517,10 @@ function WorldScene({
         store.aim = null;
       }
       rt.visible = hit !== null;
-      st.visible = hit !== null && board !== null;
+      st.visible = hit !== null && stand !== null;
       rt.rotation.z += dt * 0.6;
       const pulse = 1 + Math.sin(now / 380) * 0.04;
-      rt.scale.setScalar(pulse * Math.max(0.6, board ? board.w * g.scale * 0.55 : 0.6));
+      rt.scale.setScalar(pulse * Math.max(0.6, stand ? stand.w * g.scale * 0.55 : 0.6));
       if (hadAim.current !== (hit !== null)) {
         hadAim.current = hit !== null;
         store.onAimChange?.(hit !== null);
@@ -498,7 +528,7 @@ function WorldScene({
       if (lockStarted.current) { lock.reset(); lockStarted.current = false; }
     } else if (store.phase === 'placed') {
       rt.visible = false;
-      st.visible = board !== null;
+      st.visible = stand !== null;
       st.position.copy(store.spot);
       st.rotation.y = store.spotYaw;
       if (!engine && FLOOR_LOCK && store.sensors === true) {
@@ -507,7 +537,7 @@ function WorldScene({
           // Floor just outside the board's feet and in front of it: the spots
           // least likely to be covered by the people standing inside it.
           st.updateMatrixWorld(true);
-          const half = board ? (board.w / 2) : 0.56;
+          const half = stand ? (stand.w / 2) : 0.56;
           return [
             new THREE.Vector3(-half - 0.3, 0, 0.2), new THREE.Vector3(half + 0.3, 0, 0.2),
             new THREE.Vector3(-half * 0.5, 0, 0.55), new THREE.Vector3(half * 0.5, 0, 0.55),
@@ -531,6 +561,7 @@ function WorldScene({
       <group ref={stage} visible={false}>
         <group ref={holder}>
           {board && <Board board={board} shadowTex={shadowTex} />}
+          {coverObj && <CoverStand cover={coverObj} shadowTex={shadowTex} />}
         </group>
       </group>
     </>
@@ -575,12 +606,27 @@ function Board({ board, shadowTex }: { board: BoardParts; shadowTex: THREE.Textu
   );
 }
 
+/** A magazine cover standing on the floor, with the same contact shadow as a board. */
+function CoverStand({ cover, shadowTex }: { cover: CoverObject; shadowTex: THREE.Texture }) {
+  return (
+    <group>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.002, 0.05]} renderOrder={1}>
+        <planeGeometry args={[cover.w * 1.6, 1.1]} />
+        <meshBasicMaterial map={shadowTex} transparent depthWrite={false} toneMapped={false} />
+      </mesh>
+      <primitive object={cover.group} />
+    </group>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* The DOM half                                                         */
 /* ------------------------------------------------------------------ */
 
 export interface WorldStageProps {
   frameUrl: string;
+  /** A magazine cover Frame: stands up as the 3D cover instead of the flat board. */
+  cover?: ResolvedCover | null;
   frameName: string;
   /** Event accent colour (reticle). */
   accent: string;
@@ -637,7 +683,7 @@ function useEngineState(engine: WorldSession | null) {
 }
 
 export default function WorldStage({
-  frameUrl, frameName, accent, videoRef, maxFps, recording, onExit, layerId = 'booth-world-layer',
+  frameUrl, cover = null, frameName, accent, videoRef, maxFps, recording, onExit, layerId = 'booth-world-layer',
   engine = null, onStartTap, resumePlacing = false,
 }: WorldStageProps) {
   const resumed = resumePlacing && engine === null;
@@ -667,7 +713,7 @@ export default function WorldStage({
   useMotionSensors(store, sensorsOn, setSensorState);
   const onBoardReady = useCallback(() => { setBoardReady(true); setBoardFailed(false); }, []);
   const onBoardError = useCallback(() => setBoardFailed(true), []);
-  useEffect(() => { setBoardReady(false); }, [frameUrl]);
+  useEffect(() => { setBoardReady(false); }, [frameUrl, cover]);
 
   const go = (p: Phase) => { store.phase = p; setPhase(p); };
 
@@ -758,6 +804,7 @@ export default function WorldStage({
           <WorldScene
             store={store}
             frameUrl={frameUrl}
+            cover={cover}
             accent={accent}
             videoRef={videoRef}
             onBoardReady={onBoardReady}
