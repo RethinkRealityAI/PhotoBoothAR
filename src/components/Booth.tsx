@@ -23,6 +23,7 @@ import { Emblem } from './ui/EventLogo';
 
 // Booth sub-components
 import { useCameraStream } from './booth/useCameraStream';
+import { useBoothTelemetry } from './booth/useBoothTelemetry';
 import Welcome from './booth/Welcome';
 import CameraErrorScreen from './booth/CameraError';
 import StageCanvas, {
@@ -44,7 +45,7 @@ import {
 } from '../lib/world/arSession';
 import ArSwitchScreen from './booth/ArSwitchScreen';
 import { WorldSession, isPhoneUa } from '../lib/world/xr8World';
-import type { CameraSourceOverride } from './booth/useCameraStream';
+import type { CameraIncident, CameraSourceOverride } from './booth/useCameraStream';
 import { TimerControl } from './booth/BoothCaptureControls';
 import {
   buildDeck, initialCategory, initialCategoryWhenReady, type DeckCategory, type DeckSelection,
@@ -489,6 +490,18 @@ export default function Booth() {
     if (!videoAllowed && mediaMode === 'video') setMediaMode('photo');
   }, [videoAllowed, mediaMode]);
 
+  // When the camera heals itself (muted after a tab switch, taken by another
+  // app, frozen), log it, so the next "my camera went dark" has a when, a who
+  // and a device in client_errors. Platform only: legacy sites log nothing new.
+  const onCameraIncident = useCallback((i: CameraIncident) => {
+    if (source !== 'db') return;
+    reportError(new Error(`camera_${i.kind}_${i.reason}`), {
+      attempt: i.attempt,
+      eventSlug: eventId,
+      visibility: typeof document !== 'undefined' ? document.visibilityState : null,
+    });
+  }, [source, eventId]);
+
   // Audio is only needed in video mode: the microphone joins the running
   // camera stream then (no camera restart), and `micTrack` says when it is on.
   const {
@@ -501,8 +514,16 @@ export default function Booth() {
     started && (worldSession === null || arTapped),
     mediaMode === 'video',
     source === 'db' && entitlements.videoEnabled,
-    { initialFacing: arFrameId !== null ? 'environment' : 'user', source: worldCamera },
+    { initialFacing: arFrameId !== null ? 'environment' : 'user', source: worldCamera, onIncident: onCameraIncident },
   );
+  /**
+   * The live picture stays mounted while the camera re-opens (platform), so
+   * the guest sees the last frame for a moment instead of a dark stage
+   * (StageCanvas holds its last frame while the video has none).
+   */
+  const [hadPicture, setHadPicture] = useState(false);
+  useEffect(() => { if (ready) setHadPicture(true); }, [ready]);
+  const stageMounted = ready || (source === 'db' && hadPicture && error === null);
   /** The camera is (or should be) opening: false while world mode waits for its tap. */
   const cameraWanted = started && (worldSession === null || arTapped);
 
@@ -668,6 +689,16 @@ export default function Booth() {
 
   // ── Phase & capture ───────────────────────────────────────────────────
   const [phase, setPhase] = useState<BoothPhase>('camera');
+  // Observe-only telemetry (camera lost/regained/flapping/stuck, tracker,
+  // look switches): never touches the camera. Platform booths only.
+  useBoothTelemetry({
+    enabled: source === 'db', videoRef, stream, ready, errorKind: error, facingMode,
+    live: phase === 'camera' && cameraWanted, mediaMode,
+    looks: {
+      frame: frameExp?.id ?? null, prop: attachExp?.id ?? null,
+      paint: paintExp?.id ?? null, effect: effectId === 'none' ? null : effectId,
+    },
+  });
   const [capturedDataUrl, setCapturedDataUrl] = useState<string | null>(null);
   const [capturedBlobRef, setCapturedBlobRef] = useState<Blob | null>(null);
   const [capturedDurationMs, setCapturedDurationMs] = useState<number | undefined>();
@@ -2538,7 +2569,7 @@ export default function Booth() {
                 className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none"
                 style={{ transform: isFront ? 'scaleX(-1)' : 'none' }}
               />
-              {ready && (
+              {stageMounted && (
                 // role="img" on this wrapper (NOT the stage box, whose hint
                 // pills must stay readable to AT; NOT StageCanvas internals):
                 // gives the otherwise-silent live canvas an accessible name.

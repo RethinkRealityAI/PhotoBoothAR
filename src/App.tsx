@@ -24,6 +24,7 @@ import EventProvider, { useEvent } from './events/EventContext';
 import { EVENT_ID } from './events/active';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { lazyRoute } from './lib/lazyRoute';
+import { setRoute } from './lib/telemetry';
 import { useNoIndex } from './pages/sales/components/pageMeta';
 
 /** The previous homepage (/classic) keeps its pre-rollout look: brand v2's
@@ -328,6 +329,9 @@ function adminRoutes() {
  *  whole legacy builds, which are guest surfaces end to end. */
 function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
+  // Telemetry route context (surface + event slug on every event/error row).
+  // setRoute never throws and is a no-op on legacy builds' PostHog side.
+  useLayoutEffect(() => { setRoute(pathname); }, [pathname]);
   const guestSurface = LEGACY_EVENT !== '' || /^\/(e|c|m|r|beam)(\/|$)/.test(pathname);
   return (
     <div

@@ -66,3 +66,19 @@ window.addEventListener('unhandledrejection', (e) => {
     /* telemetry must never break the app */
   }
 });
+
+// ── Session telemetry (lib/telemetry.ts). PostHog loads after the page, only
+// with VITE_POSTHOG_KEY set and never on legacy single-event builds; without
+// it this still fills the breadcrumb trail every client_errors row carries.
+// Signed-in hosts/admins are identified by account id; guests stay anonymous.
+import { initTelemetry, setUser } from './lib/telemetry';
+import { onAuthStateChange } from './lib/auth';
+
+try {
+  initTelemetry();
+  if (!((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim()) onAuthStateChange((_event, session) => {
+    setUser(session?.user ? { id: session.user.id, email: session.user.email ?? null } : null);
+  });
+} catch {
+  /* telemetry must never break the app */
+}
