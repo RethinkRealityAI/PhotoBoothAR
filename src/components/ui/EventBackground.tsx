@@ -7,12 +7,19 @@ import { useLocation } from 'react-router-dom';
 import { useEvent } from '../../events/EventContext';
 import { resolveScene, type EventScene } from '../../lib/sceneThemes';
 import SceneBackdrop from '../theme/SceneBackdrop';
+import ThemePackBackdrop, { hasThemeBackdrop } from '../theme/ThemePackBackdrop';
+import type { EventTheme } from '../../lib/themePacks';
 
 export default function EventBackground(props: { density?: number; className?: string; [key: string]: unknown }) {
   const { config, source } = useEvent();
   // A platform event whose host picked a page look (events.config.scene,
   // normalized at load). Coded legacy events never carry one, so they take
   // the original path below unchanged.
+  // A full theme pack (lib/themePacks) paints its own scene and wins over
+  // any page look: the whole event wears it.
+  if (source === 'db' && config.theme && hasThemeBackdrop(config.theme)) {
+    return <EventSceneBackground theme={config.theme} fallback={config.Background as ComponentType<Record<string, unknown>>} props={props} />;
+  }
   if (source === 'db' && config.scene) {
     return <EventSceneBackground scene={config.scene} fallback={config.Background as ComponentType<Record<string, unknown>>} props={props} />;
   }
@@ -33,9 +40,11 @@ export default function EventBackground(props: { density?: number; className?: s
 const NO_FLIP_ROUTE = /\/(booth|wall)(\/|$)/;
 
 function EventSceneBackground({
-  scene, fallback: Fallback, props,
+  scene, theme, fallback: Fallback, props,
 }: {
-  scene: EventScene;
+  scene?: EventScene;
+  /** A theme pack's backdrop instead of a scene (same studio-chrome rule). */
+  theme?: EventTheme;
   fallback: ComponentType<Record<string, unknown>>;
   props: Record<string, unknown>;
 }) {
@@ -59,11 +68,11 @@ function EventSceneBackground({
   return (
     <>
       <span ref={probe} hidden />
-      <SceneBackdrop
+      {theme ? <ThemePackBackdrop theme={theme} /> : scene && <SceneBackdrop
         scene={resolveScene(scene)}
         className={typeof props.className === 'string' ? props.className : ''}
         flipTone={!NO_FLIP_ROUTE.test(pathname)}
-      />
+      />}
     </>
   );
 }
