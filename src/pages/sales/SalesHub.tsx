@@ -38,6 +38,8 @@ import HubTemplates from './components/HubTemplates';
 import HubDeliver from './components/HubDeliver';
 import HubShowcase from './components/HubShowcase';
 import { HubPlan, HubTargets } from './components/HubPlan';
+import HubFeatures from './components/HubFeatures';
+import { LayoutGrid } from 'lucide-react';
 import { HubTopBar, ICP_LABEL, PlaceholderBadge, SectionHead } from './components/hubUi';
 import { asksFor, contactLine, offersFromIds } from './components/deckEnv';
 import { useNoIndex, useStoredString } from './components/pageMeta';
@@ -48,6 +50,7 @@ import { useRailCollapsed } from '../../lib/useRailCollapsed';
 
 const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: 'start', label: 'Start here', Icon: Compass },
+  { id: 'features', label: 'Features', Icon: LayoutGrid },
   { id: 'decks', label: 'Decks', Icon: Presentation },
   { id: 'guide', label: 'Selling guide', Icon: BookOpen },
   { id: 'deliver', label: 'Deliver an event', Icon: ClipboardList },
@@ -374,6 +377,11 @@ export default function SalesHub() {
                 <span className="mt-auto pt-4 text-[12.5px] text-accent group-hover:underline">Open the scoreboard →</span>
               </button>
             </div>
+          </Section>
+
+          {/* Features: the visual cheat sheet (lib/salesFeatures.ts) */}
+          <Section id="features" active={active}>
+            <HubFeatures />
           </Section>
 
           {/* 2 · Decks */}
