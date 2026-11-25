@@ -95,48 +95,6 @@ export const BUNDLED_PROPS: readonly BundledProp[] = [
     // of the crown shows through the forehead (seen on the /try demo).
     occlude: true,
   },
-  {
-    id: 'prop-queens-tiara',
-    retired: true,
-    name: "Queen's Tiara",
-    url: '/models/props/queens-tiara.glb',
-    thumb: '/models/props/queens-tiara.webp',
-    anchor: 'forehead',
-    finish: 'gold',
-    offset: [0, 1.6, 0.4],
-    rotation: [0, 0, 0],
-    scale: 4.5,
-    supersedes: 'queen-tiara',
-  },
-  {
-    id: 'prop-halo-ring',
-    retired: true,
-    name: 'Halo Ring',
-    url: '/models/props/halo-ring.glb',
-    thumb: '/models/props/halo-ring.webp',
-    anchor: 'crown',
-    finish: 'gold',
-    offset: [0, 6, -1],
-    rotation: [0, 0, 0],
-    scale: 6,
-    supersedes: 'hope-halo',
-  },
-  {
-    id: 'prop-neon-shades',
-    retired: true,
-    name: 'Neon Shades',
-    url: '/models/props/neon-shades.glb',
-    thumb: '/models/props/neon-shades.webp',
-    anchor: 'noseBridge',
-    // The only TEXTURED prop, and the only one that must be: magenta-and-cyan
-    // IS the asset's identity, and a finish paints one colour over a whole
-    // mesh. `original` keeps the bake exactly as exported.
-    finish: 'original',
-    offset: [0, 1.4, 1.6],
-    rotation: [0, 0, 0],
-    scale: 4.2,
-    supersedes: 'neon-shades',
-  },
   /* — CHRISTMAS COLLECTION (2026-11-17). Meshy text-to-3D with PBR textures,
      then optimized (meshopt geometry, 1024px WebP textures, 0.07-1.5MB each)
      and BAKED AT 3x so the authored scales sit in the same 1-8 band as the

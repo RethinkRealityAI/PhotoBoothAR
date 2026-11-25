@@ -19,7 +19,7 @@ import { COPILOT_TOOLS, TOOL_NAMES } from './copilotTools';
 import { PLATFORM_GUIDE } from './platformGuide';
 import type { EventSnapshot } from './eventSnapshot';
 import { FILTER_SHADERS } from './shaders';
-import { HEAD_PIECE_MAP, HEAD_PIECES } from './headPieces';
+import { BUNDLED_PROP_MAP, isRetiredProp, offeredBundledProps } from './studio/bundledProps';
 import { BORDER_MAP, GENERIC_FRAMES, GENERIC_FRAME_IDS } from './borders';
 import { normalizeValidation } from './challengeValidation';
 import { normalizeLettering, type LetteringSpec } from './assetPrompt';
@@ -318,7 +318,7 @@ export function normalizeActionsResult(raw: unknown, snapshot: EventSnapshot | n
           break;
         }
         const pieceId = str(a.pieceId, 40);
-        if (pieceId && HEAD_PIECE_MAP[pieceId]) {
+        if (pieceId && BUNDLED_PROP_MAP[pieceId] && !isRetiredProp(pieceId)) {
           out.push({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId } });
         } else if (prompt) {
           // Hallucinated/absent pieceId but a usable prompt → degrade to a
@@ -742,9 +742,13 @@ export async function executeAction(action: CopilotAction, ctx: CopilotCtx): Pro
         if (action.proposal.source !== 'builtin') {
           return fail('That 3D piece needs generating first.', 'invalid', false);
         }
-        const { buildHeadPieceExperienceDraft } = await import('./studio/copilotExperience');
+        // Built-in = an HD bundled prop, saved exactly like the wizard's
+        // "classic" rows. The code-built pieces are no longer offered.
+        const prop = BUNDLED_PROP_MAP[action.proposal.pieceId];
+        if (!prop || isRetiredProp(prop.id)) return fail('That 3D piece isn’t available.', 'unknown_id', false);
+        const { classicRow } = await import('./wizard/looks');
         const { createExperience } = await import('./db');
-        const draft = buildHeadPieceExperienceDraft(action.proposal.pieceId);
+        const draft = classicRow(prop);
         if (!draft) return fail('That 3D piece isn’t available.', 'unknown_id', false);
         const exp = await createExperience(ctx.slug, draft);
         if (!exp) return fail('Adding the 3D piece failed.', 'unknown', true);
@@ -924,7 +928,7 @@ export async function askCopilot(
         // The live catalogs ride along so the model proposes only real ids
         // (the client normalizer still validates and drops anything invalid).
         filters: FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ id: s.id, name: s.name })),
-        headPieces: HEAD_PIECES.map((p) => ({ id: p.id, name: p.name })),
+        headPieces: offeredBundledProps().map((p) => ({ id: p.id, name: p.name })),
         frames: GENERIC_FRAMES,
       },
     });

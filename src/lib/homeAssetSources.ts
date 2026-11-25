@@ -81,8 +81,6 @@ export interface BuiltinAsset {
 const BUNDLED_PROPS: Array<[string, string]> = [
   ['aviator-glasses', 'Aviators'], ['beamy-face-paint', 'Butterfly face paint'], ['beamy-masquerade', 'Gold masquerade'],
   ['elf-ears', 'Elf ears'], ['elf-hat', 'Elf hat'], ['emerald-necklace', 'Emerald necklace'], ['garnet-earrings', 'Garnet earrings'],
-  // gold-crown, halo-ring, neon-shades and queens-tiara are off this list on
-  // purpose (2026-11-23 showcase cleanup): below the bar for the homepage.
   ['holly-crown', 'Holly crown'],
   ['reindeer-antlers', 'Reindeer antlers'], ['royal-crown', 'Royal crown'], ['rudolph-nose', 'Rudolph nose'],
   ['santa-beard', 'Santa beard'], ['santa-hat', 'Santa hat'], ['snowflake-tiara', 'Snowflake tiara'], ['top-hat', 'Top hat'],

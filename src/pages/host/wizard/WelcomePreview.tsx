@@ -15,9 +15,9 @@ import { resolveScene, type EventScene } from '../../../lib/sceneThemes';
 
 export const SAMPLE_SHOTS = [
   '/starters/confetti-party.webp',
-  '/starters/neon-night.webp',
-  '/starters/halo-light.webp',
-  '/starters/deco-glam.webp',
+  '/starters/game-day.webp',
+  '/starters/hero-visor.webp',
+  '/starters/equalizer-live.webp',
   '/starters/fiesta.webp',
   '/starters/soft-portrait.webp',
 ] as const;
