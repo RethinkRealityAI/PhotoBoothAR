@@ -19,6 +19,7 @@
  */
 import { supabase } from './supabase';
 import { redactUrl } from './supportModel';
+import { forwardException, getBreadcrumbs, getTelemetryContext } from './telemetryCore';
 
 /** Support address actually in use (matches Legal.tsx CONTACT). */
 export const SUPPORT_EMAIL = 'dapo@rethinkreality.ai';
@@ -59,6 +60,15 @@ export function reportError(err: unknown, context?: Record<string, unknown>): vo
   if (reporting) return;
   reporting = true;
   try {
+    // PostHog (when loaded) gets every error, before our own caps: it has its
+    // own quota and dedupe, and the per-session cap below exists to protect
+    // the Supabase table, not to hide errors from the tracker.
+    // Window-level errors are skipped: PostHog's capture_exceptions already
+    // records those itself, and forwarding them too would count each twice.
+    const src = context?.source;
+    if (src !== 'window.onerror' && src !== 'unhandledrejection') {
+      forwardException(err, { ...context, telemetry_session: telemetrySessionId });
+    }
     if (sentCount >= MAX_REPORTS_PER_SESSION) return;
 
     const message = (
@@ -92,9 +102,13 @@ export function reportError(err: unknown, context?: Record<string, unknown>): vo
         stack,
         user_agent: navigator.userAgent.slice(0, 400),
         context: {
+          ...getTelemetryContext(), // surface, event_slug, user_id, os/browser/in_app
           ...context,
           appVersion,
           mode: import.meta.env.MODE,
+          // What happened just before (camera starts/losses, look switches,
+          // route changes…), oldest first, size-capped to fit migration 021.
+          breadcrumbs: getBreadcrumbs(),
         },
       })
       .then(
