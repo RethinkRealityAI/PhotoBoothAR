@@ -192,6 +192,7 @@ function GridTile({
           <motion.button
             type="button"
             key={post.id}
+            data-wall-post={post.id}
             className="wall-tile-face absolute inset-0 overflow-hidden text-left"
             onClick={onSelect ? () => onSelect(post) : undefined}
             tabIndex={onSelect ? 0 : -1}

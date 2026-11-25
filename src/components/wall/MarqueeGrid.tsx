@@ -125,6 +125,7 @@ function PostCard({ post, metrics, canPlay, isMine, onSelect }: CardProps) {
 
   return (
     <div
+      data-wall-post={post.id}
       className={`wall-card relative overflow-hidden rounded-xl shrink-0 ${onSelect ? 'cursor-pointer' : ''}`}
       onClick={onSelect ? () => onSelect(post) : undefined}
       style={{
