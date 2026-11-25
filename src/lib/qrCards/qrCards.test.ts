@@ -47,18 +47,28 @@ describe('template library', () => {
     for (const t of QR_TEMPLATES) expect(QR_OCCASIONS).toContain(t.occasion);
   });
 
-  it('ships the art every template paints', () => {
+  it('ships a full-page scene in both orientations for every template', () => {
     for (const t of QR_TEMPLATES) {
-      if (t.layout === 'glow') { expect(t.art).toBeNull(); continue; }
-      expect(t.art, t.id).not.toBeNull();
-      expect(existsSync(join(process.cwd(), 'public', t.art as string)), `${t.id} → ${t.art}`).toBe(true);
+      for (const a of [t.art.portrait, t.art.landscape]) {
+        expect(a, t.id).toBeDefined();
+        for (const src of [a.src, a.thumb]) expect(existsSync(join(process.cwd(), 'public', src)), `${t.id} → ${src}`).toBe(true);
+        // The spot sits wholly inside the picture.
+        const half = a.spot.s / 2;
+        expect(a.spot.x - half, t.id).toBeGreaterThan(0);
+        expect(a.spot.x + half, t.id).toBeLessThan(1);
+        expect(a.spot.y - half * a.aspect, t.id).toBeGreaterThan(0);
+        expect(a.spot.y + half * a.aspect, t.id).toBeLessThan(1);
+      }
+      expect(t.art.portrait.aspect, t.id).toBeLessThan(1);
+      expect(t.art.landscape.aspect, t.id).toBeGreaterThan(1);
     }
-    expect(existsSync(join(process.cwd(), 'public/mascot/beamy-greet.webp'))).toBe(true);
   });
 
-  it('prints every code dark-on-light with scanner-safe contrast', () => {
+  it('prints every code dark-on-light with scanner-safe contrast against its painted spot', () => {
     for (const t of QR_TEMPLATES) {
-      expect(contrastRatio(t.palette.qrInk, t.palette.qrTile), t.id).toBeGreaterThanOrEqual(7);
+      for (const a of [t.art.portrait, t.art.landscape]) {
+        expect(contrastRatio(t.palette.qrInk, a.face), `${t.id} on ${a.face}`).toBeGreaterThanOrEqual(7);
+      }
     }
   });
 });
@@ -89,7 +99,7 @@ describe('design model', () => {
     expect(d.size).toBe('5x7');
     expect(d.accent).toBeNull();
     expect(d.target).toBe('welcome');
-    expect(d.copy.headline).toBe(QR_TEMPLATES[0].copy.headline);
+    expect(d.copy.headline).toBe(QR_TEMPLATES[0].headline);
     expect(d.copy.names.length).toBe(60);
     const round = normalizeDesign(JSON.parse(JSON.stringify({ ...defaultDesign(EVENT, 'pumpkin-moon'), accent: '#ABCDEF', orientation: 'landscape' })), EVENT);
     expect(round.templateId).toBe('pumpkin-moon');
@@ -100,10 +110,11 @@ describe('design model', () => {
   it('keeps words the host wrote when the template changes', () => {
     const d = defaultDesign(EVENT, 'garden-vows');
     const swapped = applyTemplate(d, 'pumpkin-moon');
-    expect(swapped.copy.headline).toBe(templateById('pumpkin-moon').copy.headline);
+    expect(swapped.copy.headline).toBe(templateById('pumpkin-moon').headline);
     const own = applyTemplate({ ...d, copy: { ...d.copy, headline: 'Our day' } }, 'pumpkin-moon');
     expect(own.copy.headline).toBe('Our day');
-    expect(own.copy.kicker).toBe(templateById('pumpkin-moon').copy.kicker);
+    expect(own.copy.names).toBe(d.copy.names);
+    expect(own.copy.message).toBe(d.copy.message);
   });
 
   it('swaps the message with the link only while it is still the default', () => {
@@ -151,12 +162,10 @@ describe('fitText', () => {
 
 describe('planCard (every template × orientation × size)', () => {
   const longCopy = {
-    kicker: 'You are warmly invited to scan',
     headline: 'Share every photo from our wonderful celebration',
     names: 'Oluwadamilola & Christopher-Alexander',
     date: 'Saturday 12 September 2026',
-    message: 'Scan the code with your phone camera to open the photo booth, try the looks, and send your favourite shots to the big screen.',
-    footer: '#DamiAndChrisForever2026',
+    message: 'Scan the code with your phone camera to open the photo booth and send your shots to the big screen.',
   };
   for (const t of QR_TEMPLATES) {
     for (const orientation of ['portrait', 'landscape'] as const) {
@@ -165,7 +174,8 @@ describe('planCard (every template × orientation × size)', () => {
           it(`${t.id} ${orientation} ${size} ${copy}`, () => {
             const base = { ...defaultDesign(EVENT, t.id), orientation, size };
             const d = copy === 'long' ? { ...base, copy: longCopy } : base;
-            const plan = planCard(d, t, URL_, measure);
+            const plan = planCard(d, t, measure);
+            const a = orientation === 'portrait' ? t.art.portrait : t.art.landscape;
             const { w: W, h: H } = cardSize(size, orientation);
             expect(plan.w).toBe(W);
             expect(plan.h).toBe(H);
@@ -174,21 +184,34 @@ describe('planCard (every template × orientation × size)', () => {
             expect(plan.qr.w).toBeGreaterThanOrEqual(MIN_QR_IN * 100 - 0.01);
             expect(inside(plan.qr, W, H)).toBe(true);
             expect(plan.ops.filter((o) => o.kind === 'qr')).toHaveLength(1);
+            // ...printed on the painting's own spot: its centre lies on the spot.
+            const qx = plan.qr.x + plan.qr.w / 2;
+            const qy = plan.qr.y + plan.qr.h / 2;
+            expect(qx).toBeGreaterThan(plan.spot.x);
+            expect(qx).toBeLessThan(plan.spot.x + plan.spot.w);
+            expect(qy).toBeGreaterThan(plan.spot.y);
+            expect(qy).toBeLessThan(plan.spot.y + plan.spot.h);
+            // The scene covers the whole card.
+            const scene = plan.ops.find((o): o is Extract<CardOp, { kind: 'scene' }> => o.kind === 'scene');
+            expect(scene?.src).toBe(a.src);
+            expect(scene !== undefined && scene.rect.x <= 0.01 && scene.rect.y <= 0.01 && scene.rect.x + scene.rect.w >= W - 0.01 && scene.rect.y + scene.rect.h >= H - 0.01).toBe(true);
             for (const op of plan.ops) {
               if (op.kind === 'text') {
                 const r = textRect(op);
                 expect(inside(r, W, H), `${op.role} leaves the card`).toBe(true);
                 expect(overlap(r, plan.qr), `${op.role} covers the code`).toBe(false);
+                expect(overlap(r, plan.spot), `${op.role} covers the code's spot`).toBe(false);
+                expect(['headline', 'names', 'date', 'message']).toContain(op.role);
                 for (const l of op.lines) expect(measure(l.toUpperCase() === l ? l : l, op.font, op.size)).toBeLessThanOrEqual(op.w * 1.5);
               }
-              if (op.kind === 'image') expect(overlap(op.rect, plan.qr), 'Beamy covers the code').toBe(false);
             }
             // Text blocks never overlap each other.
             const texts = plan.ops.filter((o): o is Extract<CardOp, { kind: 'text' }> => o.kind === 'text').map(textRect);
             for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
               expect(overlap(texts[i], texts[j]), `text ${i} overlaps text ${j}`).toBe(false);
             }
-            if (t.art !== null) expect(planImages(plan)).toContain(t.art);
+            expect(planImages(plan)).toEqual([a.src]);
+            expect(planImages(planCard(d, t, measure, { thumb: true }))).toEqual([a.thumb]);
           });
         }
       }

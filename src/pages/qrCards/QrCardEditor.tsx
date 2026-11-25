@@ -8,9 +8,9 @@
  *
  *   Design    pick a look (filtered by occasion); each tile is the real card
  *             rendered with the host's own words
- *   Words     headline, names, date, message…
+ *   Words     headline, names, date and the one line under the code
  *   Link      which guest page the code opens (or any link)
- *   Style     accent colour, print size, the small print
+ *   Style     accent colour, shape, print size
  *   Download  print-ready PDF (vector code) or a 300 dpi PNG
  *
  * Orientation and size also sit on the preview's own toolbar, because they
@@ -170,9 +170,9 @@ function TemplateTile({ id, design, url, fontsReady, selected, onPick }: { id: s
     return () => { ro.disconnect(); io.disconnect(); };
   }, []);
   const plan = useMemo(
-    () => (fontsReady && seen ? planCard(applyTemplate(design, id), t, url, canvasMeasure) : null),
+    () => (fontsReady && seen ? planCard(applyTemplate(design, id), t, canvasMeasure, { thumb: true }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the tile only needs the words and the frame, not the whole design identity
-    [fontsReady, seen, id, design.orientation, design.size, design.copy, design.showLink, design.showCredit, url],
+    [fontsReady, seen, id, design.orientation, design.size, design.copy],
   );
   const { w: cw, h: ch } = cardSize(design.size, design.orientation);
   return (
@@ -198,12 +198,10 @@ function TemplateTile({ id, design, url, fontsReady, selected, onPick }: { id: s
 }
 
 const WORD_FIELDS: { key: keyof QrCardCopy; label: string; hint?: string; multiline?: boolean }[] = [
-  { key: 'kicker', label: 'Small line on top', hint: 'A short invitation: “Scan me”, “Strike a pose”.' },
   { key: 'headline', label: 'Headline' },
   { key: 'names', label: 'Names or event' },
-  { key: 'message', label: 'Message', multiline: true },
   { key: 'date', label: 'Date' },
-  { key: 'footer', label: 'Hashtag or sign-off', hint: 'Optional: #AdaAndTunde26, “With love, A & T”.' },
+  { key: 'message', label: 'Under the code', hint: 'Keep it short: “Scan to open our photo booth”.' },
 ];
 
 function WordsPanel({ design, onCopy, onReset }: { design: QrCardDesign; onCopy: (k: keyof QrCardCopy, v: string) => void; onReset: () => void }) {
@@ -229,13 +227,12 @@ function WordsPanel({ design, onCopy, onReset }: { design: QrCardDesign; onCopy:
   );
 }
 
-function LinkPanel({ design, event, url, onTarget, onCustom, onShowLink }: {
+function LinkPanel({ design, event, url, onTarget, onCustom }: {
   design: QrCardDesign;
   event: QrEditorEvent | null;
   url: string | null;
   onTarget: (t: QrTarget) => void;
   onCustom: (v: string) => void;
-  onShowLink: (v: boolean) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const targets: QrTarget[] = event !== null ? ['welcome', 'booth', 'upload', 'wall', 'challenges', 'custom'] : ['custom'];
@@ -304,39 +301,23 @@ function LinkPanel({ design, event, url, onTarget, onCustom, onShowLink }: {
         ) : (
           <p className="text-[13.5px] text-white/70">Add a link and the code appears on the card.</p>
         )}
-        <Toggle on={design.showLink} onChange={onShowLink} label="Print the link under the code" hint="For guests whose camera won’t scan." />
       </Group>
     </div>
   );
 }
 
-function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} onClick={() => onChange(!on)} className="pressable flex items-center gap-3 text-left min-h-11">
-      <span aria-hidden className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${on ? 'bg-white' : 'bg-white/20'}`}>
-        <span className={`absolute top-1 h-5 w-5 rounded-full transition-all ${on ? 'left-6 bg-[#17165A]' : 'left-1 bg-white'}`} />
-      </span>
-      <span>
-        <span className="block text-[14.5px] text-white">{label}</span>
-        {hint && <span className="block text-[12.5px] text-white/60">{hint}</span>}
-      </span>
-    </button>
-  );
-}
-
-function StylePanel({ design, onAccent, onSize, onOrientation, onCredit }: {
+function StylePanel({ design, onAccent, onSize, onOrientation }: {
   design: QrCardDesign;
   onAccent: (v: string | null) => void;
   onSize: (s: QrSizeId) => void;
   onOrientation: (o: QrOrientation) => void;
-  onCredit: (v: boolean) => void;
 }) {
   const t = templateById(design.templateId);
   const current = design.accent ?? t.palette.accent;
   const swatches = [t.palette.accent, ...ACCENT_SWATCHES.filter((s) => s.toLowerCase() !== t.palette.accent.toLowerCase())];
   return (
     <div>
-      <Group title="Accent colour" hint="The small line on top, the ornaments and the glow.">
+      <Group title="Accent colour" hint="The fine line under the headline.">
         <div className="flex flex-wrap items-center gap-2.5">
           {swatches.map((s, i) => {
             const on = current.toLowerCase() === s.toLowerCase();
@@ -383,9 +364,6 @@ function StylePanel({ design, onAccent, onSize, onOrientation, onCredit }: {
             );
           })}
         </div>
-      </Group>
-      <Group title="Small print">
-        <Toggle on={design.showCredit} onChange={onCredit} label="“Made with Beamwall” along the bottom" />
       </Group>
     </div>
   );
@@ -457,7 +435,7 @@ export default function QrCardEditor(p: QrCardEditorProps) {
   const [exportState, setExportState] = useState<ExportState>({ kind: 'idle' });
   const template = templateById(design.templateId);
   const url = targetUrl(design.target, p.event?.base ?? null, design.customUrl);
-  const plan = useMemo(() => planCard(design, template, url, canvasMeasure), [design, template, url, fontsReady]); // eslint-disable-line react-hooks/exhaustive-deps -- fontsReady re-measures once fonts arrive
+  const plan = useMemo(() => planCard(design, template, canvasMeasure), [design, template, fontsReady]); // eslint-disable-line react-hooks/exhaustive-deps -- fontsReady re-measures once fonts arrive
 
   const set = (patch: Partial<QrCardDesign>) => onChange({ ...design, ...patch });
   const setCopy = (k: keyof QrCardCopy, v: string) => onChange({ ...design, copy: { ...design.copy, [k]: v } });
@@ -550,7 +528,7 @@ export default function QrCardEditor(p: QrCardEditorProps) {
           onCopy={setCopy}
           onReset={() => {
             const t = templateById(design.templateId);
-            onChange({ ...design, copy: { ...design.copy, kicker: t.copy.kicker, headline: t.copy.headline, footer: t.copy.footer, message: design.target === 'custom' ? CUSTOM_MESSAGE : TARGET_INFO[design.target].message } });
+            onChange({ ...design, copy: { ...design.copy, headline: t.headline, message: design.target === 'custom' ? CUSTOM_MESSAGE : TARGET_INFO[design.target].message } });
           }}
         />
       )}
@@ -561,7 +539,6 @@ export default function QrCardEditor(p: QrCardEditorProps) {
           url={url}
           onTarget={(t) => onChange(applyTarget(design, t))}
           onCustom={(v) => set({ customUrl: v })}
-          onShowLink={(v) => set({ showLink: v })}
         />
       )}
       {tab === 'style' && (
@@ -570,7 +547,6 @@ export default function QrCardEditor(p: QrCardEditorProps) {
           onAccent={(v) => set({ accent: v })}
           onSize={(s) => set({ size: s })}
           onOrientation={(o) => set({ orientation: o })}
-          onCredit={(v) => set({ showCredit: v })}
         />
       )}
       {tab === 'download' && <DownloadPanel design={design} url={url} state={exportState} onExport={(w) => void runExport(w)} />}

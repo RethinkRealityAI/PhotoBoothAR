@@ -1,0 +1,482 @@
+[
+  {
+    "id": "moonlit-arch",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": null
+  },
+  {
+    "id": "moonlit-arch",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": null
+  },
+  {
+    "id": "garden-vows",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a garden wedding, portrait. The centrepiece is a whitewashed wooden sign hanging by twine from a rose-covered garden arbour, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm soft lilac and dusky-rose evening sky with nothing else, empty space reserved for a title. Cascading purple wisteria and white roses with greenery fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a garden aisle lined with white chairs and little lanterns, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "garden-vows",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.32,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a garden wedding, landscape. The centrepiece is a whitewashed wooden sign hanging by twine from a rose-covered garden arbour, in the LEFT half of the image (its square front centred at 32% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The right 45% of the image is open calm soft lilac and dusky-rose evening sky with nothing in it, empty space reserved for a title. Cascading purple wisteria and white roses with greenery frame only the corners and the left edge. The bottom 18% shows a garden aisle lined with white chairs and little lanterns, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "grand-ballroom",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a black-tie wedding, portrait. The centrepiece is a tall gilded easel holding a square ivory card in a thin gold frame, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat ivory square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm deep navy ballroom wall with a faint gold art-deco pattern with nothing else, empty space reserved for a title. Gold art-deco columns, navy velvet drapes with gold tassels and small crystal chandeliers fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows candlelit round banquet tables with gold chairs, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "grand-ballroom",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a black-tie wedding, landscape. The centrepiece is a tall gilded easel holding a square ivory card in a thin gold frame, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat ivory square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm deep navy ballroom wall with a faint gold art-deco pattern with nothing in it, empty space reserved for a title. Gold art-deco columns, navy velvet drapes with gold tassels and small crystal chandeliers frame only the corners and the right edge. The bottom 18% shows candlelit round banquet tables with gold chairs, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "balloon-bash",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a birthday party, portrait. The centrepiece is a big square cream party sign held up in the air by a bunch of colourful balloons tied to its top corners, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm warm peach and coral party wall with nothing else, empty space reserved for a title. Clusters of coral, yellow, lilac and teal paper balloons with bunting fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a birthday cake on a table with wrapped gifts and confetti, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "balloon-bash",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a birthday party, landscape. The centrepiece is a big square cream party sign held up in the air by a bunch of colourful balloons tied to its top corners, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm warm peach and coral party wall with nothing in it, empty space reserved for a title. Clusters of coral, yellow, lilac and teal paper balloons with bunting frame only the corners and the right edge. The bottom 18% shows a birthday cake on a table with wrapped gifts and confetti, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "party-pop",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a birthday party, portrait. The centrepiece is a giant instant-photo card pinned up with a strip of pink tape, its square picture area completely blank, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm soft pink candy-striped backdrop with nothing else, empty space reserved for a title. Paper pinwheels, curly streamers and confetti fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a tiered pink birthday cake, gift boxes and party hats, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "party-pop",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.32,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a birthday party, landscape. The centrepiece is a giant instant-photo card pinned up with a strip of pink tape, its square picture area completely blank, in the LEFT half of the image (its square front centred at 32% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The right 45% of the image is open calm soft pink candy-striped backdrop with nothing in it, empty space reserved for a title. Paper pinwheels, curly streamers and confetti frame only the corners and the left edge. The bottom 18% shows a tiered pink birthday cake, gift boxes and party hats, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "jungle-jam",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a kids birthday party, portrait. The centrepiece is a wooden jungle signboard on two posts wrapped in vines, its front panel painted, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat light cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm soft mint and teal sky with nothing else, empty space reserved for a title. Lush tropical jungle leaves, hanging vines and a toucan fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows rolling green hills with a picnic, a birthday cake, presents and little jungle animals, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "jungle-jam",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a kids birthday party, landscape. The centrepiece is a wooden jungle signboard on two posts wrapped in vines, its front panel painted, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat light cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm soft mint and teal sky with nothing in it, empty space reserved for a title. Lush tropical jungle leaves, hanging vines and a toucan frame only the corners and the right edge. The bottom 18% shows rolling green hills with a picnic, a birthday cake, presents and little jungle animals, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "golden-hour",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a vineyard anniversary dinner, portrait. The centrepiece is a rustic wooden easel under an olive tree holding a square welcome board, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat warm cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm warm apricot-to-lilac sunset sky with nothing else, empty space reserved for a title. Olive tree branches and tall wild wheat grass fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows vineyard rows and a long candlelit dinner table under string lights, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "golden-hour",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.32,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a vineyard anniversary dinner, landscape. The centrepiece is a rustic wooden easel under an olive tree holding a square welcome board, in the LEFT half of the image (its square front centred at 32% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat warm cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The right 45% of the image is open calm warm apricot-to-lilac sunset sky with nothing in it, empty space reserved for a title. Olive tree branches and tall wild wheat grass frame only the corners and the left edge. The bottom 18% shows vineyard rows and a long candlelit dinner table under string lights, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "love-notes",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is an anniversary, portrait. The centrepiece is a large open envelope with a square love-letter card standing up out of it, sealed with a small red wax heart, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm deep plum and violet dusk sky with nothing else, empty space reserved for a title. Climbing pink roses and strings of tiny paper hearts fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a path scattered with rose petals and purple hills, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "love-notes",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is an anniversary, landscape. The centrepiece is a large open envelope with a square love-letter card standing up out of it, sealed with a small red wax heart, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm deep plum and violet dusk sky with nothing in it, empty space reserved for a title. Climbing pink roses and strings of tiny paper hearts frame only the corners and the right edge. The bottom 18% shows a path scattered with rose petals and purple hills, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "island-sunset",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a beach retirement party, portrait. The centrepiece is a driftwood beach sign on a post stuck in the sand, its front board, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat pale sand square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm layered coral, peach and lilac sunset sky with wavy paper clouds with nothing else, empty space reserved for a title. Silhouetted palm trees fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows turquoise paper waves, a wooden pier and seashells on the sand, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "island-sunset",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a beach retirement party, landscape. The centrepiece is a driftwood beach sign on a post stuck in the sand, its front board, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat pale sand square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm layered coral, peach and lilac sunset sky with wavy paper clouds with nothing in it, empty space reserved for a title. Silhouetted palm trees frame only the corners and the right edge. The bottom 18% shows turquoise paper waves, a wooden pier and seashells on the sand, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "cloud-nine",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a retirement party, portrait. The centrepiece is a big square cream banner card hanging by ropes beneath a pastel hot-air balloon, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm soft periwinkle and blush pastel sky with tiny stars with nothing else, empty space reserved for a title. More small pastel hot-air balloons and fluffy paper clouds fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows layers of fluffy pastel clouds, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "cloud-nine",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.32,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a retirement party, landscape. The centrepiece is a big square cream banner card hanging by ropes beneath a pastel hot-air balloon, in the LEFT half of the image (its square front centred at 32% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The right 45% of the image is open calm soft periwinkle and blush pastel sky with tiny stars with nothing in it, empty space reserved for a title. More small pastel hot-air balloons and fluffy paper clouds frame only the corners and the left edge. The bottom 18% shows layers of fluffy pastel clouds, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "city-lights",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a corporate evening event, portrait. The centrepiece is a huge square billboard screen on top of a city tower, glowing plain warm white and completely blank, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat warm white square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm deep indigo night sky with nothing else, empty space reserved for a title. Warm string lights draping from the corners and potted plants on a rooftop fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a glowing night city skyline behind a rooftop terrace balustrade, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "city-lights",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a corporate evening event, landscape. The centrepiece is a huge square billboard screen on top of a city tower, glowing plain warm white and completely blank, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat warm white square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm deep indigo night sky with nothing in it, empty space reserved for a title. Warm string lights draping from the corners and potted plants on a rooftop frame only the corners and the right edge. The bottom 18% shows a glowing night city skyline behind a rooftop terrace balustrade, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "beam-brand",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a modern brand event, portrait. The centrepiece is a floating square panel of soft white light with rounded corners, like a glowing blank screen, with beams of periwinkle light streaming into it, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat soft white square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm deep periwinkle-to-indigo night with nothing else, empty space reserved for a title. Flowing translucent glass ribbons and soft periwinkle and lilac light beams with tiny sparkles fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows soft glowing waves of periwinkle light, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "beam-brand",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a modern brand event, landscape. The centrepiece is a floating square panel of soft white light with rounded corners, like a glowing blank screen, with beams of periwinkle light streaming into it, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat soft white square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm deep periwinkle-to-indigo night with nothing in it, empty space reserved for a title. Flowing translucent glass ribbons and soft periwinkle and lilac light beams with tiny sparkles frame only the corners and the right edge. The bottom 18% shows soft glowing waves of periwinkle light, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "showtime",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a product launch, portrait. The centrepiece is a theatre marquee sign ringed with glowing gold light bulbs hanging above the stage, its centre panel, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat warm ivory square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm deep crimson theatre backdrop with nothing else, empty space reserved for a title. Red velvet stage curtains with gold tassels fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a polished wooden stage with glowing footlights, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "showtime",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a product launch, landscape. The centrepiece is a theatre marquee sign ringed with glowing gold light bulbs hanging above the stage, its centre panel, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat warm ivory square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm deep crimson theatre backdrop with nothing in it, empty space reserved for a title. Red velvet stage curtains with gold tassels frame only the corners and the right edge. The bottom 18% shows a polished wooden stage with glowing footlights, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "gold-reveal",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a luxury product launch, portrait. The centrepiece is a square ivory card standing on a gold pedestal as a gold silk sheet slides off it, being unveiled, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat ivory square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm rich black backdrop with fine gold confetti with nothing else, empty space reserved for a title. Gold silk drapes and gold art-deco fan shapes fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a gold stage with curling gold ribbons, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "gold-reveal",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.32,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a luxury product launch, landscape. The centrepiece is a square ivory card standing on a gold pedestal as a gold silk sheet slides off it, being unveiled, in the LEFT half of the image (its square front centred at 32% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat ivory square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The right 45% of the image is open calm rich black backdrop with fine gold confetti with nothing in it, empty space reserved for a title. Gold silk drapes and gold art-deco fan shapes frame only the corners and the left edge. The bottom 18% shows a gold stage with curling gold ribbons, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "winter-glow",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Christmas party, portrait. The centrepiece is a snow-capped wooden sign on a post in the snow with a little red scarf tied round the post, its front board, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm deep navy starry night with gently falling snow with nothing else, empty space reserved for a title. Tall snowy pine trees fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a cozy snowy village with glowing cottages and a decorated Christmas tree, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "winter-glow",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Christmas party, landscape. The centrepiece is a snow-capped wooden sign on a post in the snow with a little red scarf tied round the post, its front board, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm deep navy starry night with gently falling snow with nothing in it, empty space reserved for a title. Tall snowy pine trees frame only the corners and the right edge. The bottom 18% shows a cozy snowy village with glowing cottages and a decorated Christmas tree, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "silent-night",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Christmas party, portrait. The centrepiece is a big square cream gift tag hanging by a red velvet ribbon from a pine branch, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm deep forest-green backdrop with tiny gold stars with nothing else, empty space reserved for a title. Pine branches, red baubles, gold stars and candy canes fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a fireplace mantel with stockings, presents and candles, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "silent-night",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.32,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Christmas party, landscape. The centrepiece is a big square cream gift tag hanging by a red velvet ribbon from a pine branch, in the LEFT half of the image (its square front centred at 32% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The right 45% of the image is open calm deep forest-green backdrop with tiny gold stars with nothing in it, empty space reserved for a title. Pine branches, red baubles, gold stars and candy canes frame only the corners and the left edge. The bottom 18% shows a fireplace mantel with stockings, presents and candles, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "pumpkin-moon",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": null
+  },
+  {
+    "id": "pumpkin-moon",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": null
+  },
+  {
+    "id": "spellbound",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Halloween party, portrait. The centrepiece is a tall magic mirror in a twisted bronze frame with a crow perched on top, its glass glowing, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat pale lilac-white square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm dark violet witch study wall with nothing else, empty space reserved for a title. Cobwebs, hanging dried herbs, spell books and candles on shelves fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a bubbling cauldron, potion bottles, candles and a black cat, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "spellbound",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Halloween party, landscape. The centrepiece is a tall magic mirror in a twisted bronze frame with a crow perched on top, its glass glowing, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat pale lilac-white square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm dark violet witch study wall with nothing in it, empty space reserved for a title. Cobwebs, hanging dried herbs, spell books and candles on shelves frame only the corners and the right edge. The bottom 18% shows a bubbling cauldron, potion bottles, candles and a black cat, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "grand-hall",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a graduation, portrait. The centrepiece is a large square parchment certificate in a carved gold frame on a wooden easel, completely blank, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream parchment square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm warm ochre gothic stone wall with nothing else, empty space reserved for a title. Tall wooden bookshelves, navy pennants and gold lanterns fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows stacks of leather books, a diploma scroll tied with ribbon and graduation caps, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "grand-hall",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a graduation, landscape. The centrepiece is a large square parchment certificate in a carved gold frame on a wooden easel, completely blank, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream parchment square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm warm ochre gothic stone wall with nothing in it, empty space reserved for a title. Tall wooden bookshelves, navy pennants and gold lanterns frame only the corners and the right edge. The bottom 18% shows stacks of leather books, a diploma scroll tied with ribbon and graduation caps, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "big-day",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a graduation party, portrait. The centrepiece is a big square cream banner hanging from a laurel garland strung across the sky, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm twilight blue-to-peach sky with nothing else, empty space reserved for a title. Graduation caps tossed into the air with tassels, confetti and laurel branches fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a navy campus silhouette with a clock tower and trees, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "big-day",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.32,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a graduation party, landscape. The centrepiece is a big square cream banner hanging from a laurel garland strung across the sky, in the LEFT half of the image (its square front centred at 32% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The right 45% of the image is open calm twilight blue-to-peach sky with nothing in it, empty space reserved for a title. Graduation caps tossed into the air with tassels, confetti and laurel branches frame only the corners and the left edge. The bottom 18% shows a navy campus silhouette with a clock tower and trees, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "little-one",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a baby shower, portrait. The centrepiece is a square cream sign hanging by pastel ribbons from a baby mobile of paper stars, moons and clouds, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm soft pastel lilac sky with tiny stars with nothing else, empty space reserved for a title. Paper stars and tiny hot-air balloons hanging on strings, and pastel clouds fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows fluffy pastel clouds with a sleeping teddy bear and baby blocks without letters, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "little-one",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a baby shower, landscape. The centrepiece is a square cream sign hanging by pastel ribbons from a baby mobile of paper stars, moons and clouds, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm soft pastel lilac sky with tiny stars with nothing in it, empty space reserved for a title. Paper stars and tiny hot-air balloons hanging on strings, and pastel clouds frame only the corners and the right edge. The bottom 18% shows fluffy pastel clouds with a sleeping teddy bear and baby blocks without letters, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "owambe",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Nigerian owambe celebration, portrait. The centrepiece is an ornate gold picture frame on a stand, its picture area completely blank, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat pale ivory square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm rich emerald green backdrop with nothing else, empty space reserved for a title. Draped coral, gold and emerald fabric swags, gold hand fans and tropical flowers fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows banquet tables with gold chairs and floral centrepieces, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "owambe",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.32,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Nigerian owambe celebration, landscape. The centrepiece is an ornate gold picture frame on a stand, its picture area completely blank, in the LEFT half of the image (its square front centred at 32% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat pale ivory square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The right 45% of the image is open calm rich emerald green backdrop with nothing in it, empty space reserved for a title. Draped coral, gold and emerald fabric swags, gold hand fans and tropical flowers frame only the corners and the left edge. The bottom 18% shows banquet tables with gold chairs and floral centrepieces, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "festival-of-lights",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Diwali celebration, portrait. The centrepiece is a palace doorway with a pointed arch, framed by marigold garlands, its doorway filled with plain soft glowing light, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat pale cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm deep violet night sky with nothing else, empty space reserved for a title. Marigold garlands hanging down the sides and colourful paper star lanterns fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows glowing diyas and a colourful rangoli on a palace terrace, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "festival-of-lights",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.68,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is a Diwali celebration, landscape. The centrepiece is a palace doorway with a pointed arch, framed by marigold garlands, its doorway filled with plain soft glowing light, in the RIGHT half of the image (its square front centred at 68% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat pale cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The left 45% of the image is open calm deep violet night sky with nothing in it, empty space reserved for a title. Marigold garlands hanging down the sides and colourful paper star lanterns frame only the corners and the right edge. The bottom 18% shows glowing diyas and a colourful rangoli on a palace terrace, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "crescent-night",
+    "orient": "p",
+    "aspect": "3:4",
+    "at": {
+      "x": 0.5,
+      "y": 0.56
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is an Eid celebration, portrait. The centrepiece is a square cream card hanging by a gold ribbon from a slim golden crescent moon, standing in the middle of the image slightly below centre (its square front centred at 50% across and 56% down, about 44% of the image width wide). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The top quarter of the image is open calm deep blue night sky with stars with nothing else, empty space reserved for a title. Hanging brass lanterns fill the top corners and the left and right edges. Nothing else crosses the centre column. The bottom 22% shows a mosque silhouette with domes and minarets and palm trees, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  },
+  {
+    "id": "crescent-night",
+    "orient": "l",
+    "aspect": "4:3",
+    "at": {
+      "x": 0.32,
+      "y": 0.52
+    },
+    "prompt": "Edge-to-edge layered paper-cut diorama illustration that fills the entire image, full bleed to every edge: flat artwork only, not a mock-up, not a photo of a card, no wall or table around it. Handcrafted paper layers with soft drop shadows between them and a fine paper grain, rich and detailed, vivid colours. The occasion is an Eid celebration, landscape. The centrepiece is a square cream card hanging by a gold ribbon from a slim golden crescent moon, in the LEFT half of the image (its square front centred at 32% across and 52% down, about 54% of the image height tall). Its blank front is a plain, smooth, flat cream square seen straight on, with nothing on it: no texture, no marks, no pattern, no writing and nothing in front of it. The right 45% of the image is open calm deep blue night sky with stars with nothing in it, empty space reserved for a title. Hanging brass lanterns frame only the corners and the left edge. The bottom 18% shows a mosque silhouette with domes and minarets and palm trees, kept low. No text, no letters, no numbers, no faces, no people, no white frame, no border, no margin."
+  }
+]
