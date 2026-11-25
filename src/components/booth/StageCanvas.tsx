@@ -680,6 +680,14 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       if (!activeRef.current) return;
       // Budget: skip screen refreshes the camera has no new frame for.
       if (!frameGateShouldDraw(frameGateRef.current, now)) return;
+      // No camera frame to draw (the camera is re-opening): drawFrame would
+      // bail after the clear below, flashing the stage dark. Keep the last
+      // picture on screen instead until frames return.
+      const liveVideo = videoRef.current;
+      if (!liveVideo || liveVideo.readyState < 2) return;
+      // An ENDED camera track still reports frames to the element, all black.
+      const liveStream = liveVideo.srcObject;
+      if (liveStream instanceof MediaStream && liveStream.getVideoTracks()[0]?.readyState === 'ended') return;
       // The composited 3D canvas (if it registered) renders NOW, so the
       // drawImage below reads this frame's props, not last frame's.
       runPreCompositeRender(now);
