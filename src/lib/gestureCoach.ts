@@ -102,11 +102,18 @@ export const COACH_MAX_STEPS = 3;
  * One row per SOURCE (the first action authored for it wins), in authored
  * order, capped at COACH_MAX_STEPS.
  */
-export function gestureCoachFor(triggers: readonly TriggerConfig[]): GestureCoach | null {
+/**
+ * `hands: false` drops hand gestures: a guest booth that does not run the hand
+ * tracker (handPose.GUEST_HAND_TRACKING) must never ask for a gesture it
+ * cannot see.
+ */
+export function gestureCoachFor(triggers: readonly TriggerConfig[], opts: { hands?: boolean } = {}): GestureCoach | null {
+  const hands = opts.hands ?? true;
   const steps: CoachStep[] = [];
   const seen = new Set<TriggerSource>();
   for (const t of triggers) {
     if (seen.has(t.source)) continue;
+    if (!hands && isHandSource(t.source)) continue;
     seen.add(t.source);
     steps.push({ source: t.source, glyph: COACH_GLYPH[t.source], doThis: COACH_DO[t.source], result: coachResult(t.action) });
   }

@@ -1660,19 +1660,11 @@ export default function Booth() {
   // Now a "Try this" card (GestureCoach) that names the gesture AND what it
   // does, and comes back whenever the guest picks a Look with DIFFERENT
   // gestures — not once per camera session.
-  const coach = useMemo(() => (source === 'db' ? gestureCoachFor(triggers) : null), [source, triggers]);
+  const coach = useMemo(() => (source === 'db' ? gestureCoachFor(triggers, { hands: GUEST_HAND_TRACKING }) : null), [source, triggers]);
   const coachKey = coach?.key ?? '';
   const [coachOpen, setCoachOpen] = useState(false);
   const closeCoach = useCallback(() => setCoachOpen(false), []);
   const coachShownRef = useRef('');
-  useEffect(() => {
-    if (!coachKey) { coachShownRef.current = ''; setCoachOpen(false); return; }
-    // (camera-only — it is guidance before the shutter)
-    if (phase !== 'camera' || !ready) { setCoachOpen(false); return; }
-    if (coachShownRef.current === coachKey) return;
-    coachShownRef.current = coachKey;
-    setCoachOpen(true);
-  }, [coachKey, phase, ready]);
 
   // ── Face/hand-tracking hint ───────────────────────────────────────────
   // A 3D piece is invisible until the tracker finds its subject — without
@@ -2394,6 +2386,17 @@ export default function Booth() {
     window.addEventListener('pointerdown', onTap, { capture: true, once: true });
     return () => window.removeEventListener('pointerdown', onTap, { capture: true });
   }, [cameraHintShown, dismissCameraHint]);
+  // The "Try this" card opens once per new set of gestures, after the
+  // first-run camera tip has gone (two cards at the top would stack).
+  useEffect(() => {
+    if (!coachKey) { coachShownRef.current = ''; setCoachOpen(false); return; }
+    // (camera-only — it is guidance before the shutter)
+    if (phase !== 'camera' || !ready) { setCoachOpen(false); return; }
+    if (cameraHintShown) return;
+    if (coachShownRef.current === coachKey) return;
+    coachShownRef.current = coachKey;
+    setCoachOpen(true);
+  }, [coachKey, phase, ready, cameraHintShown]);
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (

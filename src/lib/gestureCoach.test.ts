@@ -22,6 +22,16 @@ describe('gestureCoachFor', () => {
     expect(c.title).toBe('Try this gesture');
   });
 
+  it('drops hand gestures when the booth does not track hands', () => {
+    expect(gestureCoachFor([t('a', 'peaceSign', { type: 'burst', style: 'sparkles' })], { hands: false })).toBeNull();
+    const c = gestureCoachFor([
+      t('a', 'palmOpen', { type: 'burst', style: 'confetti' }),
+      t('b', 'smile', { type: 'burst', style: 'hearts' }),
+    ], { hands: false })!;
+    expect(c.steps.map((s) => s.source)).toEqual(['smile']);
+    expect(c.needsHand).toBe(false);
+  });
+
   it('one row per gesture, first action wins, authored order, capped', () => {
     const c = gestureCoachFor([
       t('a', 'smile', { type: 'burst', style: 'confetti' }),
