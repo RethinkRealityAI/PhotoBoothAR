@@ -288,7 +288,7 @@ export default function LooksSheet({
                               className="line-clamp-2 w-full font-sans text-[12px] leading-tight"
                               style={{ color: on ? 'var(--color-brand-fg)' : 'rgba(205,210,235,0.85)', fontWeight: on ? 600 : 400 }}
                             >
-                              {item.exp.name}
+                              {item.title}
                             </span>
                           </button>
                         );

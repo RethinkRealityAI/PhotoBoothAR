@@ -35,6 +35,9 @@ interface Props<Id extends string> {
   onToggleQR: () => void;
   onProject: () => void;
   driftStyle: CSSProperties;
+  /** An optional last row (the phone-only Mine chip). Inside the header so
+   *  the measured header height pushes the wall down instead of covering it. */
+  extra?: ReactNode;
 }
 
 const LABEL: CSSProperties = { fontSize: 'calc(12px * var(--wall-scale, 1))' };
@@ -54,7 +57,7 @@ function Counter({ count, socket }: { count: number; socket: ReactNode }) {
 }
 
 export default function WallHeader<Id extends string>({
-  barRef, tabs, active, onSelect, count, socket, showQR, onToggleQR, onProject, driftStyle,
+  barRef, tabs, active, onSelect, count, socket, showQR, onToggleQR, onProject, driftStyle, extra,
 }: Props<Id>) {
   const pill = 'pressable wall-glass flex items-center gap-1.5 rounded-full px-3.5 min-h-11 font-sans font-medium text-champagne hover:text-ivory transition-colors';
   return (
@@ -137,6 +140,7 @@ export default function WallHeader<Id extends string>({
           </button>
         </div>
       </div>
+      {extra}
     </motion.header>
   );
 }

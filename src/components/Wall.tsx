@@ -34,7 +34,8 @@
  */
 import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { GalleryHorizontal, LayoutDashboard, LayoutGrid, MonitorPlay, Orbit, QrCode, Trophy } from 'lucide-react';
+import { GalleryHorizontal, LayoutDashboard, LayoutGrid, MonitorPlay, Orbit, QrCode, Trophy, UserRound, X } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { fetchPostsResult, subscribeToPosts, subscribeToSettings } from '../lib/db';
@@ -107,6 +108,11 @@ import {
   useWakeLock,
   useWallViewport,
 } from './wall/wallHooks';
+import { findDecision, mineChipVisible, minePosts, readPostParam, stripPostParam } from '../lib/wallFindYours';
+import { LOCAL_BURST, newBucket, takeToken, type Bucket, type Point, type ReactionEmoji } from '../lib/wallReactions';
+import { createReactTransport, type ReactTransport } from '../lib/wallReactTransport';
+import { useReactionFloaters } from './wall/ReactionLayer';
+import { haptic } from '../lib/haptics';
 
 type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard' | 'carousel';
 
@@ -651,6 +657,70 @@ export default function Wall() {
     return () => window.removeEventListener('gallery:changed', refresh);
   }, [eventId]);
 
+  // ── Find yours on the wall (platform only) ──
+  // The booth's success screen links to `/wall?post=<id>`. Open the lightbox
+  // on that photo once it is on the wall; until then, a short note. The param
+  // is removed straight away so a refresh never reopens it.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [findTarget, setFindTarget] = useState<string | null>(
+    () => (platform && !preview ? readPostParam(location.search) : null),
+  );
+  const [findNote, setFindNote] = useState(false);
+  useEffect(() => {
+    if (!platform || preview) return;
+    const stripped = stripPostParam(location.search);
+    if (stripped === location.search) return;
+    navigate(
+      { pathname: location.pathname, search: stripped, hash: location.hash },
+      { replace: true, state: location.state },
+    );
+  }, [platform, preview, location.pathname, location.search, location.hash, location.state, navigate]);
+  useEffect(() => {
+    if (findTarget === null) return;
+    const decision = findDecision(findTarget, posts.map((p) => p.id), postsLoaded, postsFailed);
+    if (decision === 'open') {
+      const found = posts.find((p) => p.id === findTarget);
+      if (found !== undefined) setLightboxPost(found);
+      setFindTarget(null);
+      setFindNote(false);
+    } else if (decision === 'pending') {
+      // Keep watching: a host approval arrives as a realtime UPDATE and lands
+      // in `posts`, which re-runs this and opens it.
+      setFindNote(true);
+    } else if (decision === 'drop') {
+      setFindTarget(null);
+    }
+  }, [findTarget, posts, postsLoaded, postsFailed]);
+  // The note is a heads-up, not a fixture: it steps aside on its own.
+  useEffect(() => {
+    if (!findNote) return;
+    const t = setTimeout(() => setFindNote(false), 15000);
+    return () => clearTimeout(t);
+  }, [findNote]);
+
+  // ── Mine: phones only, this device's own posts ──
+  const [mineOnly, setMineOnly] = useState(false);
+  const mineCount = useMemo(
+    () => posts.reduce((n, p) => n + (savedIds.has(p.id) ? 1 : 0), 0),
+    [posts, savedIds],
+  );
+  const mineChip = platform && !preview
+    && mineChipVisible({ width: viewport.width, projecting: projectionMode, mineCount });
+  const filterMine = mineOnly && mineChip;
+  useEffect(() => {
+    if (!mineChip && mineOnly) setMineOnly(false);
+  }, [mineChip, mineOnly]);
+  /** What the gallery views draw: everything, or (Mine on) this guest's own. */
+  const wallPosts = useMemo(
+    () => (filterMine ? minePosts(posts, savedIds) : posts),
+    [filterMine, posts, savedIds],
+  );
+  const toggleMine = useCallback(() => {
+    setMineOnly((on) => !on);
+    setSlideshowIndex(0);
+  }, []);
+
   /** Effective QR visibility: this device's override, else the host's setting.
    *  Declared here because the empty-wall placeholder below needs it. */
   //
@@ -755,6 +825,43 @@ export default function Wall() {
 
   // ── Platform view, tabs, backdrop and tone ──
   const reducedMotion = usePrefersReducedMotion();
+
+  // ── Live emoji reactions (platform only; never in the host's preview) ──
+  // An anonymous broadcast channel per event: no table, nothing stored. The
+  // projector and every phone on the wall float each reaction from its tile.
+  const reactionsOn = platform && !preview;
+  const { spawn: spawnReaction, layer: reactionLayer } = useReactionFloaters(reducedMotion);
+  const reactTransport = useRef<ReactTransport | null>(null);
+  useEffect(() => {
+    if (!reactionsOn) return;
+    const t = createReactTransport(eventId, (r) => {
+      // A hidden wall does not stack up a pile of floaters for its return.
+      if (!visibleRef.current) return;
+      spawnReaction({ emoji: r.emoji, postId: r.postId });
+    });
+    reactTransport.current = t;
+    return () => {
+      t.close();
+      reactTransport.current = null;
+    };
+  }, [reactionsOn, eventId, spawnReaction]);
+  /** Sender-side limit, ~4/s per device (lib/wallReactions.takeToken). */
+  const reactBucket = useRef<Bucket | null>(null);
+  const handleReact = useCallback((postId: string, emoji: ReactionEmoji, at: Point) => {
+    const nowMs = performance.now();
+    const r = takeToken(reactBucket.current ?? newBucket(nowMs), nowMs);
+    reactBucket.current = r.bucket;
+    if (!r.ok) {
+      // Over the limit: one small local echo so the tap still answers, but
+      // nothing goes on the wire.
+      spawnReaction({ emoji, at, count: 1 });
+      return;
+    }
+    haptic('tap');
+    spawnReaction({ emoji, at, count: LOCAL_BURST });
+    void reactTransport.current?.send({ postId, emoji }); // fire-and-forget: a lost reaction is harmless
+  }, [spawnReaction]);
+
   /** A layout this machine can actually draw (no WebGL = no carousel). */
   const drawable = (v: PlatformView): PlatformView => (v === 'carousel' && !carouselUsable ? 'masonry' : v);
   const requestedView: PlatformView = viewOverride ?? hostLook.layout;
@@ -833,7 +940,7 @@ export default function Wall() {
     paddingBottom: projectionMode ? 0 : Math.max(footerH, viewport.width < 640 ? 76 : 0),
   };
 
-  const gallerySpotlight = wallSettings.featuredSpotlight && posts.length >= 3 && (
+  const gallerySpotlight = wallSettings.featuredSpotlight && posts.length >= 3 && !filterMine && (
     <FeaturedSpotlight
       posts={posts}
       enabled={wallSettings.featuredSpotlight}
@@ -864,7 +971,7 @@ export default function Wall() {
         return (
           <>
             <GridWall
-              posts={posts}
+              posts={wallPosts}
               gridSize={hostLook.gridSize}
               transition={hostLook.transition}
               freshIds={freshIds}
@@ -881,7 +988,7 @@ export default function Wall() {
         return (
           <>
             <MosaicGrid
-              posts={posts}
+              posts={wallPosts}
               freshIds={freshIds}
               beamingIds={beamingIds}
               savedIds={savedIds}
@@ -902,7 +1009,7 @@ export default function Wall() {
                 to that room, so no row runs under the chrome. */}
             <div className="relative h-full w-full">
               <MarqueeGrid
-                posts={posts}
+                posts={wallPosts}
                 scrollSpeed={wallSettings.galleryScrollSpeed ?? 1}
                 viewportH={viewport.height}
                 areaH={Math.max(0, viewport.height - (projectionMode ? 0 : headerH) - (gridAreaStyle.paddingBottom as number))}
@@ -916,7 +1023,7 @@ export default function Wall() {
       case 'carousel':
         return (
           <CarouselView
-            posts={posts}
+            posts={wallPosts}
             beamingIds={beamingIds}
             onTileRect={handleTileRect}
             onSelect={setLightboxPost}
@@ -927,7 +1034,7 @@ export default function Wall() {
       case 'slideshow':
         return (
           <SlideshowView
-            posts={posts}
+            posts={wallPosts}
             projectionMode={projectionMode}
             currentIndex={slideshowIndex}
             onIndexChange={setSlideshowIndex}
@@ -1126,6 +1233,20 @@ export default function Wall() {
             onToggleQR={toggleQR}
             onProject={() => setProjectionMode(true)}
             driftStyle={driftStyle}
+            extra={mineChip && galleryState === 'ready' && platformView !== 'leaderboard' ? (
+              <button
+                type="button"
+                onClick={toggleMine}
+                aria-pressed={filterMine}
+                className={`wall-tab wall-glass pressable flex items-center gap-1.5 rounded-full px-4 min-h-11 font-sans font-medium transition-colors ${
+                  filterMine ? 'is-selected text-ivory' : 'text-champagne hover:text-ivory'
+                }`}
+                style={{ fontSize: 'calc(12px * var(--wall-scale, 1))' }}
+              >
+                <UserRound className="h-4 w-4" aria-hidden />
+                {filterMine ? `Yours (${mineCount}) · Show all` : `Mine (${mineCount})`}
+              </button>
+            ) : undefined}
           />
         )}
         {!projectionMode && !platform && (
@@ -1286,7 +1407,7 @@ export default function Wall() {
                     className="font-serif italic text-ivory/70"
                     style={{ fontSize: 'calc(18px * var(--wall-scale, 1))' }}
                   >
-                    {slideshowIndex + 1} / {posts.length}
+                    {slideshowIndex + 1} / {wallPosts.length}
                   </p>
                 </div>
               )}
@@ -1389,9 +1510,55 @@ export default function Wall() {
       {/* ── Tap-a-photo lightbox: view + download/share from the wall ── */}
       <AnimatePresence>
         {lightboxPost && (
-          <WallLightbox key={lightboxPost.id} post={lightboxPost} onClose={() => setLightboxPost(null)} />
+          <WallLightbox
+            key={lightboxPost.id}
+            post={lightboxPost}
+            onClose={() => setLightboxPost(null)}
+            platform={platform}
+            onReact={reactionsOn ? (emoji, at) => handleReact(lightboxPost.id, emoji, at) : undefined}
+          />
         )}
       </AnimatePresence>
+
+      {/* ── Find yours: a polite note while this guest's photo waits for the
+             host (only ever opened from a `?post=` link, so never on a venue
+             screen). Firmer glass than the chrome: it sits over photos. ── */}
+      {platform && !projectionMode && (
+        <div
+          className="wall-chrome pointer-events-none fixed inset-x-0 z-40 flex flex-col items-center gap-2 px-4"
+          style={{ top: headerH + 8 }}
+        >
+          <AnimatePresence>
+            {findNote && (
+              <motion.div
+                key="find-note"
+                role="status"
+                initial={{ opacity: 0, y: reducedMotion ? 0 : -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                className="wall-glass pointer-events-auto flex max-w-sm items-center gap-1 rounded-2xl py-1 pl-4 pr-1 text-champagne"
+                // Dark walls only: the light tone's frosted white already reads.
+                style={tone === 'light' ? undefined : { background: 'rgba(18, 16, 54, 0.82)' }}
+              >
+                <p className="font-sans leading-snug" style={{ fontSize: 'calc(13px * var(--wall-scale, 1))' }}>
+                  Your photo is waiting for the host’s OK. It pops up here once approved.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setFindNote(false)}
+                  aria-label="Dismiss"
+                  className="pressable flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-champagne/80 hover:text-ivory"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {reactionsOn && reactionLayer}
     </div>
   );
 }

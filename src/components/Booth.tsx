@@ -60,6 +60,7 @@ import SendFailed from './booth/SendFailed';
 import Onboarding, { useOnboarding } from './booth/Onboarding';
 import {
   CAMERA_HINT_COPY, cameraHintSeen, markCameraHintSeen, safeLocalStorage, skipBoothSplash,
+  challengeFromRouterState, nextChallenge,
 } from '../lib/guestFlow';
 import { shouldShowOnboarding } from '../lib/boothCameraGate';
 import ChallengeSelector from './booth/ChallengeSelector';
@@ -102,7 +103,7 @@ import { emitFx } from '../lib/studio/fxBus';
 import { submitPostDetailed, getStudioSettings } from '../lib/db';
 import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSettings } from '../lib/studio/occluder';
 import {
-  savePhoto, addCompletedChallenge, setGuestName, getGuestName, hasSkippedGuestName, skipGuestName,
+  savePhoto, addCompletedChallenge, getCompletedChallenges, setGuestName, getGuestName, hasSkippedGuestName, skipGuestName,
   getGuestInitials, setGuestInitials,
   getCoverNames, setCoverNames, hasAskedCoverNames, markCoverNamesAsked,
 } from '../lib/session';
@@ -637,6 +638,33 @@ export default function Booth() {
   useEffect(() => {
     if (!wallSettings.showChallenges && selectedChallenge) setSelectedChallenge(null);
   }, [wallSettings.showChallenges, selectedChallenge]);
+
+  // Platform: a challenge tapped on /challenges arrives as router state and is
+  // preselected here, so the guest lands in the camera already on that mission
+  // instead of hunting for the pill again. Applied once, after the challenge
+  // list has loaded; only a live, unfinished challenge of THIS event counts.
+  const routerChallengeAppliedRef = useRef(false);
+  const routerChallengeId = source === 'db'
+    && typeof location.state === 'object' && location.state !== null
+    ? (location.state as { challengeId?: unknown }).challengeId
+    : undefined;
+  useEffect(() => {
+    if (typeof routerChallengeId === 'string' && !challengesLoaded) void fetchChallenges(true);
+  }, [routerChallengeId, challengesLoaded, fetchChallenges]);
+  useEffect(() => {
+    if (routerChallengeAppliedRef.current || !challengesLoaded) return;
+    if (typeof routerChallengeId !== 'string') return;
+    routerChallengeAppliedRef.current = true;
+    const pick = challengeFromRouterState(
+      source === 'db', location.state, challenges, getCompletedChallenges(eventId), wallSettings.showChallenges !== false,
+    );
+    if (pick) setSelectedChallenge(pick);
+  }, [routerChallengeId, challengesLoaded, challenges, eventId, source, location.state, wallSettings.showChallenges]);
+
+  // What the "Sent!" screen celebrates and links to (platform). Set by
+  // doSubmit, read only by SendOff.
+  const [sentPostId, setSentPostId] = useState<string | null>(null);
+  const [sentChallenge, setSentChallenge] = useState<Challenge | null>(null);
 
   // ── Phase & capture ───────────────────────────────────────────────────
   const [phase, setPhase] = useState<BoothPhase>('camera');
@@ -1979,6 +2007,8 @@ export default function Booth() {
       // Pre-moderation events return the post with approved=false — the
       // success screen must say "sent for review", not promise the wall.
       setPendingApproval(post.approved === false);
+      setSentPostId(post.id);
+      setSentChallenge(taggedChallenge ?? null);
 
       savePhoto(eventId, {
         id: post.id,
@@ -2981,6 +3011,7 @@ export default function Booth() {
           onRetake={handleRetake}
           onSend={handleSend}
           selectedChallenge={selectedChallenge}
+          blob={capturedMediaTypeRef.current === 'video' ? capturedBlobRef : null}
         />
       )}
 
@@ -3091,6 +3122,16 @@ export default function Booth() {
           success={phase === 'success'}
           pendingApproval={pendingApproval}
           onTakeAnother={handleTakeAnother}
+          blob={capturedMediaTypeRef.current === 'video' ? capturedBlobRef : null}
+          postId={sentPostId}
+          completedChallenge={sentChallenge}
+          nextChallenge={source === 'db' && wallSettings.showChallenges !== false
+            ? nextChallenge(challenges, getCompletedChallenges(eventId), sentChallenge?.id ?? null)
+            : null}
+          onNextChallenge={(c) => {
+            handleTakeAnother();
+            setSelectedChallenge(c);
+          }}
         />
       )}
 

@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Link } from 'react-router-dom';
 import confetti from 'canvas-confetti';
-import { LayoutGrid, Film, Mail, MailCheck } from 'lucide-react';
+import { LayoutGrid, Film, Mail, MailCheck, Target, ChevronRight } from 'lucide-react';
 import { ShaderRunner, defaultParams } from '../../lib/shaders';
 import { Emblem } from '../ui/EventLogo';
 import { useEvent } from '../../events/EventContext';
@@ -29,8 +29,10 @@ import {
   keepsakeOptInMessage,
   hasKeepsakeOptIn,
 } from '../../lib/keepsakeContacts';
-import { sendOffFooterLines } from '../../lib/guestFlow';
+import { sendOffFooterLines, pointsLabel } from '../../lib/guestFlow';
 import { isPlatformBooth } from '../../lib/boothViewport';
+import type { Challenge } from '../../types';
+import KeepShotButton from './KeepShotButton';
 
 interface Props {
   dataUrl: string;
@@ -42,6 +44,17 @@ interface Props {
    *  (always approved) are untouched. */
   pendingApproval?: boolean;
   onTakeAnother: () => void;
+  /* ── Platform-only extras (all optional; legacy passes none) ── */
+  /** In-memory capture bytes (videos), so "Save or share" skips a re-read. */
+  blob?: Blob | null;
+  /** The new post's id — "See yours on the wall" opens it there. */
+  postId?: string | null;
+  /** The challenge this send completed, for the points payoff. */
+  completedChallenge?: Challenge | null;
+  /** The next open challenge to suggest, or null. */
+  nextChallenge?: Challenge | null;
+  /** Back to the camera with that challenge already selected. */
+  onNextChallenge?: (c: Challenge) => void;
 }
 
 // Celebration colors come from the active event (canvas-confetti needs hex);
@@ -167,9 +180,8 @@ function WallLanding({ dataUrl, isVideo, reduced }: { dataUrl: string; isVideo: 
                 style={{ boxShadow: '0 6px 18px -6px rgba(0,0,0,0.8)' }}
               >
                 {isVideo ? (
-                  <div className="flex h-full w-full items-center justify-center bg-noir-800/80">
-                    <Film className="h-4 w-4 text-gold-300/80" aria-hidden />
-                  </div>
+                  // The clip itself, muted and looping — it is in memory already.
+                  <video src={dataUrl} autoPlay muted loop playsInline className="h-full w-full object-cover" />
                 ) : (
                   <img src={dataUrl} alt="" className="h-full w-full object-cover" />
                 )}
@@ -249,7 +261,10 @@ function GoldMotes({ play }: { play: boolean }) {
   );
 }
 
-export default function SendOff({ dataUrl, mediaType = 'image', uploading, success, pendingApproval = false, onTakeAnother }: Props) {
+export default function SendOff({
+  dataUrl, mediaType = 'image', uploading, success, pendingApproval = false, onTakeAnother,
+  blob = null, postId = null, completedChallenge = null, nextChallenge = null, onNextChallenge,
+}: Props) {
   const { config, basePath, eventId, source } = useEvent();
   const reduced = useReducedMotion() ?? false;
   /** This lane's refinements (wall landing, scrollable success) — platform only. */
@@ -569,6 +584,22 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                   : `Your ${isVideo ? 'video' : 'photo'} is on its way to the live wall.`}
                 {copy.thankYou ? ` ${copy.thankYou}` : null}
               </motion.p>
+              {platform && completedChallenge && (
+                <motion.p
+                  initial={reduced ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: reduced ? 0.3 : 0.75, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
+                  role="status"
+                  className="mx-auto inline-flex items-center gap-2 rounded-full px-4 py-2 font-label text-[11px] uppercase tracking-wide text-gold-200"
+                  style={{ background: 'rgba(var(--accent-rgb),0.14)', boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb),0.45)' }}
+                >
+                  <Target className="h-4 w-4 shrink-0 text-gold-300" aria-hidden />
+                  <span className="truncate">
+                    {pendingApproval ? 'Challenge entry sent' : 'Challenge complete'}
+                    {pointsLabel(completedChallenge.points) ? ` · ${pointsLabel(completedChallenge.points)}` : ''}
+                  </span>
+                </motion.p>
+              )}
             </div>
 
             <motion.div
@@ -577,6 +608,56 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
               transition={{ delay: 0.7, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
               className="flex w-full max-w-xs flex-col gap-3"
             >
+              {platform ? (
+                <>
+                  {/* The shot is the reason they came: keep it first. On
+                      iPhone this opens the share sheet with the real file —
+                      that is where Save to Photos and Instagram live. */}
+                  <KeepShotButton dataUrl={dataUrl} blob={blob} mediaType={isVideo ? 'video' : 'image'} />
+                  <button
+                    onClick={onTakeAnother}
+                    className="glass min-h-12 rounded-xl px-6 font-label text-xs uppercase tracking-wide text-champagne/85 transition-colors hover:text-ivory active:scale-95"
+                  >
+                    Take another
+                  </button>
+                  {nextChallenge && onNextChallenge && (
+                    <button
+                      onClick={() => onNextChallenge(nextChallenge)}
+                      className="glass flex min-h-12 items-center gap-3 rounded-xl px-4 py-2.5 text-left transition-colors hover:text-ivory active:scale-95"
+                      style={{ boxShadow: 'inset 0 0 0 1px rgba(var(--accent-rgb),0.35)' }}
+                    >
+                      <span className="text-xl leading-none" aria-hidden>{nextChallenge.emoji}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-label text-[10px] uppercase tracking-wide text-gold-300">
+                          {completedChallenge ? 'Next challenge' : 'Try a challenge'}
+                          {pointsLabel(nextChallenge.points) ? ` · ${pointsLabel(nextChallenge.points)}` : ''}
+                        </span>
+                        <span className="block truncate font-sans text-sm text-champagne/90">{nextChallenge.title}</span>
+                      </span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-champagne/50" aria-hidden />
+                    </button>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Link
+                      to={postId && !pendingApproval
+                        ? `${basePath}/wall?post=${encodeURIComponent(postId)}`
+                        : `${basePath}/wall`}
+                      className="glass flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 font-label text-[11px] uppercase tracking-wide text-champagne/70 transition-colors hover:text-ivory"
+                    >
+                      <LayoutGrid className="h-4 w-4 shrink-0" aria-hidden />
+                      {postId && !pendingApproval ? 'Find it on the wall' : 'Live wall'}
+                    </Link>
+                    <Link
+                      to={`${basePath}/me`}
+                      className="glass flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 font-label text-[11px] uppercase tracking-wide text-champagne/70 transition-colors hover:text-ivory"
+                    >
+                      <Film className="h-4 w-4 shrink-0" aria-hidden />
+                      My media
+                    </Link>
+                  </div>
+                </>
+              ) : (
+              <>
               <button
                 onClick={onTakeAnother}
                 className="rounded-xl bg-foil px-6 py-4 font-label text-xs uppercase tracking-luxe text-[color:var(--on-accent)] glow-accent transition-all hover:brightness-110 active:scale-95"
@@ -600,6 +681,8 @@ export default function SendOff({ dataUrl, mediaType = 'image', uploading, succe
                 <Film className="h-4 w-4" />
                 My Media
               </Link>
+              </>
+              )}
 
               {/* Optional keepsake email. Sits BELOW the three CTAs on purpose:
                   the guest came here to take another photo, and a form above
