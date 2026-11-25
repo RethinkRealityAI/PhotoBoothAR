@@ -1269,10 +1269,20 @@ const RUN_THE_NIGHT: GuideDoc = {
     },
     {
       kind: 'prose',
+      title: 'What guests can do from their phones',
+      body: [
+        'Not sure what to wear? The Surprise me tile at the start of the Looks row puts a random frame, prop and effect on in one tap, always a combination that works together.',
+        'After a photo is sent, one Save or share button hands guests the real photo or clip. On an iPhone that opens the share sheet, where Save to Photos, Instagram and WhatsApp all sit, and every share carries your event’s name. Find it on the wall opens the live wall on their own photo, and a Mine chip shows just theirs.',
+        'Anyone looking at a photo on the wall from their phone can send it a reaction: a heart, a laugh, fire, heart eyes, applause or a party popper. It floats up from that photo on the big screen, so the person in it sees the room cheering.',
+      ],
+    },
+    {
+      kind: 'prose',
       title: 'Challenges give people a reason to keep going',
       screen: 'guest-challenges',
       body: [
         'A challenge is a small mission worth points: "get a photo with someone you have never met", "find the couple’s parents". Guests see them in the booth, and the Leaderboard wall mode turns the whole thing into a game.',
+        'Guests can tap any mission on the Challenges page and the camera opens already on it. After they send, the Sent screen shows the points they just earned and offers the next mission, one tap back into the camera.',
         'You can also have AI check the photo against the mission before it counts. Worth knowing how that behaves: if the check cannot run — bad wifi, a slow response — it lets the photo through anyway. A guest is never blocked by a hiccup on our side. If the check runs and disagrees, the guest can retake it or post without the challenge tag.',
         'Back in the Challenges tab, every checked mission shows a running score — "12 checked · 9 passed" — and the last few reasons a photo did not pass, so a mission that turns out too strict is easy to spot and soften.',
       ],
