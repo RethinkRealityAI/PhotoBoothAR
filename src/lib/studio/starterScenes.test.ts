@@ -243,8 +243,8 @@ describe('buildStarterDraft', () => {
   });
 
   it('carries the scene filter through, or "none" when the preset has none', () => {
-    const withFilter = buildStarterDraft('neon-night')!;
-    expect(withFilter.shaderId).toBe('neon-pulse');
+    const withFilter = buildStarterDraft('soft-portrait')!;
+    expect(withFilter.shaderId).toBe('velvet-film');
     expect(withFilter.shaderParams).toEqual({});
   });
 

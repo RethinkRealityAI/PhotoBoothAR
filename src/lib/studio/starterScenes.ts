@@ -147,16 +147,6 @@ export const STARTER_SCENES: StarterScene[] = [
     shaderId: 'golden-hour-bloom',
   },
   {
-    id: 'neon-night',
-    name: 'Neon Night',
-    blurb: 'Neon tube frame, pulsing colour and a pair of glowing shades.',
-    preview: '/starters/neon-night.webp',
-    swatch: ['#FF3DDA', '#22E7FF'],
-    frameId: 'jj-neon-frame',
-    shaderId: 'neon-pulse',
-    propId: 'prop-neon-shades',
-  },
-  {
     id: 'confetti-party',
     name: 'Confetti Party',
     blurb: 'Clean inset frame, falling gold confetti and a crown on every guest.',
@@ -168,22 +158,6 @@ export const STARTER_SCENES: StarterScene[] = [
     propId: 'prop-royal-crown',
   },
   {
-    id: 'deco-glam',
-    name: 'Deco Glam',
-    blurb: 'Art-deco lines, a holographic shimmer and a tiara.',
-    preview: '/starters/deco-glam.webp',
-    swatch: ['#C9A227', '#1B2A4A'],
-    frameId: 'frame-deco-plain',
-    // The Golden Crown sticker that used to sit here drew ZERO pixels: its
-    // art occupies y 40-177 of a 960-tall card, and `y: -30` lifts it 30% of
-    // the card height (288px) — entirely off the top edge. Measured, not
-    // guessed. It was an invisible layer that still took a slot in the
-    // 20-object scene cap and a row in Scene layers, and the blurb never
-    // promised a crown anyway (the tiara below is the scene's head piece).
-    shaderId: 'prismatic-holo',
-    propId: 'prop-queens-tiara',
-  },
-  {
     id: 'soft-portrait',
     name: 'Soft Portrait',
     blurb: 'A quiet hexagon frame with cinematic film grain — flattering on everyone.',
@@ -191,16 +165,6 @@ export const STARTER_SCENES: StarterScene[] = [
     swatch: ['#D8C7A8', '#3A3630'],
     frameId: 'frame-hexagon-plain',
     shaderId: 'velvet-film',
-  },
-  {
-    id: 'halo-light',
-    name: 'Halo Light',
-    blurb: 'Golden light shafts, a simple gold border and a glowing halo.',
-    preview: '/starters/halo-light.webp',
-    swatch: ['#FFE9A8', '#4A3A12'],
-    frameId: 'dw-frame-classic',
-    shaderId: 'aureate-god-rays',
-    propId: 'prop-halo-ring',
   },
   {
     id: 'equalizer-live',

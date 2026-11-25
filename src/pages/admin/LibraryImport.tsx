@@ -505,9 +505,7 @@ export default function LibraryImport() {
   const builtInNote = (m: PlatformModel) =>
     m.source === 'customisable'
       ? 'Built into the app. Hosts recolour it and can add a name to it in the Studio.'
-      : m.source === 'code'
-        ? 'Built into the app’s code (no model file), and ready on every host’s shelf.'
-        : 'Built into the app and ready on every host’s shelf.';
+      : 'Built into the app and ready on every host’s shelf.';
 
   /* "Already on the platform": every home in one grid, filtered by chips. */
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>('all');
@@ -524,7 +522,7 @@ export default function LibraryImport() {
     for (const m of BUILT_IN) {
       out.push({
         key: `builtin:${m.id}`, source: 'builtin', name: m.name, thumb: m.thumb, swatch: m.swatch,
-        lines: [`${m.source === 'customisable' ? 'Customisable' : m.source === 'code' ? 'Built from code' : m.collection === 'christmas' ? 'Christmas' : 'Prop'} · ${m.sitsOn}`],
+        lines: [`${m.source === 'customisable' ? 'Customisable' : m.collection === 'christmas' ? 'Christmas' : 'Prop'} · ${m.sitsOn}`],
         modelUrl: m.url, note: builtInNote(m), duplicate: false,
       });
     }
