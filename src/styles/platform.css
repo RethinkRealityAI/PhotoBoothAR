@@ -973,13 +973,14 @@
 [data-wall-field][data-still] .wf-glass::after { opacity: 0.35; }
 
 /* ── The booth preview (BoothViewfinder) ───────────────────────────────── */
-/* A modern phone, drawn in container units so every size keeps the same
-   proportions: a brushed-graphite band (1.1cqw), a black glass bezel
-   (2.9cqw) and a 9:20 edge-to-edge screen (radius concentric with the
-   band). The screen stacks the status bar + Dynamic Island, the 9:16 booth
+/* A modern phone, drawn in container units to a real 6.1" flagship's
+   proportions (393x852pt display, 70.6x146.6mm body) so every size reads
+   the same: a brushed-graphite band (1cqw), a black glass bezel (2cqw)
+   and an edge-to-edge screen whose corner radius is concentric with the
+   band's. The screen stacks the status bar + Dynamic Island, the 9:16 booth
    view and the app's bottom bar, so the island and the CTA never cover the
    host's frame art and the frame's own corners are never clipped.
-   Height = 2.2 + 5.8 + 92 x 20/9 = 212.4cqw (VF_HEIGHT_PER_WIDTH).
+   Height = 2 + 4 + 94 x 852/393 = 209.8cqw (VF_HEIGHT_PER_WIDTH).
    Theme-neutral hardware: only the halo and the CTA take event colours. */
 [data-scene-ui] .vf-device {
   container-type: inline-size;
@@ -993,8 +994,8 @@
 }
 [data-scene-ui] .vf-band {
   position: relative;
-  padding: 1.1cqw;
-  border-radius: 17cqw;
+  padding: 1cqw;
+  border-radius: 16.2cqw;
   background: linear-gradient(145deg, #a4a6ad 0%, #4a4b51 14%, #222327 42%, #2b2c31 60%, #55575d 86%, #b3b5bb 100%);
   box-shadow:
     inset 0 0 0 0.5px rgba(255, 255, 255, 0.45),
@@ -1002,8 +1003,8 @@
     0 0 0 0.5px rgba(0, 0, 0, 0.55);
 }
 [data-scene-ui] .vf-bezel {
-  padding: 2.9cqw;
-  border-radius: 15.9cqw;
+  padding: 2cqw;
+  border-radius: 15.2cqw;
   background: #000;
   box-shadow: inset 0 0 0 0.6px rgba(255, 255, 255, 0.08);
 }
@@ -1011,30 +1012,30 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  aspect-ratio: 9 / 20;
+  aspect-ratio: 393 / 852;
   overflow: hidden;
-  border-radius: 13cqw;
+  border-radius: 13.2cqw;
   background: #000;
   isolation: isolate;
 }
 [data-scene-ui] .vf-status {
   position: relative;
-  flex: 0 0 11cqw;
+  flex: 0 0 14.1cqw;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 8cqw 0 9.5cqw;
+  padding: 0 7.4cqw 1.6cqw 8.6cqw;
   color: #fff;
 }
 [data-scene-ui] .vf-time {
   font-family: var(--font-sans);
-  font-size: 4.3cqw;
+  font-size: 4.1cqw;
   font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1;
 }
 [data-scene-ui] .vf-island {
-  position: absolute; left: 50%; top: 2.6cqw; width: 29cqw; height: 8cqw;
+  position: absolute; left: 50%; top: 2.6cqw; width: 30.1cqw; height: 8.9cqw;
   transform: translateX(-50%);
   border-radius: 999px; background: #000;
   box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
@@ -1057,10 +1058,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-bottom: 3cqw;
+  padding-bottom: 3.4cqw;
 }
 [data-scene-ui] .vf-home {
-  position: absolute; left: 50%; bottom: 1.9cqw; width: 34cqw; height: 1.4cqw;
+  position: absolute; left: 50%; bottom: 1.9cqw; width: 32cqw; height: 1.2cqw;
   transform: translateX(-50%); border-radius: 999px; background: rgba(255, 255, 255, 0.85);
   pointer-events: none;
 }
@@ -1068,15 +1069,15 @@
   position: absolute; inset: 0; pointer-events: none; z-index: 2;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 26%, rgba(255, 255, 255, 0) 40%);
 }
-/* Side keys: action + volume on the left, the side button on the right. */
+/* Side keys at the real body's positions (mm from the top x 1.431). */
 [data-scene-ui] .vf-key {
   position: absolute; width: 1.2cqw; border-radius: 0.6cqw; pointer-events: none;
   background: linear-gradient(90deg, #2a2b30, #8c8e95 55%, #3a3b40);
 }
-[data-scene-ui] .vf-key-action { left: -0.8cqw; top: 22cqw; height: 7cqw; }
-[data-scene-ui] .vf-key-vol-up { left: -0.8cqw; top: 35cqw; height: 13cqw; }
-[data-scene-ui] .vf-key-vol-down { left: -0.8cqw; top: 51cqw; height: 13cqw; }
-[data-scene-ui] .vf-key-power { right: -0.8cqw; top: 40cqw; height: 20cqw; }
+[data-scene-ui] .vf-key-action { left: -0.8cqw; top: 33.6cqw; height: 10cqw; }
+[data-scene-ui] .vf-key-vol-up { left: -0.8cqw; top: 55.8cqw; height: 18.6cqw; }
+[data-scene-ui] .vf-key-vol-down { left: -0.8cqw; top: 80.1cqw; height: 18.6cqw; }
+[data-scene-ui] .vf-key-power { right: -0.8cqw; top: 58.7cqw; height: 28.6cqw; }
 [data-scene-ui] .vf-drift { animation: vf-drift 18s ease-in-out infinite alternate; }
 @keyframes vf-drift {
   from { transform: scale(1.06) translate3d(-1.5%, -1%, 0); }

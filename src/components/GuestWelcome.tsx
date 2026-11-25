@@ -244,7 +244,7 @@ function SceneGuestWelcome() {
               linkState={FROM_WELCOME_STATE}
               frameUrl={screen.frame}
               previewUrl={screen.photo}
-              widthClass="w-[min(62vw,250px)] lg:w-full"
+              widthClass="w-[min(80vw,330px)] lg:w-full"
             />
             {/* Desktop carries this line in the footer, so the phone's bottom
                 stays level with the action cards. */}

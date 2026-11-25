@@ -14,10 +14,10 @@
 import { Link } from 'react-router-dom';
 import { Camera } from 'lucide-react';
 
-/** The device's outer height per unit of width (band + bezel + a 9:20
+/** The device's outer height per unit of width (band + bezel + a 393:852
  *  screen; platform.css `.vf-*` draws it in container units). Pages that size
  *  the phone from a height divide by this. */
-export const VF_HEIGHT_PER_WIDTH = 2.124;
+export const VF_HEIGHT_PER_WIDTH = 2.098;
 
 export default function BoothViewfinder({
   to,
@@ -73,7 +73,7 @@ export default function BoothViewfinder({
   return (
     <div
       data-compact={compact ? '' : undefined}
-      className={`vf-device relative mx-auto ${widthClass ?? (compact ? 'w-[104px]' : 'w-[min(64vw,250px)] lg:w-[min(22vw,280px)]')}`}
+      className={`vf-device relative mx-auto ${widthClass ?? (compact ? 'w-[104px]' : 'w-[min(76vw,320px)] lg:w-[min(24vw,320px)]')}`}
     >
       {/* Hardware: a brushed-metal band, side keys and a black glass bezel
           round an edge-to-edge screen (platform.css `.vf-*`). Theme-neutral:
