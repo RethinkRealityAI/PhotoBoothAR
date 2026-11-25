@@ -7,7 +7,7 @@ import {
 } from './templates';
 import {
   coverDateFrom, coverExperienceId, coverExperiences, coverTemplateOfId, coverWantsGuestNames, coversConfigPatch, fillCoverText,
-  formatCoverDate, joinNames, normalizeCover, normalizeCovers, possessive, removeCover, resolveCover, resolveLine, upsertCover,
+  formatCoverDate, joinNames, normalizeCover, normalizeHashtag, normalizeCovers, possessive, removeCover, resolveCover, resolveLine, upsertCover,
   type CoverContext,
 } from './spec';
 
@@ -132,6 +132,15 @@ describe('cover words', () => {
     expect(c.left[0].kicker).toBe('Exclusive');
   });
 
+  it('fits a couple’s names as the title', () => {
+    expect(resolveCover({ template: 'wedding', title: 'Mariba and Phil' }, 'X', []).masthead).toBe('MARIBA AND PHIL');
+  });
+
+  it('prints the host’s hashtag with its "#", else nothing', () => {
+    expect(resolveCover({ template: 'wedding', hashtag: 'ForeverWeDo' }, 'X', []).hashtag).toBe('#ForeverWeDo');
+    expect(resolveCover({ template: 'wedding' }, 'X', []).hashtag).toBe('');
+  });
+
   it('prints the date, else the event name, under the masthead', () => {
     expect(resolveCover({ template: 'gala', date: '2027-03-02' }, 'Hope Gala', []).dateLine).toBe('March 2, 2027');
     expect(resolveCover({ template: 'gala' }, ' Hope Gala ', []).dateLine).toBe('Hope Gala');
@@ -147,11 +156,21 @@ describe('cover settings', () => {
       template: 'wedding', title: '  Amour   Toujours forever ', honorees: ['Ada', '', 7, 'Tunde', 'Kemi', 'Extra'],
       headline: 'x'.repeat(80), date: '2027-06-14', guestNames: false, junk: 1,
     })).toEqual({
-      template: 'wedding', title: 'Amour Toujours f', honorees: ['Ada', 'Tunde', 'Kemi'],
+      template: 'wedding', title: 'Amour Toujours for', honorees: ['Ada', 'Tunde', 'Kemi'],
       headline: 'x'.repeat(48), date: '2027-06-14', guestNames: false,
     });
     expect(normalizeCover({ template: 'wedding', date: 'June' })).toEqual({ template: 'wedding' });
-    expect(normalizeCover({ template: 'wedding', title: 'Mariba & Phil' })).toEqual({ template: 'wedding', title: 'Mariba & Phil' });
+  });
+
+  it('cleans a hashtag down to what a hashtag can hold', () => {
+    expect(normalizeHashtag('#Forever We Do!')).toBe('ForeverWeDo');
+    expect(normalizeHashtag('##ada_tunde2027')).toBe('ada_tunde2027');
+    expect(normalizeHashtag('#ÀdéÒlá')).toBe('ÀdéÒlá');
+    expect(normalizeHashtag('#  !! ')).toBe('');
+    expect(normalizeHashtag(7)).toBe('');
+    expect(normalizeHashtag('x'.repeat(50))).toHaveLength(30);
+    expect(normalizeCover({ template: 'wedding', hashtag: '#Forever We Do' })).toEqual({ template: 'wedding', hashtag: 'ForeverWeDo' });
+    expect(normalizeCover({ template: 'wedding', hashtag: '#!' })).toEqual({ template: 'wedding' });
   });
 
   it('keeps one cover per template, in order', () => {

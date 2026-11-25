@@ -16,7 +16,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeCanvas, QRCodeSVG } from 'qrcode.react';
-import { Camera, Check, Copy, Download, Images, Info, Loader2, Mail, Printer, Sparkles, TriangleAlert, Trophy, UploadCloud } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, Camera, Check, Copy, Download, Images, Info, Loader2, Mail, Printer, QrCode, Sparkles, TriangleAlert, Trophy, UploadCloud } from 'lucide-react';
 import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 import EventBackground from '../../components/ui/EventBackground';
@@ -215,6 +216,24 @@ export default function ShareKit() {
             <Printer className="w-4 h-4" /> Print signage
           </button>
         </header>
+
+        {eventUuid !== null && (
+          <Link
+            to={`/host/events/${eventUuid}/qr-cards`}
+            className="print:hidden group flex items-center gap-4 rounded-3xl liquid-glass border border-accent/25 px-5 py-4 transition hover:border-accent/50"
+          >
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/[0.08]">
+              <QrCode className="h-6 w-6 text-accent-2" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-sans text-[15px] font-semibold text-brand-fg">Design printable QR cards</span>
+              <span className="block font-sans text-[13px] leading-snug text-brand-muted/70">
+                Beautiful table cards and signs for your event: pick a design, add your words, download a print-ready PDF or PNG.
+              </span>
+            </span>
+            <ArrowRight className="h-5 w-5 shrink-0 text-brand-muted/60 transition group-hover:translate-x-0.5 group-hover:text-brand-fg" aria-hidden />
+          </Link>
+        )}
 
         <div id="share-print-root" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 pb-10">
           {surfaces.map((s) => (

@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link } from 'react-router-dom';
 import {
   ArrowUpRight, BookOpen, CalendarCheck, ClipboardList, Compass, ExternalLink, Library, Link2, MessageSquareText, Play,
-  Presentation, Search, ShieldAlert, Target, Users, type LucideIcon,
+  Presentation, Search, ShieldAlert, Sparkles, Target, Users, type LucideIcon,
 } from 'lucide-react';
 import {
   CHEAT_SHEET, DAILY_TARGETS, DECKS, DISCOVERY_QUESTIONS, OBJECTIONS, RESEARCH_NOTES, SALES_CONTACT, SOURCING,
@@ -36,7 +36,10 @@ import CopyButton from './components/CopyButton';
 import SlideDeck, { SlideThumb, type DeckEnv } from './components/SlideDeck';
 import HubTemplates from './components/HubTemplates';
 import HubDeliver from './components/HubDeliver';
+import HubShowcase from './components/HubShowcase';
 import { HubPlan, HubTargets } from './components/HubPlan';
+import HubFeatures from './components/HubFeatures';
+import { LayoutGrid } from 'lucide-react';
 import { HubTopBar, ICP_LABEL, PlaceholderBadge, SectionHead } from './components/hubUi';
 import { asksFor, contactLine, offersFromIds } from './components/deckEnv';
 import { useNoIndex, useStoredString } from './components/pageMeta';
@@ -47,6 +50,7 @@ import { useRailCollapsed } from '../../lib/useRailCollapsed';
 
 const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: 'start', label: 'Start here', Icon: Compass },
+  { id: 'features', label: 'Features', Icon: LayoutGrid },
   { id: 'decks', label: 'Decks', Icon: Presentation },
   { id: 'guide', label: 'Selling guide', Icon: BookOpen },
   { id: 'deliver', label: 'Deliver an event', Icon: ClipboardList },
@@ -54,6 +58,7 @@ const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: 'targets', label: 'Daily targets', Icon: Target },
   { id: 'templates', label: 'Templates', Icon: MessageSquareText },
   { id: 'links', label: 'Links', Icon: Link2 },
+  { id: 'showcase', label: 'Showcase events', Icon: Sparkles },
   { id: 'sourcing', label: 'Find prospects', Icon: Search },
   { id: 'research', label: 'Research', Icon: Library },
 ];
@@ -374,6 +379,11 @@ export default function SalesHub() {
             </div>
           </Section>
 
+          {/* Features: the visual cheat sheet (lib/salesFeatures.ts) */}
+          <Section id="features" active={active}>
+            <HubFeatures />
+          </Section>
+
           {/* 2 · Decks */}
           <Section id="decks" active={active}>
             <SectionHead
@@ -582,6 +592,16 @@ export default function SalesHub() {
                 );
               })}
             </ul>
+          </Section>
+
+          {/* 7b · Showcase events */}
+          <Section id="showcase" active={active}>
+            <SectionHead
+              eyebrow="Showcase events"
+              title="Show, don’t tell"
+              intro="Real events to send as proof. Pick the booth or the live wall, then copy the link, let a prospect scan the QR off your screen, or download it for a slide or flyer."
+            />
+            <HubShowcase />
           </Section>
 
           {/* 8 · Sourcing */}

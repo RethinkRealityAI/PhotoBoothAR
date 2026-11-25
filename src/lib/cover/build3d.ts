@@ -27,7 +27,7 @@ import {
   type CoverFontId, type CoverFrameFinish, type CoverTemplate,
 } from './templates';
 import type { ResolvedCover } from './spec';
-import { loadCoverFonts, paintBanner, paintIssueStrap, paintLineBlock, paintStarBlock } from './render2d';
+import { loadCoverFonts, paintBanner, paintHashtag, paintIssueStrap, paintLineBlock, paintStarBlock } from './render2d';
 
 export interface CoverObject {
   group: THREE.Group;
@@ -256,6 +256,10 @@ export async function buildCover3D(cover: ResolvedCover, maxAniso = 4): Promise<
   float(starM, innerR - 0.31 - 0.02, Math.min(ry, 1.2), 0.34, -0.2, 4);
   const bannerM = panel(W * 0.78, (ctx, w) => paintBanner(ctx, t, cover.banner, w / 2, 0, w, 1.25), maxAniso);
   float(bannerM, 0, 0.5, 0.42, 0, 5);
+  if (cover.hashtag !== '') {
+    const tagM = panel(W * 0.62, (ctx, w) => paintHashtag(ctx, t, cover.hashtag, w / 2, 0, w, 1.2), maxAniso);
+    float(tagM, 0, 0.3, 0.46, 0, 6);
+  }
 
   // ── Garnishes: the template's Meshy models, at the corners.
   const garnishes = await Promise.all(t.garnish3d.map(async (g) => {

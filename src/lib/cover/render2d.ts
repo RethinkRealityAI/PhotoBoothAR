@@ -233,6 +233,24 @@ export function paintBanner(ctx: Ctx, t: CoverTemplate, banner: readonly [string
   return base + big * 0.15;
 }
 
+/** The event hashtag ("#ForeverWeDo"), centred on `cx`, fitted to `width`. `y` is its top; returns the bottom y. */
+export function paintHashtag(ctx: Ctx, t: CoverTemplate, tag: string, cx: number, y: number, width: number, s = 1): number {
+  let px = 58 * s;
+  const tracking = 0.04;
+  ctx.font = coverFontCss('anton', px);
+  while (trackedWidth(ctx, tag, tracking, px) > width && px > 22 * s) {
+    px *= 0.94;
+    ctx.font = coverFontCss('anton', px);
+  }
+  const base = y + px * 0.92;
+  glow(ctx, t, s);
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = t.accent;
+  fillTracked(ctx, tag, cx, base, tracking, px, 'center');
+  noGlow(ctx);
+  return base + px * 0.12;
+}
+
 /** Issue strap: "THE WEDDING ISSUE ·  June 14, 2027", between two hairlines. Returns the bottom y. */
 export function paintIssueStrap(ctx: Ctx, t: CoverTemplate, issue: string, dateLine: string, x0: number, x1: number, y: number, s = 1): number {
   const h = 52 * s;
@@ -377,7 +395,10 @@ export async function renderCover2D(cover: ResolvedCover, canvas?: HTMLCanvasEle
 
   // Between the corner garnishes when there are any.
   const cornered = t.garnish2d.some((g) => g.y > 0.8);
-  paintBanner(ctx, t, cover.banner, W / 2, H - 300, cornered ? W * 0.6 : W - pad * 2 - 40);
+  // A hashtag sits under the banner, so the banner moves up to make room.
+  paintBanner(ctx, t, cover.banner, W / 2, cover.hashtag ? H - 340 : H - 300, cornered ? W * 0.6 : W - pad * 2 - 40);
+  // Narrow enough to clear the barcode and the corner garnishes.
+  if (cover.hashtag) paintHashtag(ctx, t, cover.hashtag, W / 2, H - 182, W * 0.52);
   const corner = barcodeCorner(t);
   if (corner) paintBarcode(ctx, t, corner === 'right' ? W - pad - 150 : pad, H - 196);
   await paintSprites(ctx, t, W, H);
