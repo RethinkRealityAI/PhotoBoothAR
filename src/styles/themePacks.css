@@ -94,7 +94,10 @@
 
 /* The booth preview's screen and bezel. */
 :root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-empty { background: var(--tp-screen); }
-:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-device [class*="bg-[#0E0C2A]"] { background-color: var(--color-brand-bg); }
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-device [class*="bg-[#0E0C2A]"],
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-view { background-color: var(--color-brand-bg); }
+/* The redrawn viewfinder (PR #121) reads these for its CTA. */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) { --vf-cta-bg: var(--tp-cta-bg); --vf-cta-ink: var(--tp-cta-ink); }
 
 /* ── Glass everywhere else on the guest side (booth bars, sheets, send) ── */
 :root[data-event-theme] :is(.glass, .liquid-glass):not([data-platform] *, [data-platform]) {
