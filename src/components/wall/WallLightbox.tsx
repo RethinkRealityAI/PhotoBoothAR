@@ -5,7 +5,7 @@
  * WallLightbox — tap a photo on the wall to view it large and download/share it.
  * Lets guests grab their shot straight from the wall without finding /me.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Download, Share2, X, Check } from 'lucide-react';
 import { Post } from '../../types';
@@ -13,9 +13,28 @@ import { useEvent } from '../../events/EventContext';
 import { useDialog } from '../../lib/useDialog';
 import { useStore } from '../../store';
 import { getSavedPhotos } from '../../lib/session';
-import { shareableVideo, withExtension } from '../../lib/mp4Export';
+import { isMp4Type, shareableVideo, withExtension } from '../../lib/mp4Export';
+import { canShareFiles } from '../../lib/bulkSave';
+import { REACTION_EMOJIS, REACTION_LABELS, type Point, type ReactionEmoji } from '../../lib/wallReactions';
 
-export default function WallLightbox({ post, onClose }: { post: Post; onClose: () => void }) {
+/** Extension for a fetched blob's real type (storage sets it at upload). */
+function extForType(type: string, isVideo: boolean): string {
+  if (isVideo) return 'mp4';
+  if (type === 'image/png') return 'png';
+  if (type === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+export default function WallLightbox({ post, onClose, platform = false, onReact }: {
+  post: Post;
+  onClose: () => void;
+  /** Platform walls only: Share hands over the real file, not a link. Legacy
+   *  walls keep the link share exactly as before. */
+  platform?: boolean;
+  /** Platform walls only: the emoji reaction row. `at` is the tapped button's
+   *  centre, so this phone's own burst starts under the guest's finger. */
+  onReact?: (emoji: ReactionEmoji, at: Point) => void;
+}) {
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Moment');
   const { config, eventId } = useEvent();
   /** This device took it (booth saves post ids locally at send time). */
@@ -26,6 +45,40 @@ export default function WallLightbox({ post, onClose }: { post: Post; onClose: (
   const isVideo = post.media_type === 'video';
   const ext = isVideo ? (post.image_url.includes('.mp4') ? 'mp4' : 'webm') : 'jpg';
   const filename = `${config.copy.filePrefix}-${post.id.slice(0, 8)}.${ext}`;
+
+  // Share the photo itself. navigator.share must run inside the tap, and a
+  // fetch inside the tap can outlive the browser's user-activation window, so
+  // the bytes are fetched as the lightbox opens. Until (or unless) they arrive
+  // Share falls back to the link, as it always did.
+  const [shareFile, setShareFile] = useState<File | null>(null);
+  useEffect(() => {
+    if (!platform || !canShareFiles()) return;
+    const ctrl = new AbortController();
+    let live = true;
+    void (async () => { // fire-and-forget: a failure leaves the link share in place
+      try {
+        const res = await fetch(post.image_url, { mode: 'cors', signal: ctrl.signal });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const type = blob.type.startsWith(isVideo ? 'video/' : 'image/')
+          ? blob.type
+          : (isVideo ? 'video/mp4' : 'image/jpeg');
+        // An older WebM clip keeps the link: many share targets refuse WebM,
+        // and converting here would run the transcoder on every open.
+        if (isVideo && !isMp4Type(type)) return;
+        const file = new File(
+          [blob],
+          `${config.copy.filePrefix}-${post.id.slice(0, 8)}.${extForType(type, isVideo)}`,
+          { type },
+        );
+        const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+        if (live && nav.canShare?.({ files: [file] }) === true) setShareFile(file);
+      } catch {
+        // Network, CORS or abort: the link share stands.
+      }
+    })();
+    return () => { live = false; ctrl.abort(); };
+  }, [platform, post.image_url, post.id, isVideo, config.copy.filePrefix]);
 
   async function download() {
     setBusy(true);
@@ -51,6 +104,16 @@ export default function WallLightbox({ post, onClose }: { post: Post; onClose: (
 
   async function share() {
     if (typeof navigator === 'undefined' || !navigator.share) { download(); return; }
+    if (shareFile !== null) {
+      try {
+        await navigator.share({ files: [shareFile], title: copy.momentTitle });
+        return;
+      } catch (err) {
+        // The guest closed the sheet: nothing to do.
+        if (err instanceof Error && err.name === 'AbortError') return;
+        // Anything else (the target refused the file): try the link below.
+      }
+    }
     try {
       await navigator.share({ title: copy.momentTitle, text: post.message ?? copy.shareText, url: post.image_url });
     } catch { /* cancelled */ }
@@ -78,9 +141,9 @@ export default function WallLightbox({ post, onClose }: { post: Post; onClose: (
         onClick={(e) => e.stopPropagation()}
       >
         {isVideo ? (
-          <video src={post.image_url} autoPlay loop muted playsInline className="max-w-[92vw] max-h-[64vh] object-contain rounded-2xl shadow-2xl" style={{ border: '1px solid rgba(var(--accent-rgb),0.25)' }} />
+          <video src={post.image_url} autoPlay loop muted playsInline className={`max-w-[92vw] ${onReact ? 'max-h-[54vh]' : 'max-h-[64vh]'} object-contain rounded-2xl shadow-2xl`} style={{ border: '1px solid rgba(var(--accent-rgb),0.25)' }} />
         ) : (
-          <img src={post.image_url} alt={post.guest_name ?? 'Moment'} className="max-w-[92vw] max-h-[64vh] object-contain rounded-2xl shadow-2xl" style={{ border: '1px solid rgba(var(--accent-rgb),0.25)' }} />
+          <img src={post.image_url} alt={post.guest_name ?? 'Moment'} className={`max-w-[92vw] ${onReact ? 'max-h-[54vh]' : 'max-h-[64vh]'} object-contain rounded-2xl shadow-2xl`} style={{ border: '1px solid rgba(var(--accent-rgb),0.25)' }} />
         )}
 
         {isMine && (
@@ -121,6 +184,30 @@ export default function WallLightbox({ post, onClose }: { post: Post; onClose: (
             </button>
           )}
         </div>
+
+        {onReact && (
+          <div
+            role="group"
+            aria-label="React on the Live wall"
+            className="wall-glass mt-4 flex items-center gap-1 rounded-full p-1"
+          >
+            {REACTION_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                aria-label={`${REACTION_LABELS[emoji]}: send to the Live wall`}
+                title={REACTION_LABELS[emoji]}
+                className="pressable flex h-11 w-11 items-center justify-center rounded-full text-[22px] leading-none hover:bg-white/10 transition-colors"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  onReact(emoji, { x: r.left + r.width / 2, y: r.top });
+                }}
+              >
+                <span aria-hidden>{emoji}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </motion.div>
 
       {/* Close */}

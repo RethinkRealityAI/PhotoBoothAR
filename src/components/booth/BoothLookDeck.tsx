@@ -30,7 +30,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowLeftRight, Ban, LayoutGrid, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, Ban, Dices, LayoutGrid, Sparkles } from 'lucide-react';
 import FilterThumb from './FilterThumb';
 import LookThumb from './LookThumb';
 import { CaptureModePill } from './BoothCaptureControls';
@@ -56,6 +56,8 @@ import {
   type LookHandlers,
 } from '../../lib/lookStrip';
 import { LOOK_TAB_SHORT, type LookTab } from '../../lib/lookTerms';
+import { deckLabels } from '../../lib/lookLabels';
+import { canSurprise, pickSurprise, surpriseAnnouncement } from '../../lib/lookSurprise';
 import { haptic } from '../../lib/haptics';
 import type { GuestColorSlot } from '../../lib/guestPalette';
 
@@ -127,9 +129,11 @@ function Tile({
         </motion.span>
         {badge}
       </span>
-      {/* Label on its own scrim, so it stays legible over any camera image. */}
+      {/* Label on its own scrim, so it stays legible over any camera image.
+          Up to two lines: sibling names are shortened by lib/lookLabels, and
+          the second line is what keeps a longer name distinguishable. */}
       <span
-        className="max-w-full truncate rounded-full px-1.5 py-[3px] text-center font-sans text-[12px] leading-none transition-colors"
+        className="block max-w-full rounded-[10px] px-1.5 py-[3px] text-center font-sans text-[12px] leading-[1.15] transition-colors [overflow-wrap:anywhere]"
         style={{
           color: active ? 'var(--color-brand-fg)' : 'rgba(232,235,250,0.9)',
           fontWeight: active ? 600 : 500,
@@ -137,7 +141,9 @@ function Tile({
           textShadow: '0 1px 2px rgba(0,0,0,0.65)',
         }}
       >
-        {label}
+        {/* The clamp lives on an inner span: on the padded scrim itself a
+            third line peeked through the bottom padding. */}
+        <span className="line-clamp-2">{label}</span>
       </span>
     </button>
   );
@@ -199,6 +205,12 @@ export default function BoothLookDeck({
     ? pickedTab
     : defaultLookTab(strip, selection);
   const visible = useMemo(() => strip.filter((i) => i.tab === tab), [strip, tab]);
+  /** Tile labels for this row: a leading word the siblings share is dropped,
+   *  so "Gold Confetti · Gold Border" reads "Confetti · Border". */
+  const labels = useMemo(() => {
+    const l = deckLabels(visible.map((i) => i.title));
+    return new Map(visible.map((i, k) => [i.exp.id, l[k]]));
+  }, [visible]);
   const inUse = useMemo(() => tabsInUse(strip, selection, sparkles), [strip, selection, sparkles]);
   /** A look to centre once its tab has rendered (set when a switch is needed). */
   const focusRef = useRef<string | null>(null);
@@ -223,11 +235,16 @@ export default function BoothLookDeck({
   // sheet, a stage swipe, the event default arriving).
   const [named, setNamed] = useState<{ key: number; text: string } | null>(null);
   const prevSelRef = useRef<DeckSelection | null>(null);
+  /** Set by "Surprise me" just before it applies, so the pill names the whole
+   *  combination ("Confetti + Tiara") rather than only its frame. */
+  const surpriseTextRef = useRef<string | null>(null);
   useEffect(() => {
     const change = changedLook(strip, prevSelRef.current, selection);
     prevSelRef.current = selection;
+    const surprised = surpriseTextRef.current;
+    surpriseTextRef.current = null;
     if (change === null) return;
-    setNamed({ key: Date.now(), text: change.on ? change.name : `${change.name} off` });
+    setNamed({ key: Date.now(), text: surprised ?? (change.on ? change.name : `${change.name} off`) });
     if (change.on) {
       // A look put on from the sheet (or a default arriving) shows its tab.
       const home = tabOfLook(strip, change.id);
@@ -300,6 +317,21 @@ export default function BoothLookDeck({
   useEffect(() => { if (sheetOpen) setHint(false); }, [sheetOpen]);
 
   const pristine = isPristine(selection, sparkles);
+
+  // ── Surprise me: one tap, a random combination that works together
+  // (lib/lookSurprise — same slot rules as the tiles).
+  const showSurprise = canSurprise(strip, selection);
+  /** Bumped per tap — drives the dice's tumble. */
+  const [rolls, setRolls] = useState(0);
+  const surprise = () => {
+    const s = pickSurprise(strip, Math.random, selection);
+    if (s === null) return;
+    haptic('select');
+    setHint(false);
+    setRolls((n) => n + 1);
+    surpriseTextRef.current = surpriseAnnouncement(s);
+    for (const a of s.actions) runLookAction(a, handlers);
+  };
 
   return (
     <div
@@ -461,6 +493,31 @@ export default function BoothLookDeck({
             maskImage: 'linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 30px), transparent 100%)',
           }}
         >
+          {showSurprise && (
+            <Tile
+              active={false}
+              label="Surprise"
+              ariaLabel="Surprise me — try a random look"
+              onClick={surprise}
+            >
+              <span
+                className="flex h-full w-full items-center justify-center"
+                style={{ background: 'radial-gradient(circle at 35% 30%, rgba(var(--accent-rgb),0.42), rgba(var(--accent-rgb),0.12) 70%)' }}
+              >
+                {/* A tumble per roll; under reduced motion the dice just sits. */}
+                <motion.span
+                  aria-hidden
+                  className="flex"
+                  animate={reduced ? { rotate: 0, scale: 1 } : { rotate: rolls * 360, scale: rolls > 0 ? [1, 1.22, 1] : 1 }}
+                  transition={reduced
+                    ? { duration: 0 }
+                    : { rotate: { type: 'spring', stiffness: 210, damping: 15 }, scale: { duration: 0.42, ease: 'easeOut' } }}
+                >
+                  <Dices className="h-[22px] w-[22px] text-brand-fg" strokeWidth={1.8} />
+                </motion.span>
+              </span>
+            </Tile>
+          )}
           <Tile
             active={pristine}
             label="None"
@@ -499,8 +556,8 @@ export default function BoothLookDeck({
                   else tileRefs.current.delete(item.exp.id);
                 }}
                 active={on}
-                label={item.label}
-                ariaLabel={`${item.exp.name} (${LOOK_TAB_SHORT[item.tab]})`}
+                label={labels.get(item.exp.id) ?? item.label}
+                ariaLabel={`${item.title} (${LOOK_TAB_SHORT[item.tab]})`}
                 pending={on && (pendingIds?.has(item.exp.id) ?? false)}
                 onClick={() => {
                   haptic('select');

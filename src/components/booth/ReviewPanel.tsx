@@ -29,6 +29,8 @@ import { haptic } from '../../lib/haptics';
 import { Challenge } from '../../types';
 import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
+import { isPlatformBooth } from '../../lib/boothViewport';
+import KeepShotButton from './KeepShotButton';
 
 interface Props {
   dataUrl: string;             // JPEG data-url for image; object URL for video
@@ -37,13 +39,21 @@ interface Props {
   onRetake: () => void;
   onSend: (guestName: string, message: string) => void;
   selectedChallenge?: Challenge | null;
+  /** The in-memory capture bytes (videos), so saving skips a re-read. */
+  blob?: Blob | null;
 }
 
 export default function ReviewPanel({
   dataUrl, mediaType = 'image', durationMs,
-  onRetake, onSend, selectedChallenge,
+  onRetake, onSend, selectedChallenge, blob,
 }: Props) {
-  const { eventId, config, basePath } = useEvent();
+  const { eventId, config, basePath, source } = useEvent();
+  /** Platform booths get the one labelled "Save or share" button (real file,
+   *  share sheet on iPhone so it reaches Photos) and the 10px type floor.
+   *  Legacy events keep the two icon buttons exactly as shipped. */
+  const platform = isPlatformBooth(source);
+  /** Platform micro-type floor: 10px. Legacy keeps its original sizes. */
+  const micro = (legacy: string) => (platform ? 'text-[10px]' : legacy);
   const navigate = useNavigate();
   const copy = useStore((s) => s.copy);
   const reduced = useReducedMotion() ?? false;
@@ -175,7 +185,7 @@ export default function ReviewPanel({
         {mediaType === 'video' && durationSec > 0 && (
           <div className="absolute top-6 right-6 glass rounded-full px-2.5 py-1 flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-red-400" />
-            <span className="font-label text-[9px] uppercase tracking-wide text-champagne/70">{durationSec}s</span>
+            <span className={`font-label ${micro('text-[9px]')} uppercase tracking-wide text-champagne/70`}>{durationSec}s</span>
           </div>
         )}
       </div>
@@ -190,7 +200,7 @@ export default function ReviewPanel({
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gold-400/10 border border-gold-400/20">
             <span className="text-lg">{selectedChallenge.emoji}</span>
             <div>
-              <p className="font-label text-[9px] uppercase tracking-wide text-gold-400">Challenge</p>
+              <p className={`font-label ${micro('text-[9px]')} uppercase tracking-wide text-gold-400`}>Challenge</p>
               <p className="font-sans text-xs text-champagne/70">{selectedChallenge.title}</p>
             </div>
           </div>
@@ -235,6 +245,9 @@ export default function ReviewPanel({
             <ChevronDown className={`w-3.5 h-3.5 transition-transform ${extrasOpen ? 'rotate-180' : ''}`} />
             {extrasOpen ? 'Hide extras' : 'Add a name or note'}
           </button>
+          {platform ? (
+            <KeepShotButton dataUrl={dataUrl} blob={blob} mediaType={mediaType} tone="glass" className="flex-1" />
+          ) : (
           <button
             onClick={handleDownload}
             className="pressable glass rounded-xl min-h-11 min-w-11 flex items-center justify-center text-champagne/70 hover:text-gold-400 transition-colors"
@@ -243,7 +256,8 @@ export default function ReviewPanel({
           >
             <Download className="w-4 h-4" />
           </button>
-          {typeof navigator !== 'undefined' && navigator.share && (
+          )}
+          {!platform && typeof navigator !== 'undefined' && navigator.share && (
             <button
               onClick={handleShare}
               className="pressable glass rounded-xl min-h-11 min-w-11 flex items-center justify-center text-champagne/70 hover:text-gold-400 transition-colors"
@@ -286,7 +300,7 @@ export default function ReviewPanel({
                     rows={2}
                     className="w-full bg-noir-800/60 border border-gold-400/20 rounded-xl px-4 py-3 font-sans text-sm text-ivory placeholder-champagne/30 outline-none focus:border-gold-400/50 transition-colors resize-none"
                   />
-                  <span className="absolute bottom-2 right-3 font-label text-[8px] uppercase tracking-wide text-champagne/25">
+                  <span className={`absolute bottom-2 right-3 font-label ${micro('text-[8px]')} uppercase tracking-wide ${platform ? 'text-champagne/45' : 'text-champagne/25'}`}>
                     {message.length}/100
                   </span>
                 </div>
@@ -309,7 +323,7 @@ export default function ReviewPanel({
                       className="flex-1 glass rounded-xl px-3 min-h-11 flex items-center justify-center gap-1.5 text-champagne/70 hover:text-gold-300 border border-gold-400/15 hover:border-gold-400/35 transition-colors"
                     >
                       {l.icon}
-                      <span className="font-label uppercase tracking-wide text-[9px]">{l.label}</span>
+                      <span className={`font-label uppercase tracking-wide ${micro('text-[9px]')}`}>{l.label}</span>
                     </Link>
                   ))}
                 </div>

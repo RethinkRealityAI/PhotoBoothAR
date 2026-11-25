@@ -225,6 +225,42 @@ export async function shareFiles(
   }
 }
 
+// ---------------------------------------------------------------------------
+// One capture, shared from a tap
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a single capture's share stands. The bytes are fetched BEFORE the tap
+ * that shares them (a viewer prefetches on open; a grid tile's first tap
+ * prepares and its second shares), because `share()` needs the transient
+ * activation of the tap itself — on venue wifi, fetching and converting a clip
+ * first outlived it, and iOS then did nothing at all.
+ */
+export type OneSharePhase = 'idle' | 'preparing' | 'ready' | 'failed';
+
+/** What a tap on Share does now. */
+export type OneShareStep = 'prepare' | 'wait' | 'share-files' | 'share-url' | 'none';
+
+export function oneShareStep(phase: OneSharePhase, can: { files: boolean; url: boolean }): OneShareStep {
+  if (!can.files) return can.url ? 'share-url' : 'none';
+  if (phase === 'ready') return 'share-files';
+  if (phase === 'preparing') return 'wait';
+  // The file could not be fetched: a link is better than nothing, and needs
+  // no network before the sheet opens.
+  if (phase === 'failed') return can.url ? 'share-url' : 'prepare';
+  return 'prepare';
+}
+
+/**
+ * After a file share: done, try the link instead, or tell the guest to Save.
+ * A cancel is a decision, not a failure — never follow it with a link share
+ * the guest just declined.
+ */
+export function afterFileShare(outcome: HandoffOutcome, canUrl: boolean): 'done' | 'share-url' | 'save' {
+  if (outcome === 'shared' || outcome === 'cancelled') return 'done';
+  return canUrl ? 'share-url' : 'save';
+}
+
 /**
  * Save a Blob to disk through a single anchor click.
  *

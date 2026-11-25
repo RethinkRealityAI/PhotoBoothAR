@@ -116,6 +116,7 @@ function PostCard({
   return (
     <div
       ref={cardRef}
+      data-wall-post={post.id}
       className={`wall-card relative overflow-hidden rounded-xl ${isFresh ? 'is-fresh' : ''} ${onSelect ? 'cursor-pointer' : ''}`}
       onClick={onSelect ? () => onSelect(post) : undefined}
       style={{
