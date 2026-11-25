@@ -68,6 +68,7 @@ import {
   previewArrival,
 } from '../lib/wallPreview';
 import WallHeader, { type WallTab } from './wall/WallHeader';
+import { themePackById, themeTone } from '../lib/themePacks';
 import {
   WALL_LAYOUT_META,
   normalizeWallLook,
@@ -773,7 +774,10 @@ export default function Wall() {
   }, [hostLook.layout]);
 
   const backdrop = platform ? resolveWallBackdrop(hostLook) : null;
-  const eventSceneTone = config.scene ? resolveScene(config.scene).tone : 'dark';
+  // A theme pack (lib/themePacks) is the event's scene on the wall too.
+  const themePack = platform && config.theme ? themePackById(config.theme.pack) : undefined;
+  const eventSceneTone = themeTone(themePack ? config.theme : undefined)
+    ?? (config.scene ? resolveScene(config.scene).tone : 'dark');
   const tone = wallTone(hostLook, eventSceneTone);
   /** A chosen backdrop brings its own accent, so selected tabs, fresh rings
    *  and glows read on it (a pale lilac accent vanishes on a light palette). */
@@ -796,7 +800,8 @@ export default function Wall() {
   );
   const glowHex = wallGlowColor(
     hostLook,
-    chromeAccent ?? (config.scene ? resolveScene(config.scene).accent : '#D4D6FF'),
+    chromeAccent ?? (themePack ? (config.theme?.colors?.accent ?? themePack.colors.accent)
+      : config.scene ? resolveScene(config.scene).accent : '#D4D6FF'),
   );
   const glowRgb = rgbTriplet(glowHex) ?? '212, 214, 255';
   if (platform) {

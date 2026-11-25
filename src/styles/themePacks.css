@@ -1,0 +1,407 @@
+/**
+ * Theme packs (src/lib/themePacks.ts): a platform event that wears a pack
+ * gets `<html data-event-theme="<pack id>">` (EventContext.tsx) plus the
+ * pack's tokens as its themeVars — the 8 semantic colours, the legacy scale
+ * tokens, the fonts and the `--tp-*` chrome below. These rules are GENERIC:
+ * they only read `--tp-*` vars, so a new pack needs no CSS here.
+ *
+ * SCOPE: `:root[data-event-theme]` only. No coded legacy event and no event
+ * without a pack can match; the host studio's own chrome (`[data-platform]`
+ * subtrees inside the EventProvider) is excluded with `:not([data-platform] *)`
+ * so the studio keeps the platform look while the guest pages wear the pack.
+ *
+ * What this replaces: the Beamwall periwinkle that leaked onto guest pages
+ * through the scene chrome (`[data-scene-ui]` defaults in platform.css), the
+ * booth preview's way in (`.vf-cta`, mixed with brand indigo), the preview's
+ * indigo screen, and the brand shutter's purple core (brand.css `.bw-shutter`).
+ *
+ * Unlayered on purpose, like platform.css's scene section: it must beat the
+ * layered utilities it re-dresses.
+ */
+
+/* ── Scene chrome (welcome page, booth splash) ─────────────────────────── */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) {
+  --sc-ink: var(--color-brand-fg);
+  --sc-muted: var(--color-brand-muted);
+  --sc-faint: color-mix(in srgb, var(--color-brand-muted) 86%, transparent);
+  --sc-glass: var(--tp-glass);
+  --sc-glass-strong: var(--tp-glass-strong);
+  --sc-hair: var(--tp-hair);
+  --sc-rim: var(--tp-rim);
+  --sc-cta-bg: var(--tp-cta-bg);
+  --sc-cta-ink: var(--tp-cta-ink);
+  --sc-cta-glow: var(--tp-cta-glow);
+  --sc-scrim: var(--tp-scrim);
+  --sc-shadow: var(--tp-shadow);
+  color: var(--sc-ink);
+}
+
+/* Names and headlines in the pack's display face (a script never fakes bold). */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-display {
+  font-family: var(--tp-font-display);
+  font-weight: var(--tp-font-display-weight);
+  letter-spacing: var(--tp-font-display-tracking);
+  line-height: 1.12;
+  /* Script ascenders and swashes overhang the box; keep them off the edge. */
+  padding-inline: 0.06em;
+  text-shadow: 0 2px 18px var(--tp-shadow), 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-tagline {
+  font-family: var(--tp-font-accent);
+  font-style: italic;
+  font-size: clamp(19px, 2.6vw, 26px);
+  color: var(--color-accent-2);
+  text-shadow: 0 1px 10px var(--tp-shadow);
+}
+
+/* Plain page copy sits straight on the painted scene: a soft dark halo
+   keeps it AA wherever a flower or the sun drifts behind it. */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) :is(p, footer button, nav a) {
+  text-shadow: 0 1px 2px rgba(20, 8, 4, 0.9), 0 0 14px rgba(20, 8, 4, 0.7);
+}
+
+/* The primary CTA (the booth preview's way in): molten metal, dark ink. */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-cta {
+  color: var(--tp-cta-ink);
+  background: var(--tp-cta-bg);
+  text-shadow: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.12),
+    0 0 0 1px color-mix(in srgb, var(--color-accent-3) 70%, transparent),
+    0 14px 34px -12px var(--tp-cta-glow),
+    0 0 30px -8px var(--tp-cta-glow);
+}
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-shutter:hover .vf-cta {
+  filter: brightness(1.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.12),
+    0 0 0 1px color-mix(in srgb, var(--color-accent-3) 80%, transparent),
+    0 18px 40px -12px var(--tp-cta-glow),
+    0 0 40px -6px var(--tp-cta-glow);
+}
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-cta .sc-rim {
+  background: color-mix(in srgb, var(--color-accent-2) 45%, transparent);
+}
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-shutter:focus-visible {
+  box-shadow: 0 0 0 3px var(--color-brand-bg), 0 0 0 6px var(--color-accent-2);
+}
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-cta {
+  background: var(--tp-cta-bg);
+  color: var(--tp-cta-ink);
+}
+
+/* The booth preview's screen and bezel. */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-empty { background: var(--tp-screen); }
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-device [class*="bg-[#0E0C2A]"],
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .vf-view { background-color: var(--color-brand-bg); }
+/* The redrawn viewfinder (PR #121) reads these for its CTA. */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) { --vf-cta-bg: var(--tp-cta-bg); --vf-cta-ink: var(--tp-cta-ink); }
+
+/* ── Glass everywhere else on the guest side (booth bars, sheets, send) ── */
+:root[data-event-theme] :is(.glass, .liquid-glass):not([data-platform] *, [data-platform]) {
+  background:
+    linear-gradient(160deg, rgba(255, 240, 214, 0.10) 0%, rgba(255, 255, 255, 0.02) 42%, rgba(0, 0, 0, 0.14) 100%),
+    radial-gradient(130% 100% at 50% 0%, rgba(var(--accent-rgb), 0.14), transparent 62%),
+    var(--tp-glass);
+  border-color: var(--tp-hair);
+}
+:root[data-event-theme] .liquid-glass-raised:not([data-platform] *, [data-platform]) {
+  background:
+    linear-gradient(160deg, rgba(255, 240, 214, 0.13) 0%, rgba(255, 255, 255, 0.03) 40%, rgba(0, 0, 0, 0.16) 100%),
+    radial-gradient(120% 100% at 50% 0%, rgba(var(--accent-rgb), 0.18), transparent 60%),
+    var(--tp-glass);
+  border-color: var(--tp-hair);
+}
+:root[data-event-theme] .glass-strong:not([data-platform] *, [data-platform]) {
+  background: var(--tp-glass-strong);
+  border-color: var(--tp-hair);
+}
+
+/* Accent-filled buttons take the molten CTA and its ink. */
+:root[data-event-theme] .bg-foil:not([data-platform] *, [data-platform]) {
+  background-image: var(--tp-cta-bg);
+  color: var(--tp-cta-ink);
+}
+:root[data-event-theme] :is(.bg-foil .text-white, .bg-foil.text-white):not([data-platform] *) {
+  color: var(--tp-cta-ink);
+}
+
+/* ── The booth shutter (brand.css .bw-shutter) in the pack's metal ─────── */
+:root[data-event-theme] .bw-shutter:not([data-platform] *) {
+  box-shadow:
+    0 0 0 1px rgba(24, 12, 6, 0.4),
+    0 6px 20px -4px rgba(24, 12, 6, 0.55),
+    0 0 28px -6px var(--tp-cta-glow);
+}
+:root[data-event-theme] .bw-shutter:not([data-platform] *) .bw-shutter__core {
+  background: var(--tp-shutter-core);
+  box-shadow: inset 0 -6px 12px rgba(40, 18, 6, 0.45), inset 0 1.5px 2px rgba(255, 255, 255, 0.5);
+}
+:root[data-event-theme] .bw-shutter:not([data-platform] *) :is(.bw-shutter__halo, .bw-shutter__ring) {
+  background: conic-gradient(
+    from 0deg,
+    #FFFFFF 0deg, var(--color-accent-2) 60deg, var(--color-accent) 120deg, #FFFFFF 170deg,
+    var(--color-accent-2) 230deg, var(--color-accent-3) 290deg, #FFF6E2 330deg, #FFFFFF 360deg
+  );
+}
+:root[data-event-theme] .bw-shutter:not([data-platform] *):focus-visible {
+  box-shadow: 0 0 0 3px var(--color-brand-bg), 0 0 0 6px var(--color-accent-2);
+}
+
+/* ── Pack backdrops (components/theme/packs/*) ─────────────────────────────
+   Scoped to `[data-tp-backdrop]`, which only a pack backdrop renders. The
+   root is a SIZE container: every layer is sized in cqw/cqh, so the same
+   scene paints a phone, a projector wall and the host's tiny thumbnail. */
+[data-tp-backdrop] {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  container-type: size;
+  background: var(--color-brand-bg, #1A0F0B);
+}
+[data-tp-backdrop] .ig-stage {
+  position: absolute;
+  inset: 0;
+  /* Phones: the sun sits behind the booth preview, a halo round it. */
+  --ig-horizon: 62cqh;
+  --ig-sun-x: 50cqw;
+  --ig-sun: min(84cqw, 44cqh);
+  --ig-paper: drop-shadow(0 -0.5cqmin 0.9cqmin rgba(30, 10, 4, 0.42));
+  --ig-paper-up: drop-shadow(0 -0.7cqmin 1.1cqmin rgba(20, 8, 2, 0.45));
+}
+@container (min-width: 900px) {
+  /* Wide screens: the sun moves right, behind the booth preview there. */
+  [data-tp-backdrop] .ig-stage {
+    --ig-horizon: 64cqh;
+    --ig-sun-x: 71cqw;
+    --ig-sun: min(46cqh, 30cqw);
+  }
+}
+[data-tp-backdrop] .ig-stage > * { position: absolute; }
+[data-tp-backdrop] .ig-layer { display: block; overflow: visible; }
+
+[data-tp-backdrop] .ig-sky {
+  inset: 0;
+  background:
+    radial-gradient(60cqmax 40cqmax at var(--ig-sun-x) var(--ig-horizon), rgba(255, 190, 96, 0.55), transparent 70%),
+    linear-gradient(180deg, #2B1020 0%, #44182A 14%, #6E2A2C 30%, #A6472E 44%, #DA7E3A 54%, #F4B256 61%, #F8C870 64%);
+}
+[data-tp-backdrop] .ig-stars { inset: 0 0 50% 0; }
+[data-tp-backdrop] .ig-stars svg {
+  position: absolute;
+  width: calc(1.6cqmin * var(--s, 1));
+  height: calc(1.6cqmin * var(--s, 1));
+  opacity: 0.85;
+  animation: ig-twinkle 4.2s ease-in-out infinite alternate;
+  animation-delay: var(--d, 0s);
+}
+
+[data-tp-backdrop] .ig-sun-wrap {
+  left: var(--ig-sun-x);
+  top: calc(var(--ig-horizon) - var(--ig-sun) * 0.97);
+  width: var(--ig-sun);
+  height: var(--ig-sun);
+  translate: -50% 0;
+}
+[data-tp-backdrop] .ig-sun {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 4cqmin rgba(255, 196, 102, 0.75));
+  animation: ig-glow 9s ease-in-out infinite alternate;
+}
+[data-tp-backdrop] .ig-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 999px;
+  translate: -50% -50%;
+  box-shadow: 0 0 1.4cqmin rgba(90, 24, 10, 0.32), inset 0 0.3cqmin 0 rgba(255, 236, 190, 0.35);
+}
+[data-tp-backdrop] .ig-ring-1 { width: 124%; height: 124%; background: rgba(255, 206, 128, 0.26); }
+[data-tp-backdrop] .ig-ring-2 { width: 152%; height: 152%; background: rgba(255, 186, 104, 0.15); }
+[data-tp-backdrop] .ig-ring-3 { width: 184%; height: 184%; background: rgba(255, 170, 92, 0.09); }
+
+[data-tp-backdrop] .ig-cloud { filter: var(--ig-paper); opacity: 0.94; animation: ig-cloud 70s ease-in-out infinite alternate; }
+[data-tp-backdrop] .ig-cloud-1 { left: -6cqw; top: 33cqh; width: min(46cqw, 380px); }
+[data-tp-backdrop] .ig-cloud-2 { right: -8cqw; top: 22cqh; width: min(38cqw, 320px); animation-duration: 84s; animation-direction: alternate-reverse; }
+[data-tp-backdrop] .ig-cloud-3 { left: 30cqw; top: 46cqh; width: min(24cqw, 220px); opacity: 0.8; animation-duration: 96s; }
+@container (min-width: 900px) {
+  [data-tp-backdrop] .ig-cloud-1 { left: 4cqw; top: 14cqh; }
+  [data-tp-backdrop] .ig-cloud-2 { right: 2cqw; top: 9cqh; }
+  [data-tp-backdrop] .ig-cloud-3 { left: 44cqw; top: 30cqh; }
+}
+[data-tp-backdrop] .ig-birds {
+  left: calc(var(--ig-sun-x) + var(--ig-sun) * 0.2);
+  top: calc(var(--ig-horizon) - var(--ig-sun) * 1.12);
+  width: min(14cqw, 110px);
+  animation: ig-bob 7s ease-in-out infinite alternate;
+}
+
+[data-tp-backdrop] .ig-far {
+  left: 0;
+  right: 0;
+  bottom: calc(100cqh - var(--ig-horizon) - 0.4cqh);
+  height: 11cqh;
+  width: 100%;
+  filter: var(--ig-paper-up);
+}
+[data-tp-backdrop] .ig-sea {
+  left: 0;
+  right: 0;
+  top: var(--ig-horizon);
+  bottom: 0;
+  background: linear-gradient(180deg, #E9A24C 0%, #B57A3C 3%, #6E8E7A 11%, #3A7468 30%, #1D4A46 100%);
+}
+[data-tp-backdrop] .ig-glints {
+  left: var(--ig-sun-x);
+  top: calc(var(--ig-horizon) + 0.8cqh);
+  width: var(--ig-sun);
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1cqh;
+}
+[data-tp-backdrop] .ig-glints > span {
+  display: block;
+  height: max(2px, 0.55cqh);
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(255, 228, 156, 0.9), transparent);
+  animation: ig-glint 3.4s ease-in-out infinite alternate;
+  animation-delay: var(--d, 0s);
+}
+
+[data-tp-backdrop] .ig-wave { left: -8cqw; width: 116cqw; filter: var(--ig-paper-up); }
+[data-tp-backdrop] .ig-wave-1 { top: calc(var(--ig-horizon) + 9cqh); height: 32cqh; animation: ig-drift 26s ease-in-out infinite alternate; }
+[data-tp-backdrop] .ig-wave-2 { top: calc(var(--ig-horizon) + 19cqh); height: 26cqh; animation: ig-drift 19s ease-in-out infinite alternate-reverse; }
+[data-tp-backdrop] .ig-wave-3 { top: calc(var(--ig-horizon) + 28cqh); height: 20cqh; animation: ig-drift 14s ease-in-out infinite alternate; }
+
+[data-tp-backdrop] .ig-headland { bottom: 12cqh; filter: var(--ig-paper); }
+[data-tp-backdrop] .ig-headland-l { left: 0; height: min(30cqh, 60cqw); aspect-ratio: 3 / 2; }
+[data-tp-backdrop] .ig-headland-r { right: 0; height: min(22cqh, 44cqw); aspect-ratio: 3 / 2; transform: scaleX(-1); }
+
+[data-tp-backdrop] .ig-palm { filter: var(--ig-paper); aspect-ratio: 420 / 720; }
+[data-tp-backdrop] .ig-palm-l { left: max(-18cqw, -110px); bottom: 17cqh; height: min(56cqh, 112cqw); }
+[data-tp-backdrop] .ig-palm-r { right: max(-14cqw, -90px); bottom: 15cqh; height: min(44cqh, 88cqw); transform: scaleX(-1); }
+@container (min-width: 900px) {
+  [data-tp-backdrop] .ig-palm-l { left: -2cqw; height: 62cqh; }
+  [data-tp-backdrop] .ig-palm-r { right: -1cqw; height: 50cqh; }
+}
+[data-tp-backdrop] .ig-sway { animation: ig-sway 8s ease-in-out infinite alternate; }
+[data-tp-backdrop] .ig-sway-b { animation-duration: 6.4s; animation-delay: -2s; }
+
+[data-tp-backdrop] .ig-flora { filter: drop-shadow(0 0.6cqmin 1.2cqmin rgba(20, 8, 2, 0.5)); }
+[data-tp-backdrop] .ig-flora-tl,
+[data-tp-backdrop] .ig-flora-tr { top: -3cqmin; width: min(30cqw, 24cqh); aspect-ratio: 1; animation: ig-bob 11s ease-in-out infinite alternate; }
+[data-tp-backdrop] .ig-flora-tl { left: -4cqmin; }
+[data-tp-backdrop] .ig-flora-tr { right: -4cqmin; animation-delay: -4s; }
+[data-tp-backdrop] .ig-flora-bl,
+[data-tp-backdrop] .ig-flora-br { bottom: -1cqmin; width: min(58cqw, 46cqh); aspect-ratio: 420 / 360; animation: ig-bob 13s ease-in-out infinite alternate-reverse; }
+@container (min-width: 900px) {
+  /* Wide screens put page copy along the bottom: keep the corners small. */
+  [data-tp-backdrop] .ig-flora-bl,
+  [data-tp-backdrop] .ig-flora-br { width: min(40cqw, 32cqh); }
+  [data-tp-backdrop] .ig-flora-tl,
+  [data-tp-backdrop] .ig-flora-tr { width: min(22cqw, 22cqh); }
+}
+[data-tp-backdrop] .ig-flora-bl { left: -3cqmin; }
+[data-tp-backdrop] .ig-flora-br { right: -3cqmin; animation-delay: -6s; }
+
+/* Fine paper grain over everything, then a shade where page text sits:
+   the top on phones (the names), the left column on wide screens. */
+[data-tp-backdrop] .ig-grain {
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  opacity: 0.16;
+  mix-blend-mode: overlay;
+}
+[data-tp-backdrop] .ig-shade {
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(30, 10, 14, 0.5) 0%, rgba(30, 10, 14, 0.18) 20%, transparent 34%),
+    linear-gradient(0deg, rgba(14, 8, 6, 0.4) 0%, transparent 26%),
+    radial-gradient(130% 90% at 50% 42%, transparent 58%, rgba(20, 6, 6, 0.42) 100%);
+}
+@container (min-width: 900px) {
+  [data-tp-backdrop] .ig-shade {
+    background:
+      linear-gradient(90deg, rgba(30, 10, 14, 0.72) 0%, rgba(30, 10, 14, 0.5) 28%, transparent 54%),
+      linear-gradient(180deg, rgba(30, 10, 14, 0.36) 0%, transparent 26%),
+      linear-gradient(0deg, rgba(14, 8, 6, 0.45) 0%, transparent 22%),
+      radial-gradient(130% 90% at 50% 42%, transparent 58%, rgba(20, 6, 6, 0.42) 100%);
+  }
+}
+
+@keyframes ig-drift { from { transform: translateX(-1.6cqw); } to { transform: translateX(1.6cqw); } }
+@keyframes ig-cloud { from { transform: translateX(-3cqw); } to { transform: translateX(4cqw); } }
+@keyframes ig-sway { from { transform: rotate(-1.6deg); } to { transform: rotate(1.8deg); } }
+@keyframes ig-bob { from { transform: translateY(0) rotate(0deg); } to { transform: translateY(0.8cqmin) rotate(0.8deg); } }
+@keyframes ig-glow { from { transform: scale(1); } to { transform: scale(1.025); } }
+@keyframes ig-glint { from { opacity: 0.35; } to { opacity: 1; } }
+@keyframes ig-twinkle { from { opacity: 0.3; transform: scale(0.8); } to { opacity: 0.95; transform: scale(1); } }
+
+/* Decorative motion holds still for reduced motion and in thumbnails. */
+@media (prefers-reduced-motion: reduce) {
+  [data-tp-backdrop] *,
+  [data-tp-backdrop] *::before,
+  [data-tp-backdrop] *::after { animation: none !important; }
+}
+[data-tp-backdrop][data-compact] *,
+[data-tp-backdrop][data-compact] *::before,
+[data-tp-backdrop][data-compact] *::after { animation: none !important; }
+[data-tp-backdrop][data-compact] .ig-stars,
+[data-tp-backdrop][data-compact] .ig-birds { display: none; }
+
+/* ── Ways out + the privacy line (welcome cards, splash links) ─────────── */
+/* The event's own accent is the border: a solid rim, no travelling light. */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-card .sc-rim {
+  padding: 1.5px;
+  background: var(--color-accent);
+}
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-card .sc-rim > span { display: none; }
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-link-chip {
+  border: 1.5px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-brand-bg) 55%, transparent);
+  color: var(--color-brand-fg);
+  margin-inline: 4px;
+}
+/* The promise sits clear of the links and the phone above it. */
+:root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-privacy { margin-top: 1.25rem; }
+
+/* ── Readability on content pages (EventBackground: photos, challenges,
+   wall, upload). The scene is decoration there; the copy is the point. ── */
+.tp-page-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(26, 11, 12, 0.42) 0%, var(--tp-scrim, rgba(22, 11, 6, 0.6)) 26%, var(--tp-scrim, rgba(22, 11, 6, 0.6)) 74%, rgba(14, 8, 6, 0.7) 100%);
+}
+/* Faded copy (text-brand-muted/60, /70 …) reads as full-strength sand. */
+:root[data-event-theme] :is([class*="text-brand-muted/"], [class*="text-champagne/"]):not([data-platform] *, [data-platform]) {
+  color: var(--color-brand-muted);
+}
+/* The empty wall's idle hint fades itself out a second time; not on a pack. */
+:root[data-event-theme] .wall-idle-hint { opacity: 0.9 !important; }
+/* Copy on the guest pages carries a soft dark halo, like the scene chrome. */
+:root[data-event-theme] :is(p, h1, h2, h3, label, li):not([data-platform] *, .bg-foil *, .vf-cta *, .sc-cta *) {
+  text-shadow: 0 1px 2px rgba(20, 8, 4, 0.75), 0 0 12px rgba(20, 8, 4, 0.5);
+}
+/* Gold foil headlines are clipped gradients: a drop shadow, not a text shadow. */
+:root[data-event-theme] .text-foil-static:not([data-platform] *) {
+  text-shadow: none;
+  filter: drop-shadow(0 1px 1.5px rgba(20, 8, 4, 0.85)) drop-shadow(0 0 10px rgba(20, 8, 4, 0.55));
+}
+/* Glass cards that hold copy get a denser body than the scene chrome's
+   (buttons and booth bars keep the lighter glass). */
+:root[data-event-theme] :is(.glass, .liquid-glass):has(> p):not([data-platform] *, [data-platform], [data-scene-ui] *) {
+  background:
+    linear-gradient(160deg, rgba(255, 240, 214, 0.08) 0%, rgba(0, 0, 0, 0.12) 100%),
+    var(--tp-glass-strong);
+}

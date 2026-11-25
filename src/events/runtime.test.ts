@@ -73,3 +73,26 @@ describe('buildRuntimeConfig — guest-page scene', () => {
       .toEqual({ kind: 'color', color: '#112233' });
   });
 });
+
+describe('buildRuntimeConfig — theme packs', () => {
+  it('absent or unknown = no theme, and the rest of the config is unchanged', () => {
+    const base = buildRuntimeConfig(row({ look: 'beamwall', fontHref: '/x.css' }));
+    expect('theme' in base).toBe(false);
+    const unknown = buildRuntimeConfig(row({ look: 'beamwall', fontHref: '/x.css', theme: { pack: 'nope' } }));
+    // JSON: the per-call visual components differ by identity only.
+    expect(JSON.stringify(unknown)).toBe(JSON.stringify(base));
+  });
+
+  it('a pack IS the look: its tokens, its fonts, never the brand look', () => {
+    const cfg = buildRuntimeConfig(row({
+      look: 'beamwall',
+      themeVars: { '--color-accent': '#FF0000' },
+      theme: { pack: 'island-golden-hour' },
+    }));
+    expect(cfg.theme).toEqual({ pack: 'island-golden-hour' });
+    expect(cfg.look).toBeUndefined();
+    expect(cfg.themeVars?.['--color-accent']).toBe('#E2B04A');
+    expect(cfg.themeVars?.['--tp-cta-bg']).toMatch(/gradient/);
+    expect(cfg.fontHref).toBe('/fonts/theme-packs.css');
+  });
+});

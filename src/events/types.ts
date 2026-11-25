@@ -8,6 +8,7 @@
 import type { ComponentType } from 'react';
 import type { EventBrief } from '../lib/eventBrief';
 import type { EventScene } from '../lib/sceneThemes';
+import type { EventTheme } from '../lib/themePacks';
 import type { TriggerConfig } from '../lib/studio/triggers';
 
 /** A single numbered step on the /join landing + onboarding. */
@@ -125,6 +126,12 @@ export interface EventConfig {
    *  gradient, colour, photo or frame. DB events only; undefined = today's
    *  background. Always normalized (lib/sceneThemes.normalizeScene). */
   scene?: EventScene;
+  /** A full event theme pack (events.config.theme, lib/themePacks): the
+   *  client's branding on every guest surface, CTAs included. DB events
+   *  only; undefined = today's look. Always normalized. When set, its tokens
+   *  ARE `themeVars`, `look` is never 'beamwall', and its backdrop replaces
+   *  `scene` on the guest pages and the wall. */
+  theme?: EventTheme;
   /** The photo on the welcome page's and booth splash's phone screen
    *  (events.config.boothScreen), drawn under the event's frame in place of
    *  the stand-in guest. DB events only; absent = scenePage.boothScreen's default.

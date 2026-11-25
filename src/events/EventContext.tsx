@@ -83,6 +83,13 @@ function applyEventTheme(event: RuntimeEvent) {
   } else {
     delete document.documentElement.dataset.eventLook;
   }
+  // A full theme pack (lib/themePacks · styles/themePacks.css): its chrome
+  // rules key off this attribute. DB events only, like the brand look.
+  if (event.source === 'db' && event.config.theme) {
+    document.documentElement.dataset.eventTheme = event.config.theme.pack;
+  } else {
+    delete document.documentElement.dataset.eventTheme;
+  }
 
   const vars = event.config.themeVars ?? {};
   let style = document.getElementById(THEME_STYLE_ID) as HTMLStyleElement | null;
@@ -138,6 +145,7 @@ function resetPlatformTheme() {
   if (typeof document === 'undefined') return;
   delete document.documentElement.dataset.event;
   delete document.documentElement.dataset.eventLook;
+  delete document.documentElement.dataset.eventTheme;
   const style = document.getElementById(THEME_STYLE_ID);
   if (style) style.textContent = '';
   for (const v of MANAGED_CSS_VARS) document.documentElement.style.removeProperty(v);

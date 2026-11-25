@@ -15,11 +15,13 @@ import { MediaStackIcon } from '../ui/MediaIcons';
 import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 import { resolveScene } from '../../lib/sceneThemes';
+import { themeTone } from '../../lib/themePacks';
 import SceneBackdrop from '../theme/SceneBackdrop';
 import LiveWallField from '../theme/LiveWallField';
 import { WALL_FIELD_SAMPLES } from '../theme/samplePhotos';
 import BoothViewfinder from '../theme/BoothViewfinder';
 import PageBorder from '../theme/PageBorder';
+import ThemePackBackdrop, { hasThemeBackdrop } from '../theme/ThemePackBackdrop';
 import { useBoothScreen } from '../theme/useBoothShot';
 import EventBackground from '../ui/EventBackground';
 import PostImage from '../ui/PostImage';
@@ -48,7 +50,7 @@ export default function Welcome(props: { onStart: () => void }) {
  */
 function SceneWelcome({ onStart }: { onStart: () => void }) {
   const reduced = useReducedMotion() ?? false;
-  const { basePath, config } = useEvent();
+  const { basePath, config, source } = useEvent();
   const eventName = useStore((s) => s.copy.eventName);
   const posts = useStore((s) => s.posts);
   const postsLoaded = useStore((s) => s.postsLoaded);
@@ -56,8 +58,11 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
   useEffect(() => {
     if (!postsLoaded) void fetchPosts();
   }, [postsLoaded, fetchPosts]);
-  const scene = config.scene ? resolveScene(config.scene) : null;
-  const tone = scene?.tone ?? 'dark';
+  // A full theme pack (lib/themePacks): its paper-cut scene is the splash,
+  // in place of the scene, the living wall and the frame.
+  const theme = source === 'db' && hasThemeBackdrop(config.theme) ? config.theme : undefined;
+  const scene = !theme && config.scene ? resolveScene(config.scene) : null;
+  const tone = themeTone(theme) ?? scene?.tone ?? 'dark';
   const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
   const wallPhotos = useMemo(() => wallFieldPhotos(posts), [posts]);
   // Until the first photo lands the wall shows stand-ins, never bare glass.
@@ -77,9 +82,15 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
       exit={{ opacity: 0 }}
     >
       {/* Opaque and full-bleed, so the booth's stage box never shows through. */}
-      {scene ? <SceneBackdrop scene={scene} /> : <EventBackground density={44} sparkle={0.7} />}
-      <LiveWallField photos={fieldPhotos} fresh={NO_FRESH} />
-      {config.scene?.border ? <PageBorder border={config.scene.border} /> : <SplashFrame />}
+      {theme ? (
+        <ThemePackBackdrop theme={theme} />
+      ) : (
+        <>
+          {scene ? <SceneBackdrop scene={scene} /> : <EventBackground density={44} sparkle={0.7} />}
+          <LiveWallField photos={fieldPhotos} fresh={NO_FRESH} />
+          {config.scene?.border ? <PageBorder border={config.scene.border} /> : <SplashFrame />}
+        </>
+      )}
 
       <div className="relative z-40 h-full overflow-y-auto overflow-x-hidden">
         <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-center gap-x-14 gap-y-5 px-7 pt-safe-top pb-safe-bottom [--safe-top:2rem] [--safe-bottom:1.75rem] sm:px-12 lg:flex-row">
@@ -184,14 +195,14 @@ function SplashLinks({ basePath }: { basePath: string }) {
     <>
       <Link
         to={`${basePath}/wall`}
-        className="pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
+        className="sc-link-chip pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
       >
         <Images className="h-4 w-4" aria-hidden />
         See the live wall
       </Link>
       <Link
         to={`${basePath}/me`}
-        className="pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
+        className="sc-link-chip pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-sans text-[13px] font-medium sc-muted hover:underline"
       >
         <MediaStackIcon size={16} />
         My photos
@@ -208,7 +219,7 @@ function SplashLinks({ basePath }: { basePath: string }) {
  *  by the welcome page beside its booth CTA, which skips this splash. */
 export function PrivacyLine() {
   return (
-    <p className="max-w-[40ch] font-sans text-[12px] leading-relaxed sc-faint">
+    <p className="sc-privacy max-w-[40ch] font-sans text-[12px] leading-relaxed sc-faint">
       The camera runs on your device. Your photo only leaves it when you send it to the wall.
       {!IS_LEGACY_BUILD && (
         <>

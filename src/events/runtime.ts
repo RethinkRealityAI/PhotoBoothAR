@@ -18,6 +18,7 @@ import { resolveBackgroundTemplate } from '../components/theme/backgrounds';
 import { isEmptyBrief, normalizeBrief } from '../lib/eventBrief';
 import { isUntouchedTemplateTheme } from '../lib/eventTemplates';
 import { normalizeScene, resolveSceneImageUrl } from '../lib/sceneThemes';
+import { normalizeEventTheme, themePackById, themePackVars } from '../lib/themePacks';
 import { powerUpTriggers } from '../lib/wizard/powerUps';
 
 export interface RuntimeEvent {
@@ -157,12 +158,17 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   const boothScreen = resolveSceneImageUrl(cfg.boothScreen);
   // Event-wide power-ups (setup wizard): preset ids → booth triggers.
   const powerUps = powerUpTriggers(cfg.powerUps);
-  const brandLook = cfg.look === 'beamwall' || (cfg.look === undefined && isUntouchedTemplateTheme(rawThemeVars));
+  // A full theme pack (lib/themePacks): when set, it IS the look — its
+  // tokens replace themeVars, the brand look is off, and its own self-hosted
+  // fonts load. Absent/unknown = everything below exactly as before.
+  const theme = normalizeEventTheme(cfg.theme);
+  const themeVars = theme ? themePackVars(theme) : null;
+  const brandLook = !theme && (cfg.look === 'beamwall' || (cfg.look === undefined && isUntouchedTemplateTheme(rawThemeVars)));
 
   return {
     id: row.slug,
     copy: buildRuntimeCopy(name, cfg),
-    fontHref: str(cfg.fontHref) ?? '',
+    fontHref: (theme ? themePackById(theme.pack)?.fonts.href : undefined) ?? str(cfg.fontHref) ?? '',
     Wordmark: visuals.Wordmark,
     Mark: visuals.Mark,
     Emblem: visuals.Emblem,
@@ -174,10 +180,11 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     arContent,
     accentHexes,
     defaultExperienceId: str(cfg.defaultExperienceId),
-    themeVars: brandLook ? {} : rawThemeVars,
+    themeVars: themeVars ?? (brandLook ? {} : rawThemeVars),
     ...(brief !== undefined && !isEmptyBrief(brief) ? { brief } : {}),
     ...(brandLook ? { look: 'beamwall' as const } : {}),
     ...(scene ? { scene } : {}),
+    ...(theme ? { theme } : {}),
     ...(boothScreen ? { boothScreen } : {}),
     ...(powerUps.length > 0 ? { powerUps } : {}),
   };
