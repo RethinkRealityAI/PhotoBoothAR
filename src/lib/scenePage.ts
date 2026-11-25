@@ -455,10 +455,10 @@ export interface ShowcaseCard {
 /** Generic looks for an event that has not added its own yet: shipped
  *  previews of the built-in starters, seasonless and never the gold look. */
 export const SHOWCASE_DEFAULTS: readonly ShowcaseCard[] = [
-  { id: 'default-neon', kind: 'frame', url: '/starters/neon-night.webp', fit: 'cover' },
+  { id: 'default-fiesta', kind: 'frame', url: '/starters/fiesta.webp', fit: 'cover' },
   { id: 'default-visor', kind: 'prop', url: '/starters/hero-visor.webp', fit: 'cover' },
   { id: 'default-confetti', kind: 'filter', url: '/starters/confetti-party.webp', fit: 'cover' },
-  { id: 'default-halo', kind: 'filter', url: '/starters/halo-light.webp', fit: 'cover' },
+  { id: 'default-game', kind: 'filter', url: '/starters/game-day.webp', fit: 'cover' },
   { id: 'default-soft', kind: 'frame', url: '/starters/soft-portrait.webp', fit: 'cover' },
   { id: 'default-eq', kind: 'prop', url: '/starters/equalizer-live.webp', fit: 'cover' },
 ];

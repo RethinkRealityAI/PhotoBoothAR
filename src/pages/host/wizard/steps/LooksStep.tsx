@@ -33,8 +33,12 @@ import {
   type EventFilter, type LookCategory, type LookFilter, type LookPicks, type LookTag, type WizardLook,
 } from '../../../../lib/wizard/looks';
 import {
-  addFilterRow, applyPicks, currentPicks, fetchLooksData, removeFilterRow, type LooksData,
+  addFilterRow, applyPicks, currentPicks, fetchLooksData, removeFilterRow, saveConfig, type LooksData,
 } from '../../../../lib/wizard/wizardApi';
+import { coverDateFrom, coversConfigPatch, normalizeCovers, type CoverSettings } from '../../../../lib/cover/spec';
+import type { CoverTemplateId } from '../../../../lib/cover/templates';
+import CoverTiles from '../../../../components/host/cover/CoverTiles';
+import CoverEditor from '../../../../components/host/cover/CoverEditor';
 import { StepShell, TabPanel, WizardTabs, type TabDef } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
 import { useWizard } from '../wizardContext';
@@ -307,9 +311,22 @@ export default function LooksStep() {
    *  making one (null = the default: the booth list once there is one). */
   const [filterView, setFilterView] = useState<FilterView | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  /** The magazine cover open in the editor (null = closed). */
+  const [coverEdit, setCoverEdit] = useState<CoverTemplateId | null>(null);
 
   const evRef = useRef(ev);
   evRef.current = ev;
+  const covers = useMemo(() => {
+    const ar = ev.config.arContent as { covers?: unknown } | undefined;
+    return normalizeCovers(ar?.covers);
+  }, [ev.config]);
+  const saveCovers = useCallback(async (next: CoverSettings[]): Promise<boolean> => {
+    const res = await saveConfig(evRef.current, coversConfigPatch(evRef.current.config, next));
+    if (!res) return false;
+    evRef.current = res;
+    w.setEv(res);
+    return true;
+  }, [w]);
   const dataRef = useRef(data);
   dataRef.current = data;
 
@@ -620,6 +637,11 @@ export default function LooksStep() {
               </div>
             ) : tab === 'frames' ? (
               <div className="mt-4 flex flex-col gap-5">
+                {!filter.onlyPicked && filter.group === null && (
+                  <Shelf rows={1} label="Magazine covers" meta={covers.length > 0 ? `${covers.length} on · tap to edit` : 'New · tap one to set it up'}>
+                    <CoverTiles eventName={ev.name} covers={covers} onOpen={setCoverEdit} />
+                  </Shelf>
+                )}
                 {groupLooks(list).map((g) => (
                   <Shelf key={g.group} rows={g.looks.length > 4 ? 2 : 1} label={g.group} meta={`${countPicked(picks, g.looks)} of ${g.looks.length} on`}>
                     {g.looks.map((l) => <LookTile key={l.key} look={l} on={isPicked(picks, l)} onTap={() => tapLook(l)} />)}
@@ -783,9 +805,22 @@ export default function LooksStep() {
   );
 
   return (
+    <>
     <StepShell step="looks" tabs={lookTabs} notice={notice} preview={previewNode} previewKind="stage" sheetLabel={stepDef('looks').title}>
       {controls}
     </StepShell>
+    {coverEdit !== null && (
+      <CoverEditor
+        eventName={ev.name}
+        eventDate={coverDateFrom(ev.starts_at)}
+        covers={covers}
+        initial={coverEdit}
+        onSave={saveCovers}
+        onClose={() => setCoverEdit(null)}
+        backTo={typeof location !== 'undefined' ? location.pathname : '/host'}
+      />
+    )}
+    </>
   );
 }
 

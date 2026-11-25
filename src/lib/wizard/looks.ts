@@ -130,9 +130,6 @@ const EFFECT_META: Record<string, { group: string; tags: LookTag[] }> = {
 
 const CLASSIC_TAGS: Record<string, LookTag[]> = {
   'prop-royal-crown': ['birthday', 'party', 'gala'],
-  'prop-queens-tiara': ['wedding', 'birthday', 'gala'],
-  'prop-halo-ring': ['wedding', 'party'],
-  'prop-neon-shades': FUN,
 };
 
 /** Library shelves → occasions (by the shared library's category name). */

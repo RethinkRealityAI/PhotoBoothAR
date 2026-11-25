@@ -102,7 +102,13 @@ import { DEFAULT_STUDIO_SETTINGS, HEAD_SCALE_MIN, HEAD_SCALE_MAX, type StudioSet
 import {
   savePhoto, addCompletedChallenge, setGuestName, getGuestName, hasSkippedGuestName, skipGuestName,
   getGuestInitials, setGuestInitials,
+  getCoverNames, setCoverNames, hasAskedCoverNames, markCoverNamesAsked,
 } from '../lib/session';
+import {
+  COVER_MAX_GUESTS, coverExperiences, coverTemplateOfId, coverWantsGuestNames, joinNames, normalizeCovers, normalizeNames, resolveCover,
+} from '../lib/cover/spec';
+import { useCoverArt } from './booth/useCoverArt';
+import CoverNamesSheet from './booth/CoverNamesSheet';
 import { MAX_INITIALS, initialsFrom, normalizeInitials } from '../lib/studio/assetTemplate';
 import { normalizeGuestLettering } from '../lib/letteringFit';
 import { StreamRecorder, buildRecordStream, liveAudioTrack, primeEncoderInfo, recordingSupported } from '../lib/recorder';
@@ -692,13 +698,31 @@ export default function Booth() {
   const recordStartRef = useRef(0);          // wall-clock start of recording (true duration)
   const streamRef = useRef<MediaStream | null>(null); // always-current stream (survives camera flip)
 
+  // ── Magazine covers ───────────────────────────────────────────────────
+  // Opt-in per event (arContent.covers, set in the host's Looks step). Each
+  // cover is a Frame whose art is drawn here, with the names of the guests
+  // in the shot (asked when they pick one). PLATFORM only: legacy coded
+  // events never read the key.
+  const coverSettings = useMemo(
+    () => (source === 'db' ? normalizeCovers(eventConfig.arContent.covers) : []),
+    [source, eventConfig],
+  );
+  const [coverNamesTick, setCoverNamesTick] = useState(0);
+  const coverNames = useMemo(() => {
+    void coverNamesTick;
+    return normalizeNames(getCoverNames(eventId), COVER_MAX_GUESTS);
+  }, [eventId, coverNamesTick]);
+  const coverArt = useCoverArt(coverSettings, eventConfig.copy.eventName, coverNames);
+
   // ── Build catalog ─────────────────────────────────────────────────────
   const catalog = useMemo(() => {
     const all = buildCatalog(eventConfig.arContent, experiencesLoaded ? experiences : [], presetOverrides, experiencesLoaded ? linkedGlobals : [], source === 'db');
+    // The host turned these on, so they lead the Frames.
+    const covers = coverExperiences(coverSettings, coverArt);
     // A look that is ONLY hand-held gear shows nothing without hand tracking,
     // which guest booths don't run (GUEST_HAND_TRACKING): leave it out.
-    return GUEST_HAND_TRACKING || source !== 'db' ? all : all.filter((e) => !isHandOnlyLook(e));
-  }, [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides, source]);
+    return [...covers, ...(GUEST_HAND_TRACKING || source !== 'db' ? all : all.filter((e) => !isHandOnlyLook(e)))];
+  }, [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides, source, coverSettings, coverArt]);
 
   // Pre-select from route param
   useEffect(() => {
@@ -972,11 +996,15 @@ export default function Booth() {
 
   // ── Derived flags ─────────────────────────────────────────────────────
   const isFront = facingMode === 'user';
+  // A cover Frame's art is redrawn when the names change, so it is read live
+  // rather than from the (older) copy the selection holds.
+  const frameCover = coverTemplateOfId(frameExp?.id);
+  const frameArt = frameCover ? (coverArt[frameCover] ?? null) : (frameExp?.asset_url ?? null);
   // Composite carries its 2D content in config.layers (never the singular
   // asset_url field, which the legacy mirror may repurpose for either family) —
   // so a composite frame "lights up" 2D by actually having a 2D-kind layer.
   const is2DOverlay = frameExp !== null && (
-    (!!frameExp.asset_url && (frameExp.kind === 'border' || frameExp.kind === '2d_filter')) ||
+    (!!frameArt && (frameExp.kind === 'border' || frameExp.kind === '2d_filter')) ||
     (frameExp.kind === 'composite' && !!frameExp.config?.layers?.some((l) => l.kind === 'border' || l.kind === '2d_filter'))
   );
   const is3D = attachExp !== null && (
@@ -1181,6 +1209,27 @@ export default function Booth() {
   const worldSelected = arFrameId !== null && isWorldLook(attachExp);
   const worldFrameUrl: string | null = worldSelected ? worldLookFrameUrl(attachExp) : null;
   const worldMode = worldFrameUrl !== null;
+
+  // The cover in use (a selfie Frame or its standing 3D tile), and the cover
+  // that stands up in world mode, printed with this group's names.
+  const activeCover = useMemo(() => {
+    const t = worldSelected ? coverTemplateOfId(attachExp?.id) : frameCover;
+    return t ? coverSettings.find((c) => c.template === t) ?? null : null;
+  }, [worldSelected, attachExp, frameCover, coverSettings]);
+  const worldCover = useMemo(
+    () => (worldSelected && activeCover ? resolveCover(activeCover, eventConfig.copy.eventName, coverNames) : null),
+    [worldSelected, activeCover, eventConfig, coverNames],
+  );
+  const coverWantsNames = coverWantsGuestNames(activeCover);
+  const [askCoverNames, setAskCoverNames] = useState(false);
+  // Picking a cover asks once for the names to print (Skip is remembered; the
+  // chip below changes them any time).
+  useEffect(() => {
+    // Only once the guest can see the cover (camera live, past the splash).
+    if (!coverWantsNames || phase !== 'camera' || !ready || hasAskedCoverNames(eventId)) return;
+    setAskCoverNames(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCover?.template, coverWantsNames, ready]);
   // The switch screen lifts once this booth can show something real: the AR
   // intro (its frame picked) or the live selfie camera. Never under 0.45 s (no
   // flicker), never over 4.5 s (a slow camera has its own screen).
@@ -1196,12 +1245,15 @@ export default function Booth() {
   const arAppliedRef = useRef(false);
   useEffect(() => {
     if (arFrameId === null || arAppliedRef.current || !experiencesLoaded) return;
+    // A cover's tile exists once its art is drawn (a moment after load).
+    const arCover = coverTemplateOfId(arFrameId);
+    if (arCover && coverSettings.some((c) => c.template === arCover) && !coverArt[arCover]) return;
     const tile = withWorldLooks(catalog).find((e) => e.id === `${WORLD_LOOK_PREFIX}${arFrameId}`);
     arAppliedRef.current = true;
     if (tile) setAttachExp(tile);
     else goTo(leaveArUrl(basePath, location.search, null)); // unknown frame: plain booth
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arFrameId, experiencesLoaded, catalog]);
+  }, [arFrameId, experiencesLoaded, catalog, coverArt]);
   // XR8's intrinsics describe its canvas, which the stage cover-fits: keep the
   // two the same shape.
   useEffect(() => {
@@ -2442,7 +2494,7 @@ export default function Booth() {
                   effectId={effectId}
                   sparkles={sparkles}
                   mirror={isFront}
-                  overlayUrl={worldMode || stageOverlays ? null : (is2DOverlay ? frameExp!.asset_url : null)}
+                  overlayUrl={worldMode || stageOverlays ? null : (is2DOverlay ? frameArt : null)}
                   overlayTransform={overlayTransform}
                   overlayOpacity={frameExp?.config?.opacity}
                   overlays={worldMode ? null : stageOverlays}
@@ -2513,6 +2565,7 @@ export default function Booth() {
               {worldFrameUrl !== null && phase === 'camera' && (
                 <WorldStage
                   frameUrl={worldFrameUrl}
+                  cover={worldCover}
                   frameName={attachExp?.name.replace(/ 3D$/, '') ?? 'This frame'}
                   accent={eventConfig.accentHexes?.[0] ?? '#d4af37'}
                   videoRef={videoRef}
@@ -2554,6 +2607,18 @@ export default function Booth() {
                 {/* A name-wearing prop is on: say whose name it shows, and let
                     the guest set or change it at any time (the one-time prompt
                     is easy to miss, and skipping it used to be final). */}
+                {coverWantsNames && phase === 'camera' && !askCoverNames && (
+                  <button
+                    type="button"
+                    onClick={() => setAskCoverNames(true)}
+                    className="pressable liquid-glass-raised pointer-events-auto flex min-h-11 items-center gap-2 px-4 py-2 rounded-full"
+                  >
+                    <Pencil className="w-4 h-4 text-gold-300" aria-hidden />
+                    <span className="font-sans text-[13px] text-ivory">
+                      {coverNames.length > 0 ? `On the cover: ${joinNames(coverNames)}` : 'Tap to put your names on the cover'}
+                    </span>
+                  </button>
+                )}
                 {propWantsName && phase === 'camera' && !askName && (
                   <button
                     type="button"
@@ -2968,6 +3033,23 @@ export default function Booth() {
         </div>
         );
       })()}
+
+      {/* ── Names for a magazine cover ─────────────────────────────────── */}
+      {askCoverNames && activeCover && (
+        <CoverNamesSheet
+          initial={coverNames.length > 0 ? coverNames : (guestName.trim() ? [guestName.trim()] : [])}
+          coverName={catalog.find((e) => coverTemplateOfId(e.id) === activeCover.template)?.name ?? 'Magazine cover'}
+          onSave={(names) => {
+            setCoverNames(eventId, names);
+            setCoverNamesTick((t) => t + 1);
+            setAskCoverNames(false);
+          }}
+          onSkip={() => {
+            markCoverNamesAsked(eventId);
+            setAskCoverNames(false);
+          }}
+        />
+      )}
 
       {/* ── Send-off + success ────────────────────────────────────────── */}
       {(phase === 'sending' || phase === 'success') && capturedDataUrl && (

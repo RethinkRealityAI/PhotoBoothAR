@@ -12,7 +12,7 @@ import { A2UI_VERSION, BEAMWALL_CATALOG_ID, type A2uiComponent, type A2uiMessage
 import type { CopilotAction } from './copilot';
 import { COPILOT_TOOLS } from './copilotTools';
 import { FILTER_SHADERS } from './shaders';
-import { HEAD_PIECES } from './headPieces';
+import { BUNDLED_PROP_MAP, offeredBundledProps } from './studio/bundledProps';
 import { GENERIC_FRAMES } from './borders';
 import { frameBriefGaps, gapSummary, pieceBriefGaps } from './assetBrief';
 import { providerCostLabel } from './providerPricing';
@@ -21,12 +21,10 @@ import type { EventBrief } from './eventBrief';
 
 const FILTER_OPTIONS = FILTER_SHADERS.filter((s) => s.id !== 'none').map((s) => ({ label: s.name, value: s.id }));
 
-/** Emoji tiles for the built-in 3D pieces (the catalog carries no thumbnails;
- *  a ThumbPicker needs SOMETHING to show besides the label). */
-const PIECE_EMOJI: Record<string, string> = {
-  'royal-crown': '👑', 'queen-tiara': '👸', 'cheek-stars': '✨', 'hope-halo': '😇', 'neon-shades': '🕶️', 'cyclops-visor': '🥽',
-};
-const PIECE_THUMBS = HEAD_PIECES.map((p) => ({ value: p.id, label: p.name, emoji: PIECE_EMOJI[p.id] ?? '🎭' }));
+/** The built-in 3D props the copilot offers: the HD bundled props, each with
+ *  its own thumbnail. The old code-built pieces (crown, tiara, cheek
+ *  sparkles, halo, neon shades, optic visor) are never offered (2026-11-25). */
+const PIECE_THUMBS = offeredBundledProps().map((p) => ({ value: p.id, label: p.name, thumb: p.thumb }));
 /** `frameId` lets the renderer draw the real SVG (toDataUrl at render time —
  *  no SVG bytes persist in the surface data model). */
 const FRAME_THUMBS = GENERIC_FRAMES.map((f) => ({ value: f.id, label: f.name, frameId: f.id }));
@@ -581,7 +579,7 @@ export function summarizeAction(action: CopilotAction, snapshot: EventSnapshot |
     case 'add_head_piece': {
       const hp = action.proposal;
       line = hp.source === 'builtin'
-        ? `Add 3D prop “${HEAD_PIECES.find((h) => h.id === hp.pieceId)?.name ?? hp.pieceId}”`
+        ? `Add 3D prop “${BUNDLED_PROP_MAP[hp.pieceId]?.name ?? hp.pieceId}”`
         : `Generate a 3D prop: ${clip(hp.prompt, 60)}`;
       break;
     }
