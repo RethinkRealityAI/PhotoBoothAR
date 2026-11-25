@@ -41,6 +41,14 @@ export const FACE_PAINT_DESIGN_IDS = [
   'unicorn',
   'cat',
   'neon-tribal',
+  // Flags (full-face and cheek pairs), for team and heritage nights
+  'saltire-face',
+  'tricolour-face',
+  'rival-flags',
+  // Celebration (weddings, anniversaries, galas)
+  'wedding-rings',
+  'gilded-lace',
+  'hibiscus-bloom',
 ] as const;
 export type FacePaintDesignId = (typeof FACE_PAINT_DESIGN_IDS)[number];
 
@@ -86,6 +94,8 @@ export const FACE_PAINT_CATEGORIES = [
   { id: 'everyday', label: 'Everyday' },
   { id: 'party', label: 'Party' },
   { id: 'holiday', label: 'Holiday' },
+  { id: 'flags', label: 'Flags' },
+  { id: 'celebration', label: 'Celebration' },
 ] as const;
 export type FacePaintCategory = (typeof FACE_PAINT_CATEGORIES)[number]['id'];
 export const DEFAULT_FACE_PAINT_CATEGORY: FacePaintCategory = 'everyday';
@@ -1601,6 +1611,398 @@ function neonTribal(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
   hard(ctx);
 }
 
+/* ── flags ─────────────────────────────────────────────────────────────── */
+
+/**
+ * Where a ray from `o` along `d` leaves the texture square, and that exit's
+ * position along the square's perimeter, walked clockwise from the top-left
+ * corner (canvas y down): top 0..S, right S..2S, bottom 2S..3S, left 3S..4S.
+ */
+function exitPoint(o: Pt, d: Pt, S: number): { p: Pt; t: number } {
+  let best = Infinity;
+  if (d.x > 1e-9) best = Math.min(best, (S - o.x) / d.x);
+  if (d.x < -1e-9) best = Math.min(best, -o.x / d.x);
+  if (d.y > 1e-9) best = Math.min(best, (S - o.y) / d.y);
+  if (d.y < -1e-9) best = Math.min(best, -o.y / d.y);
+  const k = Number.isFinite(best) ? Math.max(0, best) : 0;
+  const p = { x: Math.min(S, Math.max(0, o.x + d.x * k)), y: Math.min(S, Math.max(0, o.y + d.y * k)) };
+  const eps = S * 1e-6;
+  let t: number;
+  if (p.y <= eps) t = p.x;
+  else if (p.x >= S - eps) t = S + p.y;
+  else if (p.y >= S - eps) t = 3 * S - p.x;
+  else t = 4 * S - p.y;
+  return { p, t };
+}
+
+/** Fills the wedge of the texture between two rays from `o`, sweeping clockwise from `a` to `b`. */
+function wedge(ctx: PaintContext, o: Pt, a: Pt, b: Pt, S: number): void {
+  const A = exitPoint(o, { x: a.x - o.x, y: a.y - o.y }, S);
+  const B = exitPoint(o, { x: b.x - o.x, y: b.y - o.y }, S);
+  const corners: [number, Pt][] = [[0, { x: 0, y: 0 }], [S, { x: S, y: 0 }], [2 * S, { x: S, y: S }], [3 * S, { x: 0, y: S }]];
+  const span = (B.t - A.t + 4 * S) % (4 * S);
+  ctx.beginPath();
+  ctx.moveTo(o.x, o.y);
+  ctx.lineTo(A.p.x, A.p.y);
+  for (const [t, p] of [...corners, ...corners.map(([t2, p2]) => [t2 + 4 * S, p2] as [number, Pt])]) {
+    const along = t - A.t;
+    if (along > 0 && along < span) ctx.lineTo(p.x, p.y);
+  }
+  ctx.lineTo(B.p.x, B.p.y);
+  ctx.closePath();
+}
+
+/** The four arms of a diagonal-cross flag on the face: the centre and its four rays' far points. */
+function saltireArms(f: FaceFrame): { o: Pt; tl: Pt; tr: Pt; bl: Pt; br: Pt } {
+  const E = f.eyeSpan;
+  const o = lerpPt(f.noseBridge, f.noseTip, 0.35);
+  const L = sided(f, 'L');
+  const R = sided(f, 'R');
+  // Up through the temples, down through the jaw corners.
+  const tl = { x: L.temple.x, y: L.temple.y - E * 0.15 };
+  const tr = { x: R.temple.x, y: R.temple.y - E * 0.15 };
+  return { o, tl, tr, bl: L.jaw, br: R.jaw };
+}
+
+/** Diagonal-cross flag over the whole face (Jamaica by default). */
+function saltireFace(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const S = f.size;
+  const E = f.eyeSpan;
+  const tri = c(colors, 0, '#009b3a');
+  const side = c(colors, 1, '#111111');
+  const cross = c(colors, 2, '#fed100');
+  const { o, tl, tr, bl, br } = saltireArms(f);
+  hard(ctx);
+  // Hoist and fly first (they fill the whole sweep), then the top and bottom.
+  ctx.fillStyle = side;
+  ctx.fillRect(0, 0, S, S);
+  ctx.fillStyle = tri;
+  soft(ctx, tri, edge(f, 0.5));
+  wedge(ctx, o, tl, tr, S);
+  ctx.fill();
+  wedge(ctx, o, br, bl, S);
+  ctx.fill();
+  // The cross: two broad bands meeting on the bridge of the nose.
+  soft(ctx, cross, edge(f, 0.5));
+  ctx.strokeStyle = cross;
+  ctx.lineWidth = E * 0.2;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'butt';
+  for (const [a, b] of [[tl, br], [tr, bl]] as [Pt, Pt][]) {
+    const A = exitPoint(o, { x: a.x - o.x, y: a.y - o.y }, S).p;
+    const B = exitPoint(o, { x: b.x - o.x, y: b.y - o.y }, S).p;
+    polylinePath(ctx, [A, o, B]);
+    ctx.stroke();
+  }
+  hard(ctx);
+}
+
+/** Three upright bands over the whole face (Nigeria by default). */
+function tricolourFace(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const S = f.size;
+  const E = f.eyeSpan;
+  const left = c(colors, 0, '#008751');
+  const mid = c(colors, 1, '#ffffff');
+  const right = c(colors, 2, left);
+  const cx = lerpPt(f.noseBridge, f.noseTip, 0.4).x;
+  const xl = Math.max(0, cx - E * 0.3);
+  const xr = Math.min(S, cx + E * 0.3);
+  hard(ctx);
+  ctx.fillStyle = mid;
+  ctx.fillRect(0, 0, S, S);
+  soft(ctx, left, edge(f, 0.5));
+  ctx.fillStyle = left;
+  ctx.fillRect(0, 0, xl, S);
+  soft(ctx, right, edge(f, 0.5));
+  ctx.fillStyle = right;
+  ctx.fillRect(xr, 0, S - xr, S);
+  hard(ctx);
+}
+
+/** A gently waving flag outline centred on (0,0): wavy top/bottom, straight hoist. */
+function wavingFlagPath(ctx: PaintContext, w: number, h: number): void {
+  ctx.beginPath();
+  ctx.moveTo(-w / 2, -h / 2);
+  ctx.bezierCurveTo(-w / 6, -h / 2 - h * 0.12, w / 6, -h / 2 + h * 0.12, w / 2, -h / 2);
+  ctx.lineTo(w / 2, h / 2);
+  ctx.bezierCurveTo(w / 6, h / 2 + h * 0.12, -w / 6, h / 2 - h * 0.12, -w / 2, h / 2);
+  ctx.closePath();
+}
+
+/** One saltire flag on the screen-left cheek, one tricolour on the right: a house divided, happily. */
+function rivalFlags(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const jaGreen = c(colors, 0, '#009b3a');
+  const jaGold = c(colors, 1, '#fed100');
+  const ngGreen = c(colors, 2, '#008751');
+  const w = E * 0.46;
+  const h = E * 0.3;
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    const centre = lerpPt(lerpPt(k.cheek, k.cheekbone, 0.45), k.underEye, 0.25);
+    withTransform(ctx, centre, -k.out * 0.1, () => {
+      ctx.save();
+      wavingFlagPath(ctx, w, h);
+      soft(ctx, s === 'L' ? jaGreen : ngGreen, edge(f, 0.8));
+      ctx.fillStyle = s === 'L' ? '#111111' : '#ffffff';
+      ctx.fill();
+      ctx.clip();
+      hard(ctx);
+      if (s === 'L') {
+        // Green above and below, black at the hoist and fly, a gold saltire.
+        ctx.fillStyle = jaGreen;
+        ctx.beginPath();
+        ctx.moveTo(-w / 2, -h);
+        ctx.lineTo(w / 2, -h);
+        ctx.lineTo(0, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-w / 2, h);
+        ctx.lineTo(w / 2, h);
+        ctx.lineTo(0, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = jaGold;
+        ctx.lineWidth = h * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(-w / 2, -h / 2 - h * 0.1);
+        ctx.lineTo(w / 2, h / 2 + h * 0.1);
+        ctx.moveTo(w / 2, -h / 2 - h * 0.1);
+        ctx.lineTo(-w / 2, h / 2 + h * 0.1);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = ngGreen;
+        ctx.fillRect(-w / 2, -h, w / 3, h * 2);
+        ctx.fillRect(w / 6, -h, w / 3 + 0.5, h * 2);
+      }
+      ctx.restore();
+      // A fine light edge, so the flag reads as painted, not printed.
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = E * 0.008;
+      wavingFlagPath(ctx, w, h);
+      ctx.stroke();
+    });
+  }
+  // A small gold heart on the bridge of the nose: one face, both teams.
+  withTransform(ctx, lerpPt(f.noseBridge, f.noseTip, 0.3), 0, () => {
+    soft(ctx, jaGold, edge(f, 0.5));
+    ctx.fillStyle = jaGold;
+    heartPath(ctx, E * 0.045);
+    ctx.fill();
+  });
+  hard(ctx);
+}
+
+/* ── celebration ───────────────────────────────────────────────────────── */
+
+/** Two linked gold rings on the cheekbone, a diamond glint and a trail of tiny hearts. */
+function weddingRings(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const gold = c(colors, 0, '#e2b65a');
+  const heart = c(colors, 1, '#d9573b');
+  const shine = c(colors, 2, '#ffffff');
+  const R = sided(f, 'R');
+  const at = lerpPt(R.cheekbone, R.cheek, 0.5);
+  const r = E * 0.14;
+  const lw = E * 0.036;
+  withTransform(ctx, at, 0.18, () => {
+    const a = { x: -r * 0.55, y: 0 };
+    const b = { x: r * 0.55, y: r * 0.12 };
+    soft(ctx, gold, edge(f, 0.4));
+    ctx.strokeStyle = gold;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    // Re-lay a short arc of the first ring over the second: they interlock.
+    hard(ctx);
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, r, -0.55, 0.15);
+    ctx.stroke();
+    // Polished highlights on the upper-left of each band.
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = lw * 0.28;
+    ctx.lineCap = 'round';
+    for (const p of [a, b]) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * 1.02, Math.PI * 1.08, Math.PI * 1.42);
+      ctx.stroke();
+    }
+    // The stone: a four-point glint sat on top of the first ring.
+    ctx.fillStyle = shine;
+    glint(ctx, { x: a.x, y: a.y - r - lw * 0.6 }, E * 0.07, 0);
+    ctx.fill();
+  });
+  // Tiny hearts drifting up toward the eye.
+  const trail = [[0.45, 0.045, -0.2], [0.66, 0.035, 0.25], [0.84, 0.026, -0.1]] as const;
+  const from = { x: at.x + E * 0.14, y: at.y - E * 0.04 };
+  for (const [t, sz, rot] of trail) {
+    const p = lerpPt(from, R.temple, t);
+    withTransform(ctx, p, rot, () => {
+      soft(ctx, heart, edge(f, 0.4));
+      ctx.fillStyle = heart;
+      heartPath(ctx, E * sz);
+      ctx.fill();
+    });
+  }
+  hard(ctx);
+  ctx.fillStyle = shine;
+  const rand = rng(0x71e6d1);
+  for (let i = 0; i < 7; i++) {
+    dot(ctx, { x: at.x + (rand() - 0.5) * E * 0.36, y: at.y + (rand() - 0.5) * E * 0.3 }, E * (0.005 + rand() * 0.006));
+    ctx.fill();
+  }
+}
+
+/** Gold filigree scalloped along each lower lash line and up to the brow, beaded with pearls. */
+function gildedLace(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const gold = c(colors, 0, '#e2b65a');
+  const pearl = c(colors, 1, '#fff6e6');
+  const accent = c(colors, 2, '#c8962e');
+  for (const s of SIDES) {
+    const k = sided(f, s);
+    const eye = eyeCentre(f, s);
+    const start = { x: k.eyeInner.x - k.out * E * 0.01, y: k.eyeBot.y + E * 0.07 };
+    const outer = { x: k.eyeOuter.x + k.out * E * 0.13, y: k.eyeOuter.y + E * 0.04 };
+    const end = lerpPt(k.browOuter, k.temple, 0.25);
+    const pts = cubicPts(start, { x: lerpPt(start, outer, 0.55).x, y: start.y + E * 0.035 }, { x: outer.x + k.out * E * 0.03, y: outer.y - E * 0.08 }, end, 28);
+    const N = polyNormals(pts);
+    // Normals that point away from the eye: the scallops open outward.
+    const sign = (N[Math.floor(pts.length / 2)].x * (pts[Math.floor(pts.length / 2)].x - eye.x)
+      + N[Math.floor(pts.length / 2)].y * (pts[Math.floor(pts.length / 2)].y - eye.y)) >= 0 ? 1 : -1;
+    // The spine.
+    soft(ctx, gold, edge(f, 0.3));
+    ctx.strokeStyle = gold;
+    ctx.lineWidth = E * 0.018;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    polylinePath(ctx, pts);
+    ctx.stroke();
+    // Scallops: small half-loops hung off the spine every few points.
+    ctx.lineWidth = E * 0.012;
+    for (let i = 2; i < pts.length - 2; i += 3) {
+      const a = pts[i];
+      const b = pts[i + 3] ?? pts[pts.length - 1];
+      const n = N[i + 1] ?? N[i];
+      const mid = lerpPt(a, b, 0.5);
+      const ctl = { x: mid.x + n.x * sign * E * 0.1, y: mid.y + n.y * sign * E * 0.1 };
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.quadraticCurveTo(ctl.x, ctl.y, b.x, b.y);
+      ctx.stroke();
+      // A seed of accent in each scallop's heart.
+      hard(ctx);
+      ctx.fillStyle = accent;
+      dot(ctx, { x: mid.x + n.x * sign * E * 0.035, y: mid.y + n.y * sign * E * 0.035 }, E * 0.012);
+      ctx.fill();
+      soft(ctx, gold, edge(f, 0.3));
+    }
+    hard(ctx);
+    // Pearls where the scallops meet.
+    for (let i = 2; i < pts.length - 2; i += 3) {
+      ctx.fillStyle = pearl;
+      dot(ctx, pts[i], E * 0.02);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      dot(ctx, { x: pts[i].x - E * 0.006, y: pts[i].y - E * 0.006 }, E * 0.007);
+      ctx.fill();
+    }
+    // A closing curl at the brow end, and a drop pearl beneath the outer corner.
+    const tip = pts[pts.length - 1];
+    ctx.strokeStyle = gold;
+    ctx.lineWidth = E * 0.015;
+    polylinePath(ctx, spiralPts(tip, E * 0.06, E * 0.01, Math.PI / 2, 1.2, s === 'L' ? -1 : 1, 24));
+    ctx.stroke();
+    ctx.fillStyle = pearl;
+    dot(ctx, { x: outer.x, y: outer.y + E * 0.09 }, E * 0.03);
+    ctx.fill();
+  }
+  hard(ctx);
+}
+
+/** A hibiscus in bloom by the eye, with two leaves and a scatter of pollen. */
+function hibiscusBloom(ctx: PaintContext, f: FaceFrame, colors: string[]): void {
+  const E = f.eyeSpan;
+  const petal = c(colors, 0, '#d9573b');
+  const pollen = c(colors, 1, '#f3c24e');
+  const leafCol = c(colors, 2, '#2f7f73');
+  const L = sided(f, 'L');
+  const at = lerpPt(L.cheekbone, L.cheek, 0.3);
+  const k = (E * 0.3) / 80;
+  // One petal, ~80 units long, pointing up from (0,0).
+  const petalPath = (sc: number): void => {
+    const q = (x: number, y: number): [number, number] => [x * k * sc, y * k * sc];
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(...q(-20, -8), ...q(-46, -32), ...q(-38, -58));
+    ctx.bezierCurveTo(...q(-32, -76), ...q(-13, -81), ...q(-4, -70));
+    ctx.bezierCurveTo(...q(-1, -77), ...q(3, -78), ...q(6, -72));
+    ctx.bezierCurveTo(...q(15, -82), ...q(36, -75), ...q(40, -56));
+    ctx.bezierCurveTo(...q(46, -32), ...q(20, -8), 0, 0);
+    ctx.closePath();
+  };
+  // Leaves behind the flower.
+  soft(ctx, leafCol, edge(f, 0.5));
+  ctx.fillStyle = leafCol;
+  for (const [ang, len] of [[2.5, 0.36], [1.7, 0.3]] as const) {
+    const tip = { x: at.x + Math.cos(ang) * E * len, y: at.y + Math.sin(ang) * E * len };
+    taperPath(ctx, at, tip, E * 0.07, 0.25);
+    ctx.fill();
+  }
+  // Five petals, a darker throat, then the stamen.
+  withTransform(ctx, at, -0.25, () => {
+    for (let i = 0; i < 5; i++) {
+      ctx.save();
+      ctx.rotate((i * Math.PI * 2) / 5);
+      soft(ctx, petal, edge(f, 0.5));
+      ctx.fillStyle = petal;
+      petalPath(i % 2 === 0 ? 1 : 0.94);
+      ctx.fill();
+      hard(ctx);
+      // A light paper edge keeps each petal distinct on darker skin.
+      ctx.strokeStyle = 'rgba(255,226,180,0.8)';
+      ctx.lineWidth = E * 0.007;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(90,20,10,0.28)';
+      petalPath(0.42);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = E * 0.005;
+      ctx.beginPath();
+      ctx.moveTo(0, -E * 0.03);
+      ctx.lineTo(0, -E * 0.11);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.strokeStyle = pollen;
+    ctx.lineWidth = E * 0.012;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(E * 0.03, -E * 0.08, E * 0.07, -E * 0.13);
+    ctx.stroke();
+    ctx.fillStyle = pollen;
+    for (const [dx, dy] of [[0.07, -0.13], [0.085, -0.12], [0.06, -0.145], [0.08, -0.145], [0.093, -0.135]]) {
+      dot(ctx, { x: dx * E, y: dy * E }, E * 0.009);
+      ctx.fill();
+    }
+  });
+  // Pollen drifting down the cheek.
+  hard(ctx);
+  ctx.fillStyle = pollen;
+  const rand = rng(0x41b15c);
+  for (let i = 0; i < 9; i++) {
+    const p = lerpPt(at, L.cheek, 0.35 + rand() * 0.55);
+    dot(ctx, { x: p.x + (rand() - 0.5) * E * 0.14, y: p.y }, E * (0.006 + rand() * 0.006));
+    ctx.fill();
+  }
+}
+
 const draw = { gameDay, flagCheeks, eyeBlack, glitterFreckles, hearts, stars, tiger, sugarSkull, candyCane, rudolph, snowflakes, frostQueen, gingerbread };
 
 export const FACE_PAINT_DESIGNS: readonly FacePaintDesign[] = [
@@ -1625,6 +2027,12 @@ export const FACE_PAINT_DESIGNS: readonly FacePaintDesign[] = [
   { id: 'unicorn', name: 'Unicorn', blurb: 'Pastel swirls round the eyes and a forehead star', slots: [{ label: 'Swirl 1', source: '#f9a8d4' }, { label: 'Swirl 2', source: '#c4b5fd' }, { label: 'Star', source: 'accent2' }], draw: unicorn, category: 'party', shimmer: true },
   { id: 'cat', name: 'Cat', blurb: 'Button nose, whiskers and cheek stripes', slots: [{ label: 'Ink', source: '#161616' }, { label: 'Nose', source: '#f28fb0' }, { label: 'Stripes', source: '#161616' }], draw: cat, category: 'party' },
   { id: 'neon-tribal', name: 'Neon Festival', blurb: 'Glowing festival dots and lines on brows and cheekbones', slots: [{ label: 'Neon 1', source: '#ff2bd6' }, { label: 'Neon 2', source: '#18ffff' }, { label: 'Neon 3', source: '#c6ff00' }], draw: neonTribal, category: 'party', shimmer: true },
+  { id: 'saltire-face', name: 'Saltire Flag', blurb: 'A full-face diagonal-cross flag (Jamaica to start)', slots: [{ label: 'Top and bottom', source: '#009b3a' }, { label: 'Sides', source: '#111111' }, { label: 'Cross', source: '#fed100' }], draw: saltireFace, fullFace: true, category: 'flags' },
+  { id: 'tricolour-face', name: 'Tricolour Flag', blurb: 'A full-face three-band flag (Nigeria to start)', slots: [{ label: 'Left band', source: '#008751' }, { label: 'Middle band', source: '#ffffff' }, { label: 'Right band', source: '#008751' }], draw: tricolourFace, fullFace: true, category: 'flags' },
+  { id: 'rival-flags', name: 'Rival Flags', blurb: 'Jamaica on one cheek, Nigeria on the other, a gold heart between', slots: [{ label: 'Jamaica green', source: '#009b3a' }, { label: 'Jamaica gold', source: '#fed100' }, { label: 'Nigeria green', source: '#008751' }], draw: rivalFlags, category: 'flags' },
+  { id: 'wedding-rings', name: 'Wedding Rings', blurb: 'Two linked gold rings with a diamond glint and tiny hearts', slots: [{ label: 'Rings', source: 'accent2' }, { label: 'Hearts', source: '#d9573b' }, { label: 'Sparkle', source: '#ffffff' }], draw: weddingRings, category: 'celebration', shimmer: true },
+  { id: 'gilded-lace', name: 'Gilded Lace', blurb: 'Gold filigree and pearls framing the eyes', slots: [{ label: 'Lace', source: 'accent2' }, { label: 'Pearls', source: '#fff6e6' }, { label: 'Accent', source: 'accent' }], draw: gildedLace, category: 'celebration', shimmer: true },
+  { id: 'hibiscus-bloom', name: 'Hibiscus Bloom', blurb: 'A hibiscus in bloom by the eye, leaves and pollen', slots: [{ label: 'Petals', source: '#d9573b' }, { label: 'Pollen', source: '#f3c24e' }, { label: 'Leaves', source: '#2f7f73' }], draw: hibiscusBloom, category: 'celebration' },
 ];
 
 export const FACE_PAINT_DESIGN_MAP: Record<string, FacePaintDesign> = Object.fromEntries(
