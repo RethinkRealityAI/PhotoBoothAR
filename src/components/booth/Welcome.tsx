@@ -15,11 +15,13 @@ import { MediaStackIcon } from '../ui/MediaIcons';
 import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 import { resolveScene } from '../../lib/sceneThemes';
+import { themeTone } from '../../lib/themePacks';
 import SceneBackdrop from '../theme/SceneBackdrop';
 import LiveWallField from '../theme/LiveWallField';
 import { WALL_FIELD_SAMPLES } from '../theme/samplePhotos';
 import BoothViewfinder from '../theme/BoothViewfinder';
 import PageBorder from '../theme/PageBorder';
+import ThemePackBackdrop, { hasThemeBackdrop } from '../theme/ThemePackBackdrop';
 import { useBoothScreen } from '../theme/useBoothShot';
 import EventBackground from '../ui/EventBackground';
 import PostImage from '../ui/PostImage';
@@ -48,7 +50,7 @@ export default function Welcome(props: { onStart: () => void }) {
  */
 function SceneWelcome({ onStart }: { onStart: () => void }) {
   const reduced = useReducedMotion() ?? false;
-  const { basePath, config } = useEvent();
+  const { basePath, config, source } = useEvent();
   const eventName = useStore((s) => s.copy.eventName);
   const posts = useStore((s) => s.posts);
   const postsLoaded = useStore((s) => s.postsLoaded);
@@ -56,8 +58,11 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
   useEffect(() => {
     if (!postsLoaded) void fetchPosts();
   }, [postsLoaded, fetchPosts]);
-  const scene = config.scene ? resolveScene(config.scene) : null;
-  const tone = scene?.tone ?? 'dark';
+  // A full theme pack (lib/themePacks): its paper-cut scene is the splash,
+  // in place of the scene, the living wall and the frame.
+  const theme = source === 'db' && hasThemeBackdrop(config.theme) ? config.theme : undefined;
+  const scene = !theme && config.scene ? resolveScene(config.scene) : null;
+  const tone = themeTone(theme) ?? scene?.tone ?? 'dark';
   const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
   const wallPhotos = useMemo(() => wallFieldPhotos(posts), [posts]);
   // Until the first photo lands the wall shows stand-ins, never bare glass.
@@ -77,9 +82,15 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
       exit={{ opacity: 0 }}
     >
       {/* Opaque and full-bleed, so the booth's stage box never shows through. */}
-      {scene ? <SceneBackdrop scene={scene} /> : <EventBackground density={44} sparkle={0.7} />}
-      <LiveWallField photos={fieldPhotos} fresh={NO_FRESH} />
-      {config.scene?.border ? <PageBorder border={config.scene.border} /> : <SplashFrame />}
+      {theme ? (
+        <ThemePackBackdrop theme={theme} />
+      ) : (
+        <>
+          {scene ? <SceneBackdrop scene={scene} /> : <EventBackground density={44} sparkle={0.7} />}
+          <LiveWallField photos={fieldPhotos} fresh={NO_FRESH} />
+          {config.scene?.border ? <PageBorder border={config.scene.border} /> : <SplashFrame />}
+        </>
+      )}
 
       <div className="relative z-40 h-full overflow-y-auto overflow-x-hidden">
         <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col items-center justify-center gap-x-14 gap-y-5 px-7 pt-safe-top pb-safe-bottom [--safe-top:2rem] [--safe-bottom:1.75rem] sm:px-12 lg:flex-row">

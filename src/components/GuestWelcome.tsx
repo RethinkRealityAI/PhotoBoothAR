@@ -20,11 +20,13 @@ import LiveWallField from './theme/LiveWallField';
 import { WALL_FIELD_SAMPLES } from './theme/samplePhotos';
 import BoothViewfinder from './theme/BoothViewfinder';
 import PageBorder from './theme/PageBorder';
+import ThemePackBackdrop, { hasThemeBackdrop } from './theme/ThemePackBackdrop';
 import { useBoothScreen } from './theme/useBoothShot';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import { useEntitlements } from '../lib/entitlements';
 import { resolveScene } from '../lib/sceneThemes';
+import { themeTone } from '../lib/themePacks';
 import { wallFieldPhotos } from '../lib/scenePage';
 import { subscribeToPosts } from '../lib/db';
 import { FROM_WELCOME_STATE } from '../lib/guestFlow';
@@ -98,9 +100,12 @@ function SceneGuestWelcome() {
     wallSettings.showChallenges !== false && challenges.some((c) => c.active);
   const slug = /^\/e\/([^/]+)/.exec(basePath)?.[1] ?? null;
 
+  // A full theme pack (lib/themePacks) dresses the whole page: its own
+  // paper-cut scene replaces the scene, the living wall and the border.
+  const theme = source === 'db' && hasThemeBackdrop(config.theme) ? config.theme : undefined;
   // No scene = the event's own background and today's dark ink.
-  const scene = config.scene ? resolveScene(config.scene) : null;
-  const tone = scene?.tone ?? 'dark';
+  const scene = !theme && config.scene ? resolveScene(config.scene) : null;
+  const tone = themeTone(theme) ?? scene?.tone ?? 'dark';
   const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
   const wallPhotos = useMemo(() => wallFieldPhotos(posts), [posts]);
   // Until the first photo lands the wall shows stand-ins, never bare glass.
@@ -145,7 +150,7 @@ function SceneGuestWelcome() {
     <div className="sc-glass flex w-full max-w-[440px] items-center gap-5 rounded-[26px] p-3 pr-5">
       <span className="sc-rim" aria-hidden style={{ ['--rim-d' as string]: '-3.4s' }}><span /></span>
       <div className="shrink-0 rounded-[16px] bg-white p-2">
-        <QRCodeSVG value={eventUrl} size={128} bgColor="#FFFFFF" fgColor="#1A1740" level="M" title="QR code for this event page" />
+        <QRCodeSVG value={eventUrl} size={128} bgColor="#FFFFFF" fgColor={theme ? (config.themeVars?.['--color-brand-bg'] ?? '#1A1740') : '#1A1740'} level="M" title="QR code for this event page" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="font-sans text-[18px] font-semibold sc-ink">Scan to join</p>
@@ -171,12 +176,21 @@ function SceneGuestWelcome() {
       style={vars}
       className="absolute inset-0 overflow-y-auto overflow-x-hidden bg-noir-900"
     >
-      <EventBackground density={40} sparkle={0.6} />
-      {/* The wall stays put while the page scrolls over it. */}
-      <div className="pointer-events-none fixed inset-0 z-0">
-        <LiveWallField photos={fieldPhotos} fresh={fresh} />
-      </div>
-      {config.scene?.border && <PageBorder border={config.scene.border} />}
+      {theme ? (
+        // The pack's scene stays put while the page scrolls over it.
+        <div className="pointer-events-none fixed inset-0 z-0">
+          <ThemePackBackdrop theme={theme} />
+        </div>
+      ) : (
+        <>
+          <EventBackground density={40} sparkle={0.6} />
+          {/* The wall stays put while the page scrolls over it. */}
+          <div className="pointer-events-none fixed inset-0 z-0">
+            <LiveWallField photos={fieldPhotos} fresh={fresh} />
+          </div>
+          {config.scene?.border && <PageBorder border={config.scene.border} />}
+        </>
+      )}
       <div className="relative z-10 mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 sm:px-8 pt-safe-top [--safe-top:1.25rem] pb-safe-bottom [--safe-bottom:1.5rem]">
 
         {fromLanding && (
@@ -196,7 +210,7 @@ function SceneGuestWelcome() {
               {config.copy.fullName}
             </h1>
             {config.copy.tagline && (
-              <p className="mt-2 max-w-xl font-sans text-[clamp(16px,2.2vw,22px)] leading-snug sc-muted lg:mt-4">{config.copy.tagline}</p>
+              <p className="sc-tagline mt-2 max-w-xl font-sans text-[clamp(16px,2.2vw,22px)] leading-snug sc-muted lg:mt-4">{config.copy.tagline}</p>
             )}
           </section>
 

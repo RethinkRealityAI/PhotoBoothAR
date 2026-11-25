@@ -15,6 +15,9 @@
 /* Brand v2 as the platform default: re-points the semantic tokens and
    utilities below on every non-event screen (see the file header). */
 @import "./styles/platform.css";
+/* Full event theme packs (lib/themePacks): scoped to
+   :root[data-event-theme], which only a platform event wearing a pack sets. */
+@import "./styles/themePacks.css";
 /* The host setup wizard (wz-*), after platform.css so it can lean on it.
    In the components layer so a Tailwind utility (sm:hidden, w-full…) on
    the same element wins over a wz- default. */

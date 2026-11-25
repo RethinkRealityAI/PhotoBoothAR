@@ -22,6 +22,8 @@ import { updateEventConfig } from '../../lib/host';
 import { mergeBrief, type BriefPatch, type EventBrief } from '../../lib/eventBrief';
 import { BACKGROUND_TEMPLATES, DEFAULT_BACKGROUND_ID } from '../theme/backgrounds';
 import ScenePicker from '../theme/ScenePicker';
+import ThemePackBackdrop from '../theme/ThemePackBackdrop';
+import { THEME_PACKS, themePackById } from '../../lib/themePacks';
 import { useStore } from '../../store';
 import type { BrandingColors, BrandingOverrides } from '../../types';
 import type { OnboardingStep } from '../../events/types';
@@ -283,7 +285,8 @@ export default function Branding() {
     if (brandLookPicked) {
       const cleared = { ...draft.colors };
       for (const { key } of COLOR_FIELDS) cleared[key] = '';
-      const ok = await updateEventConfig(eventUuid, { look: 'beamwall', themeVars: {} });
+      // Picking a look leaves any theme pack behind (config.theme wins otherwise).
+      const ok = await updateEventConfig(eventUuid, { look: 'beamwall', themeVars: {}, ...(config.theme ? { theme: null } : {}) });
       let brandingOk = ok;
       if (ok) {
         try {
@@ -311,7 +314,7 @@ export default function Branding() {
     const colourVars = lookAccent ? (lookDerived ? deriveTheme(lookAccent, 'dark') ?? {} : accentThemePatch(lookAccent)) : {};
     const themeVars = { ...baseVars, ...colourVars };
     // Any other look leaves the brand look (config.look) behind.
-    const cfgPatch: Record<string, unknown> = { themeVars, look: null };
+    const cfgPatch: Record<string, unknown> = { themeVars, look: null, ...(config.theme ? { theme: null } : {}) };
     // accentHexes leads with the colour the look now uses (it used to stay
     // on the create-time template golds whenever only a colour was picked).
     cfgPatch.accentHexes = accentHexesFor(themeVars['--color-accent'], lookTemplate ? lookTemplate.accentHexes : config.accentHexes);
@@ -350,6 +353,53 @@ export default function Branding() {
           : { tone: 'ok', text: 'New look applied — your booth and wall use it now.' },
     );
   };
+  // ── Event theme (platform only): a full theme pack (lib/themePacks) that
+  //    dresses every guest surface, CTAs included. Stored as config.theme;
+  //    the saved Branding colours are cleared (as the Beamwall look does) so
+  //    the pack is what guests see — a colour edited under Advanced later
+  //    still wins on top of it, which is how a host tweaks a pack.
+  const currentPackId = config.theme?.pack ?? null;
+  const [themeSaving, setThemeSaving] = useState<string | null>(null);
+  const [themeStatus, setThemeStatus] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const applyThemePack = async (packId: string | null) => {
+    if (!eventUuid || themeSaving !== null) return;
+    const pack = packId === null ? undefined : themePackById(packId);
+    if (packId !== null && !pack) return;
+    setThemeSaving(packId ?? 'none');
+    setThemeStatus(null);
+    const patch: Record<string, unknown> = pack
+      ? {
+          theme: { pack: pack.id },
+          // Confetti, the photo watermark and AI frames read these (brightest first).
+          accentHexes: [pack.colors.accent2, pack.colors.accent, pack.colors.brandFg, pack.colors.accent3],
+        }
+      : { theme: null };
+    const ok = await updateEventConfig(eventUuid, patch);
+    let brandingOk = ok;
+    if (ok && pack) {
+      const cleared = { ...draft.colors };
+      for (const { key } of COLOR_FIELDS) cleared[key] = '';
+      try {
+        await setBranding(eventId, { colors: cleared }, { strict: true });
+        savedBrandingRef.current = { ...savedBrandingRef.current, colors: cleared };
+      } catch {
+        brandingOk = false;
+      }
+      setDraft((d) => ({ ...d, colors: cleared }));
+    }
+    if (ok) await refreshConfig();
+    setThemeSaving(null);
+    setThemeStatus(
+      !ok
+        ? { tone: 'error', text: 'Couldn’t change the theme — nothing was saved. Check your connection and try again.' }
+        : !brandingOk
+          ? { tone: 'error', text: 'The theme is saved, but your old custom colours are still set — clear them under Advanced and Save Branding.' }
+          : pack
+            ? { tone: 'ok', text: `${pack.name} applied — your welcome page, booth and wall wear it now.` }
+            : { tone: 'ok', text: 'Theme removed — your event is back on its own look.' },
+    );
+  };
+
   const currentBgId = config.backgroundTemplateId ?? DEFAULT_BACKGROUND_ID;
   const [bgSaving, setBgSaving] = useState<string | null>(null);
 
@@ -587,6 +637,60 @@ export default function Branding() {
           </section>
         )}
 
+        {/* Event theme (runtime DB events only): a full theme pack. */}
+        {isDbEvent && show('look') && (
+          <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in" aria-labelledby="branding-theme-h">
+            <h2 id="branding-theme-h" className="font-label uppercase tracking-luxe text-[10px] text-gold-300 mb-1 flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5" /> Event theme
+            </h2>
+            <p className="font-sans text-[12px] text-champagne/60 mb-4">
+              One style for the whole night: the welcome page, booth, send screen and live wall, buttons and fonts included. Applies straight away.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {THEME_PACKS.map((p) => {
+                const on = p.id === currentPackId;
+                return (
+                  <div
+                    key={p.id}
+                    className={`overflow-hidden rounded-xl border transition ${on ? 'border-gold-400/70 glow-accent' : 'border-gold-700/25'}`}
+                  >
+                    <div className="relative aspect-[16/10] w-full overflow-hidden" aria-hidden>
+                      <ThemePackBackdrop theme={{ pack: p.id }} compact />
+                    </div>
+                    <div className="flex flex-col gap-2 p-3">
+                      <p className="font-sans text-[13px] font-semibold text-ivory">
+                        {p.name}{on ? ' · current' : ''}
+                      </p>
+                      <p className="font-sans text-[12px] leading-snug text-champagne/70">{p.blurb}</p>
+                      <div className="flex gap-1.5" aria-hidden>
+                        {p.swatches.map((c) => (
+                          <span key={c} className="h-4 w-4 rounded-full shadow-[inset_0_0_0_1px_rgba(255,255,255,0.3)]" style={{ background: c }} />
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { void applyThemePack(on ? null : p.id); }}
+                        disabled={themeSaving !== null}
+                        aria-pressed={on}
+                        className={`mt-1 min-h-11 rounded-xl px-4 font-label uppercase tracking-luxe text-[11px] transition disabled:opacity-50 ${
+                          on ? 'border border-gold-400/40 text-ivory hover:border-gold-400/70' : 'bg-foil text-noir-900 glow-accent hover:brightness-110'
+                        }`}
+                      >
+                        {themeSaving === p.id || (on && themeSaving === 'none') ? 'Saving…' : on ? 'Remove theme' : 'Apply theme'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {themeStatus !== null && (
+              <p role="status" className={`mt-3 font-sans text-[12px] ${themeStatus.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>
+                {themeStatus.text}
+              </p>
+            )}
+          </section>
+        )}
+
         {/* Look (runtime DB events only): change style after create */}
         {isDbEvent && show('look') && (
           <section className="glass-strong rounded-2xl border border-gold-400/20 p-6 animate-rise-in">
@@ -674,6 +778,11 @@ export default function Branding() {
 
         {/* Event page look — the guest welcome page + booth splash scene
             (runtime DB events only; events.config.scene). */}
+        {isDbEvent && show('look') && currentPackId !== null && (
+          <p role="note" className="-mb-4 px-1 font-sans text-[12px] text-champagne/70">
+            Your event theme dresses the guest pages right now. A page look picked below shows once you remove the theme.
+          </p>
+        )}
         {isDbEvent && show('look') && <ScenePicker />}
 
         {/* Background template (runtime DB events only) */}
