@@ -39,6 +39,11 @@ export interface DeckSelection {
   effectId: string;
   frameId: string | null;
   attachmentId: string | null;
+  /**
+   * The face-paint slot (platform look strip only). Optional so the legacy
+   * deck, which never had a paint slot, is unchanged; absent reads as null.
+   */
+  paintId?: string | null;
 }
 
 const CATEGORY_LABEL: Record<DeckCategory, string> = {
@@ -152,5 +157,6 @@ export function initialCategoryWhenReady(
 
 /** True when nothing at all is applied — drives the "Clear" orb's active state. */
 export function isPristine(sel: DeckSelection, sparkles: boolean): boolean {
-  return sel.effectId === 'none' && !sparkles && sel.frameId === null && sel.attachmentId === null;
+  return sel.effectId === 'none' && !sparkles && sel.frameId === null && sel.attachmentId === null
+    && (sel.paintId ?? null) === null;
 }

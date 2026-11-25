@@ -180,7 +180,7 @@ export interface BoothLookDeckProps extends LookHandlers {
 
 export default function BoothLookDeck({
   sections, selection, sparkles, onToggleSparkles,
-  onSelectEffect, onSelectFrame, onSelectAttachment, onClearAll, onOpenAll, sheetOpen,
+  onSelectEffect, onSelectFrame, onSelectAttachment, onSelectPaint, onClearAll, onOpenAll, sheetOpen,
   mediaMode, onMediaMode, videoAllowed, recording, shutter, pendingIds,
   stripMode = false, onStripMode, stripShots, onOpenStripPicker,
   colorSlot = null, guestHex = null, onGuestHex, hintEnabled,
@@ -188,7 +188,7 @@ export default function BoothLookDeck({
   const reduced = useReducedMotion() ?? false;
   const strip = useMemo(() => buildLookStrip(sections), [sections]);
   const activeIds = useMemo(() => activeLookIds(strip, selection), [strip, selection]);
-  const handlers: LookHandlers = { onSelectEffect, onSelectFrame, onSelectAttachment };
+  const handlers: LookHandlers = { onSelectEffect, onSelectFrame, onSelectAttachment, onSelectPaint };
 
   // ── Tabs. Until the guest picks one (or a look goes on elsewhere) the deck
   // follows the applied look, so an event default arriving late still opens

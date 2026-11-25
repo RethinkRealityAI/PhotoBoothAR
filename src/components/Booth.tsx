@@ -49,6 +49,8 @@ import { TimerControl } from './booth/BoothCaptureControls';
 import {
   buildDeck, initialCategory, initialCategoryWhenReady, type DeckCategory, type DeckSelection,
 } from '../lib/boothDeck';
+import { isPaintLook } from '../lib/lookStrip';
+import { mergePaintLayers } from '../lib/paintSlot';
 import { haptic } from '../lib/haptics';
 import Countdown from './booth/Countdown';
 import ReviewPanel from './booth/ReviewPanel';
@@ -575,6 +577,8 @@ export default function Booth() {
   const [sparkles, setSparkles] = useState(false);
   const [frameExp, setFrameExp] = useState<Experience | null>(null);
   const [attachExp, setAttachExp] = useState<Experience | null>(null);
+  /** The face-paint slot (platform only): worn alongside the prop in attachExp. */
+  const [paintExp, setPaintExp] = useState<Experience | null>(null);
   const [overlayTransform, setOverlayTransform] = useState<Transform2D>(DEFAULT_TRANSFORM);
 
   // ── Timer ─────────────────────────────────────────────────────────────
@@ -737,7 +741,7 @@ export default function Booth() {
         setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
         if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
       } else if (exp.kind === '3d_attachment') {
-        setAttachExp(exp);
+        if (source === 'db' && isPaintLook(exp)) setPaintExp(exp); else setAttachExp(exp);
         if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
       } else if (exp.kind === 'composite') {
         // A mixed scene is a full frame+3D+filter package — apply all three slots together.
@@ -772,7 +776,7 @@ export default function Booth() {
       setOverlayTransform(exp.config?.transform ?? DEFAULT_TRANSFORM);
       if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
     } else if (exp.kind === '3d_attachment') {
-      setAttachExp(exp);
+      if (source === 'db' && isPaintLook(exp)) setPaintExp(exp); else setAttachExp(exp);
       if (exp.config?.ambientShader?.shaderId) setEffectId(exp.config.ambientShader.shaderId);
     } else if (exp.kind === 'composite') {
       // A mixed scene is a full frame+3D+filter package — apply all three slots together.
@@ -840,6 +844,20 @@ export default function Booth() {
       return;
     }
     setAttachExp(exp);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arFrameId, recording, basePath, goTo]);
+
+  /**
+   * Picking a face paint: its own slot, so the guest's prop stays on. In world
+   * mode (no face on screen) a paint leaves for the selfie booth with it on,
+   * the same way a 2D Frame does.
+   */
+  const handleSelectPaint = useCallback((exp: Experience | null) => {
+    if (arFrameId !== null) {
+      if (exp !== null && !recording) goTo(leaveArUrl(basePath, location.search, exp.id));
+      return;
+    }
+    setPaintExp(exp);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arFrameId, recording, basePath, goTo]);
 
@@ -1007,12 +1025,15 @@ export default function Booth() {
     (!!frameArt && (frameExp.kind === 'border' || frameExp.kind === '2d_filter')) ||
     (frameExp.kind === 'composite' && !!frameExp.config?.layers?.some((l) => l.kind === 'border' || l.kind === '2d_filter'))
   );
-  const is3D = attachExp !== null && (
-    (attachExp.kind === '3d_attachment' && (!!attachExp.asset_url || !!attachExp.config?.procedural)) ||
-    (attachExp.kind === 'composite' && !!attachExp.config?.layers?.some((l) => l.kind === '3d_attachment'))
+  // The 3D canvas is led by the prop; with no prop, a face paint leads it
+  // (the paint slot, platform only — paintExp is never set on legacy events).
+  const pieceExp = attachExp ?? paintExp;
+  const is3D = pieceExp !== null && (
+    (pieceExp.kind === '3d_attachment' && (!!pieceExp.asset_url || !!pieceExp.config?.procedural)) ||
+    (pieceExp.kind === 'composite' && !!pieceExp.config?.layers?.some((l) => l.kind === '3d_attachment'))
   );
   const anchorConfig: AnchorConfig | null =
-    is3D && attachExp?.config?.anchor ? (attachExp.config.anchor as AnchorConfig) : null;
+    is3D && pieceExp?.config?.anchor ? (pieceExp.config.anchor as AnchorConfig) : null;
 
   // ── Guest-name lettering ──────────────────────────────────────────────
   // Opt-in per FRAME (config.lettering, written only by the studio). Legacy
@@ -1093,9 +1114,10 @@ export default function Booth() {
         attachExp,
         frameExp,
         effectExp,
+        paintExp,
         eventPowerUps ? { id: 'event:powerUps', config: { triggers: eventPowerUps } } : null,
       ])),
-    [source, attachExp, frameExp, effectExp, eventPowerUps],
+    [source, attachExp, frameExp, effectExp, paintExp, eventPowerUps],
   );
   const hasTriggers = triggers.length > 0;
   /**
@@ -1115,8 +1137,8 @@ export default function Booth() {
     [source],
   );
   const lookTriggers = useMemo<TriggerConfig[]>(
-    () => (source !== 'db' ? [] : collectTriggers([attachExp, frameExp, effectExp])),
-    [source, attachExp, frameExp, effectExp],
+    () => (source !== 'db' ? [] : collectTriggers([attachExp, frameExp, effectExp, paintExp])),
+    [source, attachExp, frameExp, effectExp, paintExp],
   );
 
   // ── Face-tracking engine (per filter) ─────────────────────────────────
@@ -1127,12 +1149,12 @@ export default function Booth() {
   // first engine started is already the right one.
   const trackingConfig = source !== 'db'
     ? undefined
-    : [attachExp, frameExp, effectExp]
+    : [attachExp, frameExp, effectExp, paintExp]
       .map((e) => e?.config?.tracking)
       .find((t) => parseFaceTrackingMode(t) !== null);
   // Living Face Paint rides the 8th Wall face mesh, so a painted scene must
   // resolve to an 8th Wall mode (engineSelect's requiresFaceMesh rule).
-  const hasFacePaint = source === 'db' && [attachExp, frameExp, effectExp]
+  const hasFacePaint = source === 'db' && [attachExp, frameExp, effectExp, paintExp]
     .some((e) => e?.config?.layers?.some((l) => l.facePaint !== undefined && l.hidden !== true) === true);
   const faceMode = useMemo(
     () => resolveSurfaceFaceMode({ legacy: source !== 'db', config: trackingConfig, triggers, facePaint: hasFacePaint }).mode,
@@ -1276,7 +1298,12 @@ export default function Booth() {
     if (arFrameId !== null) leaveWorld(); else flipCamera();
   }, [arFrameId, leaveWorld, flipCamera]);
 
-  const rawAttachLayers = attachExp?.config?.layers;
+  // The prop's layers plus the paint slot's (same reference as before when no
+  // paint is on, so every memo below is unchanged for a prop-only booth).
+  const rawAttachLayers = useMemo(
+    () => mergePaintLayers(attachExp, source === 'db' ? paintExp : null),
+    [attachExp, paintExp, source],
+  );
   // ── Guest lens colour ─────────────────────────────────────────────────
   // Session-only: a swatch pick recolours the template's guest-pickable region
   // through the ordinary customization path (so the lens AND an 'auto' beam
@@ -1917,7 +1944,7 @@ export default function Booth() {
         ? (capturedBlobRef ?? dataUrlToBlob(capturedDataUrl))
         : dataUrlToBlob(capturedDataUrl);
 
-      const expId = attachExp?.id ?? frameExp?.id ?? (effectId !== 'none' ? `builtin:shader:${effectId}` : undefined);
+      const expId = attachExp?.id ?? paintExp?.id ?? frameExp?.id ?? (effectId !== 'none' ? `builtin:shader:${effectId}` : undefined);
       const taggedChallenge = withChallenge ? selectedChallenge : null;
 
       // Bounded wait: a stalled upload resolves as a 'network' failure (the
@@ -2169,6 +2196,7 @@ export default function Booth() {
     setSparkles(false);
     handleSelectFrame(null);
     setAttachExp(null);
+    setPaintExp(null);
   };
   const deckSections = useMemo(
     () => buildDeck(source === 'db' ? withWorldLooks(catalog) : catalog),
@@ -2180,7 +2208,8 @@ export default function Booth() {
     effectId,
     frameId: frameExp?.id ?? null,
     attachmentId: attachExp?.id ?? null,
-  }), [effectId, frameExp, attachExp]);
+    paintId: paintExp?.id ?? null,
+  }), [effectId, frameExp, attachExp, paintExp]);
   const [deckCategory, setDeckCategory] = useState<DeckCategory | null>(null);
   // Open on whatever is already applied (an /experience/:id link or the
   // event's default), else the first category — but only once the catalog has
@@ -2533,12 +2562,12 @@ export default function Booth() {
                   <HeadScaleOverlay3D
                     base={studioCfg.headScale}
                     subRef={headScaleSubRef}
-                    assetUrl={is3D && anchorConfig ? attachExp!.asset_url : null}
-                    proceduralId={is3D && anchorConfig ? attachExp!.config?.procedural : null}
+                    assetUrl={is3D && anchorConfig ? pieceExp!.asset_url : null}
+                    proceduralId={is3D && anchorConfig ? pieceExp!.config?.procedural : null}
                     anchor={anchorConfig ?? POWERFX_ONLY_ANCHOR}
                     videoId="booth-video"
                     mirror={isFront}
-                    occlude={is3D && source === 'db' && attachExp!.config?.occlusion === true}
+                    occlude={is3D && source === 'db' && attachExp?.config?.occlusion === true}
                     onFaceVisible={is3D && anchorConfig ? setFaceVisible : undefined}
                     onHandVisible={is3D && anchorConfig ? setHandVisible : undefined}
                     pieces={is3D && anchorConfig ? overlayPieces : null}
@@ -2773,6 +2802,7 @@ export default function Booth() {
                 onSelectEffect={applyEffect}
                 onSelectFrame={handleSelectFrame}
                 onSelectAttachment={handleSelectAttachment}
+                onSelectPaint={handleSelectPaint}
                 onClearAll={clearAllLooks}
                 onOpenAll={() => setMoreOpen(true)}
                 sheetOpen={moreOpen}
@@ -2910,6 +2940,7 @@ export default function Booth() {
           onSelectEffect={applyEffect}
           onSelectFrame={handleSelectFrame}
           onSelectAttachment={handleSelectAttachment}
+          onSelectPaint={handleSelectPaint}
           onClearAll={clearAllLooks}
           pendingIds={pendingExperienceIds}
         />

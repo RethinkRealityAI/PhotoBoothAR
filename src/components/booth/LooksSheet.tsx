@@ -47,7 +47,7 @@ export interface LooksSheetProps extends LookHandlers {
 
 export default function LooksSheet({
   open, onClose, sections, selection, sparkles, onToggleSparkles,
-  onSelectEffect, onSelectFrame, onSelectAttachment, onClearAll, pendingIds,
+  onSelectEffect, onSelectFrame, onSelectAttachment, onSelectPaint, onClearAll, pendingIds,
 }: LooksSheetProps) {
   const reduced = useReducedMotion() ?? false;
   const strip = useMemo(() => buildLookStrip(sections), [sections]);
@@ -57,7 +57,7 @@ export default function LooksSheet({
   // A chip that no longer exists (catalog changed) falls back to the first.
   const current: LookChip = chips.some((c) => c.key === chip) ? chip : (chips[0]?.key ?? 'all');
   const groups = looksForChip(strip, current);
-  const handlers: LookHandlers = { onSelectEffect, onSelectFrame, onSelectAttachment };
+  const handlers: LookHandlers = { onSelectEffect, onSelectFrame, onSelectAttachment, onSelectPaint };
 
   // Honest states for the event's own frames (the catalog alone cannot tell
   // "still loading" from "failed" from "genuinely none") — PickerDrawer's rule.

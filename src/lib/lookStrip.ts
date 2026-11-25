@@ -14,9 +14,9 @@
  * sense of which kind you were in). The deck opens on the tab holding the
  * applied look, so a guest never has to pick a tab before seeing one. A
  * labelled "More looks" sheet keeps the full catalogue with the same chips.
- * Looks stay COMBINABLE exactly as before: one frame + one 3D piece (a prop OR
- * face paint — they share the slot) + one effect, because a tile toggles only
- * its own slot. Which tile is lit,
+ * Looks stay COMBINABLE: one frame + one prop + one face paint + one effect,
+ * because a tile toggles only its own slot (Paint got its own slot on Dapo's
+ * OK, 2026-11-25 — before that a paint and a prop shared one). Which tile is lit,
  * what a tap does, what the name pill announces and which chips the sheet
  * offers are all decided here so they can be tested without a camera.
  */
@@ -27,12 +27,26 @@ import { LOOK_TABS, type LookTab } from './lookTerms';
 /** Strip order: the host's own frames lead, generic effects come last. */
 export const LOOK_ORDER: readonly DeckCategory[] = ['frame', 'prop', 'effect'];
 
+/**
+ * The booth SLOTS a look can fill. Face paint arrives in the deck's 3D section
+ * (it is a 3d_attachment row) but fills its OWN slot, so a guest can wear a
+ * prop and a paint at once.
+ */
+export type LookSlot = DeckCategory | 'paint';
+
+/** Slot order for announcing a change: same as the strip. */
+export const LOOK_SLOTS: readonly LookSlot[] = ['frame', 'prop', 'paint', 'effect'];
+
 export interface LookItem extends DeckOption {
-  /** The booth SLOT it fills (one frame + one 3D piece + one effect). */
-  category: DeckCategory;
-  /** The TAB a guest finds it under (lib/lookTerms). Face paint fills the 3D
-   *  slot but has its own tab: it sits on the skin, it is not worn. */
+  /** The booth SLOT it fills (one frame + one prop + one paint + one effect). */
+  category: LookSlot;
+  /** The TAB a guest finds it under (lib/lookTerms). */
   tab: LookTab;
+}
+
+/** The slot a deck-section look fills. */
+export function lookSlotOf(category: DeckCategory, exp: Experience): LookSlot {
+  return category === 'prop' && isPaintLook(exp) ? 'paint' : category;
 }
 
 /**
@@ -60,7 +74,7 @@ export function buildLookStrip(sections: readonly DeckSection[]): LookItem[] {
   for (const key of LOOK_ORDER) {
     const section = sections.find((s) => s.key === key);
     if (!section) continue;
-    for (const o of section.options) out.push({ ...o, category: key, tab: lookTabOf(key, o.exp) });
+    for (const o of section.options) out.push({ ...o, category: lookSlotOf(key, o.exp), tab: lookTabOf(key, o.exp) });
   }
   // Stable: paint moves after props, everything else keeps its catalog order.
   return out
@@ -81,6 +95,8 @@ export function activeLookIds(strip: readonly LookItem[], sel: DeckSelection): S
   const ids = new Set<string>();
   if (sel.frameId !== null && strip.some((i) => i.category === 'frame' && i.exp.id === sel.frameId)) ids.add(sel.frameId);
   if (sel.attachmentId !== null && strip.some((i) => i.category === 'prop' && i.exp.id === sel.attachmentId)) ids.add(sel.attachmentId);
+  const paintId = sel.paintId ?? null;
+  if (paintId !== null && strip.some((i) => i.category === 'paint' && i.exp.id === paintId)) ids.add(paintId);
   if (sel.effectId !== 'none') {
     const fx = strip.find((i) => i.category === 'effect' && i.shaderId === sel.effectId);
     if (fx) ids.add(fx.exp.id);
@@ -91,7 +107,8 @@ export function activeLookIds(strip: readonly LookItem[], sel: DeckSelection): S
 export type LookAction =
   | { category: 'effect'; shaderId: string; exp: Experience | null }
   | { category: 'frame'; exp: Experience | null }
-  | { category: 'prop'; exp: Experience | null };
+  | { category: 'prop'; exp: Experience | null }
+  | { category: 'paint'; exp: Experience | null };
 
 /**
  * What tapping a tile does: apply it, or — when it is already on — take its
@@ -107,9 +124,10 @@ export function lookTapAction(item: LookItem, active: boolean): LookAction {
   return { category: item.category, exp: active ? null : item.exp };
 }
 
-function idFor(category: DeckCategory, strip: readonly LookItem[], sel: DeckSelection): string | null {
+function idFor(category: LookSlot, strip: readonly LookItem[], sel: DeckSelection): string | null {
   if (category === 'frame') return sel.frameId;
   if (category === 'prop') return sel.attachmentId;
+  if (category === 'paint') return sel.paintId ?? null;
   if (sel.effectId === 'none') return null;
   return strip.find((i) => i.category === 'effect' && i.shaderId === sel.effectId)?.exp.id ?? null;
 }
@@ -135,7 +153,7 @@ export function changedLook(
 ): { id: string; name: string; on: boolean } | null {
   if (prev === null) return null;
   let removed: { id: string; name: string } | null = null;
-  for (const c of LOOK_ORDER) {
+  for (const c of LOOK_SLOTS) {
     const before = idFor(c, strip, prev);
     const after = idFor(c, strip, next);
     if (before === after) continue;
@@ -150,17 +168,19 @@ export function changedLook(
   return removed !== null ? { ...removed, on: false } : null;
 }
 
-/** The booth's three apply callbacks, in the shape both look surfaces share. */
+/** The booth's four apply callbacks, in the shape both look surfaces share. */
 export interface LookHandlers {
   onSelectEffect: (shaderId: string, exp: Experience | null) => void;
   onSelectFrame: (exp: Experience | null) => void;
   onSelectAttachment: (exp: Experience | null) => void;
+  onSelectPaint: (exp: Experience | null) => void;
 }
 
 /** Route a LookAction to the booth's matching setter. */
 export function runLookAction(action: LookAction, h: LookHandlers): void {
   if (action.category === 'effect') h.onSelectEffect(action.shaderId, action.exp);
   else if (action.category === 'frame') h.onSelectFrame(action.exp);
+  else if (action.category === 'paint') h.onSelectPaint(action.exp);
   else h.onSelectAttachment(action.exp);
 }
 
@@ -296,13 +316,15 @@ export function tabIsClear(tab: LookTab, strip: readonly LookItem[], sel: DeckSe
 
 /**
  * A tab's "None" tile: take THAT tab's look off and leave the others on — the
- * strip's global "None" clears everything. Null when the tab is already clear:
- * Props and Paint share the 3D slot, so "No paint" must never take a prop off.
+ * strip's global "None" clears everything. Null when the tab is already clear.
+ * Props and Paint are separate slots, so "No paint" never takes a prop off and
+ * "No prop" never takes the paint off.
  */
 export function clearTabAction(tab: LookTab, strip: readonly LookItem[], sel: DeckSelection): LookAction | null {
   if (tabIsClear(tab, strip, sel)) return null;
   if (tab === 'frames') return { category: 'frame', exp: null };
   if (tab === 'effects') return { category: 'effect', shaderId: 'none', exp: null };
+  if (tab === 'paint') return { category: 'paint', exp: null };
   return { category: 'prop', exp: null };
 }
 

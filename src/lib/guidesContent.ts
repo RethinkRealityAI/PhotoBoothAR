@@ -1200,7 +1200,7 @@ const FIRST_EVENT: GuideDoc = {
       title: 'What guests see in the booth',
       screen: 'guest-more-looks',
       body: [
-        'Inside the booth, every look you left switched on sits above the shutter under four tabs: Frames, Props, Paint and Effects. A tab only shows when your event has something in it, and the booth opens on the tab that holds the look already on. Guests tap a tab, swipe its row and tap a look to try it on; the next one always peeks in from the edge so it is obvious there are more. Looks combine, so a frame, a crown and an effect can go on together. Props and face paint share one spot on the face, so picking one swaps out the other.',
+        'Inside the booth, every look you left switched on sits above the shutter under four tabs: Frames, Props, Paint and Effects. A tab only shows when your event has something in it, and the booth opens on the tab that holds the look already on. Guests tap a tab, swipe its row and tap a look to try it on; the next one always peeks in from the edge so it is obvious there are more. Looks combine, so a frame, a crown, a face paint and an effect can all go on together. Each tab holds one look at a time: picking another prop swaps the prop, and picking another paint swaps the paint.',
         'Beside the shutter is a More looks button. It opens everything at once with the same Frames, Props, Paint and Effects chips, which is the quickest way through a big set. The first time a guest opens the booth they get a one-off nudge to swipe, and never again on that phone.',
       ],
     },

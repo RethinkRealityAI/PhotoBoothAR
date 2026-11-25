@@ -127,6 +127,7 @@ describe('runLookAction', () => {
         onSelectEffect: (sid: string, e: Experience | null) => calls.push(`effect:${sid}:${e?.id ?? 'null'}`),
         onSelectFrame: (e: Experience | null) => calls.push(`frame:${e?.id ?? 'null'}`),
         onSelectAttachment: (e: Experience | null) => calls.push(`prop:${e?.id ?? 'null'}`),
+        onSelectPaint: (e: Experience | null) => calls.push(`paint:${e?.id ?? 'null'}`),
       },
     };
   }
@@ -268,6 +269,7 @@ describe('per-tab None', () => {
       onSelectEffect: (s: string, e: Experience | null) => calls.push(`effect:${s}:${e === null ? 'null' : e.id}`),
       onSelectFrame: (e: Experience | null) => calls.push(`frame:${e === null ? 'null' : e.id}`),
       onSelectAttachment: (e: Experience | null) => calls.push(`prop:${e === null ? 'null' : e.id}`),
+      onSelectPaint: (e: Experience | null) => calls.push(`paint:${e === null ? 'null' : e.id}`),
     };
     const sel: DeckSelection = { effectId: 'aurora-lumina', frameId: 'f1', attachmentId: 'p1' };
     for (const t of ['frames', 'props', 'effects'] as const) {
@@ -345,14 +347,15 @@ describe('isPaintLook', () => {
 });
 
 describe('tabs', () => {
-  it('puts face paint under Paint (same 3D slot) and mixed scenes under Props', () => {
+  it('puts face paint under Paint (its own slot) and mixed scenes under Props', () => {
     expect(PSTRIP.map((i) => [i.exp.id, i.tab])).toEqual([
       ['f1', 'frames'], ['c1', 'frames'],
       ['p1', 'props'], ['mix1', 'props'],
       ['fp1', 'paint'],
       ['s1', 'effects'], ['s2', 'effects'], ['s3', 'effects'],
     ]);
-    expect(PSTRIP.find((i) => i.exp.id === 'fp1')?.category).toBe('prop');
+    expect(PSTRIP.find((i) => i.exp.id === 'fp1')?.category).toBe('paint');
+    expect(PSTRIP.find((i) => i.exp.id === 'mix1')?.category).toBe('prop');
   });
 
   it('lists only tabs with looks, in order — Effects always (it holds Sparkle)', () => {
@@ -365,7 +368,7 @@ describe('tabs', () => {
 
   it('opens on the tab holding the applied look, else the first tab', () => {
     expect(defaultLookTab(PSTRIP, NONE)).toBe('frames');
-    expect(defaultLookTab(PSTRIP, { ...NONE, attachmentId: 'fp1' })).toBe('paint');
+    expect(defaultLookTab(PSTRIP, { ...NONE, paintId: 'fp1' })).toBe('paint');
     expect(defaultLookTab(PSTRIP, { ...NONE, effectId: 'aurora-lumina' })).toBe('effects');
     // A combined look opens on its frame, like the name pill.
     expect(defaultLookTab(PSTRIP, { effectId: 'aurora-lumina', frameId: 'c1', attachmentId: 'p1' })).toBe('frames');
@@ -373,7 +376,8 @@ describe('tabs', () => {
   });
 
   it('marks every tab with something on, Sparkle counting for Effects', () => {
-    expect([...tabsInUse(PSTRIP, { ...NONE, frameId: 'f1', attachmentId: 'fp1' }, false)]).toEqual(['frames', 'paint']);
+    expect([...tabsInUse(PSTRIP, { ...NONE, frameId: 'f1', paintId: 'fp1' }, false)]).toEqual(['frames', 'paint']);
+    expect([...tabsInUse(PSTRIP, { ...NONE, attachmentId: 'p1', paintId: 'fp1' }, false)]).toEqual(['props', 'paint']);
     expect([...tabsInUse(PSTRIP, NONE, true)]).toEqual(['effects']);
     expect(tabsInUse(PSTRIP, NONE, false).size).toBe(0);
   });
@@ -383,13 +387,55 @@ describe('tabs', () => {
     expect(tabOfLook(PSTRIP, 'gone')).toBeNull();
   });
 
-  it('"No paint" never takes a prop off — the two share one slot', () => {
+  it('"No paint" never takes a prop off, and "No prop" never takes the paint off', () => {
     const propOn: DeckSelection = { ...NONE, attachmentId: 'p1' };
     expect(tabIsClear('paint', PSTRIP, propOn)).toBe(true);
     expect(clearTabAction('paint', PSTRIP, propOn)).toBeNull();
     expect(clearTabAction('props', PSTRIP, propOn)).toEqual({ category: 'prop', exp: null });
-    const paintOn: DeckSelection = { ...NONE, attachmentId: 'fp1' };
+    const paintOn: DeckSelection = { ...NONE, paintId: 'fp1' };
     expect(clearTabAction('props', PSTRIP, paintOn)).toBeNull();
-    expect(clearTabAction('paint', PSTRIP, paintOn)).toEqual({ category: 'prop', exp: null });
+    expect(clearTabAction('paint', PSTRIP, paintOn)).toEqual({ category: 'paint', exp: null });
+    const both: DeckSelection = { ...NONE, attachmentId: 'p1', paintId: 'fp1' };
+    expect(clearTabAction('props', PSTRIP, both)).toEqual({ category: 'prop', exp: null });
+    expect(clearTabAction('paint', PSTRIP, both)).toEqual({ category: 'paint', exp: null });
+  });
+});
+
+describe('the paint slot', () => {
+  const fp1 = PSTRIP.find((i) => i.exp.id === 'fp1')!;
+  const p1 = PSTRIP.find((i) => i.exp.id === 'p1')!;
+
+  it('lights a prop and a paint together', () => {
+    const ids = activeLookIds(PSTRIP, { effectId: 'aurora-lumina', frameId: 'f1', attachmentId: 'p1', paintId: 'fp1' });
+    expect([...ids].sort()).toEqual(['f1', 'fp1', 'p1', 's2'].sort());
+  });
+
+  it('a paint id in the prop slot lights nothing (it is not a prop)', () => {
+    expect(activeLookIds(PSTRIP, { ...NONE, attachmentId: 'fp1' }).size).toBe(0);
+  });
+
+  it('taps route to the paint setter and leave the prop alone', () => {
+    const calls: string[] = [];
+    const h = {
+      onSelectEffect: () => calls.push('effect'),
+      onSelectFrame: () => calls.push('frame'),
+      onSelectAttachment: (e: Experience | null) => calls.push(`prop:${e?.id ?? 'null'}`),
+      onSelectPaint: (e: Experience | null) => calls.push(`paint:${e?.id ?? 'null'}`),
+    };
+    runLookAction(lookTapAction(p1, false), h);
+    runLookAction(lookTapAction(fp1, false), h);
+    runLookAction(lookTapAction(fp1, true), h);
+    expect(calls).toEqual(['prop:p1', 'paint:fp1', 'paint:null']);
+  });
+
+  it('announces a paint going on and coming off', () => {
+    const prop: DeckSelection = { ...NONE, attachmentId: 'p1' };
+    const both: DeckSelection = { ...prop, paintId: 'fp1' };
+    expect(changedLook(PSTRIP, prop, both)).toEqual({ id: 'fp1', name: 'Tiger Paint', on: true });
+    expect(changedLook(PSTRIP, both, prop)).toEqual({ id: 'fp1', name: 'Tiger Paint', on: false });
+  });
+
+  it('draws a divider between props and paint', () => {
+    expect(categoryBreaks(PSTRIP).has('fp1')).toBe(true);
   });
 });
