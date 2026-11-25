@@ -31,7 +31,7 @@ export interface CoverSettings {
   guestNames?: boolean;
 }
 
-export const COVER_TITLE_MAX = 12;
+export const COVER_TITLE_MAX = 16;
 export const COVER_NAME_MAX = 24;
 export const COVER_HEADLINE_MAX = 48;
 export const COVER_MAX_HONOREES = 3;

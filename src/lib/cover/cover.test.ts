@@ -147,10 +147,11 @@ describe('cover settings', () => {
       template: 'wedding', title: '  Amour   Toujours forever ', honorees: ['Ada', '', 7, 'Tunde', 'Kemi', 'Extra'],
       headline: 'x'.repeat(80), date: '2027-06-14', guestNames: false, junk: 1,
     })).toEqual({
-      template: 'wedding', title: 'Amour Toujou', honorees: ['Ada', 'Tunde', 'Kemi'],
+      template: 'wedding', title: 'Amour Toujours f', honorees: ['Ada', 'Tunde', 'Kemi'],
       headline: 'x'.repeat(48), date: '2027-06-14', guestNames: false,
     });
     expect(normalizeCover({ template: 'wedding', date: 'June' })).toEqual({ template: 'wedding' });
+    expect(normalizeCover({ template: 'wedding', title: 'Mariba & Phil' })).toEqual({ template: 'wedding', title: 'Mariba & Phil' });
   });
 
   it('keeps one cover per template, in order', () => {
