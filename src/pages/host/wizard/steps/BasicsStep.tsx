@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAiAccess } from '../../../../lib/aiAccess';
 import { Briefcase, Cake, CalendarDays, Gem, PartyPopper, Pencil, Sparkles, type LucideIcon } from 'lucide-react';
 import type { TemplateId } from '../../../../lib/eventTemplates';
 import { createEvent, isSlugVisiblyTaken, updateEventDate, updateEventName } from '../../../../lib/host';
@@ -142,6 +143,8 @@ function Layout({ form, preview, headExtra, notice }: { form: React.ReactNode; p
 }
 
 function CreateBasics({ onCreated }: { onCreated: (ev: WizardEvent) => void }) {
+  // The chat assistant is behind the owner's AI switch (migration 054).
+  const ai = useAiAccess();
   const [f, setF] = useState<Fields>({ name: '', occasion: 'party', date: '', noDate: false, slug: '', slugTouched: false });
   const [slugNote, setSlugNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -211,7 +214,7 @@ function CreateBasics({ onCreated }: { onCreated: (ev: WizardEvent) => void }) {
         <Layout
           headExtra={(
             <p className="mt-2 text-[13px] text-white/65">
-              About 5 minutes, and everything saves as you go. Rather describe it in a sentence? <Link to="/host/new/assistant" className="underline underline-offset-2 text-white">Use the assistant</Link>
+              About 5 minutes, and everything saves as you go.{ai === true && <> Rather describe it in a sentence? <Link to="/host/new/assistant" className="underline underline-offset-2 text-white">Use the assistant</Link></>}
             </p>
           )}
           notice={error ? <p role="alert" className="mb-4 rounded-2xl bg-[rgba(255,120,140,0.18)] px-4 py-3 text-[14.5px]">{error}</p> : undefined}

@@ -20,6 +20,8 @@ export type AiErrorCode =
   | 'insufficient_credits'
   | 'forbidden'
   | 'upgrade_required'
+  /** The owner's platform switch (migration 054) has AI off for hosts. */
+  | 'ai_disabled'
   | 'event_not_found'
   | 'job_not_found'
   | 'generation_failed'
@@ -57,6 +59,7 @@ export function aiErrorRetryable(code: AiErrorCode): boolean {
     code !== 'content_blocked' &&
     code !== 'insufficient_credits' &&
     code !== 'upgrade_required' &&
+    code !== 'ai_disabled' &&
     code !== 'unauthorized' &&
     code !== 'forbidden'
   );
@@ -465,6 +468,8 @@ export function aiErrorMessage(code: AiErrorCode): string {
       return 'Not enough credits — top up in Billing.';
     case 'upgrade_required':
       return 'AI Studio is a paid feature — upgrade this event to unlock it.';
+    case 'ai_disabled':
+      return 'AI tools aren’t open to hosts yet — every manual tool still works.';
     case 'ai_not_configured':
     case 'ai_key_invalid':
       // Customer-safe: the real cause (missing/rejected GEMINI_API_KEY) is a
