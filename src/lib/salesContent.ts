@@ -53,6 +53,8 @@ export const SLIDE_IMAGE_KEYS = [
 const SRC_CHECKCHERRY = 'Check Cherry booking data, ~118,000 photo booth rentals, 2024–2026';
 const SRC_NIELSEN = 'Nielsen Global Trust in Advertising, 2015 (30,000+ respondents, 60 countries)';
 const SRC_BEAMWALL = 'Beamwall public price list';
+/** Every cover's it-is-virtual cue (owner, 2026-11-25): not a machine that ships. */
+const VIRTUAL_TAGLINE = 'Think Snapchat and Instagram. In your browser, no sign-in needed.';
 
 // ── Decks ──────────────────────────────────────────────────────────────────
 
@@ -71,7 +73,8 @@ const NA_PLANNERS_DECK: Deck = {
       kind: 'cover',
       eyebrow: 'For event & wedding planners',
       title: 'Give every client a room that lights up',
-      body: 'An AR photo booth on every guest’s phone, beaming live onto a big-screen wall. No hardware, no app.',
+      body: 'An immersive virtual photo booth on every guest’s phone, beaming live onto a big-screen wall. No hardware, no app.',
+      tagline: VIRTUAL_TAGLINE,
       image: 'beamy-crown',
       notes:
         'Open on the outcome, not the tech: the moment the room watches its own photos land on the wall. Ask how many events they run a year before you go further — it frames everything after.',
@@ -217,10 +220,11 @@ const NA_BRANDS_DECK: Deck = {
       kind: 'cover',
       eyebrow: 'For brands & corporate events',
       title: 'Every attendee becomes your content crew',
-      body: 'Branded AR photos on attendees’ own phones, beaming live onto your screen. No hardware, no app.',
+      body: 'An immersive virtual photo booth on attendees’ own phones, your brand on every shot, live on your screen.',
+      tagline: VIRTUAL_TAGLINE,
       image: 'beamy-tophat',
       notes:
-        'Lead with content and attention, not "photo booth". Ask what their next launch, stand or conference is — the deck lands better with a real event in mind.',
+        'Lead with content and attention; the "virtual photo booth" line is only there so they know it runs on phones, not a machine we ship. Ask what their next launch, stand or conference is — the deck lands better with a real event in mind.',
     },
     {
       id: 'problem',
@@ -378,6 +382,7 @@ const NA_CREATORS_DECK: Deck = {
       eyebrow: 'For creators',
       title: 'Your fans make the content',
       body: 'Fans scan a QR, snap AR photos in your style, and watch them beam onto a live wall.',
+      tagline: VIRTUAL_TAGLINE,
       image: 'beamy-paint',
       notes:
         'Creators think in content. Start with what they get to post after the event, then show the experience that makes it.',
@@ -517,7 +522,8 @@ const NG_PLANNERS_DECK: Deck = {
       kind: 'cover',
       eyebrow: 'For event & wedding planners',
       title: 'Every guest becomes the booth',
-      body: 'AR photos on every guest’s own phone, beaming live onto the big screen. No machine to hire, no app.',
+      body: 'An immersive virtual photo booth on every guest’s own phone, beaming live onto the big screen. No machine to hire, no app.',
+      tagline: VIRTUAL_TAGLINE,
       image: 'beamy-asoebi',
       notes:
         'Open on the hall: hundreds of guests in their aso-ebi, all on the big screen at once. Ask how many weddings and events they run this season before going further.',
@@ -665,7 +671,8 @@ const NG_BRANDS_DECK: Deck = {
       kind: 'cover',
       eyebrow: 'For brands & corporate events',
       title: 'Every guest becomes your content crew',
-      body: 'Branded AR photos on guests’ own phones, beaming live onto your screen. No machine, no app.',
+      body: 'An immersive virtual photo booth on guests’ own phones, your brand on every shot, live on your screen.',
+      tagline: VIRTUAL_TAGLINE,
       image: 'beamy-tophat',
       notes:
         'Lead with content and reach. Ask about their next launch, activation or end-of-year event.',
@@ -810,6 +817,7 @@ const NG_CREATORS_DECK: Deck = {
       eyebrow: 'For creators',
       title: 'Your fans make the content',
       body: 'Fans scan a QR, snap AR photos in your style, and watch them beam onto a live wall.',
+      tagline: VIRTUAL_TAGLINE,
       image: 'beamy-paint',
       notes:
         'Start with what they get to post after: hundreds of fan photos in their own frame.',
@@ -962,7 +970,8 @@ export const CHEAT_SHEET: CheatSheetSection[] = [
     id: 'positioning',
     title: 'Positioning in one sentence',
     points: [
-      'Beamwall turns every guest’s phone into an AR photo booth and beams every shot live onto the event’s big screen — no hardware, no app.',
+      'Beamwall is an immersive virtual photo booth on every guest’s phone, beaming every shot live onto the event’s big screen — no hardware, no app.',
+      'If they picture a machine: “Think Snapchat and Instagram. In your browser, no sign-in needed.”',
       'Nigeria line: “More than a 360 booth, for less than a 360 booth.”',
     ],
   },

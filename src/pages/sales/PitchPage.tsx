@@ -76,7 +76,7 @@ export default function PitchPage() {
   usePageTitle(title);
   useNoIndex();
   useMetaTag('property', 'og:title', title);
-  useMetaTag('property', 'og:description', deck?.oneLiner ?? 'Live AR photo booth and photo wall for events.');
+  useMetaTag('property', 'og:description', deck?.oneLiner ?? 'Immersive virtual photo booth and live photo wall for events.');
 
   const env: DeckEnv = {
     offersFor: offersFromIds,

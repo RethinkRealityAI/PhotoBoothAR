@@ -157,6 +157,8 @@ export const HERO = {
   strong: 'immersive booth',
   line: 'Every guest phone becomes the booth',
   sub: 'Scan. Snap. Beam.',
+  /** Says it is virtual, not a machine that ships (owner, 2026-11-25). */
+  note: 'A virtual photo booth. Think Snapchat and Instagram. In your browser, no sign-in needed.',
   primary: 'Create your free event',
   /** The same action where the phone header has no room for the full label. */
   primaryShort: 'Start free',
@@ -206,7 +208,7 @@ export type StoryFxId = 'qr' | 'prop' | 'wall' | 'medal' | 'keepsake' | 'virtual
 export type StoryClip = 'Wave' | 'Hop' | 'BeamyBlast' | 'Dance' | 'ShadesOn';
 
 export const STORY_STEPS: { id: StoryFxId; title: string; body: string; clip: StoryClip; yaw: number }[] = [
-  { id: 'qr', title: 'Guests scan a QR code', body: 'Their own phone becomes your booth. No app, nothing to install.', clip: 'Wave', yaw: 0.55 },
+  { id: 'qr', title: 'Guests scan a QR code', body: 'Their own phone becomes your booth. No app, no sign-in.', clip: 'Wave', yaw: 0.55 },
   { id: 'prop', title: 'They dress up in augmented reality (AR)', body: 'Frames, filters and 3D props in your colours, tracked on every face.', clip: 'ShadesOn', yaw: 0.45 },
   { id: 'wall', title: 'Every shot beams to your wall', body: 'Photos land on the live wall the moment they are taken.', clip: 'BeamyBlast', yaw: 0.6 },
   { id: 'medal', title: 'Challenges keep it going', body: 'Missions and points get the whole room mingling.', clip: 'Dance', yaw: 0.35 },
