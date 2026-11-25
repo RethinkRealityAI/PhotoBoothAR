@@ -19,9 +19,10 @@ import EventBackground from './ui/EventBackground';
 import { Wordmark } from './ui/EventLogo';
 import GuestNav from './ui/GuestNav';
 import FetchFailed from './ui/FetchFailed';
+import { challengeLinkState } from '../lib/guestFlow';
 
 export default function ChallengesPage() {
-  const { eventId, basePath } = useEvent();
+  const { eventId, basePath, source } = useEvent();
   const { challenges, challengesLoaded, challengesFailed, fetchChallenges } = useStore();
   const [completed, setCompleted] = useState<string[]>(() => getCompletedChallenges(eventId));
 
@@ -188,6 +189,8 @@ export default function ChallengesPage() {
                     ) : (
                       <Link
                         to={`${basePath}/booth`}
+                        // Platform: the booth opens already on this challenge.
+                        state={source === 'db' ? challengeLinkState(c.id) : undefined}
                         className={rowClass}
                         aria-label={`${c.title} — open the booth`}
                       >

@@ -80,3 +80,67 @@ export function sendOffFooterLines(eyebrow: string, eventName: string): string[]
   if (b === '' || norm(a) === norm(b)) return [a];
   return [a, b];
 }
+
+/* ── Challenge hand-off (/challenges → booth → Sent!) ────────────────── */
+
+/** Router state a challenge row navigates to the booth with. Only the id
+ *  travels; the booth re-reads the challenge from its own loaded list, so a
+ *  stale or hand-written state can never tag a post with something that is
+ *  not a live challenge of this event. */
+export function challengeLinkState(challengeId: string): { challengeId: string } {
+  return { challengeId };
+}
+
+/** Structural minimum of a Challenge this module needs (keeps it pure). */
+export interface ChallengeLike {
+  id: string;
+  active: boolean;
+  sort_order: number;
+  points?: number;
+}
+
+/**
+ * The challenge to preselect when the booth opens, or null. Platform only,
+ * only for an ACTIVE challenge this guest has not already completed, and
+ * only when the host has challenges switched on.
+ */
+export function challengeFromRouterState<C extends ChallengeLike>(
+  platform: boolean,
+  routerState: unknown,
+  challenges: readonly C[],
+  completedIds: readonly string[],
+  challengesOn: boolean,
+): C | null {
+  if (!platform || !challengesOn) return null;
+  if (typeof routerState !== 'object' || routerState === null) return null;
+  const id = (routerState as { challengeId?: unknown }).challengeId;
+  if (typeof id !== 'string' || id === '') return null;
+  if (completedIds.includes(id)) return null;
+  return challenges.find((c) => c.id === id && c.active) ?? null;
+}
+
+/**
+ * The next challenge to suggest after a send: the first active, not-yet-done
+ * one in the host's order (ties broken by id so it is stable), never the one
+ * just completed. Null when there is nothing left — the screen then
+ * celebrates instead of nagging.
+ */
+export function nextChallenge<C extends ChallengeLike>(
+  challenges: readonly C[],
+  completedIds: readonly string[],
+  justDoneId: string | null,
+): C | null {
+  const done = new Set(completedIds);
+  if (justDoneId) done.add(justDoneId);
+  const open = challenges
+    .filter((c) => c.active && !done.has(c.id))
+    .sort((a, b) => (a.sort_order - b.sort_order) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return open[0] ?? null;
+}
+
+/** "+25 pts" — a missing, zero or negative value says nothing at all. */
+export function pointsLabel(points: number | null | undefined): string | null {
+  if (typeof points !== 'number' || !Number.isFinite(points) || points <= 0) return null;
+  const n = Math.round(points);
+  return `+${n} ${n === 1 ? 'pt' : 'pts'}`;
+}
