@@ -25,6 +25,7 @@ import { useBoothScreen } from './theme/useBoothShot';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
 import { useEntitlements } from '../lib/entitlements';
+import { BOOTH_KIND, BOOTH_PITCH } from '../lib/boothPitch';
 import { resolveScene } from '../lib/sceneThemes';
 import { themeTone } from '../lib/themePacks';
 import { wallFieldPhotos } from '../lib/scenePage';
@@ -206,12 +207,16 @@ function SceneGuestWelcome() {
           <div ref={leftRef} className="contents lg:flex lg:h-[min(calc(100dvh-176px),820px)] lg:min-h-[480px] lg:min-w-0 lg:max-w-[640px] lg:flex-1 lg:flex-col lg:justify-between">
           {/* ── Hero: the name first ── */}
           <section className="flex min-w-0 flex-col items-center text-center animate-rise-in [grid-area:head] lg:items-start lg:text-left">
+            {/* What this is, before anything else: a virtual booth on the
+                guest's own phone, not a physical one (Dapo, 2026-11-25). */}
+            <p className="mb-2 font-sans text-[15px] font-semibold tracking-[0.01em] sc-ink sm:text-[17px] lg:mb-3">{BOOTH_KIND}</p>
             <h1 className="sc-display max-w-[14ch] text-[clamp(38px,11vw,92px)] font-semibold leading-[0.96] sc-ink break-words lg:text-[clamp(44px,min(6.2vw,10vh),96px)]">
               {config.copy.fullName}
             </h1>
             {config.copy.tagline && (
               <p className="sc-tagline mt-2 max-w-xl font-sans text-[clamp(16px,2.2vw,22px)] leading-snug sc-muted lg:mt-4">{config.copy.tagline}</p>
             )}
+            <p className="mt-2 max-w-[34ch] font-sans text-[14px] leading-snug sc-faint sm:text-[15px] lg:mt-3">{BOOTH_PITCH}</p>
           </section>
 
           {/* Desktop: Scan to join between the name and the cards; the
