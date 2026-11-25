@@ -58,6 +58,7 @@ import WallLightbox from './wall/WallLightbox';
 import FeaturedSpotlight from './wall/FeaturedSpotlight';
 import EmptyWall from './wall/EmptyWall';
 import GridWall from './wall/GridWall';
+import ScrollingGridWall from './wall/ScrollingGridWall';
 import WallBackdrop, { WallTwinkles } from './wall/WallBackdrop';
 import { samplePosts } from './theme/samplePhotos';
 import {
@@ -122,6 +123,8 @@ type PlatformView = WallLayout | 'leaderboard' | 'split';
 const PLATFORM_VIEWS: readonly PlatformView[] = ['grid', 'masonry', 'marquee', 'carousel', 'slideshow', 'leaderboard', 'split'];
 /** Narrower than this, a side panel leaves the wall too thin to read. */
 const SPLIT_MIN_WIDTH = 1024;
+/** Split view columns (and rows): 3×3 minimum, more on big screens. */
+type SplitGridCols = 3 | 4 | 5;
 
 /** This device's own choice of view on a platform wall (null = follow the
  *  host's Wall design). Its own key, so the legacy persisted shape is untouched. */
@@ -879,8 +882,10 @@ export default function Wall() {
       ? hostLook.layout
       : requestedView === 'split' && !splitFits ? hostLook.layout : requestedView,
   );
-  /** The wall half of the split: the host's own layout, drawable here. */
-  const splitLayout = drawable(hostLook.layout) as WallLayout;
+  /** The wall half of the split is always a fitted grid (Dapo, 2026-11-25:
+   *  "wall should be 3x3 at minimum, on large screens can even be 4x4 or
+   *  5x5"): 3×3 on a laptop, 4×4 from a 1080p projector, 5×5 from 2560px. */
+  const splitGridSize: SplitGridCols = viewport.width >= 2560 ? 5 : viewport.width >= 1800 ? 4 : 3;
   const platformTabs: WallTab<PlatformView>[] = PLATFORM_VIEWS
     .filter((v) => (v !== 'carousel' || carouselUsable)
       && (v !== 'leaderboard' || wallSettings.showLeaderboard)
@@ -990,16 +995,29 @@ export default function Wall() {
       return <div className="wall-chrome wall-leaderboard relative h-full"><LeaderboardView platform /></div>;
     }
     if (platformView === 'split') {
-      // The wall on the left in the host's layout, a live leaderboard on the
-      // right. Both halves fit the room exactly; the masonry drops a column
-      // so its photos stay as big as they are full-width.
+      // A fitted photo grid on the left (sized by the screen, see
+      // splitGridSize), a live leaderboard on the right. Both halves fit the
+      // room exactly.
       return (
         <div className="flex h-full w-full gap-[calc(16px*var(--wall-scale,1))] pr-[calc(16px*var(--wall-scale,1))]">
-          <div
-            className="relative h-full min-w-0 flex-1 overflow-hidden"
-            style={{ '--wall-cols': viewport.width >= 1536 ? 4 : 3 } as React.CSSProperties}
-          >
-            {renderLayout(splitLayout)}
+          <div className="relative h-full min-w-0 flex-1 overflow-hidden">
+            {galleryState !== 'ready' ? (
+              <div className="wall-chrome h-full">{galleryPlaceholder}</div>
+            ) : (
+              <>
+                <ScrollingGridWall
+                  posts={wallPosts}
+                  cols={splitGridSize}
+                  freshIds={freshIds}
+                  beamingIds={beamingIds}
+                  savedIds={savedIds}
+                  onTileRect={handleTileRect}
+                  onSelect={setLightboxPost}
+                  paused={ceremony !== null || lightboxPost !== null || !visible}
+                />
+                {gallerySpotlight}
+              </>
+            )}
           </div>
           <aside
             className="wall-chrome wall-leaderboard wall-split-board relative h-full shrink-0"
