@@ -93,6 +93,7 @@ const PRIVACY: Section[] = [
     heading: 'Cookies & local storage',
     body: [
       'We use essential cookies and browser local storage to keep you signed in and remember your preferences. We do not use third-party advertising trackers.',
+      'To find and fix problems, we use PostHog, a product analytics service, to record how the app behaves: errors, which screens load, and whether the camera starts or drops. It may also record a replay of the screen layout. Camera previews, photos and videos are blocked from those replays, typed text is hidden, and the live wall is never recorded. Guests are not identified by name; signed-in hosts are linked to their account.',
     ],
   },
   {

@@ -23,6 +23,7 @@ import { Emblem } from './ui/EventLogo';
 
 // Booth sub-components
 import { useCameraStream } from './booth/useCameraStream';
+import { useBoothTelemetry } from './booth/useBoothTelemetry';
 import Welcome from './booth/Welcome';
 import CameraErrorScreen from './booth/CameraError';
 import StageCanvas, {
@@ -688,6 +689,16 @@ export default function Booth() {
 
   // ── Phase & capture ───────────────────────────────────────────────────
   const [phase, setPhase] = useState<BoothPhase>('camera');
+  // Observe-only telemetry (camera lost/regained/flapping/stuck, tracker,
+  // look switches): never touches the camera. Platform booths only.
+  useBoothTelemetry({
+    enabled: source === 'db', videoRef, stream, ready, errorKind: error, facingMode,
+    live: phase === 'camera' && cameraWanted, mediaMode,
+    looks: {
+      frame: frameExp?.id ?? null, prop: attachExp?.id ?? null,
+      paint: paintExp?.id ?? null, effect: effectId === 'none' ? null : effectId,
+    },
+  });
   const [capturedDataUrl, setCapturedDataUrl] = useState<string | null>(null);
   const [capturedBlobRef, setCapturedBlobRef] = useState<Blob | null>(null);
   const [capturedDurationMs, setCapturedDurationMs] = useState<number | undefined>();
