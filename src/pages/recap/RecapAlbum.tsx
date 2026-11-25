@@ -27,6 +27,7 @@ import type { Post } from '../../types';
 import PostImage from '../../components/ui/PostImage';
 import { useDialog } from '../../lib/useDialog';
 import { recapPhotoFileName } from '../../lib/eventRecap';
+import { shareableVideo, withExtension } from '../../lib/mp4Export';
 import { K_BODY, K_EYEBROW, K_H2, K_SECONDARY } from './recapStyles';
 
 /* ── Saving ─────────────────────────────────────────────────────────── */
@@ -55,11 +56,14 @@ function SaveLink({
     setState('busy');
     try {
       const res = await fetch(post.image_url, { mode: 'cors' });
-      const blob = await res.blob();
+      const fetched = await res.blob();
+      // Older clips are stored as WebM; the guest keeps an MP4.
+      const v = post.media_type === 'video' ? await shareableVideo(fetched) : null;
+      const blob = v ? v.blob : fetched;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename;
+      a.download = v ? withExtension(filename, v.ext) : filename;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
       setState('done');

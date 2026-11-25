@@ -6,15 +6,19 @@
  * (typically `canvas.captureStream()` for the filtered composite, plus an
  * optional audio track) to a single Blob, with a hard max-duration cap.
  */
+import { convertMp4, isMp4Type, prewarmMp4 } from './mp4Export';
 
 /**
  * Pick the best-supported recording container/codec for this browser.
  *
- * WebM is preferred over MP4: with timeslice recording the Blob is assembled by
- * concatenating chunks, which is valid for WebM but produces a corrupt file for
- * fragmented MP4 in several browsers (a cause of "videos won't play"). Every
- * preferred option also pairs Opus audio so recordings keep sound. MP4/H.264 is
- * kept last as the Safari fallback (Safari's MediaRecorder only emits MP4).
+ * MP4 (H.264) first, because a guest's clip has to open in Photos, WhatsApp
+ * and Instagram, and those want MP4 (Dapo, 2026-11-25: "videos ... we get them
+ * in MP4, not WebM"). Chrome 126+ (desktop and Android) and Safari record it.
+ * AAC sound is asked for first; where the browser only has Opus-in-MP4 the
+ * sound is re-encoded to AAC after recording (lib/mp4Export.ts), which also
+ * rewrites Chrome's fragmented MP4 as a plain one, so the old "chunked MP4 is
+ * corrupt" problem cannot reach a saved file. WebM is the fallback for
+ * browsers with no MP4 recorder (older Chrome, Firefox).
  */
 export function pickVideoMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return '';
@@ -34,7 +38,7 @@ export interface EncoderInfo {
   /** true = a hardware encoder (the browser's "power efficient"). */
   powerEfficient: boolean;
 }
-export type EncoderInfoMap = Partial<Record<'vp8' | 'vp9', EncoderInfo>>;
+export type EncoderInfoMap = Partial<Record<'vp8' | 'vp9' | 'avc1', EncoderInfo>>;
 
 /**
  * Candidate order. VP8 before VP9 by default: the booth encodes WHILE it
@@ -53,13 +57,21 @@ export function orderVideoCandidates(info: EncoderInfoMap | null): string[] {
     ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus']
     : ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus'];
   return [
+    ...MP4_CANDIDATES,
     ...webm,
     'video/webm;codecs=h264,opus',
     'video/webm',
-    'video/mp4;codecs=h264,aac', // Safari
     'video/mp4',
   ];
 }
+
+/** H.264 MP4, best sound first. `h264,aac` is the spelling Safari answers to. */
+export const MP4_CANDIDATES = [
+  'video/mp4;codecs=avc1,mp4a.40.2',
+  'video/mp4;codecs=h264,aac',
+  'video/mp4;codecs=avc1,opus',
+  'video/mp4;codecs=avc1',
+];
 
 let encoderInfo: EncoderInfoMap | null = null;
 let encoderInfoPromise: Promise<EncoderInfoMap | null> | null = null;
@@ -75,33 +87,35 @@ export function primeEncoderInfo(width: number, height: number): Promise<Encoder
   encoderInfoPromise = (async () => {
     const mc = typeof navigator !== 'undefined' ? navigator.mediaCapabilities : undefined;
     if (!mc || typeof mc.encodingInfo !== 'function') return null;
-    const ask = async (codec: 'vp8' | 'vp9'): Promise<EncoderInfo | undefined> => {
+    const ask = async (codec: 'vp8' | 'vp9' | 'avc1'): Promise<EncoderInfo | undefined> => {
       try {
         const r = await mc.encodingInfo({
           type: 'record',
-          video: { contentType: `video/webm;codecs=${codec}`, width, height, bitrate: 5_000_000, framerate: 30 },
+          video: { contentType: codec === 'avc1' ? 'video/mp4;codecs=avc1.42E01F' : `video/webm;codecs=${codec}`, width, height, bitrate: 5_000_000, framerate: 30 },
         });
         return { supported: r.supported === true, powerEfficient: r.powerEfficient === true };
       } catch {
         return undefined;
       }
     };
-    const [vp8, vp9] = await Promise.all([ask('vp8'), ask('vp9')]);
+    const [vp8, vp9, avc1] = await Promise.all([ask('vp8'), ask('vp9'), ask('avc1')]);
     const map: EncoderInfoMap = {};
     if (vp8) map.vp8 = vp8;
     if (vp9) map.vp9 = vp9;
+    if (avc1) map.avc1 = avc1;
     encoderInfo = map;
     return map;
   })();
   return encoderInfoPromise;
 }
 
-/** "vp8 · hardware" for the tester readout: the codec a clip would use now, and how it encodes. */
+/** "avc1 · hardware" for the tester readout: the codec a clip would use now, and how it encodes. */
 export function describeEncoder(): string {
   const mime = pickVideoMimeType();
   if (!mime) return 'none';
-  const codec = /codecs=([a-z0-9]+)/i.exec(mime)?.[1] ?? mime.split('/')[1];
-  const i = codec === 'vp8' || codec === 'vp9' ? encoderInfo?.[codec] : undefined;
+  const raw = /codecs=([a-z0-9]+)/i.exec(mime)?.[1] ?? mime.split('/')[1];
+  const codec = raw === 'h264' ? 'avc1' : raw;
+  const i = codec === 'vp8' || codec === 'vp9' || codec === 'avc1' ? encoderInfo?.[codec] : undefined;
   return i ? `${codec} · ${i.powerEfficient ? 'hardware' : 'software'}` : codec;
 }
 
@@ -160,6 +174,7 @@ export class StreamRecorder {
       this.opts.onError?.(e);
     };
     this.rec.start(250); // gather chunks periodically so we never lose data
+    prewarmMp4(this.mimeType);
     this.startTs = performance.now();
 
     this.tickTimer = setInterval(() => {
@@ -173,8 +188,26 @@ export class StreamRecorder {
     }, maxMs);
   }
 
-  /** Stop recording and resolve with the assembled Blob. */
-  stop(): Promise<Blob> {
+  /**
+   * Stop recording and resolve with the finished clip. An MP4 recording is
+   * rewritten as a plain, AAC-sound MP4 first (lib/mp4Export.ts, packets
+   * copied, so picture/sound timing is untouched); if that fails for any
+   * reason the recording comes back exactly as the browser wrote it.
+   * Measure the clip's length BEFORE awaiting this: the tidy takes time.
+   */
+  async stop(): Promise<Blob> {
+    const raw = await this.stopRaw();
+    if (!isMp4Type(raw.type) || raw.size === 0) return raw;
+    const t0 = performance.now();
+    const r = await convertMp4(raw, { level: 'remux' });
+    this.lastTidy = `${r.outcome} in ${Math.round(performance.now() - t0)} ms`;
+    return r.blob;
+  }
+
+  /** "converted in 240 ms" — what stop() did to the last clip (tester readout / logs). */
+  lastTidy = '';
+
+  private stopRaw(): Promise<Blob> {
     return new Promise((resolve) => {
       if (!this.rec || this.rec.state === 'inactive') {
         resolve(new Blob(this.chunks, { type: this.blobType() }));

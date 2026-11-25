@@ -52,6 +52,7 @@ import GuestNav from './ui/GuestNav';
 import FetchFailed from './ui/FetchFailed';
 import { haptic } from '../lib/haptics';
 import { StreamRecorder, buildRecordStream } from '../lib/recorder';
+import { shareableVideo, withExtension } from '../lib/mp4Export';
 import {
   montagePlan,
   montageSupported,
@@ -213,7 +214,13 @@ async function downloadOne(media: GalaMedia, filePrefix: string): Promise<boolea
     const resp = await fetch(media.image_url, { mode: 'cors' });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const blob = await resp.blob();
-    downloadBlob(blob, filename);
+    if (item.kind === 'video') {
+      // Older clips are stored as WebM; the guest keeps an MP4.
+      const v = await shareableVideo(blob);
+      downloadBlob(v.blob, withExtension(filename, v.ext));
+    } else {
+      downloadBlob(blob, filename);
+    }
     return true;
   } catch (err) {
     console.error('[MyPhotos] download failed, opening directly', err);
@@ -237,7 +244,7 @@ async function shareOne(
 ): Promise<void> {
   const item = toKeepsake(media);
   if (canShareFiles()) {
-    const res = await collectFiles([item], { filePrefix });
+    const res = await collectFiles([item], { filePrefix, prepareVideo: shareableVideo });
     if (res.files.length > 0) {
       const out = await shareFiles(res.files, meta);
       // A cancel is a decision, not a failure — do not fall back to a link
@@ -315,6 +322,7 @@ function SaveAllPanel({
     try {
       const res = await collectFiles(media.map(toKeepsake), {
         filePrefix,
+        prepareVideo: shareableVideo,
         signal: ctrl.signal,
         onProgress: (done, total) =>
           setState((s) => (s.phase === 'collecting' ? { ...s, done, total } : s)),

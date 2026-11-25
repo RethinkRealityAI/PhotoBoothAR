@@ -33,6 +33,7 @@ import {
   type CollectedFile,
 } from '../../lib/bulkSave';
 import PostImage from '../../components/ui/PostImage';
+import { shareableVideo } from '../../lib/mp4Export';
 import RecapCollageCard, { type CollageHandle, type CollagePhase } from './RecapCollageCard';
 import { K_BODY, K_EYEBROW, K_GLASS, K_H2, K_PRIMARY, K_SECONDARY } from './recapStyles';
 
@@ -117,6 +118,7 @@ export default function RecapTakeHome({
     try {
       const res = await collectFiles(items, {
         filePrefix,
+        prepareVideo: shareableVideo,
         onProgress: (done, total) => setPhotoSave({ phase: 'collecting', done, total }),
       });
       if (res.files.length === 0) {
