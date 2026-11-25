@@ -52,7 +52,7 @@ import { providerCostLabel } from '../../lib/providerPricing';
 import { processGeneratedFrame } from '../../lib/studio/frameProcessing';
 import { measureGlbFitScale } from '../../lib/studio/glbThumb';
 import { boothUrl } from '../../lib/copilotBooth';
-import { HEAD_PIECES } from '../../lib/headPieces';
+import { offeredBundledProps } from '../../lib/studio/bundledProps';
 import type { ChatMessage } from '../../lib/eventDesigner';
 import type { EventSnapshot } from '../../lib/eventSnapshot';
 import type { Experience } from '../../types';
@@ -866,7 +866,7 @@ export default function CopilotChat({
   const openLockedAlt = (event: A2uiActionEvent) => {
     dropSurfaceById(event.surfaceId);
     if (event.context.alt === 'library_prop') {
-      openProposal({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: HEAD_PIECES[0]?.id ?? '' } });
+      openProposal({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: offeredBundledProps()[0]?.id ?? '' } });
     } else {
       openProposal({ tool: 'generate_frame', proposal: { prompt: frameBriefFromPropPrompt(String(event.context.prompt ?? '')) } });
     }

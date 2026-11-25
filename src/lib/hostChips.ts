@@ -17,7 +17,7 @@ import type { ChecklistId, ChecklistItem } from './eventChecklist';
 import { missingIds } from './eventChecklist';
 import { packForEventType } from './contentPacks';
 import { FILTER_SHADERS } from './shaders';
-import { HEAD_PIECES } from './headPieces';
+import { offeredBundledProps } from './studio/bundledProps';
 import type { TemplateId } from './eventTemplates';
 
 export type ChipRun =
@@ -37,7 +37,7 @@ export type ChipMode = 'build' | 'platform';
 export type GreetingMode = 'concierge' | ChipMode;
 
 const DEFAULT_FILTER_ID = FILTER_SHADERS.find((s) => s.id !== 'none')?.id ?? 'none';
-const DEFAULT_PIECE_ID = HEAD_PIECES[0]?.id ?? '';
+const DEFAULT_PIECE_ID = offeredBundledProps()[0]?.id ?? '';
 
 const CONCIERGE_GREETING =
   "Tell me about your event — who or what are we celebrating? I'll design the whole thing: " +

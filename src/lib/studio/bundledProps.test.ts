@@ -116,19 +116,19 @@ describe('the bundled prop catalogue is real', () => {
   });
 });
 
-describe('retired props (2026-11-23 showcase cleanup)', () => {
-  const RETIRED = ['prop-neon-shades', 'prop-queens-tiara', 'prop-halo-ring'];
-  it('stay resolvable so saved scenes keep rendering', () => {
-    for (const id of RETIRED) expect(BUNDLED_PROP_MAP[id]?.url, id).toBeTruthy();
-  });
-  it('are never offered', () => {
-    const offered = offeredBundledProps().map((p) => p.id);
-    for (const id of RETIRED) {
-      expect(isRetiredProp(id), id).toBe(true);
-      expect(offered, id).not.toContain(id);
+describe('removed props (2026-11-25: deleted from the platform)', () => {
+  const REMOVED = ['prop-neon-shades', 'prop-queens-tiara', 'prop-halo-ring'];
+  it('are gone from the registry and their files are gone from public/', () => {
+    for (const id of REMOVED) expect(BUNDLED_PROP_MAP[id], id).toBeUndefined();
+    for (const f of ['neon-shades', 'queens-tiara', 'halo-ring', 'gold-crown']) {
+      expect(onDisk(`/models/props/${f}.glb`), f).toBe(false);
     }
+  });
+  it('the HD Royal Crown stays on the shelf', () => {
+    const offered = offeredBundledProps().map((p) => p.id);
     expect(offered).toContain('prop-royal-crown');
-    expect(offered.length).toBe(BUNDLED_PROPS.length - RETIRED.length);
+    expect(offered.length).toBe(BUNDLED_PROPS.length);
+    expect(BUNDLED_PROPS.some((p) => isRetiredProp(p.id))).toBe(false);
   });
   it('every procedural head piece is retired from the shelf', () => {
     for (const p of HEAD_PIECES) expect(p.retired, p.id).toBe(true);

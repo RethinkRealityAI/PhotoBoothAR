@@ -192,7 +192,7 @@ export const COPILOT_TOOLS = {
       pieceId: {
         type: 'string', required: false,
         description: 'With source "builtin": exactly one of the 3D piece ids listed under # Catalogs.',
-        example: 'royal-crown',
+        example: 'prop-snowflake-tiara',
         ask: { question: 'Which 3D prop?', example: 'pick one from the list' },
       },
       prompt: {
