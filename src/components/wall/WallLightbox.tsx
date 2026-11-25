@@ -13,6 +13,7 @@ import { useEvent } from '../../events/EventContext';
 import { useDialog } from '../../lib/useDialog';
 import { useStore } from '../../store';
 import { getSavedPhotos } from '../../lib/session';
+import { shareableVideo, withExtension } from '../../lib/mp4Export';
 
 export default function WallLightbox({ post, onClose }: { post: Post; onClose: () => void }) {
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Moment');
@@ -29,11 +30,14 @@ export default function WallLightbox({ post, onClose }: { post: Post; onClose: (
   async function download() {
     setBusy(true);
     try {
-      const blob = await (await fetch(post.image_url, { mode: 'cors' })).blob();
+      const fetched = await (await fetch(post.image_url, { mode: 'cors' })).blob();
+      // Older clips are stored as WebM; the guest keeps an MP4.
+      const v = isVideo ? await shareableVideo(fetched) : null;
+      const blob = v ? v.blob : fetched;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename;
+      a.download = v ? withExtension(filename, v.ext) : filename;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
       setDone(true);

@@ -140,6 +140,29 @@ describe('collectFiles', () => {
     }
   });
 
+  it('hands videos to prepareVideo and saves what it returns, renamed to match', async () => {
+    const prepareVideo = vi.fn(async () => ({ blob: new Blob([new Uint8Array(3).fill(1)], { type: 'video/mp4' }), ext: 'mp4' }));
+    const res = await collectFiles([...items(1, 'video'), ...items(1)].map((it, i) => ({ ...it, id: `x${i}` })), {
+      filePrefix: 'E', fetchImpl: stubFetch(), prepareVideo,
+    });
+    expect(prepareVideo).toHaveBeenCalledTimes(1); // the photo is never touched
+    const video = res.files.find((f) => f.id === 'x0')!;
+    expect(video.name.endsWith('.mp4')).toBe(true);
+    expect(video.type).toBe('video/mp4');
+    expect(Array.from(video.bytes)).toEqual([1, 1, 1]);
+    expect(res.totalBytes).toBe(3 + 8);
+  });
+
+  it('keeps the original video bytes when prepareVideo throws', async () => {
+    const res = await collectFiles(items(1, 'video'), {
+      filePrefix: 'E', fetchImpl: stubFetch(), prepareVideo: async () => { throw new Error('no encoder'); },
+    });
+    expect(res.failures).toEqual([]);
+    expect(res.files[0].name.endsWith('.webm')).toBe(true);
+    expect(res.files[0].type).toBe('video/webm');
+    expect(res.files[0].bytes.length).toBe(8);
+  });
+
   it('handles an empty selection', async () => {
     const res = await collectFiles([], { filePrefix: 'E', fetchImpl: stubFetch() });
     expect(res).toEqual({ files: [], failures: [], totalBytes: 0, aborted: false });

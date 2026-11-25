@@ -29,6 +29,7 @@
  */
 import { KeepsakeItem, keepsakeFileName, mediaExtension, mediaMimeType } from './keepsake';
 import { uniqueNames, zipSafeName, zipBlob, ZipLimitError } from './zipStore';
+import { withExtension } from './mp4Export';
 
 export interface CollectedFile {
   /** The source item's id, so the UI can point at what failed. */
@@ -57,6 +58,13 @@ export interface CollectOptions {
   onProgress?: (done: number, total: number) => void;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
+  /**
+   * Turn a downloaded VIDEO into the file the guest should keep (the app
+   * passes lib/mp4Export.ts `shareableVideo`, which converts an older WebM
+   * clip to MP4). Returns the bytes and the extension that matches them. A
+   * throw keeps the original bytes: a clip in the wrong format beats no clip.
+   */
+  prepareVideo?: (blob: Blob) => Promise<{ blob: Blob; ext: string }>;
 }
 
 /** A hard ceiling on what we will hold in memory before refusing the batch. */
@@ -115,15 +123,22 @@ export async function collectFiles(
       const resp = await doFetch(item.url, { mode: 'cors', signal: opts.signal });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const buf = await resp.arrayBuffer();
-      const bytes = new Uint8Array(buf);
+      let bytes = new Uint8Array(buf);
+      let name = names[i];
+      let type = mediaMimeType(mediaExtension(item.url, item.kind));
+      if (item.kind === 'video' && opts.prepareVideo) {
+        try {
+          const ready = await opts.prepareVideo(new Blob([bytes], { type }));
+          bytes = new Uint8Array(await ready.blob.arrayBuffer());
+          name = withExtension(name, ready.ext);
+          type = mediaMimeType(ready.ext);
+        } catch {
+          /* keep the original bytes */
+        }
+      }
       totalBytes += bytes.length;
       if (totalBytes > MAX_ARCHIVE_BYTES) throw new ArchiveTooBigError(totalBytes);
-      files.push({
-        id: item.id,
-        name: names[i],
-        type: mediaMimeType(mediaExtension(item.url, item.kind)),
-        bytes,
-      });
+      files.push({ id: item.id, name, type, bytes });
     } catch (err) {
       if (err instanceof ArchiveTooBigError) throw err;
       if (opts.signal?.aborted) {

@@ -56,6 +56,9 @@ export default defineConfig(({mode}) => {
   const legacy = (process.env.VITE_EVENT ?? loadEnv(mode, process.cwd(), 'VITE_').VITE_EVENT ?? '').trim() !== '';
   return {
     plugins: [react(), tailwindcss(), legacyFrozenHead(legacy)],
+    // Workers are created as `{ type: 'module' }` (frameKey, mp4Export), and
+    // the MP4 one loads its converter on demand, which IIFE cannot split.
+    worker: { format: 'es' },
     build: {
       rollupOptions: {
         output: {
