@@ -14,6 +14,7 @@ import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react
 import {
   LayoutDashboard, Building2, CalendarRange, Receipt, Coins, Users, ScrollText, ShieldCheck, QrCode,
   LifeBuoy, Tags, ToggleLeft, Megaphone, LogOut, BookImage, House, Sparkles, Menu, X,
+  Plug,
   type LucideIcon,
 } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
@@ -44,6 +45,7 @@ const ICONS: Record<AdminNavId, LucideIcon> = {
   users: Users,
   audit: ScrollText,
   admins: ShieldCheck,
+  connector: Plug,
 };
 
 // 44px rows for touch; a mouse-driven desktop rail packs to 40px so all

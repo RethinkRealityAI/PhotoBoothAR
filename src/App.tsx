@@ -98,6 +98,7 @@ const AdminCredits = lazyRoute(() => import('./pages/admin/Credits'));
 const AdminUsers = lazyRoute(() => import('./pages/admin/Users'));
 const AdminAudit = lazyRoute(() => import('./pages/admin/Audit'));
 const AdminAdmins = lazyRoute(() => import('./pages/admin/Admins'));
+const AdminConnector = lazyRoute(() => import('./pages/admin/Connector'));
 const AdminReveals = lazyRoute(() => import('./pages/admin/reveals/AdminReveals'));
 // Lazy: the Copilot tree (CopilotChat → studio glb helpers) statically pulls
 // the three/R3F stack — eager imports here would ship it to every marketing
@@ -447,6 +448,7 @@ export default function App() {
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="audit" element={<AdminAudit />} />
                 <Route path="admins" element={<AdminAdmins />} />
+                <Route path="connector" element={<AdminConnector />} />
                 <Route path="reveals" element={<AdminReveals />} />
               </Route>
 

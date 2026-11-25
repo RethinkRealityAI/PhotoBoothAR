@@ -8,9 +8,9 @@ describe('admin rail', () => {
     expect(paths).toEqual(expect.arrayContaining([
       '/admin', '/admin/customers', '/admin/events', '/admin/support', '/admin/payments',
       '/admin/catalog', '/admin/credits', '/admin/library', '/admin/home-assets', '/admin/landing',
-      '/admin/reveals', '/admin/qr-cards', '/admin/features', '/admin/users', '/admin/audit', '/admin/admins',
+      '/admin/reveals', '/admin/qr-cards', '/admin/features', '/admin/users', '/admin/audit', '/admin/admins', '/admin/connector',
     ]));
-    expect(paths).toHaveLength(16);
+    expect(paths).toHaveLength(17);
   });
 
   it('keeps every group non-empty', () => {
