@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Building2, CalendarRange, Receipt, Coins, Users, ScrollText, ShieldCheck,
+  LayoutDashboard, Building2, CalendarRange, Receipt, Coins, Users, ScrollText, ShieldCheck, QrCode,
   LifeBuoy, Tags, ToggleLeft, Megaphone, LogOut, BookImage, House, Sparkles, Menu, X,
   type LucideIcon,
 } from 'lucide-react';
@@ -39,6 +39,7 @@ const ICONS: Record<AdminNavId, LucideIcon> = {
   'home-assets': House,
   landing: Megaphone,
   reveals: Sparkles,
+  'qr-cards': QrCode,
   features: ToggleLeft,
   users: Users,
   audit: ScrollText,

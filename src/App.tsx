@@ -195,6 +195,16 @@ const RevealPreview = import.meta.env.VITE_EVENT
 const RevealEditor = import.meta.env.VITE_EVENT
   ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
   : lazy(() => import('./pages/admin/reveals/RevealEditor'));
+/** The printable QR card generator (host per event, admin, public preview). */
+const HostQrCards = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/qrCards/QrCardPages').then((m) => ({ default: m.HostQrCards })));
+const AdminQrCards = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/qrCards/QrCardPages').then((m) => ({ default: m.AdminQrCards })));
+const QrCardsDemo = import.meta.env.VITE_EVENT
+  ? ((() => null) as unknown as LazyExoticComponent<ComponentType>)
+  : lazy(() => import('./pages/qrCards/QrCardPages').then((m) => ({ default: m.QrCardsDemo })));
 
 /** DEV-only studio harness — the dynamic import stays in a DEV-gated branch so
  *  Rollup drops it from production entirely (no auth-bypass code ships). */
@@ -383,6 +393,9 @@ export default function App() {
               <Route path="/reveal/demo/:occasion" element={<RevealPage />} />
               <Route path="/reveal/:slug" element={<RevealPage />} />
               <Route path="/admin/reveals/:id" element={<RevealEditor />} />
+              <Route path="/admin/qr-cards" element={<AdminQrCards />} />
+              <Route path="/qr-cards/try" element={<QrCardsDemo />} />
+              <Route path="/qr-cards/try/:slug" element={<QrCardsDemo />} />
 
               {/* Host platform (session-gated) */}
               {/* The setup wizard: full-screen, its own session gate. A new
@@ -400,6 +413,7 @@ export default function App() {
                     the rail, so it adds no nav row. */}
                 <Route path="import" element={<HostImport />} />
               </Route>
+              <Route path="/host/events/:id/qr-cards" element={<HostQrCards />} />
               <Route path="/host/events/:id/*" element={<EventStudio />} />
 
               {/* Platform super-admin — session + platform_admins gated, NOT event-scoped */}
