@@ -135,7 +135,7 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
               shutterLabel="Step inside"
               frameUrl={screen.frame}
               previewUrl={screen.photo}
-              widthClass="w-[min(58vw,calc(44svh*0.5625),300px)] lg:w-[min(24vw,calc(62vh*0.5625),330px)]"
+              widthClass="w-[min(54vw,calc(46svh*0.4708),250px)] lg:w-[min(22vw,calc(66vh*0.4708),290px)]"
             />
           </motion.div>
 

@@ -18,7 +18,7 @@ import EventBackground from './ui/EventBackground';
 import ReportIssueButton from './support/ReportIssueButton';
 import LiveWallField from './theme/LiveWallField';
 import { WALL_FIELD_SAMPLES } from './theme/samplePhotos';
-import BoothViewfinder from './theme/BoothViewfinder';
+import BoothViewfinder, { VF_HEIGHT_PER_WIDTH } from './theme/BoothViewfinder';
 import PageBorder from './theme/PageBorder';
 import { useBoothScreen } from './theme/useBoothShot';
 import { useEvent } from '../events/EventContext';
@@ -244,7 +244,7 @@ function SceneGuestWelcome() {
               linkState={FROM_WELCOME_STATE}
               frameUrl={screen.frame}
               previewUrl={screen.photo}
-              widthClass="w-[min(70vw,300px)] lg:w-full"
+              widthClass="w-[min(62vw,250px)] lg:w-full"
             />
             {/* Desktop carries this line in the footer, so the phone's bottom
                 stays level with the action cards. */}
@@ -275,9 +275,8 @@ function SceneGuestWelcome() {
 
 /** Phone outer width (px) whose height equals the measured column's, on
  *  desktop only (undefined on narrower screens, where CSS sizes it). The
- *  device is a 9:16 screen inside a 10px bezel on every side. */
+ *  device's height is VF_HEIGHT_PER_WIDTH times its width. */
 const DESKTOP_MQ = '(min-width: 1024px)';
-const PHONE_BEZEL = 10;
 function useColumnPhoneWidth(ref: RefObject<HTMLDivElement | null>): number | undefined {
   const [width, setWidth] = useState<number | undefined>(undefined);
   useLayoutEffect(() => {
@@ -288,7 +287,7 @@ function useColumnPhoneWidth(ref: RefObject<HTMLDivElement | null>): number | un
       if (!mq.matches) { setWidth(undefined); return; }
       const h = el.getBoundingClientRect().height;
       if (h <= 0) return;
-      setWidth(Math.round((h - 2 * PHONE_BEZEL) * (9 / 16) + 2 * PHONE_BEZEL));
+      setWidth(Math.round(h / VF_HEIGHT_PER_WIDTH));
     };
     measure();
     const ro = new ResizeObserver(measure);
