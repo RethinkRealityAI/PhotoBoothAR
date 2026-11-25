@@ -26,6 +26,7 @@ import { useBoothScreen } from '../theme/useBoothShot';
 import EventBackground from '../ui/EventBackground';
 import PostImage from '../ui/PostImage';
 import { recentWallPhotos, wallFieldPhotos } from '../../lib/scenePage';
+import { BOOTH_KIND, BOOTH_PITCH } from '../../lib/boothPitch';
 
 /** Platform legal routes (/privacy, /terms) only exist in runtime multi-tenant
  *  builds — legacy single-event builds (VITE_EVENT set) keep their microcopy
@@ -101,7 +102,7 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
             <motion.div className="flex items-center gap-3.5 sm:gap-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={at(0.04)}>
               <Emblem size={56} className="shrink-0" />
               <span className="max-w-[16ch] text-left font-sans text-[19px] font-semibold leading-[1.15] tracking-[0.005em] sc-ink sm:max-w-none sm:text-[22px]">
-                Immersive Virtual Photo Booth
+                {BOOTH_KIND}
               </span>
             </motion.div>
             <motion.h1
@@ -112,6 +113,14 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
             >
               {eventName}
             </motion.h1>
+            <motion.p
+              className="mt-3 max-w-[30ch] font-sans text-[15px] leading-snug sc-muted sm:text-[17px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={at(0.16)}
+            >
+              {BOOTH_PITCH}
+            </motion.p>
 
             {latest.length > 0 && (
               <motion.ul
