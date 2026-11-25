@@ -117,6 +117,12 @@ type Framing = 'hero' | 'ring' | 'stage';
 const STAGE_TILT_DEG = 11;
 /** Peak opacity of a card's floor reflection, scaled by its depth presence. */
 const REFLECTION_OPACITY = 0.26;
+/** 'stage' runs the ring well past the frame edges (fill) and packs the cards
+ *  a little closer (gap), so a wide screen shows more of them, side to side.
+ *  The default framing keeps carouselRing's 1.02 / 1.25. */
+const STAGE_FILL = 1.5;
+const STAGE_GAP = 1.04;
+const DEFAULT_GAP = 1.25;
 
 /**
  * The ring sits a little above the camera's aim, and the camera stands well
@@ -145,7 +151,9 @@ const CAMERA_FOV = 32;
  * The two surfaces want opposite things on a narrow screen — see `framing`.
  */
 function heroFractionFor(aspect: number, framing: Framing): number {
-  if (framing === 'stage') return cardHeightFraction(aspect, 0.66, 0.46);
+  // 'stage' (Dapo, 2026-11-25: "make it bigger and wider with more cards"):
+  // the hero card takes ~3/4 of a wide frame, closing the empty band above it.
+  if (framing === 'stage') return cardHeightFraction(aspect, 0.8, 0.5);
   return framing === 'hero'
     ? cardHeightFraction(aspect)
     // The wall runs its hero taller than the keepsake does. It has the room:
@@ -171,6 +179,7 @@ export function ringSlotsFor(
     cardHeight: CARD_H,
     fovDeg: CAMERA_FOV,
     heroFraction: heroFractionFor(aspect, framing),
+    ...(framing === 'stage' ? { fill: STAGE_FILL, gap: STAGE_GAP } : {}),
   });
 }
 
@@ -547,7 +556,9 @@ export default function PhotoCarousel({
   }, []);
   const stage = framing === 'stage';
 
-  const ringRadius = radius ?? ringRadiusForCount(items.length, CARD_W);
+  // The same gap ringSlotsFor counted with, so the ring is exactly as wide as
+  // the slot count assumed.
+  const ringRadius = radius ?? ringRadiusForCount(items.length, CARD_W, stage ? STAGE_GAP : DEFAULT_GAP);
 
   if (failed || items.length === 0) return null;
 

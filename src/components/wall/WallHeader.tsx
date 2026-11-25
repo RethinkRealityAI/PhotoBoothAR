@@ -39,6 +39,8 @@ export interface WallTab<Id extends string> {
   id: Id;
   label: string;
   Icon: (p: { className?: string; 'aria-hidden'?: boolean }) => ReactNode;
+  /** Spans the whole row of the Display menu's layout grid. */
+  wide?: boolean;
 }
 
 interface Props<Id extends string> {
@@ -245,7 +247,7 @@ export default function WallHeader<Id extends string>({
         <div style={{ width: 'min(calc(340px * var(--wall-scale, 1)), calc(100vw - 24px))' }}>
           <p className="px-3 pt-2 pb-1.5 font-sans font-medium text-champagne/70" style={LABEL}>Layout</p>
           <div className="grid grid-cols-3 gap-1.5 px-1" role="group" aria-label="Wall layout">
-            {tabs.map(({ id, label, Icon }) => {
+            {tabs.map(({ id, label, Icon, wide }) => {
               const on = id === active;
               return (
                 <button
@@ -253,7 +255,7 @@ export default function WallHeader<Id extends string>({
                   type="button"
                   onClick={() => { haptic('tap'); onSelect(id); close(); }}
                   aria-pressed={on}
-                  className={`wall-tab pressable flex flex-col items-center justify-center gap-1.5 rounded-2xl px-1 py-2.5 min-h-16 font-sans font-medium transition-colors ${on ? 'text-ivory' : 'text-champagne/80 hover:text-ivory'}`}
+                  className={`wall-tab pressable flex items-center justify-center rounded-2xl font-sans font-medium transition-colors ${wide ? 'col-span-3 gap-2 px-3 min-h-12' : 'flex-col gap-1.5 px-1 py-2.5 min-h-16'} ${on ? 'text-ivory' : 'text-champagne/80 hover:text-ivory'}`}
                   style={LABEL}
                 >
                   <Icon className="h-5 w-5 shrink-0" aria-hidden />

@@ -168,7 +168,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         id: 'wall-styles',
         title: 'Wall styles',
-        line: 'Grid, gallery or polaroid layouts with arrival effects, styled to match the event.',
+        line: 'Grid, gallery, 3D carousel or a wall + leaderboard split screen, with arrival effects styled to match the event.',
         icon: 'sparkles',
         image: 'wall-gallery',
       },

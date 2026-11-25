@@ -34,7 +34,7 @@
  */
 import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { GalleryHorizontal, LayoutDashboard, LayoutGrid, MonitorPlay, Orbit, QrCode, Trophy, UserRound, X } from 'lucide-react';
+import { Columns2, GalleryHorizontal, LayoutDashboard, LayoutGrid, MonitorPlay, Orbit, QrCode, Trophy, UserRound, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
@@ -116,9 +116,12 @@ import { haptic } from '../lib/haptics';
 
 type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard' | 'carousel';
 
-/** Platform walls: the host's layouts (lib/sceneThemes) plus the leaderboard. */
-type PlatformView = WallLayout | 'leaderboard';
-const PLATFORM_VIEWS: readonly PlatformView[] = ['grid', 'masonry', 'marquee', 'carousel', 'slideshow', 'leaderboard'];
+/** Platform walls: the host's layouts (lib/sceneThemes) plus the leaderboard,
+ *  and 'split' — the host's layout beside a live leaderboard panel. */
+type PlatformView = WallLayout | 'leaderboard' | 'split';
+const PLATFORM_VIEWS: readonly PlatformView[] = ['grid', 'masonry', 'marquee', 'carousel', 'slideshow', 'leaderboard', 'split'];
+/** Narrower than this, a side panel leaves the wall too thin to read. */
+const SPLIT_MIN_WIDTH = 1024;
 
 /** This device's own choice of view on a platform wall (null = follow the
  *  host's Wall design). Its own key, so the legacy persisted shape is untouched. */
@@ -146,6 +149,7 @@ const PLATFORM_TAB_ICONS: Record<PlatformView, WallTab<PlatformView>['Icon']> = 
   carousel: Orbit,
   slideshow: MonitorPlay,
   leaderboard: Trophy,
+  split: Columns2,
 };
 
 /** Set for the three frozen single-event deploys (see App.tsx). */
@@ -238,6 +242,7 @@ export default function Wall() {
     wallSettings,
     fetchWallSettings,
     setWallSettings,
+    challenges,
   } = useStore();
 
   // View state — default to Gallery (static masonry grid: clickable, no
@@ -409,7 +414,7 @@ export default function Wall() {
     }
   }, [wallSettings.showLeaderboard, mode]);
   useEffect(() => {
-    if (platform && viewOverride === 'leaderboard' && !wallSettings.showLeaderboard) setViewOverride(null);
+    if (platform && (viewOverride === 'leaderboard' || viewOverride === 'split') && !wallSettings.showLeaderboard) setViewOverride(null);
   }, [platform, viewOverride, wallSettings.showLeaderboard]);
 
   // ----------------------------------------------------------------
@@ -867,16 +872,24 @@ export default function Wall() {
 
   /** A layout this machine can actually draw (no WebGL = no carousel). */
   const drawable = (v: PlatformView): PlatformView => (v === 'carousel' && !carouselUsable ? 'masonry' : v);
+  const splitFits = viewport.width >= SPLIT_MIN_WIDTH;
   const requestedView: PlatformView = viewOverride ?? hostLook.layout;
   const platformView: PlatformView = drawable(
-    requestedView === 'leaderboard' && !wallSettings.showLeaderboard ? hostLook.layout : requestedView,
+    (requestedView === 'leaderboard' || requestedView === 'split') && !wallSettings.showLeaderboard
+      ? hostLook.layout
+      : requestedView === 'split' && !splitFits ? hostLook.layout : requestedView,
   );
+  /** The wall half of the split: the host's own layout, drawable here. */
+  const splitLayout = drawable(hostLook.layout) as WallLayout;
   const platformTabs: WallTab<PlatformView>[] = PLATFORM_VIEWS
-    .filter((v) => (v !== 'carousel' || carouselUsable) && (v !== 'leaderboard' || wallSettings.showLeaderboard))
+    .filter((v) => (v !== 'carousel' || carouselUsable)
+      && (v !== 'leaderboard' || wallSettings.showLeaderboard)
+      && (v !== 'split' || (wallSettings.showLeaderboard && splitFits)))
     .map((v) => ({
       id: v,
-      label: v === 'leaderboard' ? 'Leaderboard' : WALL_LAYOUT_META[v].label,
+      label: v === 'leaderboard' ? 'Leaderboard' : v === 'split' ? 'Wall + Leaderboard' : WALL_LAYOUT_META[v].label,
       Icon: PLATFORM_TAB_ICONS[v],
+      wide: v === 'split',
     }));
   /** Picking the host's own layout means "follow the host" again. */
   const selectPlatformView = useCallback((v: PlatformView) => {
@@ -940,7 +953,15 @@ export default function Wall() {
   const gridAreaStyle: React.CSSProperties = {
     ...modeAreaStyle,
     // The phone tab bar floats OVER the footer, so the larger of the two wins.
-    paddingBottom: projectionMode ? 0 : Math.max(footerH, viewport.width < 640 ? 76 : 0),
+    // On a platform wall the challenges pill now sits on the bottom edge, so
+    // the fitted layouts stop just above it instead of running under it.
+    paddingBottom: projectionMode ? 0 : Math.max(
+      footerH,
+      viewport.width < 640 ? 76 : 0,
+      platform && viewport.width >= 640 && wallSettings.showChallenges && challenges.some((c) => c.active)
+        ? Math.round(64 * viewport.scale)
+        : 0,
+    ),
   };
 
   const gallerySpotlight = wallSettings.featuredSpotlight && posts.length >= 3 && !filterMine && (
@@ -962,14 +983,40 @@ export default function Wall() {
   );
 
   /** One platform view. Crossfaded by the AnimatePresence in the render. */
-  const renderPlatformView = () => {
+  const renderPlatformView = (): React.ReactNode => {
     if (platformView === 'leaderboard') {
       // `relative` so the board's own `absolute inset-0` centres in the room
       // under the header instead of behind it.
       return <div className="wall-chrome wall-leaderboard relative h-full"><LeaderboardView platform /></div>;
     }
+    if (platformView === 'split') {
+      // The wall on the left in the host's layout, a live leaderboard on the
+      // right. Both halves fit the room exactly; the masonry drops a column
+      // so its photos stay as big as they are full-width.
+      return (
+        <div className="flex h-full w-full gap-[calc(16px*var(--wall-scale,1))] pr-[calc(16px*var(--wall-scale,1))]">
+          <div
+            className="relative h-full min-w-0 flex-1 overflow-hidden"
+            style={{ '--wall-cols': viewport.width >= 1536 ? 4 : 3 } as React.CSSProperties}
+          >
+            {renderLayout(splitLayout)}
+          </div>
+          <aside
+            className="wall-chrome wall-leaderboard wall-split-board relative h-full shrink-0"
+            style={{ width: 'clamp(340px, 30vw, 640px)' }}
+            aria-label="Leaderboard"
+          >
+            <LeaderboardView platform compact />
+          </aside>
+        </div>
+      );
+    }
+    return renderLayout(platformView);
+  };
+  /** One of the host's layouts, as the whole wall or as the split's left half. */
+  const renderLayout = (layout: WallLayout): React.ReactNode => {
     if (galleryState !== 'ready') return <div className="wall-chrome h-full">{galleryPlaceholder}</div>;
-    switch (platformView) {
+    switch (layout) {
       case 'grid':
         return (
           <>
@@ -1051,7 +1098,7 @@ export default function Wall() {
   const platformAreaStyle: React.CSSProperties =
     platformView === 'slideshow'
       ? { paddingRight: modeAreaStyle.paddingRight }
-      : platformView === 'grid' || platformView === 'marquee' || platformView === 'carousel' || platformView === 'leaderboard'
+      : platformView === 'grid' || platformView === 'marquee' || platformView === 'carousel' || platformView === 'leaderboard' || platformView === 'split'
         ? gridAreaStyle
         : modeAreaStyle;
 
@@ -1218,7 +1265,12 @@ export default function Wall() {
       {/* ── Challenges ticker — floats above footer, gated by setting;
              stays up in projection mode with a small bottom offset ── */}
       {wallSettings.showChallenges && (
-        <ChallengesTicker bottomOffset={projectionMode ? 12 : 96} />
+        // Platform walls (Dapo, 2026-11-25): the pill sits at the bottom edge,
+        // centred, instead of floating 104px up over the photos. A phone keeps
+        // it above GuestNav's bottom tab bar. Legacy walls are unchanged.
+        <ChallengesTicker
+          bottomOffset={projectionMode ? 12 : platform ? (viewport.width < 640 ? 84 : 8) : 96}
+        />
       )}
 
       {/* ── Chrome header ── centered, viewport-contained, hidden in projection ── */}
