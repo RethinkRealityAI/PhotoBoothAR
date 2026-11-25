@@ -12,6 +12,22 @@
   status = 301
   force = true
 
+# PostHog reverse proxy (src/lib/telemetry.ts posts to /ingest): same-origin,
+# so ad/tracker blockers don't silently drop the error reports and replays we
+# triage with. US cloud; an EU project changes both hosts to eu.* / eu-assets.*.
+# Must sit ABOVE the SPA fallback below.
+[[redirects]]
+  from = "/ingest/static/*"
+  to = "https://us-assets.i.posthog.com/static/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/ingest/*"
+  to = "https://us.i.posthog.com/:splat"
+  status = 200
+  force = true
+
 # Client-side routing: serve index.html for all paths
 [[redirects]]
   from = "/*"

@@ -7,7 +7,9 @@
  * camera track when the tab is backgrounded, and do NOT auto-resume — the feed
  * would otherwise stay frozen on the last frame until a manual refresh. We
  * therefore (a) explicitly play() the element, (b) resume playback when the page
- * becomes visible again, and (c) re-acquire the stream when its track ends/mutes.
+ * becomes visible again, and (c) re-acquire the stream when its track ends,
+ * stays muted, or stops delivering frames (lib/cameraHealth.ts decides; never
+ * while the page is hidden, where getUserMedia can hang or be refused).
  *
  * Returns { videoRef, stream, ready, error, retry, facingMode, flipCamera,
  *           canFlip }
@@ -17,6 +19,20 @@ import {
   acquireMicTrack, getCameraStream, hasMultipleCameras, stopStream, classifyCameraError,
   type Facing, type CameraFailure,
 } from '../../lib/camera';
+import {
+  cameraHealthVerdict, tickIsTrustworthy, STALL_PLAY_MS, type CameraReacquireReason,
+} from '../../lib/cameraHealth';
+
+/** How often the camera watchdog samples the stream. */
+const WATCHDOG_PERIOD_MS = 1_000;
+
+/** Something the hook did on its own to bring the camera back (for telemetry). */
+export interface CameraIncident {
+  kind: 'reacquire' | 'give-up';
+  reason: CameraReacquireReason;
+  /** Re-opens since the picture was last healthy, including this one. */
+  attempt: number;
+}
 
 /** Kept as the exported name every consumer (CameraError screen, Booth)
  *  already imports; the vocabulary itself lives in lib/camera.ts. */
@@ -47,6 +63,11 @@ export interface CameraSourceOverride {
   release: (stream: MediaStream) => void;
 }
 
+/** False only while the page is hidden (no document = tests/SSR = visible). */
+function nowVisible(): boolean {
+  return typeof document === 'undefined' || document.visibilityState !== 'hidden';
+}
+
 /**
  * `primeMic`: ask for the microphone in the same prompt as the camera when the
  * stream first opens (lib/camera.ts), so video mode never prompts later. Read
@@ -54,7 +75,12 @@ export interface CameraSourceOverride {
  */
 export function useCameraStream(
   enabled = true, withAudio = false, primeMic = false,
-  opts: { initialFacing?: Facing; source?: CameraSourceOverride | null } = {},
+  opts: {
+    initialFacing?: Facing;
+    source?: CameraSourceOverride | null;
+    /** Told when the hook re-opens the camera by itself (Booth logs it on the platform). */
+    onIncident?: (incident: CameraIncident) => void;
+  } = {},
 ): UseCameraStream {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -73,11 +99,28 @@ export function useCameraStream(
   const sourceKey = opts.source?.key ?? '';
   /** One combined prompt per page: a camera flip or re-acquire asks for the picture only. */
   const micPrimedRef = useRef(false);
+  const onIncidentRef = useRef(opts.onIncident);
+  onIncidentRef.current = opts.onIncident;
+  /** Self-healing bookkeeping (lib/cameraHealth.ts): survives the camera effect's re-runs. */
+  const healRef = useRef({ lastReacquireAt: Number.NEGATIVE_INFINITY, inARow: 0 });
 
-  const retry = useCallback(() => {
+  const bump = useCallback(() => {
     retryCounter.current += 1;
     setRetryTick(retryCounter.current);
   }, []);
+  /** The guest's own retry (error screen): a fresh start for the self-healing budget. */
+  const retry = useCallback(() => {
+    healRef.current.inARow = 0;
+    bump();
+  }, [bump]);
+  /** The hook re-opening the camera by itself. */
+  const reacquire = useCallback((reason: CameraReacquireReason) => {
+    const h = healRef.current;
+    h.lastReacquireAt = performance.now();
+    h.inARow += 1;
+    onIncidentRef.current?.({ kind: 'reacquire', reason, attempt: h.inARow });
+    bump();
+  }, [bump]);
 
   // Best-effort play() — autoplay can be denied/interrupted; call it explicitly.
   const playVideo = useCallback(() => {
@@ -126,10 +169,13 @@ export function useCameraStream(
         setStream(localStream);
         hasMultipleCameras().then((multi) => { if (!cancelled && multi) setCanFlip(true); }).catch(() => {});
 
-        // Re-acquire if the camera track ends (OS reclaimed it on background) or
-        // stays muted — these don't recover on their own.
+        // Re-acquire if the camera track ends (OS reclaimed it). Not from a
+        // hidden page: getUserMedia there can hang or be refused, which is how
+        // a guest came back to a dark booth. The visibility handler below
+        // re-opens it the moment they return. (A track that stays muted is the
+        // watchdog's job.)
         for (const track of localStream.getVideoTracks()) {
-          track.onended = () => { if (!cancelled) retry(); };
+          track.onended = () => { if (!cancelled && nowVisible()) reacquire('ended'); };
         }
 
         if (videoRef.current) {
@@ -163,7 +209,7 @@ export function useCameraStream(
       setReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryTick, enabled, facingMode, retry, playVideo, sourceKey]);
+  }, [retryTick, enabled, facingMode, reacquire, playVideo, sourceKey]);
 
   // The microphone joins and leaves the RUNNING camera stream. It used to be a
   // dependency of the camera effect above, so switching photo -> video stopped
@@ -194,14 +240,15 @@ export function useCameraStream(
   }, [withAudio, stream]);
 
   // Resume when the tab/app returns to the foreground. If the track died while
-  // hidden, re-acquire; otherwise just resume the paused element.
+  // hidden, re-acquire; otherwise just resume the paused element (a track that
+  // stays muted after the return is re-opened by the watchdog below).
   useEffect(() => {
     if (!enabled) return;
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       const track = streamRef.current?.getVideoTracks()[0];
       if (!streamRef.current || !track || track.readyState === 'ended') {
-        retry();
+        if (streamRef.current) reacquire('ended'); else bump(); // no stream: open one, as before
       } else {
         playVideo();
       }
@@ -214,7 +261,77 @@ export function useCameraStream(
       window.removeEventListener('focus', onVisible);
       window.removeEventListener('pageshow', onVisible);
     };
-  }, [enabled, retry, playVideo]);
+  }, [enabled, reacquire, bump, playVideo]);
+
+  // ── Watchdog ──────────────────────────────────────────────────────────
+  // Once a second, while the camera is open: is it muted, frozen or gone?
+  // lib/cameraHealth.ts decides (play() first, then re-open, spaced out and
+  // capped; never while hidden). Our own camera only: a camera another engine
+  // owns (world mode's 8th Wall) is left to that engine.
+  useEffect(() => {
+    if (!enabled || !ready || !stream || sourceKey !== '') return;
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    const video = videoRef.current;
+    let mutedSince = track.muted ? performance.now() : 0;
+    const onMute = () => { if (mutedSince === 0) mutedSince = performance.now(); };
+    const onUnmute = () => { mutedSince = 0; };
+    track.addEventListener('mute', onMute);
+    track.addEventListener('unmute', onUnmute);
+
+    let lastFrameAt = performance.now();
+    /** A frame arrived since this stream opened (a re-open only counts as healed then). */
+    let sawFrame = false;
+    let lastTime = video?.currentTime ?? 0;
+    let rvfc = 0;
+    const hasRvfc = !!video && typeof video.requestVideoFrameCallback === 'function';
+    const onFrame = () => {
+      lastFrameAt = performance.now();
+      sawFrame = true;
+      if (video) rvfc = video.requestVideoFrameCallback(onFrame);
+    };
+    if (hasRvfc) rvfc = video!.requestVideoFrameCallback(onFrame);
+
+    let lastTick = performance.now();
+    let gaveUp = false;
+    const id = window.setInterval(() => {
+      const now = performance.now();
+      const onTime = tickIsTrustworthy(now - lastTick, WATCHDOG_PERIOD_MS);
+      lastTick = now;
+      const visible = nowVisible();
+      if (!hasRvfc && video && video.currentTime !== lastTime) { lastTime = video.currentTime; lastFrameAt = now; sawFrame = true; }
+      // Hidden time and a late tick never count as a frozen camera.
+      if (!visible || !onTime) { lastFrameAt = now; if (!visible) return; }
+      const h = healRef.current;
+      const mutedForMs = mutedSince === 0 ? 0 : now - mutedSince;
+      const stalled = now - lastFrameAt;
+      if (sawFrame && mutedForMs === 0 && stalled < STALL_PLAY_MS) h.inARow = 0; // healthy again
+      const verdict = cameraHealthVerdict({
+        visible,
+        track: track.readyState,
+        mutedForMs,
+        frameStalledMs: stalled,
+        sinceReacquireMs: now - h.lastReacquireAt,
+        reacquiresInARow: h.inARow,
+      });
+      if (verdict.action === 'play') playVideo();
+      else if (verdict.action === 'reacquire' && verdict.reason) reacquire(verdict.reason);
+      else if (verdict.action === 'give-up' && verdict.reason && !gaveUp) {
+        gaveUp = true;
+        onIncidentRef.current?.({ kind: 'give-up', reason: verdict.reason, attempt: h.inARow });
+        // The camera will not come back by itself (usually another app or tab
+        // holds it): say so, with the error screen's Try again, instead of a
+        // dark booth.
+        setError('NotReadableError');
+      }
+    }, WATCHDOG_PERIOD_MS);
+    return () => {
+      window.clearInterval(id);
+      track.removeEventListener('mute', onMute);
+      track.removeEventListener('unmute', onUnmute);
+      if (hasRvfc && rvfc) video!.cancelVideoFrameCallback(rvfc);
+    };
+  }, [enabled, ready, stream, sourceKey, reacquire, playVideo]);
 
   const flipCamera = useCallback(() => {
     setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
