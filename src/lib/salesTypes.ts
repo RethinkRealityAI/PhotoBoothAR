@@ -80,6 +80,9 @@ export interface Slide {
   eyebrow?: string;
   title: string;
   body?: string;
+  /** cover slides: one short line set as a glass pill under the body
+   *  (e.g. "Think Snapchat and Instagram…" — the it-is-virtual cue). */
+  tagline?: string;
   bullets?: string[];
   items?: SlideItem[];
   stats?: SlideStat[];

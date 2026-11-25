@@ -318,7 +318,7 @@ export default function SalesHub() {
                     <span className="text-foil-static">Let’s light up some walls.</span>
                   </h1>
                   <ul className="mt-5 flex flex-col gap-2 text-[15.5px] leading-relaxed text-brand-fg/90">
-                    <li>Guests scan a QR code and take AR photos in their browser. No app, no queue.</li>
+                    <li>An immersive virtual photo booth: guests scan a QR code and take AR photos in their browser. Think Snapchat and Instagram, no sign-in, no queue.</li>
                     <li>Every shot beams onto a live photo wall on the venue screen as it’s taken.</li>
                     <li>Hosts keep every photo, plus keepsake cards and a highlight film.</li>
                   </ul>

@@ -143,6 +143,16 @@ function Title({ env, children, size = 'lg', display = false, center = false }: 
   );
 }
 
+/** A cover's one-line cue, set as a glass pill (never a paragraph). */
+function Tagline({ env, children }: { env: SlideEnv; children: ReactNode }) {
+  const stage = env.mode === 'stage';
+  return (
+    <p className={cx('self-start rounded-full border border-white/25 bg-white/10 font-medium text-white backdrop-blur-sm', stage ? 'mt-6 px-5 py-2.5 text-[18px]' : 'mt-4 px-4 py-2 text-[13px] leading-snug')}>
+      {children}
+    </p>
+  );
+}
+
 function Body({ env, children, center = false }: { env: SlideEnv; children: ReactNode; center?: boolean }) {
   return (
     <p
@@ -317,6 +327,7 @@ function Cover({ slide, env }: { slide: Slide; env: SlideEnv }) {
         {slide.eyebrow !== undefined && <div className="mt-4"><Eyebrow env={env}>{slide.eyebrow}</Eyebrow></div>}
         <Title env={env} size={slide.title.length > 26 ? 'xlLong' : 'xl'} display>{slide.title}</Title>
         {slide.body !== undefined && <Body env={env}>{slide.body}</Body>}
+        {slide.tagline !== undefined && <Tagline env={env}>{slide.tagline}</Tagline>}
         {slide.bullets !== undefined && slide.bullets.length > 0 && <Bullets env={env} items={slide.bullets} />}
       </div>
     );
@@ -327,6 +338,7 @@ function Cover({ slide, env }: { slide: Slide; env: SlideEnv }) {
         {slide.eyebrow !== undefined && <Eyebrow env={env}>{slide.eyebrow}</Eyebrow>}
         <Title env={env} size={slide.title.length > 26 ? 'xlLong' : 'xl'} display>{slide.title}</Title>
         {slide.body !== undefined && <Body env={env}>{slide.body}</Body>}
+        {slide.tagline !== undefined && <Tagline env={env}>{slide.tagline}</Tagline>}
         {slide.bullets !== undefined && slide.bullets.length > 0 && <Bullets env={env} items={slide.bullets} />}
       </div>
       <div className="relative flex h-[540px] items-center justify-center">

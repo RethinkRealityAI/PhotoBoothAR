@@ -378,7 +378,7 @@ function poseOf(el: HTMLElement, h: number): Pose {
 }
 
 export default function BeamyPage() {
-  usePageTitle('Beamwall · Your immersive photo booth');
+  usePageTitle('Beamwall · Your immersive virtual photo booth');
   // index.html's own description stays the homepage's; only the canonical is new.
   usePageMeta('/');
 
@@ -1570,6 +1570,7 @@ export default function BeamyPage() {
       {/* Full ink here: the hero's sheen and floor light sit behind these lines. */}
       <p className={`bw-hl-line ${wideHero ? 'mt-5' : 'mt-2.5'}`} style={{ ...i(1), color: 'var(--bw-ink)' }}>{HERO.line}</p>
       <p className={`bw-hl-beats ${wideHero ? 'mt-2' : 'mt-1'}`} style={i(2)}>{HERO.sub}</p>
+      <p className={`bw-hl-note ${wideHero ? 'mt-3' : 'mt-2'}`} style={i(2)}>{HERO.note}</p>
     </>
   );
   const heroRows = heroGeo?.rows ?? 3;

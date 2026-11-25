@@ -58,14 +58,14 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   {
     id: 'booth',
     eyebrow: 'The booth',
-    title: 'A photo booth in every pocket',
+    title: 'A virtual photo booth in every pocket',
     intro: 'Guests scan a QR code and the booth opens in their phone’s browser. Everything they try on is a Look.',
     features: [
       {
         id: 'no-app',
         title: 'Scan and shoot, no app',
-        line: 'Guests scan one QR code and the booth opens in their browser: no app, no queue, no hardware to hire.',
-        detail: 'Works on any modern iPhone or Android. Every guest is shooting at once, so there is never a line.',
+        line: 'Guests scan one QR code and the booth opens in their browser: no app, no sign-in, no queue, no hardware to hire.',
+        detail: 'Think Snapchat and Instagram, in the browser. Works on any modern iPhone or Android, and every guest shoots at once, so there is never a line.',
         icon: 'qr',
         image: 'guest-welcome',
         demo: { label: 'Open the demo booth', path: `/e/${DEMO_EVENT}/welcome` },
@@ -325,7 +325,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
 
 /** If you only have 30 seconds: the five lines that carry the pitch. */
 export const FAST_FIVE: string[] = [
-  'Guests scan a QR code and the booth opens in their browser. No app, no hardware.',
+  'It is an immersive virtual photo booth: think Snapchat and Instagram, in the browser. No app, no sign-in.',
   'They try on Looks: branded Frames, 3D Props, face Paint and Effects.',
   'Every photo beams onto the venue’s big screen the moment it is sent.',
   'Challenges and a leaderboard keep the whole room shooting all night.',
