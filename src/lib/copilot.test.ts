@@ -11,6 +11,7 @@ import type { EventSnapshot } from './eventSnapshot';
 import type { ChatMessage } from './eventDesigner';
 import { FILTER_SHADERS } from './shaders';
 import { HEAD_PIECES } from './headPieces';
+import { offeredBundledProps } from './studio/bundledProps';
 
 const snapshot = {
   eventUuid: 'u-1', slug: 'daps-35th', name: "Dapo's 35th", status: 'live',
@@ -115,7 +116,7 @@ describe('normalizeActions', () => {
 
 describe('normalizeActions — experience-building tools', () => {
   const filterId = FILTER_SHADERS.find((s) => s.id !== 'none')!.id;
-  const pieceId = HEAD_PIECES[0].id;
+  const pieceId = offeredBundledProps()[0].id;
   const withExp = {
     ...snapshot,
     experiences: [{ id: 'exp-real', name: 'Gold frame', kind: 'border', published: true }],
@@ -174,6 +175,10 @@ describe('normalizeActions — experience-building tools', () => {
     expect(normalizeActions([{ tool: 'add_head_piece', source: 'builtin', pieceId }], snapshot))
       .toEqual([{ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId } }]);
     expect(normalizeActions([{ tool: 'add_head_piece', source: 'builtin', pieceId: 'nope' }], snapshot)).toEqual([]);
+    // The old code-built pieces and retired props are never accepted (2026-11-25).
+    for (const old of [...HEAD_PIECES.map((h) => h.id), 'prop-queens-tiara', 'prop-halo-ring', 'prop-neon-shades']) {
+      expect(normalizeActions([{ tool: 'add_head_piece', source: 'builtin', pieceId: old }], snapshot), old).toEqual([]);
+    }
     expect(normalizeActions([{ tool: 'add_head_piece', source: 'generate', prompt: 'a foam crown' }], snapshot))
       .toEqual([{ tool: 'add_head_piece', proposal: { source: 'generate', prompt: 'a foam crown' } }]);
     expect(normalizeActions([{ tool: 'add_head_piece', source: 'generate' }], snapshot)).toEqual([]);

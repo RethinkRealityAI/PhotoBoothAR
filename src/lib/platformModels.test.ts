@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { builtInModels, existingModelNamed, isLibrary3dKind, modelNameKey, sitsOnLabel } from './platformModels';
-import { BUNDLED_PROPS } from './studio/bundledProps';
+import { offeredBundledProps } from './studio/bundledProps';
 import { libraryAssets } from './studio/assetLibrary';
-import { HEAD_PIECES } from './headPieces';
 
 const PUBLIC = join(__dirname, '..', '..', 'public');
 
@@ -12,9 +11,8 @@ describe('builtInModels', () => {
   const models = builtInModels();
 
   it('lists every bundled prop and every shipped customisable model, once each', () => {
-    expect(models.filter((m) => m.source === 'prop')).toHaveLength(BUNDLED_PROPS.length);
+    expect(models.filter((m) => m.source === 'prop')).toHaveLength(offeredBundledProps().length);
     expect(models.filter((m) => m.source === 'customisable')).toHaveLength(libraryAssets().length);
-    expect(models.filter((m) => m.source === 'code')).toHaveLength(HEAD_PIECES.length);
     expect(new Set(models.map((m) => m.id)).size).toBe(models.length);
   });
 
@@ -24,8 +22,7 @@ describe('builtInModels', () => {
 
   it('points every tile at a file that actually ships under public/', () => {
     for (const m of models) {
-      // Only a code-built piece has no file: React draws it.
-      expect(m.url === null, m.id).toBe(m.source === 'code');
+      expect(m.url, m.id).not.toBeNull();
       if (m.url !== null) {
         expect(m.url.startsWith('/'), m.id).toBe(true);
         expect(existsSync(join(PUBLIC, m.url)), `${m.id} model ${m.url}`).toBe(true);
@@ -34,7 +31,7 @@ describe('builtInModels', () => {
     }
   });
 
-  it('ships a real picture for every built-in, code-built pieces included', () => {
+  it('ships a real picture for every built-in', () => {
     for (const m of models) expect(m.thumb, m.id).not.toBeNull();
   });
 

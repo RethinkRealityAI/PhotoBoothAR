@@ -77,9 +77,10 @@ const inputClass =
 
 const labelClass = 'font-label uppercase tracking-luxe ui-label text-brand-muted/70';
 
-/** Tile picker (ThumbPicker) options: a frame tile draws the built-in SVG,
- *  an emoji tile shows the glyph, anything else is a label tile. */
-interface ThumbOption { value?: unknown; label?: unknown; frameId?: unknown; emoji?: unknown }
+/** Tile picker (ThumbPicker) options: a frame tile draws the built-in SVG, a
+ *  thumb tile shows a bundled image (same-origin path only), an emoji tile
+ *  shows the glyph, anything else is a label tile. */
+interface ThumbOption { value?: unknown; label?: unknown; frameId?: unknown; thumb?: unknown; emoji?: unknown }
 
 const warned = new Set<string>();
 
@@ -323,8 +324,8 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
 
       case 'ThumbPicker': {
         // Tile picker bound like ChoicePicker: frames render their real SVG
-        // (toDataUrl at render time — no SVG bytes in the data model), head
-        // pieces their emoji, anything unknown falls back to a label tile.
+        // (toDataUrl at render time — no SVG bytes in the data model), 3D props
+        // their bundled thumbnail, anything unknown falls back to a label tile.
         const path = bindingPath(c.value, scope);
         const current = resolveDynamic(c.value, dataModel, scope);
         const options = Array.isArray(c.options) ? (c.options as ThumbOption[]) : [];
@@ -339,6 +340,8 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
                 const frameId = typeof o.frameId === 'string' ? o.frameId : null;
                 const frame = frameId !== null ? BORDER_MAP[frameId] : undefined;
                 const emoji = typeof o.emoji === 'string' && o.emoji ? o.emoji : null;
+                // Same-origin paths only ("/models/…"): never a remote URL.
+                const thumb = typeof o.thumb === 'string' && o.thumb.startsWith('/') && !o.thumb.startsWith('//') ? o.thumb : null;
                 return (
                   <button
                     key={`${key}-thumb-${i}`}
@@ -358,6 +361,8 @@ function A2uiSurface({ surface, onAction, onDataChange, busy = false }: Props) {
                         alt=""
                         className="w-full aspect-[9/16] max-h-24 object-contain rounded-md bg-brand-bg/60"
                       />
+                    ) : thumb ? (
+                      <img src={thumb} alt="" loading="lazy" className="w-full aspect-square max-h-20 object-contain rounded-md bg-white/[0.04]" />
                     ) : emoji ? (
                       <span className="text-2xl leading-none" aria-hidden="true">{emoji}</span>
                     ) : null}

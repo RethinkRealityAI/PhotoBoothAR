@@ -174,7 +174,7 @@ describe('readGlbInfo', () => {
 /* ── Cross-check against glTF-Transform on the shipped props ─────────── */
 
 describe('agrees with glTF-Transform on real models', () => {
-  for (const name of ['halo-ring', 'elf-ears', 'neon-shades']) {
+  for (const name of ['royal-crown', 'elf-ears', 'santa-hat']) {
     it(name, async () => {
       const bytes = new Uint8Array(readFileSync(new URL(`../../public/models/props/${name}.glb`, import.meta.url)));
       await MeshoptDecoder.ready;

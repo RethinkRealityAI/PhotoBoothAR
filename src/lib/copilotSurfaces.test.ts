@@ -11,7 +11,7 @@ import { COPILOT_TOOLS, TOOL_NAMES } from './copilotTools';
 import type { EventSnapshot } from './eventSnapshot';
 import { FILTER_SHADERS } from './shaders';
 import { GENERIC_FRAMES } from './borders';
-import { HEAD_PIECES } from './headPieces';
+import { offeredBundledProps } from './studio/bundledProps';
 
 /** Every child/children id a component references must exist in the surface. */
 function assertReducerValid(s: SurfaceState) {
@@ -446,12 +446,13 @@ describe('ThumbPicker producers', () => {
     expect(s.components.picker.options).toEqual(GENERIC_FRAMES.map((f) => ({ value: f.id, label: f.name, frameId: f.id })));
   });
 
-  it('builtin add_head_piece offers emoji tiles for every catalog piece', () => {
-    const s = assertResolvable(buildProposalSurface({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: HEAD_PIECES[0].id } }, 'h'));
-    const options = s.components.picker.options as { value: string; label: string; emoji: string }[];
+  it('builtin add_head_piece offers a thumbnail tile for every HD prop on the shelf', () => {
+    const props = offeredBundledProps();
+    const s = assertResolvable(buildProposalSurface({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: props[0].id } }, 'h'));
+    const options = s.components.picker.options as { value: string; label: string; thumb: string }[];
     expect(s.components.picker.component).toBe('ThumbPicker');
-    expect(options.map((o) => o.value)).toEqual(HEAD_PIECES.map((p) => p.id));
-    for (const o of options) expect(o.emoji.length, o.value).toBeGreaterThan(0);
+    expect(options.map((o) => o.value)).toEqual(props.map((p) => p.id));
+    for (const o of options) expect(o.thumb, o.value).toMatch(/^\/models\/props\/.+\.webp$/);
   });
 });
 
@@ -521,7 +522,7 @@ describe('summarizeAction / isPaidAction — every registry tool', () => {
     expect(summarizeAction({ tool: 'delete_challenge', proposal: { challengeId: 'ch-1' } }, ctxSnap)).toBe('Delete challenge “Dunk pose”');
     expect(summarizeAction({ tool: 'delete_challenge', proposal: { challengeId: 'ch-9' } }, ctxSnap)).toBe('Delete challenge “ch-9”');
     expect(summarizeAction({ tool: 'update_challenge', proposal: { challengeId: 'ch-1', points: 30, active: false } }, ctxSnap)).toBe('Edit “Dunk pose”: 30 pts, pause');
-    expect(summarizeAction({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: 'royal-crown' } })).toBe('Add 3D prop “Royal Crown”');
+    expect(summarizeAction({ tool: 'add_head_piece', proposal: { source: 'builtin', pieceId: 'prop-santa-hat' } })).toBe('Add 3D prop “Santa Hat”');
     expect(summarizeAction({ tool: 'generate_frame', proposal: { prompt: 'x'.repeat(200) } }).length).toBeLessThanOrEqual(90);
     expect(summarizeAction({ tool: 'update_brief', proposal: { palette: 'a', tone: 'b' } })).toBe('Update the brief (palette, tone)');
   });

@@ -58,16 +58,6 @@ export const POWER_GEAR: readonly PowerGearDef[] = [
     swatch: ['#23262e', '#ff2b4a'],
   },
   {
-    id: 'cyclops-visor-lite',
-    name: 'Optic Visor',
-    blurb: 'The built-in visor — instant, ruby lens',
-    kind: 'headpiece',
-    refId: 'cyclops-visor',
-    defaultSource: 'handToTemple',
-    defaultStyle: 'optic',
-    swatch: ['#23262e', '#ff2b4a'],
-  },
-  {
     id: 'wizard-wand',
     name: 'Wizard Wand',
     retired: true,
