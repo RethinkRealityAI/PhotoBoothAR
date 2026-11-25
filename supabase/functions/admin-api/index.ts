@@ -191,15 +191,6 @@ const corsHeaders = {
 // runtime read caught it.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Constant-time string compare (for the internal service-role caller path). */
-function timingSafeEqual(a: string, b: string): boolean {
-  const ea = new TextEncoder().encode(a);
-  const eb = new TextEncoder().encode(b);
-  let diff = ea.length ^ eb.length;
-  for (let i = 0; i < Math.max(ea.length, eb.length); i++) diff |= (ea[i] ?? 0) ^ (eb[i] ?? 0);
-  return diff === 0;
-}
-
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -3022,29 +3013,16 @@ Deno.serve(async (req: Request) => {
 
   try {
     // 1. Auth — resolve the caller from their verified JWT (never a body field).
-    //    One exception: the platform's own edge functions (beamwall-mcp) call
-    //    in with the SERVICE-ROLE key plus the acting user's id. Only a holder
-    //    of that key can take this path, and it can already do anything in the
-    //    database, so this grants nothing new — and the actor still has to pass
-    //    the platform-admin assert below like everyone else.
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) return json(401, { error: 'unauthorized' });
-    let user: { id: string } | null = null;
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const actorHeader = req.headers.get('x-beamwall-actor');
-    if (actorHeader !== null && serviceKey !== '' && timingSafeEqual(authHeader, `Bearer ${serviceKey}`)) {
-      if (!UUID_RE.test(actorHeader)) return json(401, { error: 'unauthorized' });
-      user = { id: actorHeader };
-    } else {
-      const userClient = createClient(
-        Deno.env.get('SUPABASE_URL')!,
-        Deno.env.get('SUPABASE_ANON_KEY')!,
-        { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } },
-      );
-      const { data: userData, error: userErr } = await userClient.auth.getUser();
-      if (userErr || !userData?.user) return json(401, { error: 'unauthorized' });
-      user = userData.user;
-    }
+    const userClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } },
+    );
+    const { data: userData, error: userErr } = await userClient.auth.getUser();
+    const user = userData?.user;
+    if (userErr || !user) return json(401, { error: 'unauthorized' });
 
     const sb = serviceClient();
 

@@ -17,9 +17,9 @@
  * what undo_change restores. Destructive tools need the `destructive` scope
  * AND `confirm` equal to the target, so a model cannot delete by accident.
  *
- * admin_action forwards an allow-listed admin-api action, authenticated with
- * the service-role key + the key owner's user id (admin-api's internal-caller
- * path), so the admin suite's logic is reused, never re-implemented.
+ * admin_action forwards an allow-listed admin-api action AS the key's owner
+ * (a server-side session, see ownerAccessToken), so admin-api's own guard and
+ * logic are reused, never re-implemented or bypassed.
  *
  * DEPLOYS AS THREE FILES: index.ts, core.ts, deno.json.
  */
@@ -206,6 +206,33 @@ function likeTerm(s: string): string {
 function lookSummary(r: Record<string, unknown>) {
   const { config: _c, ...rest } = r;
   return rest;
+}
+
+// ── admin-api passthrough: a short-lived session for the key's owner ───────
+//
+// admin-api is the one fortified door to the admin suite: it accepts only a
+// real user JWT and asserts platform_admins itself. Rather than add a second
+// way in, admin_action calls it AS the key's owner, with a session minted
+// server-side (generateLink → verifyOtp; nothing is emailed). The session
+// never leaves this function and is reused until a minute before it expires,
+// so one connector conversation is one sign-in, not one per call.
+let ownerSession: { userId: string; token: string; exp: number } | null = null;
+
+async function ownerAccessToken(sb: Client, userId: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  if (ownerSession && ownerSession.userId === userId && ownerSession.exp - 60 > now) return ownerSession.token;
+  const { data: u, error: uErr } = await sb.auth.admin.getUserById(userId);
+  if (uErr || !u?.user?.email) throw new ToolError('could not resolve the key owner for admin actions');
+  const { data: link, error: lErr } = await sb.auth.admin.generateLink({ type: 'magiclink', email: u.user.email });
+  if (lErr || !link?.properties?.hashed_token) throw new ToolError('could not start an admin session');
+  const anon = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: v, error: vErr } = await anon.auth.verifyOtp({ token_hash: link.properties.hashed_token, type: 'magiclink' });
+  const session = v?.session;
+  if (vErr || !session?.access_token) throw new ToolError('could not start an admin session');
+  ownerSession = { userId, token: session.access_token, exp: session.expires_at ?? now + 3000 };
+  return session.access_token;
 }
 
 // ── Tools ───────────────────────────────────────────────────────────────────
@@ -677,7 +704,7 @@ const handlers: Record<string, Handler> = {
     };
   },
 
-  async admin_action(_sb, caller, a) {
+  async admin_action(sb, caller, a) {
     const action = a.action as string;
     if (!(action in ADMIN_ACTIONS)) {
       refuse(`"${action}" is not reachable from here. Allowed: ${Object.keys(ADMIN_ACTIONS).join(', ')}`);
@@ -686,14 +713,13 @@ const handlers: Record<string, Handler> = {
       const why = confirmRefusal(action, a.confirm);
       if (why) refuse(why);
     }
+    const accessToken = await ownerAccessToken(sb, caller.userId);
     const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/admin-api`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-        apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-        'x-beamwall-actor': caller.userId,
-        'x-beamwall-via': 'mcp',
+        Authorization: `Bearer ${accessToken}`,
+        apikey: Deno.env.get('SUPABASE_ANON_KEY')!,
       },
       body: JSON.stringify({ action, args: isPlainObject(a.args) ? a.args : {} }),
       signal: AbortSignal.timeout(55_000),
