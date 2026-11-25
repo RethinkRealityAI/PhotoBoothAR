@@ -373,3 +373,35 @@
 }
 /* The promise sits clear of the links and the phone above it. */
 :root[data-event-theme] [data-scene-ui]:not([data-platform] *) .sc-privacy { margin-top: 1.25rem; }
+
+/* ── Readability on content pages (EventBackground: photos, challenges,
+   wall, upload). The scene is decoration there; the copy is the point. ── */
+.tp-page-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(26, 11, 12, 0.42) 0%, var(--tp-scrim, rgba(22, 11, 6, 0.6)) 26%, var(--tp-scrim, rgba(22, 11, 6, 0.6)) 74%, rgba(14, 8, 6, 0.7) 100%);
+}
+/* Faded copy (text-brand-muted/60, /70 …) reads as full-strength sand. */
+:root[data-event-theme] :is([class*="text-brand-muted/"], [class*="text-champagne/"]):not([data-platform] *, [data-platform]) {
+  color: var(--color-brand-muted);
+}
+/* The empty wall's idle hint fades itself out a second time; not on a pack. */
+:root[data-event-theme] .wall-idle-hint { opacity: 0.9 !important; }
+/* Copy on the guest pages carries a soft dark halo, like the scene chrome. */
+:root[data-event-theme] :is(p, h1, h2, h3, label, li):not([data-platform] *, .bg-foil *, .vf-cta *, .sc-cta *) {
+  text-shadow: 0 1px 2px rgba(20, 8, 4, 0.75), 0 0 12px rgba(20, 8, 4, 0.5);
+}
+/* Gold foil headlines are clipped gradients: a drop shadow, not a text shadow. */
+:root[data-event-theme] .text-foil-static:not([data-platform] *) {
+  text-shadow: none;
+  filter: drop-shadow(0 1px 1.5px rgba(20, 8, 4, 0.85)) drop-shadow(0 0 10px rgba(20, 8, 4, 0.55));
+}
+/* Glass cards that hold copy get a denser body than the scene chrome's
+   (buttons and booth bars keep the lighter glass). */
+:root[data-event-theme] :is(.glass, .liquid-glass):has(> p):not([data-platform] *, [data-platform], [data-scene-ui] *) {
+  background:
+    linear-gradient(160deg, rgba(255, 240, 214, 0.08) 0%, rgba(0, 0, 0, 0.12) 100%),
+    var(--tp-glass-strong);
+}

@@ -68,7 +68,16 @@ function EventSceneBackground({
   return (
     <>
       <span ref={probe} hidden />
-      {theme ? <ThemePackBackdrop theme={theme} /> : scene && <SceneBackdrop
+      {theme ? (
+        <>
+          <ThemePackBackdrop theme={theme} />
+          {/* Content pages (photos, challenges, wall, upload) put running text
+              straight over the scene: a veil keeps it readable over the sun.
+              The welcome page and booth splash paint the pack directly and
+              keep the full-strength scene. */}
+          <div aria-hidden className="tp-page-veil" />
+        </>
+      ) : scene && <SceneBackdrop
         scene={resolveScene(scene)}
         className={typeof props.className === 'string' ? props.className : ''}
         flipTone={!NO_FLIP_ROUTE.test(pathname)}
