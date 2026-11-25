@@ -18,17 +18,15 @@
  * Host-made models (inside a customer's own event) are deliberately NOT here:
  * they belong to that customer until they choose to share them.
  */
-import { BUNDLED_PROPS } from './studio/bundledProps';
+import { offeredBundledProps } from './studio/bundledProps';
 import { assetTemplateOf, libraryAssets } from './studio/assetLibrary';
-import { HEAD_PIECES } from './headPieces';
 
-export type PlatformModelSource = 'prop' | 'customisable' | 'code';
+export type PlatformModelSource = 'prop' | 'customisable';
 
 /**
- * Pictures for the built-ins that ship without one: the customisable models
- * and the code-built head pieces. Rendered headlessly from the app's own
- * renderers (glbThumb.captureGlbThumbnail for a GLB, the R3F HeadPiece for
- * a code piece) at 512px, cropped to the model and saved as 256px WebP under
+ * Pictures for the built-ins that ship without one: the customisable models.
+ * Rendered headlessly from the app's own renderer
+ * (glbThumb.captureGlbThumbnail) at 512px, cropped to the model and saved as 256px WebP under
  * public/models/thumbs/. Re-render them when a piece's look changes.
  */
 const BUILT_IN_THUMBS: Record<string, string> = {
@@ -77,9 +75,13 @@ export function sitsOnLabel(anchor: string | undefined, handAnchor?: string): st
   return (anchor && HEAD_SLOTS[anchor]) || 'Top of head';
 }
 
-/** The props, customisable models and code-built pieces in the app, props first. */
+/**
+ * The props and customisable models in the app, props first. The old
+ * code-built pieces and retired props are not listed: they are no longer on
+ * any host's shelf (removed 2026-11-25).
+ */
 export function builtInModels(): PlatformModel[] {
-  const props: PlatformModel[] = BUNDLED_PROPS.map((p) => ({
+  const props: PlatformModel[] = offeredBundledProps().map((p) => ({
     id: p.id,
     name: p.name,
     source: 'prop',
@@ -103,18 +105,7 @@ export function builtInModels(): PlatformModel[] {
       sitsOn: sitsOnLabel(a.anchor, a.handAnchor),
     });
   }
-  // The procedural pieces (components/ar/HeadPieces.tsx). Their ids can match a
-  // customisable model's (cyclops-visor), so they are prefixed.
-  const code: PlatformModel[] = HEAD_PIECES.map((p) => ({
-    id: `code-${p.id}`,
-    name: p.name,
-    source: 'code',
-    url: null,
-    thumb: `/models/thumbs/code-${p.id}.webp`,
-    swatch: null,
-    sitsOn: sitsOnLabel(p.anchor),
-  }));
-  return [...props, ...custom, ...code];
+  return [...props, ...custom];
 }
 
 /** Library kinds that carry a 3D model: a lone prop, or a scene of layers. */

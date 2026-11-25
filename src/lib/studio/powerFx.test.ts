@@ -80,13 +80,9 @@ describe('buildPowerFxAdditions', () => {
     expect(parseTriggers(out.triggers)).toEqual(out.triggers);
   });
 
-  it('headpiece gear: explicit beam colour, no customization', () => {
-    const gear = POWER_GEAR.find((g) => g.id === 'cyclops-visor-lite');
-    if (!gear) throw new Error('missing gear');
-    const out = buildPowerFxAdditions({ ...defaultPowerFxSpec(gear), hex: '#2979FF' }, null);
-    expect(out.gear).toEqual({ kind: 'headpiece', pieceId: 'cyclops-visor' });
-    expect(out.customization).toBeNull();
-    expect(out.triggers[0].action).toEqual({ type: 'beam', style: 'optic', color: '#2979ff' });
+  it('never offers the old code-built Optic Visor (removed 2026-11-25)', () => {
+    expect(POWER_GEAR.some((g) => g.kind === 'headpiece' && g.refId !== '')).toBe(false);
+    expect(POWER_GEAR.some((g) => g.name === 'Optic Visor')).toBe(false);
   });
 
   it("gear 'none': no object, beam only, no emitter id", () => {

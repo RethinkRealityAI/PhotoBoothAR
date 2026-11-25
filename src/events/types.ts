@@ -59,6 +59,10 @@ export interface EventARContent {
    *  recolorFrameSvg). Written only by the platform create flow / LooksPicker;
    *  absent → every frame renders exactly as drawn (all legacy events). */
   framePalette?: { accent: string; accent2?: string | null };
+  /** Magazine cover Frames the host turned on (lib/cover/spec.ts
+   *  CoverSettings, read through normalizeCovers). Written only by the
+   *  platform Looks step; absent on every legacy event. */
+  covers?: unknown[];
 }
 
 export interface EventConfig {

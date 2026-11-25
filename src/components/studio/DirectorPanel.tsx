@@ -105,7 +105,9 @@ const CATALOG: SceneShaderCatalogEntry[] = FILTER_SHADERS.map((s) => ({
   id: s.id,
   params: s.params.map((p) => ({ key: p.key, min: p.min, max: p.max, default: p.default })),
 }));
-const HEAD_PIECE_IDS = HEAD_PIECES.map((p) => p.id);
+// Only pieces still on the shelf. Every code-built piece is retired
+// (2026-11-25), so the Director generates its 3D piece instead.
+const HEAD_PIECE_IDS = HEAD_PIECES.filter((p) => p.retired !== true).map((p) => p.id);
 
 /** Customer-safe copy per edge-fn error code — the technical cause (rejected /
  *  missing GEMINI_API_KEY) is an operator problem and goes to console.error. */
