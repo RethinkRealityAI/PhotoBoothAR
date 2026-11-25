@@ -68,6 +68,7 @@ function isHeadAnchor(v: string | undefined): v is HeadAnchor {
 }
 import { SectionLabel } from './StudioControls';
 import AiFramePanel from './AiFramePanel';
+import { useAiAccess } from '../../lib/aiAccess';
 import AiGeneratePanel from '../admin/creator3d/AiGeneratePanel';
 import HelpButton from './HelpButton';
 import type { DragPayload } from './useStudioDnd';
@@ -298,6 +299,8 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const dragDepth = useRef(0);
 
   const show3dAi = source === 'db' && entitlements.aiStudio;
+  // Owner's AI switch (migration 054): no Quick AI block while it is off.
+  const aiAllowed = useAiAccess() === true;
 
   const [chip, setChip] = useState<AssetChip>('all');
   const [query, setQuery] = useState('');
@@ -1055,7 +1058,7 @@ export default function AssetsDock({ state, dispatch, onOpenExperience, beginDra
   const aiKind: 'border' | '2d_filter' = chip === 'sticker' ? '2d_filter' : 'border';
   const showAi3d = chip === '3d' && show3dAi;
   const showAiOverlay = chip !== '3d' && chip !== 'filter';
-  const showAi = showAiOverlay || showAi3d;
+  const showAi = aiAllowed && (showAiOverlay || showAi3d);
 
   const stillLoading = experiences.status === 'loading' || uploads.status === 'loading';
 

@@ -27,6 +27,7 @@ import ConfirmModal from '../../components/ui/ConfirmModal';
 import LoadError from '../../components/ui/LoadError';
 import StatusPill from '../../components/ui/StatusPill';
 import FeaturePreview from '../../components/admin/FeaturePreview';
+import AiHostsSwitch from '../../components/admin/AiHostsSwitch';
 import { ENTITLEMENTS, normalizeTier, type PlanTier } from '../../lib/plans';
 import { diffPlanDefaults, normalizeResolvedFeatures, type FeatureSet } from '../../lib/features';
 import { planChange, expiryWarning } from '../../lib/planSync';
@@ -204,6 +205,8 @@ export default function AdminFeatures() {
             {registryNote(flags.length, 'feature flag')}
           </p>
         </header>
+
+        <AiHostsSwitch />
 
         {loadErr !== null && (
           <LoadError what="the flag registry" code={loadErr} onRetry={() => void loadFlags()} />

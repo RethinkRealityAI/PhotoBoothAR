@@ -89,6 +89,7 @@ const TAG_STYLE: Record<FeatureTag, string> = {
   'Enterprise add-on': 'border-fuchsia-300/40 bg-fuchsia-300/10 text-fuchsia-100',
   'Done for you': 'border-[color:var(--color-accent)]/50 bg-[color:var(--color-accent)]/15 text-brand-fg',
   'Free plan': 'border-white/20 bg-white/10 text-brand-fg',
+  'Coming soon': 'border-sky-300/40 bg-sky-300/10 text-sky-100',
 };
 
 /** The picture well at the top of a card, plus its enlarge dialog. */
