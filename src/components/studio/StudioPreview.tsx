@@ -13,6 +13,7 @@ import type { StudioDraft, Overlay2D, Object3D } from '../../lib/studio/state';
 import { objectToPiece, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import { isLayerVisible } from '../../lib/studio/triggers';
 import { DEFAULT_LIGHTING, type LightingPresetId } from '../../lib/studio/lighting';
+import { introFieldsOf } from '../../lib/studio/animation';
 
 const EMPTY_SET: Set<string> = new Set();
 
@@ -72,7 +73,7 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
   // reveal-target pieces are gated by hiddenObjectIds until their trigger fires.
   const overlaySpecs: StageOverlaySpec[] = draft.objects
     .filter((o): o is Overlay2D => o.type === 'overlay' && !!o.url && visible(o))
-    .map((o) => ({ url: o.url as string, transform: o.transform, opacity: 1, animation: o.animation }));
+    .map((o) => ({ url: o.url as string, transform: o.transform, opacity: 1, animation: o.animation, ...introFieldsOf(o) }));
 
   // ONE mapper, shared with the booth and Studio3DView (draftMapping): the same
   // fields used to be hand-written here, in Booth.tsx and in Studio3DView with
@@ -100,6 +101,8 @@ export default function StudioPreview({ videoRef, draft, headScale, occlusionEna
           effectId={effectIdOverride ?? draft.shaderId}
           mirror
           overlays={hasOverlays ? overlaySpecs : null}
+          // Editing an entrance replays it so the host sees the change.
+          introKey={overlaySpecs.map((o) => `${o.intro ?? ''}${o.introDelayMs ?? 0}`).join('|')}
           threeCanvasId={has3D ? 'booth-3d-layer' : null}
           frameLock={has3D}
           active

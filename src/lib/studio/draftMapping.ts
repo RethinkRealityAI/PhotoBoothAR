@@ -60,6 +60,7 @@ import { normalizeGuestLettering } from '../letteringFit';
 import { parseFaceTrackingMode } from '../faceEngine/engineSelect';
 import { normalizeAnchorVersion } from '../faceRig';
 import { normalizeFacePaint, type FacePaintSpec } from '../facePaint/spec';
+import { introFieldsOf } from './animation';
 
 const STUDIO_KINDS: readonly StudioKind[] = ['shader', 'border', '2d_filter', '3d_attachment'];
 
@@ -198,6 +199,7 @@ function layerToObject(l: ExperienceLayer): StudioObject {
       transform: l.transform,
       animation: l.animation ?? 'none',
     });
+    Object.assign(obj, introFieldsOf(l));
   }
   // Hidden persists with the layer (kept in the scene, rendered nowhere) so a
   // reload never silently loses — or silently re-shows — a hidden layer.
@@ -329,6 +331,7 @@ function overlayLayer(o: Overlay2D, r: UrlResolver): ExperienceLayer {
   };
   if (o.name) layer.name = o.name;
   if (o.animation !== 'none') layer.animation = o.animation;
+  Object.assign(layer, introFieldsOf(o));
   if (o.hidden) layer.hidden = true;
   return layer;
 }
@@ -599,7 +602,8 @@ export function draftToPayload(
     config.shader = { shaderId: draft.shaderId, params: draft.shaderParams };
   } else if (kind === 'border' || kind === '2d_filter') {
     const objs = draft.objects.filter((o): o is Overlay2D => o.type === 'overlay');
-    const anyAnim = objs.some((o) => o.animation !== 'none');
+    // An entrance (intro) is an animation too: the singular mirror cannot hold it.
+    const anyAnim = objs.some((o) => o.animation !== 'none' || o.intro !== undefined);
     // A hidden object forces the layers path: the singular mirror alone can't
     // express "kept but not rendered", so the booth must read layers to skip it.
     const anyHidden = objs.some((o) => o.hidden === true);
