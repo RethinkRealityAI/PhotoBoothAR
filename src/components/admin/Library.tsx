@@ -39,6 +39,7 @@ import { useStudioAccess } from './studioAccess';
 import type { Experience, PresetOverrides } from '../../types';
 import { copyText } from '../../lib/clipboard';
 import { frameSuggestion, isListed, isThumbnailSrc } from '../../lib/libraryMatch';
+import { useAiAccess } from '../../lib/aiAccess';
 
 // Platform-only, and it pulls in the AI client — lazy so the legacy bundles
 // (which mount this screen too) never load it.
@@ -447,6 +448,8 @@ export default function Library({
   // The host-facing picker: platform studio on a DB event. Legacy mounts
   // ('/admin' base, coded config) keep the original screen untouched.
   const platform = base.startsWith('/host/') && source === 'db';
+  // The quick AI frame is behind the owner's AI switch (migration 054).
+  const ai = useAiAccess() === true;
   const [dbExps, setDbExps] = useState<Experience[]>([]);
   const [overrides, setOverrides] = useState<PresetOverrides>({ hidden: [], order: [] });
   const [loading, setLoading] = useState(true);
@@ -645,7 +648,7 @@ export default function Library({
   /* Platform only: the quick AI frame (generate → key → place → publish +
      set as the booth default). AI itself stays server-gated (aiStudio, plus
      the first 3 images on every event free). */
-  const aiFrameSection = platform && eventUuid ? (
+  const aiFrameSection = platform && eventUuid && ai ? (
     <section id="quick-ai-frame" key="ai" className="scroll-mt-4">
       <h2 className={`${headingClass} mb-2`}>Make a frame with AI</h2>
       <p className={blurbClass}>
@@ -753,10 +756,12 @@ export default function Library({
           <div className="glass rounded-2xl border border-gold-400/10 p-8 text-center">
             <p className="font-serif italic text-xl text-foil-static mb-2">Nothing of your own yet</p>
             <p className="font-sans text-sm text-champagne/50 mb-5">
-              Make a frame with AI and it lands here, switched on for guests.
+              {ai
+                ? 'Make a frame with AI and it lands here, switched on for guests.'
+                : 'Frames and props you bring in for this event land here, switched on for guests.'}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
-              {eventUuid && (
+              {eventUuid && ai && (
                 <button
                   onClick={scrollToAiFrame}
                   className="inline-flex items-center gap-1.5 px-5 min-h-11 bg-foil text-[color:var(--on-accent)] font-bold rounded-xl text-[11px] font-label uppercase tracking-widest glow-accent"

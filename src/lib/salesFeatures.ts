@@ -27,7 +27,7 @@ export type FeatureImageKey =
   | 'setup-looks' | 'setup-launch' | 'setup-welcome' | 'setup-powerups' | 'studio-editor' | 'library-try-on'
   | 'ai-frame-maker' | 'card-designs' | 'keepsake-film' | 'beamy-reveals' | 'beamy-wave';
 
-export type FeatureTag = 'New' | 'Paid plans' | 'Enterprise add-on' | 'Done for you' | 'Free plan';
+export type FeatureTag = 'New' | 'Paid plans' | 'Enterprise add-on' | 'Done for you' | 'Free plan' | 'Coming soon';
 
 export interface Feature {
   id: string;
@@ -74,7 +74,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         id: 'frames',
         title: 'Frames',
         line: 'Branded 2D frames around every shot, so the event’s name, colours and logo travel with every photo.',
-        detail: 'Hosts pick from the library or describe one and the AI designs it in seconds.',
+        detail: 'Hosts pick from the library; for a custom one, our team designs it with AI in minutes.',
         icon: 'frame',
         image: 'guest-frame',
       },
@@ -226,9 +226,10 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         id: 'ai-frames',
         title: 'AI frame maker',
-        line: 'Describe a vibe and the AI designs custom frames in the event’s colours in seconds.',
-        detail: 'Three free AI frames per event; more with credits.',
+        line: 'Describe a vibe and our team’s AI designs custom frames in the event’s colours in minutes.',
+        detail: 'Hosts can’t run it themselves yet (it is being refined), so offer it as part of done-for-you.',
         icon: 'wand',
+        tag: 'Done for you',
         image: 'ai-frame-maker',
       },
       {
@@ -248,8 +249,10 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         id: 'copilot',
         title: 'AI assistant',
-        line: 'Hosts can ask the assistant in plain words to build or change their event: “add a toast challenge”.',
+        line: 'Soon hosts can ask an assistant in plain words to build or change their event: “add a toast challenge”.',
+        detail: 'Not open to hosts yet. Don’t promise it as live; the setup wizard covers the same ground today.',
         icon: 'bot',
+        tag: 'Coming soon',
       },
       {
         id: 'launch',

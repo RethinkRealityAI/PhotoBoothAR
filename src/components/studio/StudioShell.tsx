@@ -106,6 +106,7 @@ import StudioStage from './StudioStage';
 import PropertiesDock from './PropertiesDock';
 import DragGhost from './DragGhost';
 import DirectorPanel from './DirectorPanel';
+import { useAiAccess } from '../../lib/aiAccess';
 import TestOnPhone from './TestOnPhone';
 import PublishToLibrary from './PublishToLibrary';
 import { useStudioDnd } from './useStudioDnd';
@@ -224,6 +225,8 @@ export default function StudioShell({ eventStatus }: {
   const navigate = useNavigate();
   const base = useStudioBase();
   const { eventId, source } = useEvent();
+  // The AI Director is behind the owner's AI switch (migration 054).
+  const aiAllowed = useAiAccess() === true;
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
   const debugOcclusion = searchParams.get('debug') === 'occluder';
@@ -856,6 +859,7 @@ export default function StudioShell({ eventStatus }: {
         <div className="flex-1 sm:hidden" />
         <div className="hidden sm:block">{historyControls}</div>
         <div className="flex items-center shrink-0">
+          {aiAllowed && (<>
           <Tooltip label="Director" hint="Docked AI assistant — designs a scene into your open draft" side="bottom">
             <button
               onClick={() => { setMobilePanel(null); setSceneOpen((o) => !o); }}
@@ -867,6 +871,7 @@ export default function StudioShell({ eventStatus }: {
             </button>
           </Tooltip>
           <HelpButton topic="director" label="How the Director works" side="bottom" />
+          </>)}
         </div>
         {/* Platform admins only (it renders nothing until the admin check
             passes). Gated to platform studios so a legacy mount never even
@@ -1036,9 +1041,10 @@ export default function StudioShell({ eventStatus }: {
             so mid-width laptops get the overlay instead. Kept mounted (hidden
             when closed) so an in-flight generation survives close/reopen and
             2D/3D/Preview view flips. */}
-        {sceneOpen && (
+        {sceneOpen && aiAllowed && (
           <div className="fixed inset-0 top-14 z-30 bg-black/50 xl:hidden" onClick={() => setSceneOpen(false)} />
         )}
+        {aiAllowed && (
         <aside
           data-panel="director"
           className={`overflow-hidden bg-brand-bg xl:bg-transparent border-white/10
@@ -1048,6 +1054,7 @@ export default function StudioShell({ eventStatus }: {
         >
           <DirectorPanel dispatch={dispatch} draftRef={draftRef} initialPrompt={sceneParam ?? ''} onClose={() => setSceneOpen(false)} />
         </aside>
+        )}
 
         <aside
           id="studio-props-dock"

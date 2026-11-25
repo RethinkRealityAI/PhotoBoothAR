@@ -21,6 +21,7 @@ import {
   LayoutGrid, Palette, QrCode, Settings, ShieldCheck, Sparkles, Trophy, Wand2, X,
 } from 'lucide-react';
 import { useCopilotStore } from '../../lib/copilotStore';
+import { useAiAccess } from '../../lib/aiAccess';
 import { supabase } from '../../lib/supabase';
 import { canEnterStudio, fetchCreditBalance, invalidateProSubscriptionCache, EVENT_RENAMED } from '../../lib/host';
 import { ToastProvider, useToast } from '../../components/ui/Toast';
@@ -324,6 +325,8 @@ function ModerationTab({ eventUuid }: { eventUuid: string }) {
 
 export default function EventStudio() {
   const { id = '' } = useParams<{ id: string }>();
+  // The Copilot opener is an AI surface (owner's switch, migration 054).
+  const ai = useAiAccess();
   const location = useLocation();
   const validId = UUID_RE.test(id);
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
@@ -582,6 +585,7 @@ export default function EventStudio() {
                 {credits} cr
               </Link>
             )}
+            {ai === true && (
             <button
               onClick={() => useCopilotStore.getState().open()}
               title="Beamwall Copilot"
@@ -590,6 +594,7 @@ export default function EventStudio() {
             >
               <Sparkles className="w-4 h-4" />
             </button>
+            )}
             {/* The studio has no rail, so the rail's Support entry cannot reach
                 here — and this is the surface a host is on when an event is
                 actually going wrong. */}

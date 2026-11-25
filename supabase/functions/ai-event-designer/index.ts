@@ -738,6 +738,20 @@ Deno.serve(async (req: Request) => {
       return json(200, { ok: true });
     }
 
+    // 1d. Platform switch (migration 054): host-facing AI is owner-controlled.
+    //     ai_allowed_for = platform admin OR platform_settings.ai_for_hosts.
+    //     Checked BEFORE the rate limiter so a blocked host spends nothing.
+    //     'copy' (the go-live guest-copy writer) is not a host tool and stays
+    //     on. Fails CLOSED: an unreadable switch never opens AI to hosts.
+    if (body.mode !== 'copy') {
+      const { data: aiOk, error: aiErr } = await sb.rpc('ai_allowed_for', { p_user: userId });
+      if (aiErr) {
+        console.error('[ai-event-designer] ai_allowed_for failed', aiErr);
+        return json(503, { error: 'ai_unavailable' });
+      }
+      if (aiOk !== true) return json(403, { error: 'ai_disabled' });
+    }
+
     const { data: isAdmin } = await sb.rpc('is_platform_admin', { p_user: userId });
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     if (isAdmin !== true) {
