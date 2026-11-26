@@ -138,6 +138,8 @@ describe('the design registry', () => {
       'game-day', 'flag-cheeks', 'eye-black', 'glitter-freckles', 'hearts', 'stars', 'tiger', 'sugar-skull',
       'candy-cane', 'rudolph', 'snowflakes', 'frost-queen', 'gingerbread',
       'butterfly', 'hero-mask', 'rainbow', 'lightning-bolt', 'unicorn', 'cat', 'neon-tribal',
+      'saltire-face', 'tricolour-face', 'rival-flags',
+      'wedding-rings', 'gilded-lace', 'hibiscus-bloom',
     ]);
     // The registry and the id list agree, in order.
     expect(FACE_PAINT_DESIGNS.map((d) => d.id)).toEqual([...FACE_PAINT_DESIGN_IDS]);
@@ -169,6 +171,10 @@ describe('the design registry', () => {
       .toEqual(['game-day', 'flag-cheeks', 'eye-black', 'glitter-freckles', 'hearts', 'stars', 'tiger', 'sugar-skull']);
     expect(FACE_PAINT_DESIGNS.filter((d) => categoryOf(d) === 'party').map((d) => d.id))
       .toEqual(['butterfly', 'hero-mask', 'rainbow', 'lightning-bolt', 'unicorn', 'cat', 'neon-tribal']);
+    expect(FACE_PAINT_DESIGNS.filter((d) => categoryOf(d) === 'flags').map((d) => d.id))
+      .toEqual(['saltire-face', 'tricolour-face', 'rival-flags']);
+    expect(FACE_PAINT_DESIGNS.filter((d) => categoryOf(d) === 'celebration').map((d) => d.id))
+      .toEqual(['wedding-rings', 'gilded-lace', 'hibiscus-bloom']);
     expect(categoryOf({})).toBe(FACE_PAINT_CATEGORIES[0].id);
   });
 
