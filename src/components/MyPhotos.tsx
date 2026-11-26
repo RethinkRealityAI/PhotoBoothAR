@@ -35,12 +35,14 @@
  * render inside EventProvider, so an event's own palette drives them.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { clearGallery, getSavedPhotos, savePhoto } from '../lib/session';
-import { deleteMyPost, fetchMyPostsResult } from '../lib/db';
+import { getSavedPhotos } from '../lib/session';
+import { fetchMyPostsResult } from '../lib/db';
 import { isDeleteToken, removeKindFor } from '../lib/postDelete';
 import ConfirmModal from './ui/ConfirmModal';
+import RemovalUndoBar from './ui/RemovalUndoBar';
+import { removals, usePendingRemovalIds } from '../lib/guestRemovalsStore';
 import { SavedPhoto, Post, MediaType } from '../types';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
@@ -98,7 +100,7 @@ import {
   BackIcon,
   PlayIcon,
 } from './ui/MediaIcons';
-import { Film, Trash2 } from 'lucide-react';
+import { Check, Film, Trash2 } from 'lucide-react';
 
 /** Matches the MediaIcons call shape so the recap button sits with the rest. */
 function FilmIcon({ size = 16 }: { size?: number }) {
@@ -147,23 +149,6 @@ function savedToMedia(s: SavedPhoto): GalaMedia {
     origin: 'local',
     deleteToken: s.deleteToken,
   };
-}
-
-/**
- * Drop one entry from this device's gallery.
- *
- * session.ts owns the localStorage key scheme (and its one-time legacy-key
- * migration) and exposes no per-photo removal, so this goes through its public
- * API rather than reaching for the key itself — a second copy of
- * `pbar.<eventId>.gallery` in this file is exactly how the two drift apart.
- * `savePhoto` UNSHIFTS, so the survivors are replayed oldest-first to land in
- * their original order. Every call is synchronous localStorage work, so nothing
- * can interleave between the clear and the replay.
- */
-function forgetLocalPhoto(eventId: string, id: string): void {
-  const kept = getSavedPhotos(eventId).filter((p) => p.id !== id);
-  clearGallery(eventId);
-  for (let i = kept.length - 1; i >= 0; i--) savePhoto(eventId, kept[i]);
 }
 
 /** The shape the pure keepsake helpers work in. */
@@ -994,7 +979,9 @@ function MediaCard({
   onView,
   filePrefix,
   onRemove,
-  removing = false,
+  selecting = false,
+  selected = false,
+  onToggleSelect,
 }: {
   media: GalaMedia;
   featured: boolean;
@@ -1004,7 +991,11 @@ function MediaCard({
   filePrefix: string;
   /** Absent = no remove control at all (frozen legacy events pass nothing). */
   onRemove?: (m: GalaMedia) => void;
-  removing?: boolean;
+  /** Select mode: a tap toggles selection instead of opening the viewer. */
+  selecting?: boolean;
+  selected?: boolean;
+  /** Absent in select mode = this tile cannot be removed from this phone. */
+  onToggleSelect?: (m: GalaMedia) => void;
 }) {
   const [downloading, setDownloading] = useState(false);
   const canShare = typeof navigator !== 'undefined' && !!navigator.share;
@@ -1044,17 +1035,29 @@ function MediaCard({
       initial={{ opacity: 0, y: 18, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      onClick={() => onView(media)}
-      role="button"
+      onClick={() => {
+        if (!selecting) { onView(media); return; }
+        if (onToggleSelect) { haptic('tap'); onToggleSelect(media); }
+      }}
+      role={selecting ? 'checkbox' : 'button'}
+      aria-checked={selecting ? selected : undefined}
+      aria-disabled={selecting && !onToggleSelect ? true : undefined}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onView(media);
+          if (!selecting) onView(media);
+          else if (onToggleSelect) onToggleSelect(media);
         }
       }}
-      aria-label={isVideo ? 'Open video' : 'Open photo'}
-      style={{ aspectRatio: '9 / 16' }}
+      aria-label={selecting
+        ? `${selected ? 'Selected' : 'Select'} ${isVideo ? 'video' : 'photo'}`
+        : isVideo ? 'Open video' : 'Open photo'}
+      style={{
+        aspectRatio: '9 / 16',
+        ...(selecting && selected ? { boxShadow: '0 0 0 3px var(--color-accent)' } : null),
+        ...(selecting && !onToggleSelect ? { opacity: 0.4 } : null),
+      }}
     >
       {/* A tile renders ~180px wide on a phone and ~300px featured; fetching the
           full 1080px capture for each was roughly eight times the pixels, on the
@@ -1074,7 +1077,19 @@ function MediaCard({
 
       <TypeChip isVideo={isVideo} />
 
-      {isVideo && (
+      {selecting && onToggleSelect && (
+        <span
+          aria-hidden
+          className="absolute top-2 right-2 z-20 flex items-center justify-center rounded-full w-7 h-7 border-2 transition-colors"
+          style={selected
+            ? { background: 'var(--color-accent)', borderColor: 'var(--color-accent)', color: 'var(--on-accent)' }
+            : { background: 'rgba(0,0,0,0.45)', borderColor: 'rgba(255,255,255,0.85)' }}
+        >
+          {selected && <Check className="w-4 h-4" strokeWidth={3} />}
+        </span>
+      )}
+
+      {isVideo && !selecting && (
         <div
           className="absolute top-2 right-2 z-10 flex items-center justify-center rounded-full text-[color:var(--color-accent)]"
           style={CHIP_STYLE}
@@ -1085,8 +1100,9 @@ function MediaCard({
       )}
 
       {/* Caption + actions, always visible: a phone has no hover, and a control
-          that only appears on hover is a control a guest never finds. */}
-      <div
+          that only appears on hover is a control a guest never finds. Hidden
+          while selecting, so a tap anywhere on the tile means "select". */}
+      {!selecting && <div
         className="absolute bottom-0 inset-x-0 flex flex-col gap-2 p-2.5 pt-8"
         style={{
           background: 'linear-gradient(to top, rgba(0,0,0,0.86) 0%, rgba(0,0,0,0.45) 55%, transparent 100%)',
@@ -1144,23 +1160,18 @@ function MediaCard({
           {onRemove && (
             <button
               onClick={(e) => { e.stopPropagation(); haptic('tap'); onRemove(media); }}
-              disabled={removing}
-              className="pressable shrink-0 inline-flex items-center justify-center text-brand-muted/70 hover:text-red-300 rounded-xl bg-white/[0.06] border border-white/10 transition-colors disabled:opacity-60"
+              className="pressable shrink-0 inline-flex items-center justify-center text-brand-muted/70 hover:text-red-300 rounded-xl bg-white/[0.06] border border-white/10 transition-colors"
               style={{ width: 44, minHeight: 44 }}
               aria-label={isVideo ? 'Remove video' : 'Remove photo'}
             >
-              {removing ? (
-                <span className="block w-3.5 h-3.5 rounded-full border-2 border-current/30 border-t-current animate-spin" />
-              ) : (
-                <Trash2 className="w-[15px] h-[15px]" strokeWidth={1.8} />
-              )}
+              <Trash2 className="w-[15px] h-[15px]" strokeWidth={1.8} />
             </button>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Enlarge affordance — pointer only; touch users tap the tile. */}
-      <div className="hidden sm:flex absolute inset-0 items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+      <div className={`${selecting ? 'hidden' : 'hidden sm:flex'} absolute inset-0 items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none`}>
         <div
           className="flex items-center justify-center rounded-full liquid-glass text-brand-fg"
           style={{ width: 44, height: 44 }}
@@ -1333,19 +1344,17 @@ export default function MyPhotos() {
      A SECOND gate is per-tile (removeKindFor, below): a wall post also needs
      this device's delete token, which only the phone that made it holds. */
   const canRemove = source === 'db';
-  const [removeTarget, setRemoveTarget] = useState<GalaMedia | null>(null);
-  const [removingId, setRemovingId] = useState<string | null>(null);
-  /** One-line outcome strip. Guest surfaces have no ToastProvider — it is
-   *  mounted on /admin and the host studio only — and a fixed toast would sit
-   *  on top of the phone tab bar this page already portals in. So the answer
-   *  appears where the page already answers: the same strip the failed server
-   *  read uses. */
-  const [notice, setNotice] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null);
-  /** Set while the local gallery is being rewritten: `savePhoto` fires
-   *  `gallery:changed` per entry, and the listener below would otherwise run a
-   *  full re-fetch for every surviving photo. dispatchEvent is synchronous, so
-   *  every one of those events lands inside the flag's window. */
-  const ignoreGalleryEvents = useRef(false);
+  /** Photos this guest is removing (undo window or in flight): hidden here,
+   *  and on the wall view, until they are really gone or the guest undoes. */
+  const pendingIds = usePendingRemovalIds(eventId);
+  /** Select mode for removing several at once. `?select=1` opens it (the
+   *  wall's "Remove mine" hands over here). */
+  const location = useLocation();
+  const [selecting, setSelecting] = useState(
+    () => canRemove && new URLSearchParams(location.search).get('select') === '1',
+  );
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
 
   const fetchAndMerge = useCallback(async () => {
     const [saved, server] = await Promise.all([
@@ -1390,72 +1399,59 @@ export default function MyPhotos() {
 
   // Listen for gallery:changed events
   useEffect(() => {
-    const handler = () => { if (!ignoreGalleryEvents.current) fetchAndMerge(); };
+    const handler = () => { fetchAndMerge(); };
     window.addEventListener('gallery:changed', handler);
     return () => window.removeEventListener('gallery:changed', handler);
   }, [fetchAndMerge]);
 
-  // A good-news strip clears itself; a failure waits to be read and dismissed
-  // (the rule Toast.tsx settled on — an error nobody saw is an error nobody fixed).
+  /** What the gallery shows: everything not on its way out. */
+  const shown = useMemo(
+    () => (pendingIds.size === 0 ? media : media.filter((m) => !pendingIds.has(m.id))),
+    [media, pendingIds],
+  );
+  const removable = useMemo(
+    () => (canRemove ? shown.filter((m) => removeKindFor(m) !== 'none') : []),
+    [canRemove, shown],
+  );
+  // Selection only ever holds tiles that are still on screen.
   useEffect(() => {
-    if (!notice || notice.tone === 'error') return;
-    const t = setTimeout(() => setNotice(null), 4000);
-    return () => clearTimeout(t);
-  }, [notice]);
+    setSelected((cur) => {
+      if (cur.size === 0) return cur;
+      const live = new Set(removable.map((m) => m.id));
+      const next = new Set([...cur].filter((id) => live.has(id)));
+      return next.size === cur.size ? cur : next;
+    });
+  }, [removable]);
+  useEffect(() => {
+    if (selecting && !loading && removable.length === 0) setSelecting(false);
+  }, [selecting, loading, removable.length]);
 
   /**
-   * Remove one moment: off the wall, out of storage, out of this device's
-   * gallery. Not optimistic — a tile that vanished and came back would read as
-   * "my photo is still up there somewhere", which is the opposite of the
-   * reassurance this control exists to give.
+   * Take moments down. The tiles leave at once and an Undo bar gives the guest
+   * a few seconds; the server deletes (off the wall, out of storage) go out
+   * when that window closes. Ownership is the server's call: each wall post
+   * carries this device's delete token, and only the phone that made it has one.
    */
-  const removeMedia = async (m: GalaMedia) => {
-    setRemovingId(m.id);
-    const kind = removeKindFor(m);
-    const token = m.deleteToken;
-    // A local-only entry never reached the wall, so there is nothing to ask the
-    // server for — this is purely a local erase. A wall post needs this device's
-    // delete token; without one it answers exactly what the server would, minus
-    // the round trip, and 'not_yours' is already the right words for it.
-    const res = kind === 'local'
-      ? { deleted: true, error: null as null }
-      : isDeleteToken(token)
-        ? await deleteMyPost(eventId, m.id, token)
-        : { deleted: false, error: 'not_yours' as const };
+  const removeItems = useCallback((items: GalaMedia[]) => {
+    const list = items.filter((m) => removeKindFor(m) !== 'none');
+    if (list.length === 0) return;
+    removals.schedule(eventId, list.map((m) => ({ id: m.id, origin: m.origin, deleteToken: m.deleteToken ?? null })));
+    setLightbox((cur) => (cur && list.some((m) => m.id === cur.id) ? null : cur));
+  }, [eventId]);
 
-    // 'post_not_found' is the guest's goal already achieved (a second tab, or a
-    // retry after a lost response) — finish the local half rather than reporting
-    // a failure for something that is genuinely gone.
-    if (!res.deleted && res.error !== 'post_not_found') {
-      setRemovingId(null);
-      setRemoveTarget(null);
-      const text =
-        res.error === 'not_yours'
-          ? 'That moment was posted from another device — open your gallery on the phone you used at the booth.'
-          : res.error === 'rate_limited'
-            ? 'That’s a lot of removals at once. Try again in a few minutes.'
-            : res.error === 'storage_failed'
-              ? 'We couldn’t remove the file, so nothing was deleted. Try again in a moment.'
-              : 'Couldn’t remove that just now — check your connection and try again.';
-      setNotice({ text, tone: 'error' });
-      return;
-    }
-
-    ignoreGalleryEvents.current = true;
-    try {
-      forgetLocalPhoto(eventId, m.id);
-    } finally {
-      ignoreGalleryEvents.current = false;
-    }
-    setMedia((list) => list.filter((x) => x.id !== m.id));
-    setLightbox((cur) => (cur && cur.id === m.id ? null : cur));
-    setRemovingId(null);
-    setRemoveTarget(null);
-    setNotice({
-      text: m.origin === 'db' ? 'Removed — it’s off the wall too.' : 'Removed from this device.',
-      tone: 'ok',
+  const toggleSelect = useCallback((m: GalaMedia) => {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(m.id)) next.delete(m.id);
+      else next.add(m.id);
+      return next;
     });
-  };
+  }, []);
+  const exitSelect = useCallback(() => {
+    setSelecting(false);
+    setSelected(new Set());
+  }, []);
+  const allSelected = removable.length > 0 && selected.size === removable.length;
 
   // ── Video playback gate ────────────────────────────────────────────
   // One observer for the whole grid. It is created lazily inside the register
@@ -1468,8 +1464,8 @@ export default function MyPhotos() {
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
 
   const videoOrder = useMemo(
-    () => media.filter((m) => m.media_type === 'video').map((m) => m.id),
-    [media],
+    () => shown.filter((m) => m.media_type === 'video').map((m) => m.id),
+    [shown],
   );
   orderRef.current = videoOrder;
 
@@ -1522,9 +1518,9 @@ export default function MyPhotos() {
   );
 
   // ── Derived view model ─────────────────────────────────────────────
-  const stats = useMemo(() => summarize(media.map(toKeepsake)), [media]);
-  const groups = useMemo(() => groupByDay(media.map(toKeepsake)), [media]);
-  const byId = useMemo(() => new Map(media.map((m) => [m.id, m])), [media]);
+  const stats = useMemo(() => summarize(shown.map(toKeepsake)), [shown]);
+  const groups = useMemo(() => groupByDay(shown.map(toKeepsake)), [shown]);
+  const byId = useMemo(() => new Map(shown.map((m) => [m.id, m])), [shown]);
   const shareMeta = useMemo(() => {
     const copy = useStore.getState().copy;
     return { title: copy.momentTitle, text: copy.shareText };
@@ -1579,15 +1575,31 @@ export default function MyPhotos() {
           /* One row while both are idle, so the first photos stay above the
              fold; either control takes the column when it opens a panel. */
           <div className="mt-5 w-full max-w-sm mx-auto flex flex-wrap items-center justify-center gap-2.5">
-            <SaveAllPanel media={media} filePrefix={config.copy.filePrefix} shareMeta={shareMeta} />
+            <SaveAllPanel media={shown} filePrefix={config.copy.filePrefix} shareMeta={shareMeta} />
             {/* Hides itself entirely when the browser cannot record a canvas or
                 there are too few photos — see RecapPanel. */}
             <RecapPanel
-              media={media}
+              media={shown}
               filePrefix={config.copy.filePrefix}
               eventName={config.copy.eventName}
             />
+            {/* Several at once: Select. One at a time is the bin on each tile. */}
+            {removable.length > 1 && !selecting && (
+              <button
+                type="button"
+                onClick={() => { haptic('tap'); setSelecting(true); }}
+                className="pressable inline-flex items-center gap-1.5 min-h-11 px-4 rounded-xl font-label uppercase tracking-luxe text-[10px] text-brand-muted hover:text-brand-fg bg-white/[0.06] border border-white/10"
+              >
+                <Trash2 className="w-3.5 h-3.5" strokeWidth={1.8} aria-hidden />
+                Select to remove
+              </button>
+            )}
           </div>
+        )}
+        {selecting && (
+          <p role="status" className="mt-4 font-sans text-xs text-brand-muted/80">
+            {selected.size === 0 ? 'Tap the moments you want to remove.' : `${selected.size} selected`}
+          </p>
         )}
       </div>
 
@@ -1596,7 +1608,7 @@ export default function MyPhotos() {
         {/* Locally-saved captures are still shown when the server read fails,
             but the guest is told the list is incomplete rather than being left
             to assume some of their photos vanished. */}
-        {serverFailed && media.length > 0 && (
+        {serverFailed && shown.length > 0 && (
           <div className="mb-4 rounded-xl liquid-glass px-4 py-3 flex items-center justify-between gap-3">
             <p className="font-sans text-xs text-brand-muted/80 leading-relaxed">
               Showing what’s saved on this device — we couldn’t reach the event for the rest.
@@ -1606,30 +1618,6 @@ export default function MyPhotos() {
               className="pressable shrink-0 min-h-11 px-4 rounded-lg font-label uppercase tracking-luxe text-[10px] text-brand-fg bg-white/[0.07]"
             >
               Retry
-            </button>
-          </div>
-        )}
-
-        {/* Outcome of the last removal. Same strip as the failed-read notice
-            above it, so the page answers in one voice. */}
-        {notice && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="mb-4 rounded-xl liquid-glass px-4 py-3 flex items-center justify-between gap-3"
-          >
-            <p
-              className={`font-sans text-xs leading-relaxed ${
-                notice.tone === 'error' ? 'text-amber-300' : 'text-brand-muted/80'
-              }`}
-            >
-              {notice.text}
-            </p>
-            <button
-              onClick={() => setNotice(null)}
-              className="pressable shrink-0 min-h-11 px-4 rounded-lg font-label uppercase tracking-luxe text-[10px] text-brand-fg bg-white/[0.07]"
-            >
-              OK
             </button>
           </div>
         )}
@@ -1646,11 +1634,11 @@ export default function MyPhotos() {
               />
             ))}
           </div>
-        ) : media.length === 0 && serverFailed ? (
+        ) : shown.length === 0 && serverFailed ? (
           /* The server read failed and nothing was saved locally — say so
              rather than claiming the guest has never taken a photo. */
           <FetchFailed what="your moments" onRetry={fetchAndMerge} />
-        ) : media.length === 0 ? (
+        ) : shown.length === 0 ? (
           <EmptyKeepsakes basePath={basePath} />
         ) : (
           <div className="flex flex-col gap-7">
@@ -1681,8 +1669,10 @@ export default function MyPhotos() {
                         register={register}
                         onView={setLightbox}
                         filePrefix={config.copy.filePrefix}
-                        onRemove={canRemove && removeKindFor(m) !== 'none' ? setRemoveTarget : undefined}
-                        removing={removingId === m.id}
+                        onRemove={canRemove && removeKindFor(m) !== 'none' ? (x) => removeItems([x]) : undefined}
+                        selecting={selecting}
+                        selected={selected.has(m.id)}
+                        onToggleSelect={canRemove && removeKindFor(m) !== 'none' ? toggleSelect : undefined}
                       />
                     );
                   })}
@@ -1694,7 +1684,7 @@ export default function MyPhotos() {
       </div>
 
       {/* Footer link */}
-      {!loading && media.length > 0 && (
+      {!loading && shown.length > 0 && !selecting && (
         <div className="relative z-10 text-center pb-28 sm:pb-10">
           <Link
             to={`${basePath}/booth`}
@@ -1718,36 +1708,65 @@ export default function MyPhotos() {
         )}
       </AnimatePresence>
 
-      {/* Remove confirmation. Short, and it names the consequence a guest
-          cannot see from here: the wall. */}
-      {removeTarget && (
+      {/* Select mode: one bar, above the phone tab bar. */}
+      {selecting && (
+        <div className="fixed inset-x-0 z-[65] flex justify-center px-3 pointer-events-none bottom-[calc(env(safe-area-inset-bottom,0px)+5.75rem)] sm:bottom-6">
+          <div
+            className="pointer-events-auto w-full max-w-md rounded-2xl liquid-glass flex items-center gap-1.5 p-1.5 shadow-2xl"
+            style={{ background: 'rgba(12,10,16,0.9)' }}
+          >
+            <button
+              type="button"
+              onClick={exitSelect}
+              className="pressable shrink-0 min-h-11 px-3.5 rounded-xl font-label uppercase tracking-luxe text-[10px] text-brand-muted hover:text-brand-fg"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(allSelected ? new Set() : new Set(removable.map((m) => m.id)))}
+              className="pressable flex-1 min-w-0 min-h-11 px-3 rounded-xl font-label uppercase tracking-luxe text-[10px] text-brand-fg bg-white/[0.07]"
+            >
+              {allSelected ? 'Clear' : `Select all (${removable.length})`}
+            </button>
+            <button
+              type="button"
+              disabled={selected.size === 0}
+              onClick={() => setConfirmBulk(true)}
+              className="pressable shrink-0 inline-flex items-center gap-1.5 min-h-11 px-4 rounded-xl font-label uppercase tracking-luxe text-[10px] bg-red-500/20 text-red-200 hover:bg-red-500/30 disabled:opacity-40"
+            >
+              <Trash2 className="w-4 h-4" strokeWidth={1.8} aria-hidden />
+              Remove{selected.size > 0 ? ` ${selected.size}` : ''}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk confirmation. A single tile's Remove skips this (Undo covers a
+          slip); several at once gets one deliberate question. */}
+      {confirmBulk && (
         <ConfirmModal
-          title={removeTarget.media_type === 'video' ? 'Remove this video?' : 'Remove this photo?'}
+          title={`Remove ${selected.size} ${selected.size === 1 ? 'moment' : 'moments'}?`}
           tone="danger"
           confirmLabel="Remove"
-          busy={removingId === removeTarget.id}
           body={
-            removeTarget.origin === 'db' ? (
-              <>
-                It disappears from the wall too. This can’t be undone.
-                <span className="block mt-2 text-brand-muted/50">
-                  Save it first if you want to keep a copy.
-                </span>
-              </>
-            ) : (
-              <>
-                This one only exists on this device — it never reached the wall. Removing it
-                can’t be undone.
-              </>
-            )
+            <>
+              They come off the wall and this phone. You’ll have a few seconds to undo.
+              <span className="block mt-2 text-brand-muted/50">
+                Save any you want to keep first.
+              </span>
+            </>
           }
-          onConfirm={() => { void removeMedia(removeTarget); }}
-          onCancel={() => {
-            if (removingId) return; // don't abandon a removal mid-flight
-            setRemoveTarget(null);
+          onConfirm={() => {
+            removeItems(removable.filter((m) => selected.has(m.id)));
+            setConfirmBulk(false);
+            exitSelect();
           }}
+          onCancel={() => setConfirmBulk(false)}
         />
       )}
+
+      {canRemove && <RemovalUndoBar eventId={eventId} />}
     </div>
   );
 }

@@ -217,6 +217,14 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         line: 'Hosts approve or hide any photo from their phone, so nothing lands on the wall they would not want there.',
         icon: 'shield',
       },
+      {
+        id: 'guest-remove',
+        title: 'Guests control their own photos',
+        line: 'Guests can take their own photos off the wall, one or all at once, with a few seconds to undo.',
+        detail: 'Only the phone that took a photo can remove it, so nobody can delete someone else’s.',
+        icon: 'smartphone',
+        tag: 'New',
+      },
     ],
   },
   {
