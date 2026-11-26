@@ -91,6 +91,7 @@ export const STEP_ORGANISATION: Record<WizardStepId, StepClassification> = {
     why: 'A style, then the layout, background, photo cards, arrival and screen extras are each their own decision about the live wall.',
   },
   keepsake: { kind: 'own-guided', why: 'The keepsake editor brings its own guided steps (Look, Greeting, Take-home, Music, Sending, Review).' },
+  intro: { kind: 'single', why: 'One choice (Beamy’s intro, your own, or off), then the step chips pick which ONE step to edit; the preview follows the chip.' },
   launch: { kind: 'single', why: 'A checklist, Go live and the share kit on one screen.' },
 };
 

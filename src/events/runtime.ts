@@ -20,6 +20,7 @@ import { isUntouchedTemplateTheme } from '../lib/eventTemplates';
 import { normalizeScene, resolveSceneImageUrl } from '../lib/sceneThemes';
 import { normalizeEventTheme, themePackById, themePackVars } from '../lib/themePacks';
 import { powerUpTriggers } from '../lib/wizard/powerUps';
+import { normalizeBoothIntro } from '../lib/boothIntro';
 
 export interface RuntimeEvent {
   /** slug — doubles as the posts/experiences/app_settings event_id. */
@@ -158,6 +159,8 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
   const boothScreen = resolveSceneImageUrl(cfg.boothScreen);
   // Event-wide power-ups (setup wizard): preset ids → booth triggers.
   const powerUps = powerUpTriggers(cfg.powerUps);
+  // Beamy's booth intro (setup wizard): only stored when the host touched it.
+  const boothIntro = cfg.boothIntro !== undefined ? normalizeBoothIntro(cfg.boothIntro) : undefined;
   // A full theme pack (lib/themePacks): when set, it IS the look — its
   // tokens replace themeVars, the brand look is off, and its own self-hosted
   // fonts load. Absent/unknown = everything below exactly as before.
@@ -187,6 +190,7 @@ export function buildRuntimeConfig(row: EventRow): EventConfig {
     ...(theme ? { theme } : {}),
     ...(boothScreen ? { boothScreen } : {}),
     ...(powerUps.length > 0 ? { powerUps } : {}),
+    ...(boothIntro ? { boothIntro } : {}),
   };
 }
 

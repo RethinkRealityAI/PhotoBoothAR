@@ -1146,6 +1146,10 @@ const FIRST_EVENT: GuideDoc = {
           screen: 'setup-keepsake',
         },
         {
+          title: 'Let Beamy show guests around',
+          body: 'Booth intro is the short walk-through guests see the first time they open the booth: Beamy says hello, points at the flip, Looks and Photo · Video · Strip controls, and only mentions what your event actually has, such as AR, power-ups or challenges. Keep Beamy’s intro, choose Make it your own to change any step’s words or picture (pick one of your own Looks or upload one), or turn it off for a one-line tip instead. The phone beside it is the real booth intro and changes as you type.',
+        },
+        {
           title: 'Launch: check it over and go live',
           body: 'The last screen ticks off every part of your event with an Edit beside each, so anything you skipped is one tap away. Go live is one switch. Until you flip it, the guest link shows a friendly not-yet page, so you can share it in advance without anyone seeing a half-built booth. Open or print has the welcome page, the booth, the live wall and Print signs.',
           screen: 'setup-launch',

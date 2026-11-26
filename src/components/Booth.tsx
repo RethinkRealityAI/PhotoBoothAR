@@ -64,6 +64,7 @@ import {
   challengeFromRouterState, nextChallenge,
 } from '../lib/guestFlow';
 import { shouldShowOnboarding } from '../lib/boothCameraGate';
+import { DEFAULT_BOOTH_INTRO, introGestures, introLooksFrom, introSeen, markIntroSeen, type IntroContext } from '../lib/boothIntro';
 import ChallengeSelector from './booth/ChallengeSelector';
 
 // Foundation APIs
@@ -363,8 +364,12 @@ export default function Booth() {
   const { showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
   // Platform events replace the five-slide intro with ONE dismissible line
   // over the live camera (cameraHint below); legacy keeps the intro as shipped.
-  const [onboardingVisible, setOnboardingVisible] = useState(source === 'db' ? false : showOnboarding);
-  const [cameraHint, setCameraHint] = useState(() => source === 'db' && !cameraHintSeen(safeLocalStorage()));
+  // Platform events: Beamy's booth intro (lib/boothIntro), once per device per
+  // event, unless the host turned it off in setup — then the one-line tip.
+  const introCfg = useMemo(() => eventConfig.boothIntro ?? DEFAULT_BOOTH_INTRO, [eventConfig.boothIntro]);
+  const [introOwed] = useState(() => source === 'db' && introCfg.enabled && !introSeen(safeLocalStorage(), eventId));
+  const [onboardingVisible, setOnboardingVisible] = useState(source === 'db' ? introOwed : showOnboarding);
+  const [cameraHint, setCameraHint] = useState(() => source === 'db' && !introOwed && !cameraHintSeen(safeLocalStorage()));
   const dismissCameraHint = useCallback(() => {
     setCameraHint(false);
     markCameraHintSeen(safeLocalStorage());
@@ -2272,6 +2277,20 @@ export default function Booth() {
     () => buildDeck(source === 'db' ? withWorldLooks(catalog) : catalog),
     [catalog, source],
   );
+  // What Beamy's intro shows: only what this booth really has (lib/boothIntro).
+  const introCtx: IntroContext = useMemo(() => {
+    const { looks, worldFrames } = introLooksFrom(catalog);
+    return {
+      eventName: copy.eventName,
+      looks,
+      worldFrames,
+      video: videoAllowed,
+      strip: true,
+      canFlip,
+      gestures: introGestures((eventConfig.powerUps ?? []).map((t) => t.id)),
+      challenges: wallSettings.showChallenges !== false ? challenges.filter((c) => c.active).length : 0,
+    };
+  }, [catalog, copy.eventName, videoAllowed, canFlip, eventConfig.powerUps, wallSettings.showChallenges, challenges]);
   // Memoized: a fresh object literal per render made this a new prop identity
   // on every single re-render of the booth, defeating any memo downstream.
   const deckSelection: DeckSelection = useMemo(() => ({
@@ -2430,8 +2449,13 @@ export default function Booth() {
           <Onboarding
             key="onboarding"
             withChallengesStep={wallSettings.showChallenges !== false && challenges.some((c) => c.active)}
+            intro={source === 'db' ? { ctx: introCtx, cfg: introCfg } : undefined}
             onDismiss={() => {
-              dismissOnboarding();
+              if (source === 'db') {
+                markIntroSeen(safeLocalStorage(), eventId);
+                // The intro taught everything the one-line tip says.
+                markCameraHintSeen(safeLocalStorage());
+              } else dismissOnboarding();
               setOnboardingVisible(false);
             }}
           />

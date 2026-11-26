@@ -7,7 +7,7 @@
 import { useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowRight, CalendarDays, Check, CloudOff, Gift, Image as ImageIcon, Loader2, Monitor, Rocket, Sparkles, Trophy, X, Zap,
+  ArrowLeft, ArrowRight, CalendarDays, Check, CloudOff, Gift, Image as ImageIcon, Loader2, Monitor, Rocket, Smile, Sparkles, Trophy, X, Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { WIZARD_STEPS, setupPercent, stepDef, stepIndex, type WizardProgress, type WizardStepId } from '../../../lib/wizard/wizardModel';
@@ -45,6 +45,7 @@ export const STEP_ICON: Record<WizardStepId, LucideIcon> = {
   challenges: Trophy,
   booth: Monitor,
   keepsake: Gift,
+  intro: Smile,
   launch: Rocket,
 };
 

@@ -164,6 +164,15 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         icon: 'zap',
         image: 'setup-powerups',
       },
+      {
+        id: 'booth-intro',
+        title: 'Beamy shows guests around',
+        line: 'First time in the booth, Beamy gives a ten-second tour in the event’s colours, covering only what that event has.',
+        detail: 'It points at the real controls and names the event’s own Looks, AR and challenges. Hosts can keep it, reword it, swap pictures or switch it off.',
+        icon: 'smartphone',
+        image: 'beamy-wave',
+        tag: 'New',
+      },
     ],
   },
   {
