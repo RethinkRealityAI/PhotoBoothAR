@@ -873,7 +873,7 @@ const MAKE_3D_PROPS: GuideDoc = {
         },
         {
           title: 'Customise a library prop',
-          body: 'The curated library goes further: pick a model, then recolour each part of it separately and choose a finish — matte, metal, gloss. You can also engrave a name into it, and if you set that name to the guest token, every single guest sees their OWN name on the prop. All of this is free.',
+          body: 'The curated library goes further: pick a model, then recolour each part of it separately and choose a finish — matte, metal, gloss. You can also engrave a name into it, and if you set that name to the guest token, every single guest sees their OWN name on the prop. Some pieces also give guests a colour row in the booth, so they can switch it themselves: the masquerade mask and the Bashment and Wayfarer shades include Jamaica and Nigeria flag colourways. All of this is free.',
           tip: 'This is why customising beats generating: one prop, personalised per guest, at zero credits.',
         },
         {

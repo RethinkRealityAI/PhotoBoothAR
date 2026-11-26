@@ -361,7 +361,7 @@ export default function BoothLookDeck({
                   <span
                     className="h-7 w-7 rounded-full transition-shadow"
                     style={{
-                      background: hex,
+                      background: colorSlot.fills?.[hex] ?? hex,
                       boxShadow: on
                         ? '0 0 0 2px var(--color-accent), 0 0 10px rgba(var(--accent-rgb),0.8)'
                         // Glass bead: a white rim and a specular lip, so the

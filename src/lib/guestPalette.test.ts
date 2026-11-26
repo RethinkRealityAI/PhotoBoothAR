@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyGuestColor, guestColorSlot } from './guestPalette';
+import { applyGuestColor, guestColorSlot, swatchFill } from './guestPalette';
 import type { ExperienceLayer } from '../types';
 
 const template = (regions: object[]) => ({
@@ -135,5 +135,74 @@ describe('guestColorSlot — a template with its own named swatches', () => {
     expect(parts.lacquer.hex).toBe('#9b1028');
     expect(parts.feathers.hex).toBe('#9b1028');
     expect(parts.gold).toBeUndefined();
+  });
+});
+
+describe('colourway swatches — flags and baked variants', () => {
+  const regions = [
+    { id: 'lacquer', label: 'Mask', recolourable: true, defaultHex: '#0e6b43', refLuminance: 0.06, guestPick: true },
+    { id: 'feathers', label: 'Feathers', recolourable: true, defaultHex: '#0e6b43', refLuminance: 0.06, guestPick: true },
+    { id: 'gold', label: 'Gold', recolourable: false, defaultHex: '#a3723a', refLuminance: 0.2 },
+  ];
+  const mask = {
+    id: 'mask', kind: '3d_attachment', asset_url: '/models/m.glb',
+    anchor: { anchor: 'noseBridge', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+    template: {
+      ...template(regions),
+      guestSwatches: [
+        { hex: '#0e6b43', name: 'Emerald' },
+        { hex: '#009b3a', name: 'Jamaica', parts: { lacquer: '#009b3a', feathers: '#111111' }, dot: ['#009b3a', '#fed100', '#111111'] },
+      ],
+    },
+  } as unknown as ExperienceLayer;
+
+  it('a flag swatch paints each region its own colour and gets a striped button', () => {
+    const slot = guestColorSlot([mask])!;
+    expect(slot.fills?.['#009b3a']).toBe(swatchFill(['#009b3a', '#fed100', '#111111']));
+    expect(slot.fills?.['#0e6b43']).toBeUndefined();
+    const out = applyGuestColor([mask], slot, '#009b3a')!;
+    const parts = out[0].customization!.parts!;
+    expect(parts.lacquer.hex).toBe('#009b3a');
+    expect(parts.feathers.hex).toBe('#111111');
+    expect(parts.gold).toBeUndefined();
+    expect(out[0].asset_url).toBe('/models/m.glb');
+  });
+
+  const shades = {
+    id: 'shades', kind: '3d_attachment', asset_url: '/models/shades.glb',
+    anchor: { anchor: 'noseBridge', offset: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1 },
+    template: {
+      ...template([]),
+      glbUrl: '/models/shades.glb',
+      guestSwatches: [
+        { hex: '#e8742a', name: 'Floral', glbUrl: '/models/shades.glb' },
+        { hex: '#009b3a', name: 'Jamaica', glbUrl: '/models/shades-jamaica.glb' },
+      ],
+    },
+  } as unknown as ExperienceLayer;
+
+  it('a template with no paintable region still offers baked variants', () => {
+    const slot = guestColorSlot([shades])!;
+    expect(slot.regionIds).toEqual([]);
+    expect(slot.currentHex).toBe('#e8742a');
+    expect(slot.swatches).toEqual(['#e8742a', '#009b3a']);
+    // Picking the model that is already on is no change at all.
+    const same = [shades];
+    expect(applyGuestColor(same, slot, '#e8742a')).toBe(same);
+    const out = applyGuestColor([shades], slot, '#009b3a')!;
+    expect(out[0].asset_url).toBe('/models/shades-jamaica.glb');
+    expect(out[0].customization).toBeUndefined();
+  });
+
+  it('a regionless template without variant swatches offers nothing', () => {
+    const plain = { ...shades, template: { ...template([]), guestSwatches: [{ hex: '#e8742a', name: 'Floral' }] } } as unknown as ExperienceLayer;
+    expect(guestColorSlot([plain])).toBeNull();
+  });
+
+  it('swatchFill: a flat colour, or equal stripes', () => {
+    expect(swatchFill(['#008751'])).toBe('#008751');
+    expect(swatchFill(['#008751', '#ffffff', '#008751'])).toBe(
+      'linear-gradient(90deg, #008751 0.00% 33.33%, #ffffff 33.33% 66.67%, #008751 66.67% 100.00%)',
+    );
   });
 });

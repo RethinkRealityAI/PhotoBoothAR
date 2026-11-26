@@ -282,14 +282,29 @@ export interface AssetTemplate {
 
 /** One named booth swatch (see AssetTemplate.guestSwatches). */
 export interface GuestSwatch {
-  /** `#rrggbb`, lowercase. */
+  /** `#rrggbb`, lowercase. The swatch's KEY (unique per template) and the
+   *  colour every guest-pickable region takes unless `parts` says otherwise. */
   hex: string;
   /** Short and generic: "Emerald", "Ruby". Read aloud as the button label. */
   name: string;
+  /**
+   * A COLOURWAY rather than one colour: per-region hex for this swatch (a
+   * Jamaica mask is a green base with black feathers). Regions not named here
+   * take `hex`. Only recolourable regions survive normalizeTemplate.
+   */
+  parts?: Record<string, string>;
+  /**
+   * A baked variant of the SAME mesh (same UVs, so any region map still lines
+   * up) to draw instead of the layer's model: a flag-print pair of shades that
+   * a tint could never produce from a floral bake.
+   */
+  glbUrl?: string;
+  /** 2-3 stripe colours for the booth button (a flag) instead of a flat dot. */
+  dot?: string[];
 }
 
-/** Most swatches a template may offer — one row on a phone. */
-export const MAX_GUEST_SWATCHES = 8;
+/** Most swatches a template may offer — one scrolling row on a phone. */
+export const MAX_GUEST_SWATCHES = 10;
 
 function normalizeGuestSwatches(raw: unknown): GuestSwatch[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -301,7 +316,23 @@ function normalizeGuestSwatches(raw: unknown): GuestSwatch[] | undefined {
     const hex = normalizeTint(o.hex);
     const name = cleanId(o.name, 24);
     if (!hex || !name || out.some((s) => s.hex === hex)) continue;
-    out.push({ hex, name });
+    const swatch: GuestSwatch = { hex, name };
+    if (o.parts !== null && typeof o.parts === 'object' && !Array.isArray(o.parts)) {
+      const parts: Record<string, string> = {};
+      for (const [id, v] of Object.entries(o.parts as Record<string, unknown>)) {
+        const h = normalizeTint(v);
+        if (h && cleanId(id)) parts[cleanId(id)] = h;
+      }
+      if (Object.keys(parts).length > 0) swatch.parts = parts;
+    }
+    // Same-origin path or https only: this URL becomes a model fetch.
+    const glbUrl = typeof o.glbUrl === 'string' ? o.glbUrl.trim() : '';
+    if (/^(\/[^/]|https:\/\/)/.test(glbUrl)) swatch.glbUrl = glbUrl;
+    if (Array.isArray(o.dot)) {
+      const dot = o.dot.map((d) => normalizeTint(d)).filter((d): d is string => !!d).slice(0, 3);
+      if (dot.length >= 2) swatch.dot = dot;
+    }
+    out.push(swatch);
   }
   return out.length > 0 ? out : undefined;
 }
@@ -435,7 +466,15 @@ export function normalizeTemplate(raw: unknown): AssetTemplate | null {
   const mirroredRaw = typeof o.mirroredGlbUrl === 'string' ? o.mirroredGlbUrl.trim() : '';
   const mirroredGlbUrl = modelledHand && mirroredRaw ? mirroredRaw : undefined;
   const regionMapUrl = typeof o.regionMapUrl === 'string' && o.regionMapUrl.trim() ? o.regionMapUrl.trim() : undefined;
-  const guestSwatches = normalizeGuestSwatches(o.guestSwatches);
+  // A colourway may only paint regions the template lets anyone paint.
+  const guestSwatches = normalizeGuestSwatches(o.guestSwatches)?.map((sw) => {
+    if (!sw.parts) return sw;
+    const parts = Object.fromEntries(
+      Object.entries(sw.parts).filter(([id]) => regions.some((r) => r.id === id && r.recolourable)),
+    );
+    const { parts: _drop, ...rest } = sw;
+    return Object.keys(parts).length > 0 ? { ...rest, parts } : rest;
+  });
 
   return {
     id,

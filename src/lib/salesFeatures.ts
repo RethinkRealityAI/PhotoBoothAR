@@ -82,7 +82,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         id: 'props',
         title: 'Props',
         line: 'Realistic 3D props that follow every face: crowns, hats, masks, jewellery, lit like the room they are in.',
-        detail: 'Up to three faces in one shot each get their own prop. Colourways and engraved names on selected pieces.',
+        detail: 'Up to three faces in one shot each get their own prop. Guests pick colourways on selected pieces, including Jamaica and Nigeria flag colours on masks and shades, and engraved names.',
         icon: 'crown',
         image: 'guest-crown',
       },

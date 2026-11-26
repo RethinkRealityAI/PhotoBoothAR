@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEMO_LIBRARY_ASSETS,
+  FLAG_COLOURWAY_TEMPLATES,
   LIBRARY_ASSETS,
   LIBRARY_ASSET_CHECKLIST,
   LIBRARY_EMPTY_MESSAGE,
@@ -13,7 +14,9 @@ import {
   libraryAssets,
   type ConfigurableAsset,
 } from './assetLibrary';
-import { isConfigurable } from './assetTemplate';
+import { isConfigurable, normalizeTemplate } from './assetTemplate';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { DEFAULT_REF_LUMINANCE, MAX_REGIONS, unpackRegionIds } from './regionTint';
 
 const ALL: ConfigurableAsset[] = [...LIBRARY_ASSETS, ...DEMO_LIBRARY_ASSETS];
@@ -259,4 +262,24 @@ describe('default nudge — a cap rides at the hairline, not the brow', () => {
     expect(cap.defaultNudgeCm).toBeDefined();
     expect(cap.defaultNudgeCm!.y).toBeGreaterThan(0);
   });
+});
+
+describe('flag colourway templates for shared-library eyewear', () => {
+  for (const [key, raw] of Object.entries(FLAG_COLOURWAY_TEMPLATES)) {
+    it(`${key} validates unchanged and offers Jamaica and Nigeria as baked variants`, () => {
+      const t = normalizeTemplate(raw)!;
+      expect(t).toEqual(raw);
+      const names = t.guestSwatches!.map((s) => s.name);
+      expect(names).toContain('Jamaica');
+      expect(names).toContain('Nigeria');
+      // The first swatch IS the base model, so "no pick" and "original" agree.
+      expect(t.guestSwatches![0].glbUrl).toBe(t.glbUrl);
+    });
+
+    it(`${key} ships every repo-local variant it names`, () => {
+      for (const s of normalizeTemplate(raw)!.guestSwatches!) {
+        if (s.glbUrl?.startsWith('/')) expect(existsSync(join('public', s.glbUrl)), s.glbUrl).toBe(true);
+      }
+    });
+  }
 });
