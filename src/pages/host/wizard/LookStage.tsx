@@ -25,6 +25,7 @@ import StageCanvas, { type StageOverlaySpec } from '../../../components/booth/St
 import { useCameraStream } from '../../../components/booth/useCameraStream';
 import { setThumbSource } from '../../../components/booth/filterThumbEngine';
 import type { Object3D, Overlay2D, StudioDraft } from '../../../lib/studio/state';
+import { introFieldsOf } from '../../../lib/studio/animation';
 
 const HEAD_CANVAS_ID = 'wz-head-canvas';
 const NOOP = () => {};
@@ -63,7 +64,7 @@ function HeadStage({ draft }: { draft: StudioDraft }) {
   const objects = useMemo(() => draft.objects.filter((o): o is Object3D => o.type !== 'overlay'), [draft.objects]);
   const overlays: StageOverlaySpec[] = useMemo(() => draft.objects
     .filter((o): o is Overlay2D => o.type === 'overlay' && !!o.url && o.hidden !== true)
-    .map((o) => ({ url: o.url as string, transform: o.transform, opacity: 1, animation: o.animation })), [draft.objects]);
+    .map((o) => ({ url: o.url as string, transform: o.transform, opacity: 1, animation: o.animation, ...introFieldsOf(o) })), [draft.objects]);
   // Stream the head canvas into a video once R3F has made it.
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -102,6 +103,7 @@ function HeadStage({ draft }: { draft: StudioDraft }) {
             effectId={draft.shaderId}
             mirror={false}
             overlays={overlays.length > 0 ? overlays : null}
+            introKey={overlays.map((o) => `${o.intro ?? ''}${o.introDelayMs ?? 0}`).join('|')}
             active
             watermark={false}
           />

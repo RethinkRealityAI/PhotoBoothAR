@@ -24,7 +24,7 @@ import {
   type ShadeGate,
 } from '../../lib/shaders';
 import { drawScagoMark } from '../../lib/scagoMark';
-import { Transform2D, LayerAnimation, GuestLetteringConfig } from '../../types';
+import { Transform2D, LayerAnimation, LayerIntro, GuestLetteringConfig } from '../../types';
 import {
   fitLettering,
   regionForPlacement,
@@ -36,7 +36,7 @@ import {
 import type { EventConfig } from '../../events/types';
 import { useOptionalEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
-import { animateTransform2D } from '../../lib/studio/animation';
+import { layerMotion2D } from '../../lib/studio/animation';
 import { getTrackedFrame, retainFrameLock } from '../../lib/faceEngine';
 import { boothFrameCounters, createFrameGate, frameGateShouldDraw, runPreCompositeRender } from '../../lib/frameBudget';
 import { boothPictureClock, liveAgeMs, lockedAgeMs, notePictureAge, stopWatchingCameraFrames, watchCameraFrames } from '../../lib/pictureClock';
@@ -54,6 +54,11 @@ export interface StageOverlaySpec {
   transform: Transform2D;
   opacity?: number;
   animation?: LayerAnimation;
+  /** Entrance played when the Look starts (and on Replay). Absent = none. */
+  intro?: LayerIntro;
+  introDelayMs?: number;
+  /** Pivot for animated scale/rotation, fractions of the frame. Absent = centre. */
+  pivot?: { x: number; y: number };
 }
 
 interface Props {
@@ -73,6 +78,13 @@ interface Props {
    * Undefined/null -> exactly today's single-overlay path.
    */
   overlays?: StageOverlaySpec[] | null;
+  /**
+   * Restarts every layer's entrance (`intro`) when it changes — the booth
+   * bumps it when the guest picks a Frame and on the Replay button. A layer
+   * that appears later (a gesture reveal) plays its own entrance the first
+   * time it is drawn. Absent ⇒ entrances play once, from first draw.
+   */
+  introKey?: string | number | null;
   /** If present, drawn between shader and 2D overlay */
   threeCanvasId?: string | null; // DOM id of R3F canvas (inside #booth-3d-layer)
   active?: boolean;
@@ -399,6 +411,7 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
     overlayUrl, overlayTransform, overlayOpacity, overlays,
     threeCanvasId, active = true, watermark = true, effectsCanvas, lettering,
     burnSignature = false, frameLock = false, maxFps = 0, pictureClock = false, frameSource = null,
+    introKey = null,
   },
   ref,
 ) {
@@ -437,6 +450,9 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
   // Multi-layer path: the overlays spec array + a per-url image cache.
   const overlaysRef = useRef<StageOverlaySpec[] | null>(overlays ?? null);
   const overlayImgCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  /** When each layer was first drawn since the last introKey (its entrance clock). */
+  const introSeenRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => { introSeenRef.current = new Map(); }, [introKey]);
 
   useEffect(() => { effectIdRef.current = effectId; }, [effectId]);
   useEffect(() => { mirrorRef.current = mirror; }, [mirror]);
@@ -599,19 +615,50 @@ const StageCanvas = forwardRef<StageCanvasHandle, Props>(function StageCanvas(
       // Multi-layer path: draw each layer in array order (index 0 = bottom),
       // applying its animation preset. Mutually exclusive with the single
       // overlayUrl/overlayTransform path below.
-      const tSec = performance.now() / 1000;
+      const nowMs = performance.now();
+      const tSec = nowMs / 1000;
       const cache = overlayImgCacheRef.current;
-      for (const spec of overlaySpecs) {
+      const seen = introSeenRef.current;
+      const urlCount = new Map<string, number>();
+      for (let i = 0; i < overlaySpecs.length; i++) {
+        const spec = overlaySpecs[i];
         const img = cache.get(spec.url);
         if (!img) continue;
-        const at = animateTransform2D(spec.transform, spec.animation ?? 'none', tSec);
+        // Entrance clock: from the first frame this layer actually drew (an
+        // image still loading must not eat its own entrance).
+        const n = urlCount.get(spec.url) ?? 0;
+        urlCount.set(spec.url, n + 1);
+        let sinceMs = Number.POSITIVE_INFINITY;
+        if (spec.intro) {
+          const key = `${n}:${spec.url}`;
+          let at0 = seen.get(key);
+          if (at0 === undefined) { at0 = nowMs; seen.set(key, at0); }
+          sinceMs = nowMs - at0;
+        }
+        const m = layerMotion2D(
+          { animation: spec.animation, intro: spec.intro, introDelayMs: spec.introDelayMs, phase: i * 1.3 },
+          tSec, sinceMs,
+        );
+        const alpha = (spec.opacity ?? 1) * m.alpha;
+        if (alpha <= 0) continue;
+        const t = spec.transform;
         ctx.save();
-        ctx.globalAlpha = spec.opacity ?? 1;
-        const cx = w / 2 + (at.x / 100) * w;
-        const cy = h / 2 + (at.y / 100) * h;
+        ctx.globalAlpha = alpha;
+        const cx = w / 2 + ((t.x + m.dx) / 100) * w;
+        const cy = h / 2 + ((t.y + m.dy) / 100) * h;
         ctx.translate(cx, cy);
-        ctx.rotate((at.rotation * Math.PI) / 180);
-        ctx.scale(at.scale, at.scale);
+        ctx.rotate((t.rotation * Math.PI) / 180);
+        ctx.scale(t.scale, t.scale);
+        if (m.rotDeg !== 0 || m.scale !== 1) {
+          // Animated scale/rotation turn about the layer's pivot (default the
+          // frame centre — exactly the old behaviour).
+          const px = ((spec.pivot?.x ?? 0.5) - 0.5) * w;
+          const py = ((spec.pivot?.y ?? 0.5) - 0.5) * h;
+          ctx.translate(px, py);
+          ctx.rotate((m.rotDeg * Math.PI) / 180);
+          ctx.scale(m.scale, m.scale);
+          ctx.translate(-px, -py);
+        }
         ctx.drawImage(img, -w / 2, -h / 2, w, h);
         ctx.restore();
       }

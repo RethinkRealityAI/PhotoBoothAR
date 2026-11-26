@@ -97,3 +97,72 @@ describe('animate3D', () => {
     expect(animate3D('spin', 10).rotationY).toBeCloseTo(6, 6);
   });
 });
+
+import { layerMotion2D, introFieldsOf, introDone, INTRO_MS, INTRO_DELAY_MAX_MS } from './animation';
+
+describe('layerMotion2D (animated Frames)', () => {
+  const DONE = Number.POSITIVE_INFINITY;
+
+  it('a plain layer has no motion at all', () => {
+    expect(layerMotion2D({}, 3.3, DONE)).toEqual({ dx: 0, dy: 0, rotDeg: 0, scale: 1, alpha: 1 });
+  });
+
+  it('matches the old float/pulse/spin exactly once the entrance is over', () => {
+    for (const t of [0, 0.31, 0.5, 1.7, 4]) {
+      const f = layerMotion2D({ animation: 'float' }, t, DONE);
+      expect(BASE.y + f.dy).toBeCloseTo(animateTransform2D(BASE, 'float', t).y, 9);
+      const p = layerMotion2D({ animation: 'pulse' }, t, DONE);
+      expect(BASE.scale * p.scale).toBeCloseTo(animateTransform2D(BASE, 'pulse', t).scale, 9);
+      const s = layerMotion2D({ animation: 'spin' }, t, DONE);
+      const deg = ((BASE.rotation + s.rotDeg + 180) % 360 + 360) % 360 - 180;
+      expect(Math.abs(deg - animateTransform2D(BASE, 'spin', t).rotation) % 360).toBeCloseTo(0, 6);
+    }
+  });
+
+  it('is invisible before its stagger, then lands exactly on rest', () => {
+    const spec = { intro: 'bloom' as const, introDelayMs: 300 };
+    expect(layerMotion2D(spec, 0, 100).alpha).toBe(0);
+    const mid = layerMotion2D(spec, 0, 300 + INTRO_MS / 3);
+    expect(mid.alpha).toBeGreaterThan(0);
+    expect(mid.scale).not.toBe(1);
+    expect(layerMotion2D(spec, 0, 300 + INTRO_MS)).toEqual({ dx: 0, dy: 0, rotDeg: 0, scale: 1, alpha: 1 });
+    expect(introDone(spec, 300 + INTRO_MS)).toBe(true);
+    expect(introDone(spec, 300 + INTRO_MS - 1)).toBe(false);
+  });
+
+  it('every entrance starts away from rest and ends at rest', () => {
+    for (const intro of ['fade', 'rise', 'drop', 'bloom', 'slideLeft', 'slideRight', 'spinIn'] as const) {
+      const early = layerMotion2D({ intro }, 0, INTRO_MS * 0.1);
+      const moved = early.alpha < 1 || early.dx !== 0 || early.dy !== 0 || early.rotDeg !== 0 || early.scale !== 1;
+      expect(moved).toBe(true);
+      expect(layerMotion2D({ intro }, 0, INTRO_MS)).toEqual({ dx: 0, dy: 0, rotDeg: 0, scale: 1, alpha: 1 });
+    }
+  });
+
+  it('idle presets stay subtle', () => {
+    for (let t = 0; t < 6; t += 0.05) {
+      expect(Math.abs(layerMotion2D({ animation: 'sway' }, t, DONE).rotDeg)).toBeLessThanOrEqual(3 + 1e-9);
+      expect(Math.abs(layerMotion2D({ animation: 'drift' }, t, DONE).dx)).toBeLessThanOrEqual(1.5 + 1e-9);
+      const a = layerMotion2D({ animation: 'twinkle' }, t, DONE).alpha;
+      expect(a).toBeGreaterThanOrEqual(0.55 - 1e-9);
+      expect(a).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('the idle loop fades in during the entrance (no jump at hand-over)', () => {
+    const atStart = layerMotion2D({ intro: 'fade', animation: 'float' }, 0.5, 1);
+    expect(Math.abs(atStart.dy)).toBeLessThan(0.01);
+  });
+});
+
+describe('introFieldsOf', () => {
+  it('keeps only valid, non-default keys', () => {
+    expect(introFieldsOf({})).toEqual({});
+    expect(introFieldsOf(null)).toEqual({});
+    expect(introFieldsOf({ intro: 'nope', introDelayMs: 200 })).toEqual({});
+    expect(introFieldsOf({ intro: 'rise', introDelayMs: 0, pivot: { x: 0.5, y: 0.5 } })).toEqual({ intro: 'rise' });
+    expect(introFieldsOf({ intro: 'rise', introDelayMs: 99999, pivot: { x: 2, y: -1 } }))
+      .toEqual({ intro: 'rise', introDelayMs: INTRO_DELAY_MAX_MS, pivot: { x: 1, y: 0 } });
+    expect(introFieldsOf({ pivot: { x: 0.2, y: 'a' } })).toEqual({});
+  });
+});

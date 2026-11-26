@@ -26,6 +26,7 @@
  */
 import type { StudioDraft, StudioObject, Overlay2D, Object3D, DraftKind } from './state';
 import { MAX_OBJECTS, deriveKind } from './state';
+import { LAYER_ANIMATIONS, introFieldsOf } from './animation';
 import type { LayerAnimation, Transform2D, GuestLetteringConfig } from '../../types';
 import type { TriggerConfig } from './triggers';
 import { TRIGGER_SOURCES, BURST_STYLES } from './triggers';
@@ -166,7 +167,7 @@ const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : 
 const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 
-const ANIMATIONS: readonly LayerAnimation[] = ['none', 'float', 'pulse', 'spin'];
+const ANIMATIONS: readonly LayerAnimation[] = LAYER_ANIMATIONS;
 const ANCHORS = ['crown', 'forehead', 'noseBridge', 'leftEar', 'rightEar', 'chin', 'neck', 'leftEye', 'rightEye', 'mouth'];
 
 function animationOf(v: unknown): LayerAnimation {
@@ -221,6 +222,7 @@ function objectOf(v: unknown, seen: Set<string>): StudioObject | null {
     };
     if (builtinId) out.builtinId = builtinId;
     if (v.hidden === true) out.hidden = true;
+    Object.assign(out, introFieldsOf(v));
     const lettering = letteringOf(v.lettering);
     if (lettering) out.lettering = lettering;
     return out;

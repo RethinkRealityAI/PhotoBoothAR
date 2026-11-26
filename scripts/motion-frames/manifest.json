@@ -1,0 +1,278 @@
+{
+  "starlit": {
+    "name": "Starry Night",
+    "layers": [
+      {
+        "file": "base",
+        "name": "Gold border",
+        "intro": "fade"
+      },
+      {
+        "file": "starsB",
+        "name": "Stars",
+        "intro": "bloom",
+        "introDelayMs": 250,
+        "animation": "twinkle"
+      },
+      {
+        "file": "starsA",
+        "name": "More stars",
+        "intro": "fade",
+        "introDelayMs": 450,
+        "animation": "twinkle"
+      },
+      {
+        "file": "moon",
+        "name": "Moon",
+        "intro": "drop",
+        "introDelayMs": 150,
+        "animation": "float",
+        "pivot": {
+          "x": 0.78,
+          "y": 0.14
+        }
+      },
+      {
+        "file": "title",
+        "name": "Starry Night",
+        "intro": "rise",
+        "introDelayMs": 650
+      }
+    ],
+    "triggers": [
+      {
+        "source": "smile",
+        "action": {
+          "type": "burst",
+          "style": "sparkles"
+        }
+      }
+    ],
+    "category": "new-year"
+  },
+  "birthday-bash": {
+    "name": "Birthday Bash",
+    "layers": [
+      {
+        "file": "confetti",
+        "name": "Confetti",
+        "intro": "fade",
+        "introDelayMs": 500,
+        "animation": "drift"
+      },
+      {
+        "file": "balloonsL",
+        "name": "Balloons left",
+        "intro": "rise",
+        "introDelayMs": 150,
+        "animation": "float"
+      },
+      {
+        "file": "balloonsR",
+        "name": "Balloons right",
+        "intro": "rise",
+        "introDelayMs": 320,
+        "animation": "float"
+      },
+      {
+        "file": "bunting",
+        "name": "Bunting",
+        "intro": "drop",
+        "animation": "sway",
+        "pivot": {
+          "x": 0.5,
+          "y": 0
+        }
+      },
+      {
+        "file": "title",
+        "name": "Happy Birthday",
+        "intro": "bloom",
+        "introDelayMs": 650,
+        "animation": "pulse",
+        "pivot": {
+          "x": 0.5,
+          "y": 0.92
+        }
+      }
+    ],
+    "triggers": [
+      {
+        "source": "mouthOpen",
+        "action": {
+          "type": "burst",
+          "style": "confetti"
+        }
+      }
+    ],
+    "category": "birthdays"
+  },
+  "love-bloom": {
+    "name": "Love in Bloom",
+    "layers": [
+      {
+        "file": "base",
+        "name": "Rose-gold border",
+        "intro": "fade"
+      },
+      {
+        "file": "hearts",
+        "name": "Hearts",
+        "intro": "rise",
+        "introDelayMs": 450,
+        "animation": "float"
+      },
+      {
+        "file": "floralTL",
+        "name": "Roses top",
+        "intro": "bloom",
+        "introDelayMs": 100,
+        "animation": "sway",
+        "pivot": {
+          "x": 0.06,
+          "y": 0.05
+        }
+      },
+      {
+        "file": "floralBR",
+        "name": "Roses bottom",
+        "intro": "bloom",
+        "introDelayMs": 260,
+        "animation": "sway",
+        "pivot": {
+          "x": 0.94,
+          "y": 0.95
+        }
+      },
+      {
+        "file": "title",
+        "name": "Forever & Always",
+        "intro": "fade",
+        "introDelayMs": 700
+      }
+    ],
+    "triggers": [
+      {
+        "source": "smile",
+        "action": {
+          "type": "burst",
+          "style": "hearts"
+        }
+      }
+    ],
+    "category": "weddings"
+  },
+  "cheers": {
+    "name": "Cheers",
+    "layers": [
+      {
+        "file": "streamers",
+        "name": "Streamers",
+        "intro": "drop",
+        "animation": "sway",
+        "pivot": {
+          "x": 0.5,
+          "y": 0
+        }
+      },
+      {
+        "file": "bubbles",
+        "name": "Bubbles",
+        "intro": "rise",
+        "introDelayMs": 420,
+        "animation": "float"
+      },
+      {
+        "file": "glassL",
+        "name": "Glass left",
+        "intro": "slideLeft",
+        "introDelayMs": 150
+      },
+      {
+        "file": "glassR",
+        "name": "Glass right",
+        "intro": "slideRight",
+        "introDelayMs": 150
+      },
+      {
+        "file": "title",
+        "name": "Cheers!",
+        "intro": "bloom",
+        "introDelayMs": 700,
+        "animation": "pulse",
+        "pivot": {
+          "x": 0.5,
+          "y": 0.73
+        }
+      }
+    ],
+    "triggers": [
+      {
+        "source": "browRaise",
+        "action": {
+          "type": "burst",
+          "style": "fireworks"
+        }
+      }
+    ],
+    "category": "new-year"
+  },
+  "neon-glow": {
+    "name": "Neon Glow",
+    "layers": [
+      {
+        "file": "border",
+        "name": "Neon border",
+        "intro": "fade",
+        "animation": "twinkle"
+      },
+      {
+        "file": "sparks",
+        "name": "Sparks",
+        "intro": "fade",
+        "introDelayMs": 500,
+        "animation": "twinkle"
+      },
+      {
+        "file": "icons",
+        "name": "Neon icons",
+        "intro": "rise",
+        "introDelayMs": 350,
+        "animation": "pulse",
+        "pivot": {
+          "x": 0.5,
+          "y": 0.86
+        }
+      },
+      {
+        "file": "sign",
+        "name": "Good Vibes",
+        "intro": "bloom",
+        "introDelayMs": 150,
+        "animation": "twinkle",
+        "pivot": {
+          "x": 0.5,
+          "y": 0.14
+        }
+      }
+    ],
+    "triggers": [
+      {
+        "source": "wink",
+        "action": {
+          "type": "burst",
+          "style": "sparkles"
+        }
+      },
+      {
+        "source": "browRaise",
+        "action": {
+          "type": "filterPulse",
+          "shaderId": "neon-pulse",
+          "durationMs": 2000
+        }
+      }
+    ],
+    "category": "birthdays"
+  }
+}

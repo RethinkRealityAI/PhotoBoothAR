@@ -101,6 +101,22 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         image: 'guest-effects',
       },
       {
+        id: 'animated-frames',
+        title: 'Animated frames',
+        line: 'Frames that come alive: balloons rise, stars twinkle, petals sway, and the motion is saved in every video.',
+        detail: 'Each piece animates in, then keeps moving gently. Guests tap Replay to restart the entrance right before they record.',
+        icon: 'film',
+        tag: 'New',
+      },
+      {
+        id: 'gesture-looks',
+        title: 'Looks that react',
+        line: 'Smile, wink, raise your brows or open wide and confetti, hearts or fireworks burst out on cue.',
+        detail: 'A short “Try this” card pops up when a guest picks one, so they know exactly what to do.',
+        icon: 'sparkles',
+        tag: 'New',
+      },
+      {
         id: 'mix',
         title: 'Mix and match',
         line: 'Guests mix a frame, a prop and an effect into their own Look, or tap a ready-made combo the host built.',

@@ -117,7 +117,7 @@ import { hasTriggerTestSubscriber, requestTriggerTest, subscribeTriggerTestAvail
 import { draftToPayload, existingUrlResolver, STUDIO_SAMPLE_GUEST_NAME } from '../../lib/studio/draftMapping';
 import { createExperience, getStudioSettings, setStudioSettings } from '../../lib/db';
 import { useEvent } from '../../events/EventContext';
-import type { AssetLabelConfig, AssetPartStyle, GuestLetteringConfig, LayerAnimation, Transform2D } from '../../types';
+import type { AssetLabelConfig, AssetPartStyle, GuestLetteringConfig, LayerAnimation, LayerIntro, Transform2D } from '../../types';
 import { DEFAULT_LETTERING_COLOR, type GuestLetteringStyle } from '../../lib/letteringFit';
 import { NumberField, SectionLabel, StudioSlider, StudioToggle } from './StudioControls';
 import LayerList from './LayerList';
@@ -393,7 +393,67 @@ const ANIMATIONS: { id: LayerAnimation; label: string }[] = [
   { id: 'float', label: 'Float' },
   { id: 'pulse', label: 'Pulse' },
   { id: 'spin', label: 'Spin' },
+  { id: 'sway', label: 'Sway' },
+  { id: 'twinkle', label: 'Twinkle' },
+  { id: 'drift', label: 'Drift' },
 ];
+
+const ENTRANCES: { id: LayerIntro | 'none'; label: string }[] = [
+  { id: 'none', label: 'None' },
+  { id: 'fade', label: 'Fade' },
+  { id: 'rise', label: 'Rise' },
+  { id: 'drop', label: 'Drop' },
+  { id: 'bloom', label: 'Bloom' },
+  { id: 'slideLeft', label: 'From left' },
+  { id: 'slideRight', label: 'From right' },
+  { id: 'spinIn', label: 'Spin in' },
+];
+
+/** Entrance picker for a 2D layer: plays when a guest picks the Look and on
+ *  the booth's Replay button, then the idle Animation takes over. */
+function EntranceChips({
+  value,
+  delayMs,
+  onChange,
+}: {
+  value: LayerIntro | undefined;
+  delayMs: number | undefined;
+  onChange: (intro: LayerIntro | undefined, delayMs: number | undefined) => void;
+}) {
+  return (
+    <div>
+      <SectionLabel>Entrance</SectionLabel>
+      <div className="grid grid-cols-4 gap-1.5">
+        {ENTRANCES.map((a) => {
+          const active = a.id === (value ?? 'none');
+          return (
+            <button
+              key={a.id}
+              onClick={() => onChange(a.id === 'none' ? undefined : a.id, a.id === 'none' ? undefined : delayMs)}
+              className={`py-2 rounded-lg text-[9px] font-label uppercase tracking-widest transition-colors ${active ? 'bg-accent/15 text-accent-2 ring-1 ring-accent/30' : 'bg-white/[0.03] text-brand-muted/50 hover:text-brand-fg hover:bg-white/[0.06]'}`}
+            >
+              {a.label}
+            </button>
+          );
+        })}
+      </div>
+      {value && (
+        <div className="mt-2">
+          <SliderRow
+            label="Delay"
+            value={delayMs ?? 0}
+            min={0}
+            max={2000}
+            step={50}
+            defaultValue={0}
+            format={(v) => `${(v / 1000).toFixed(2)}s`}
+            onChange={(v) => onChange(value, v > 0 ? v : undefined)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* The Frame · Stickers · 3D-pieces BUCKETS that used to live here are gone.
    They were a lie about paint order — see LayerList.tsx, which renders the one
@@ -2014,6 +2074,11 @@ export default function PropertiesDock({ state, dispatch, headScale, onHeadScale
                   onChange={(t) => dispatch({ type: 'SET_TRANSFORM', transform: t })}
                 />
                 <AnimationChips value={selOverlay.animation} onChange={(a) => dispatch({ type: 'SET_OBJECT_ANIMATION', id: selOverlay.id, animation: a })} />
+                <EntranceChips
+                  value={selOverlay.intro}
+                  delayMs={selOverlay.introDelayMs}
+                  onChange={(intro, introDelayMs) => dispatch({ type: 'UPDATE_OBJECT', id: selOverlay.id, patch: { intro, introDelayMs } })}
+                />
                 {/* Guest-name lettering lives on the FRAME only — a sticker is
                     placed anywhere on the canvas, so a name band under it has
                     no meaning. Absent on every scene that never turns it on. */}

@@ -16,7 +16,7 @@ import {
 } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ChevronUp, Hand, Images, Pencil, RotateCcw, ScanFace, Sparkles, Upload, X } from 'lucide-react';
+import { AlertCircle, ChevronUp, Hand, Images, Pencil, RotateCcw, ScanFace, Upload, X } from 'lucide-react';
 
 import EventBackground from './ui/EventBackground';
 import { Emblem } from './ui/EventLogo';
@@ -93,7 +93,6 @@ import {
   isLayerVisible,
   resolvePulseShader,
   pulseRestoreValue,
-  triggerHintText,
   shouldRunTriggers,
   type AnimatePreset,
   type TriggerConfig,
@@ -127,6 +126,9 @@ import { reportError } from '../lib/errorReport';
 import { fileToImagePart } from '../lib/imageInput';
 import RevealShimmer from './booth/RevealShimmer';
 import { REVEAL_SHIMMER_MS } from '../lib/studio/reveal';
+import { introFieldsOf } from '../lib/studio/animation';
+import { gestureCoachFor } from '../lib/gestureCoach';
+import GestureCoach, { GestureCoachChip } from './booth/GestureCoach';
 import { setThumbSource } from './booth/filterThumbEngine';
 import { assetUrlsOf, glbPreloadQueue, isPending, layersWantGuestInitials, layersWantGuestName, selectionSignature, withLoaded } from '../lib/boothAssets';
 import { isModelCached, preloadModel } from '../lib/glbCache';
@@ -1279,8 +1281,18 @@ export default function Booth() {
         transform: l.transform ?? DEFAULT_TRANSFORM,
         opacity: l.opacity ?? 1,
         animation: l.animation,
+        // Animated Frames: entrance + pivot, validated (absent ⇒ no keys).
+        ...introFieldsOf(l),
       }));
   }, [frameLayers, layerVisible]);
+  // Replay: restarts every entrance of the current Frame (a new Frame restarts
+  // them by itself). Shown only when the Frame actually has an entrance.
+  const frameHasIntro = useMemo(
+    () => source === 'db' && (frameLayers ?? []).some((l) => introFieldsOf(l).intro !== undefined),
+    [source, frameLayers],
+  );
+  const [introRun, setIntroRun] = useState(0);
+  const introKey = `${frameExp?.id ?? ''}:${introRun}`;
 
   // ── World mode ────────────────────────────────────────────────────────
   // PLATFORM booths only: each Frame also appears in Props as a "3D" tile
@@ -1645,17 +1657,14 @@ export default function Booth() {
   // A one-off guest hint when the scene has triggers. The copy names the source
   // the HOST actually authored — it used to hard-code "Smile for a surprise", so
   // a wink-triggered scene told every guest to do the wrong thing.
-  const triggerHintCopy = useMemo(() => triggerHintText(triggers) ?? 'Smile for a surprise', [triggers]);
-  const [triggerHint, setTriggerHint] = useState(false);
-  useEffect(() => {
-    if (source === 'db' && hasTriggers && phase === 'camera' && ready) {
-      // (the hint itself stays camera-only — it is guidance before the shutter)
-      setTriggerHint(true);
-      const t = window.setTimeout(() => setTriggerHint(false), 5000);
-      return () => window.clearTimeout(t);
-    }
-    setTriggerHint(false);
-  }, [source, hasTriggers, phase, ready]);
+  // Now a "Try this" card (GestureCoach) that names the gesture AND what it
+  // does, and comes back whenever the guest picks a Look with DIFFERENT
+  // gestures — not once per camera session.
+  const coach = useMemo(() => (source === 'db' ? gestureCoachFor(triggers, { hands: GUEST_HAND_TRACKING }) : null), [source, triggers]);
+  const coachKey = coach?.key ?? '';
+  const [coachOpen, setCoachOpen] = useState(false);
+  const closeCoach = useCallback(() => setCoachOpen(false), []);
+  const coachShownRef = useRef('');
 
   // ── Face/hand-tracking hint ───────────────────────────────────────────
   // A 3D piece is invisible until the tracker finds its subject — without
@@ -2377,6 +2386,17 @@ export default function Booth() {
     window.addEventListener('pointerdown', onTap, { capture: true, once: true });
     return () => window.removeEventListener('pointerdown', onTap, { capture: true });
   }, [cameraHintShown, dismissCameraHint]);
+  // The "Try this" card opens once per new set of gestures, after the
+  // first-run camera tip has gone (two cards at the top would stack).
+  useEffect(() => {
+    if (!coachKey) { coachShownRef.current = ''; setCoachOpen(false); return; }
+    // (camera-only — it is guidance before the shutter)
+    if (phase !== 'camera' || !ready) { setCoachOpen(false); return; }
+    if (cameraHintShown) return;
+    if (coachShownRef.current === coachKey) return;
+    coachShownRef.current = coachKey;
+    setCoachOpen(true);
+  }, [coachKey, phase, ready, cameraHintShown]);
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -2588,6 +2608,7 @@ export default function Booth() {
                   overlayTransform={overlayTransform}
                   overlayOpacity={frameExp?.config?.opacity}
                   overlays={worldMode ? null : stageOverlays}
+                  introKey={introKey}
                   // powerFxActive (db-only): a frame/filter-only scene's beam
                   // renders in that same canvas, so it must reach photos too.
                   threeCanvasId={worldMode ? 'booth-world-layer' : (is3D || powerFxActive ? 'booth-3d-layer' : null)}
@@ -2817,28 +2838,38 @@ export default function Booth() {
                     </motion.div>
                   )}
                 </AnimatePresence>
-                <AnimatePresence>
-                  {triggerHint && (
-                    <motion.div
-                      key="trigger-hint"
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.25 }}
-                      className="flex items-center gap-2 px-3.5 py-2 rounded-full glass-strong border border-gold-400/25"
-                    >
-                      <Sparkles className="w-4 h-4 text-gold-300 animate-pulse" />
-                      <span className="font-label text-[10px] uppercase tracking-wide text-champagne/80">
-                        {triggerHintCopy}
-                      </span>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
               </div>
               <div
                 className="absolute inset-0 pointer-events-none"
                 style={{ background: 'radial-gradient(120% 90% at 50% 38%, transparent 58%, rgba(0,0,0,0.4) 100%)' }}
               />
+              {/* Animated Looks: the "Try this" card for gesture Looks, and a
+                  side rail with Replay (restarts the Frame's entrance — tap it
+                  as you start a clip and the clip opens on it) and a chip that
+                  brings the card back. DOM only, never in a capture. */}
+              {phase === 'camera' && ready && (
+                <GestureCoach coach={coach} open={coachOpen} onClose={closeCoach} />
+              )}
+              {phase === 'camera' && ready && !uiHidden && (frameHasIntro || (coach && !coachOpen)) && (
+                <div
+                  className="absolute right-3 top-1/2 z-20 flex -translate-y-1/2 flex-col gap-2.5"
+                  // Taps here are not stage taps (a double tap on the stage flips the camera).
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onPointerUp={(e) => e.stopPropagation()}
+                >
+                  {frameHasIntro && (
+                    <button
+                      type="button"
+                      onClick={() => { haptic('toggle'); setIntroRun((n) => n + 1); }}
+                      aria-label="Replay the Frame's animation"
+                      className="pressable liquid-glass-raised flex h-11 w-11 items-center justify-center rounded-full"
+                    >
+                      <RotateCcw className="h-[18px] w-[18px] text-brand-fg/85" aria-hidden />
+                    </button>
+                  )}
+                  {coach && !coachOpen && <GestureCoachChip coach={coach} onOpen={() => setCoachOpen(true)} />}
+                </div>
+              )}
               {/* Reveal moment — transient DOM sibling only, never sampled by
                   StageCanvas.drawFrame (which only reads the video/shader/
                   three-canvas/overlay-image sources), so it cannot affect

@@ -1151,3 +1151,28 @@ describe('anchorVersion (v2 calibrated anchors, per object)', () => {
     expect(objectToPiece(o).anchorVersion).toBe(2);
   });
 });
+
+describe('animated Frame entrances survive the studio round trip', () => {
+  it('intro, stagger and pivot load into the overlay and save back unchanged', () => {
+    const layers = [
+      { id: 'base', kind: 'border' as const, asset_url: 'https://cdn/base.webp', transform: { scale: 1, x: 0, y: 0, rotation: 0 }, opacity: 1, intro: 'fade' as const },
+      { id: 'moon', kind: 'border' as const, asset_url: 'https://cdn/moon.webp', transform: { scale: 1, x: 0, y: 0, rotation: 0 }, opacity: 1, animation: 'float' as const, intro: 'drop' as const, introDelayMs: 250, pivot: { x: 0.8, y: 0.12 } },
+    ];
+    const exp = baseExp({ kind: 'border', asset_url: 'https://cdn/base.webp', config: { transform: { scale: 1, x: 0, y: 0, rotation: 0 }, opacity: 1, layers } });
+    const draft = experienceToDraft(exp);
+    const moon = draft.objects[1] as Overlay2D;
+    expect(moon.intro).toBe('drop');
+    expect(moon.introDelayMs).toBe(250);
+    expect(moon.pivot).toEqual({ x: 0.8, y: 0.12 });
+    const payload = draftToPayload(draft, existingUrlResolver(draft), null);
+    expect(payload.config?.layers?.[0]).toMatchObject({ intro: 'fade' });
+    expect(payload.config?.layers?.[1]).toMatchObject({ animation: 'float', intro: 'drop', introDelayMs: 250, pivot: { x: 0.8, y: 0.12 } });
+  });
+
+  it('a lone overlay with only an entrance still writes config.layers', () => {
+    const o = { ...createOverlay('border', { url: 'blob:f', isBuiltin: false }), intro: 'bloom' as const };
+    const draft: StudioDraft = { ...initialDraft('border'), objects: [o], selectedId: o.id, kind: 'border' };
+    const payload = draftToPayload(draft, resolver({ [o.id]: 'https://cdn/f.png' }), null);
+    expect(payload.config?.layers?.[0].intro).toBe('bloom');
+  });
+});

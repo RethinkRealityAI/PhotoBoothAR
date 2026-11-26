@@ -53,8 +53,14 @@ export interface AnchorConfig {
   scale: number;
 }
 
-/** Per-object animation presets, rendered in both studio and booth. */
-export type LayerAnimation = 'none' | 'float' | 'pulse' | 'spin';
+/** Per-object animation presets, rendered in both studio and booth.
+ *  'sway' rocks gently about the layer's pivot, 'twinkle' breathes its opacity,
+ *  'drift' slides slowly side to side (lib/studio/animation.ts). */
+export type LayerAnimation = 'none' | 'float' | 'pulse' | 'spin' | 'sway' | 'twinkle' | 'drift';
+
+/** One-shot entrance a 2D layer plays when the guest picks the Look (and on the
+ *  booth's Replay button), before its idle `animation` takes over. */
+export type LayerIntro = 'fade' | 'rise' | 'drop' | 'bloom' | 'slideLeft' | 'slideRight' | 'spinIn';
 
 /**
  * A single composable layer (object) of a multi-object scene.
@@ -156,6 +162,20 @@ export interface ExperienceLayer {
    * slot for it).
    */
   anchorVersion?: number;
+  /**
+   * Entrance played by a 2D layer when the Look is picked or replayed
+   * (lib/studio/animation.ts layerMotion2D). Absent = no entrance, which is
+   * every pre-existing layer: they draw exactly as before.
+   */
+  intro?: LayerIntro;
+  /** Delay before this layer's `intro` starts, ms (staggers a frame's layers). */
+  introDelayMs?: number;
+  /**
+   * The point a 2D layer's animated scale/rotation turns about, as fractions of
+   * the frame (0..1). Absent = the frame centre, which is exactly how 'pulse'
+   * and 'spin' always behaved. Lets a corner flower bloom from its own stem.
+   */
+  pivot?: { x: number; y: number };
 }
 
 /**

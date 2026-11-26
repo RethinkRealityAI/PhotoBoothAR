@@ -25,7 +25,7 @@
  */
 import type {
   AssetCustomization, AssetLabelConfig, AssetPartStyle,
-  ExperienceKind, GuestLetteringConfig, HeadAnchor, LayerAnimation, Transform2D,
+  ExperienceKind, GuestLetteringConfig, HeadAnchor, LayerAnimation, LayerIntro, Transform2D,
 } from '../../types';
 import { BORDER_MAP } from '../borders';
 import { HEAD_PIECE_MAP } from '../headPieces';
@@ -109,6 +109,12 @@ export interface Overlay2D {
    * none, which is every scene that predates the feature.
    */
   lettering?: GuestLetteringConfig;
+  /** Entrance + pivot (lib/studio/animation.ts introFieldsOf). Absent on every
+   *  overlay that predates animated Frames; carried through save/load so a
+   *  library animated Frame opened in the studio keeps animating. */
+  intro?: LayerIntro;
+  introDelayMs?: number;
+  pivot?: { x: number; y: number };
 }
 
 /** A single 3D attachment (GLB model or procedural head piece) within a 3D scene. */
