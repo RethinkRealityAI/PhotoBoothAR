@@ -305,7 +305,7 @@ export default function BoothControlDeck<T extends number>({
                   }}
                   className="h-7 w-7 shrink-0 rounded-full transition-shadow"
                   style={{
-                    background: hex,
+                    background: colorSlot.fills?.[hex] ?? hex,
                     boxShadow: on
                       ? '0 0 0 1.5px var(--color-accent), 0 0 10px rgba(var(--accent-rgb),0.8)'
                       : 'inset 0 0 0 1px rgba(255,255,255,0.18)',

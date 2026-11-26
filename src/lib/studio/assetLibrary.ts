@@ -317,6 +317,14 @@ const MASQUERADE_MASK_TEMPLATE = {
     { hex: '#5a2a86', name: 'Amethyst' },
     { hex: '#b9566f', name: 'Rose' },
     { hex: '#e6dccb', name: 'Ivory' },
+    // Flag colourways (2026-11-26, owner): two colours on one mask, the gold
+    // trim stays gold. Jamaica = black lacquer, green plumes (the flag's black
+    // and green, the trim is its gold); Nigeria = green lacquer, white plumes.
+    // Picked from booth renders: a WHITE lacquer read as silver under the
+    // filigree. The lead hex is only the swatch's key, so it must differ from
+    // every single colour above.
+    { hex: '#009b3a', name: 'Jamaica', parts: { lacquer: '#141414', feathers: '#009b3a' }, dot: ['#009b3a', '#fed100', '#141414'] },
+    { hex: '#008751', name: 'Nigeria', parts: { lacquer: '#008751', feathers: '#f2efe6' }, dot: ['#008751', '#f2efe6', '#008751'] },
   ],
   textSlots: [
     {
@@ -540,3 +548,53 @@ export const LIBRARY_ASSET_CHECKLIST: readonly string[] = [
 /** The one-line empty state, so the dock and any future surface agree. */
 export const LIBRARY_EMPTY_MESSAGE =
   'No configurable models yet. These are base pieces a guest can have in their own colours, with their own name on them.';
+
+/* ── Flag colourways for shared-library Props ─────────────────────────────── */
+
+/**
+ * Jamaica and Nigeria colourways for two eyewear Props that live in the shared
+ * library and in events as plain GLB rows (not on this configurator shelf).
+ * Each is a template with NO paintable region: a floral or matte-black bake
+ * cannot be tinted into a flag, so every swatch is a BAKED VARIANT of the same
+ * mesh (same UVs; only the base colour and, on the wayfarer, the frame's
+ * nothing else changes). The booth's colour row swaps the model on a tap.
+ *
+ * These are the canonical copies of what is written into those rows'
+ * `config.layers[0].template` (a row carries its template, so editing this
+ * file changes nothing live until the rows are updated). Variants baked
+ * 2026-11-26 by projecting each flag across the frame front in mesh space;
+ * lenses keep their own bake, temples take one flag colour. The wayfarer was
+ * REBUILT the same day as an HD Meshy model (2K glossy acetate, metal 0,
+ * same 14.5 cm width / +z front as the old library GLB) because the old
+ * 1K bake had ragged lens edges; all three wayfarer files share its UVs.
+ */
+export const FLAG_COLOURWAY_TEMPLATES = {
+  bashmentShades: {
+    id: 'bashment-shades',
+    name: 'Bashment Shades',
+    glbUrl: '/events/foreverwedo/models/bashment-shades.glb',
+    fitCm: 17,
+    regions: [],
+    guestSwatches: [
+      { hex: '#e8742a', name: 'Floral', glbUrl: '/events/foreverwedo/models/bashment-shades.glb', dot: ['#e8742a', '#3fa34d'] },
+      { hex: '#009b3a', name: 'Jamaica', glbUrl: '/models/bashment-shades-jamaica.glb', dot: ['#009b3a', '#fed100', '#141414'] },
+      { hex: '#008751', name: 'Nigeria', glbUrl: '/models/bashment-shades-nigeria.glb', dot: ['#008751', '#f2efe6', '#008751'] },
+    ],
+    textSlots: [],
+    preparedBy: 'human',
+  },
+  wayfarer: {
+    id: 'wayfarer-sunglasses',
+    name: 'Wayfarer Sunglasses',
+    glbUrl: '/models/wayfarer-black.glb',
+    fitCm: 15.89,
+    regions: [],
+    guestSwatches: [
+      { hex: '#151515', name: 'Black', glbUrl: '/models/wayfarer-black.glb' },
+      { hex: '#009b3a', name: 'Jamaica', glbUrl: '/models/wayfarer-jamaica.glb', dot: ['#009b3a', '#fed100', '#141414'] },
+      { hex: '#008751', name: 'Nigeria', glbUrl: '/models/wayfarer-nigeria.glb', dot: ['#008751', '#f2efe6', '#008751'] },
+    ],
+    textSlots: [],
+    preparedBy: 'human',
+  },
+} as const;

@@ -583,6 +583,29 @@ describe('normalizeTemplate — region map, guest swatches, monogram slot', () =
     expect(slot.finish).toBe('gilt');
   });
 
+  it('keeps colourway parts (recolourable regions only), a safe variant URL and a 2-3 colour dot', () => {
+    const t = normalizeTemplate({
+      ...raw,
+      regions: [
+        ...raw.regions,
+        { id: 'feathers', label: 'Feathers', recolourable: true, defaultHex: '#0e6b43', refLuminance: 0.06 },
+        { id: 'gold', label: 'Gold', recolourable: false, defaultHex: '#a3723a', refLuminance: 0.2 },
+      ],
+      guestSwatches: [
+        { hex: '#009B3A', name: 'Jamaica', parts: { lacquer: '#009b3a', feathers: '#111', gold: '#ff0000', ghost: '#00ff00' }, dot: ['#009b3a', '#fed100', '#111111', '#ffffff'] },
+        { hex: '#008751', name: 'Nigeria', glbUrl: '/models/n.glb', dot: ['#008751'] },
+        { hex: '#123456', name: 'Remote', glbUrl: 'javascript:alert(1)' },
+        { hex: '#654321', name: 'Proto', glbUrl: '//evil.example/x.glb' },
+      ],
+    })!;
+    expect(t.guestSwatches).toEqual([
+      { hex: '#009b3a', name: 'Jamaica', parts: { lacquer: '#009b3a', feathers: '#111111' }, dot: ['#009b3a', '#fed100', '#111111'] },
+      { hex: '#008751', name: 'Nigeria', glbUrl: '/models/n.glb' },
+      { hex: '#123456', name: 'Remote' },
+      { hex: '#654321', name: 'Proto' },
+    ]);
+  });
+
   it('a template without the new fields omits them (old saved scenes unchanged)', () => {
     const { regionMapUrl: _a, guestSwatches: _b, ...plain } = raw;
     const t = normalizeTemplate({ ...plain, textSlots: [] })!;
