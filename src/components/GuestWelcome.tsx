@@ -20,7 +20,7 @@ import LiveWallField from './theme/LiveWallField';
 import { WALL_FIELD_SAMPLES } from './theme/samplePhotos';
 import BoothViewfinder, { VF_HEIGHT_PER_WIDTH } from './theme/BoothViewfinder';
 import PageBorder from './theme/PageBorder';
-import ThemePackBackdrop, { hasThemeBackdrop } from './theme/ThemePackBackdrop';
+import ThemePackBackdrop, { hasThemeBackdrop, useBackdropReplay } from './theme/ThemePackBackdrop';
 import { useBoothScreen } from './theme/useBoothShot';
 import { useEvent } from '../events/EventContext';
 import { useStore } from '../store';
@@ -104,6 +104,7 @@ function SceneGuestWelcome() {
   // A full theme pack (lib/themePacks) dresses the whole page: its own
   // paper-cut scene replaces the scene, the living wall and the border.
   const theme = source === 'db' && hasThemeBackdrop(config.theme) ? config.theme : undefined;
+  const backdrop = useBackdropReplay();
   // No scene = the event's own background and today's dark ink.
   const scene = !theme && config.scene ? resolveScene(config.scene) : null;
   const tone = themeTone(theme) ?? scene?.tone ?? 'dark';
@@ -179,9 +180,12 @@ function SceneGuestWelcome() {
     >
       {theme ? (
         // The pack's scene stays put while the page scrolls over it.
-        <div className="pointer-events-none fixed inset-0 z-0">
-          <ThemePackBackdrop theme={theme} />
-        </div>
+        <>
+          <div className="pointer-events-none fixed inset-0 z-0">
+            <ThemePackBackdrop key={backdrop.key} theme={theme} intro fullMotion={backdrop.fullMotion} />
+          </div>
+          {backdrop.chip('fixed right-4 top-[calc(env(safe-area-inset-top)+14px)] z-30')}
+        </>
       ) : (
         <>
           <EventBackground density={40} sparkle={0.6} />

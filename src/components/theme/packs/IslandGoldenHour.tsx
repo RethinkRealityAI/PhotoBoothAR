@@ -20,9 +20,18 @@
  * Sized with container units (the root is a size container), so the SAME
  * component paints a full page, the live wall and the host's thumbnail.
  * Motion is CSS only (styles/themePacks.css), transform/opacity only, and
- * holds still under prefers-reduced-motion and in the compact thumbnail.
+ * holds still in the compact thumbnail.
+ *
+ * `intro` (the welcome page and booth splash only) assembles the scene like a
+ * pop-up book: the sky lights, the sun rises from behind the sea, the waves
+ * and headlands slide in, the palms grow and the corner flowers unfold. It is
+ * a CSS TRANSITION on the individual translate/scale/rotate properties, so it
+ * composes with the idle loops (which animate `transform`) instead of fighting
+ * them. Under prefers-reduced-motion the intro is a plain fade and the scene
+ * holds still, unless the guest pressed Replay (`fullMotion`): that tap is an
+ * explicit ask to see it move.
  */
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { leaf, palmFrond, palmTrunk, tornLeaf, waveBand, type Pt } from '../../../lib/paperCut';
 
 /* ── Geometry, built once at module load (pure, deterministic) ─────────── */
@@ -113,7 +122,33 @@ interface Ids {
 
 /* ── The scene ──────────────────────────────────────────────────────────── */
 
-export default function IslandGoldenHour({ compact = false }: { compact?: boolean }) {
+/** Frangipani petals drifting down the scene: [left %, size, duration s, delay s]. */
+const PETALS: [number, number, number, number][] = [
+  [14, 1, 19, -2], [33, 0.8, 23, -11], [58, 1.1, 21, -6], [76, 0.75, 26, -16], [90, 0.9, 18, -9],
+];
+
+export interface BackdropProps {
+  compact?: boolean;
+  /** Play the entrance (the welcome page and booth splash). */
+  intro?: boolean;
+  /** Move even under prefers-reduced-motion: the guest asked, by pressing Replay. */
+  fullMotion?: boolean;
+}
+
+/** 'pre' for the first paint, then 'play' two frames later so the transitions run. */
+function useIntroPhase(intro: boolean): 'pre' | 'play' | undefined {
+  const [phase, setPhase] = useState<'pre' | 'play' | undefined>(intro ? 'pre' : undefined);
+  useEffect(() => {
+    if (!intro) return;
+    let b = 0;
+    const a = requestAnimationFrame(() => { b = requestAnimationFrame(() => setPhase('play')); });
+    return () => { cancelAnimationFrame(a); cancelAnimationFrame(b); };
+  }, [intro]);
+  return phase;
+}
+
+export default function IslandGoldenHour({ compact = false, intro = false, fullMotion = false }: BackdropProps) {
+  const phase = useIntroPhase(intro && !compact);
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const ids: Ids = {
     sky: `${uid}sky`, sun: `${uid}sun`, far: `${uid}far`, land: `${uid}land`, trunk: `${uid}trunk`,
@@ -140,7 +175,14 @@ export default function IslandGoldenHour({ compact = false }: { compact?: boolea
   );
 
   return (
-    <div data-tp-backdrop="island-golden-hour" data-compact={compact ? '' : undefined} className="tp-backdrop" aria-hidden>
+    <div
+      data-tp-backdrop="island-golden-hour"
+      data-compact={compact ? '' : undefined}
+      data-intro={phase}
+      data-motion={fullMotion ? 'full' : undefined}
+      className="tp-backdrop"
+      aria-hidden
+    >
       <div className="ig-stage">
         <svg width="0" height="0" className="absolute" focusable="false">
           <defs>
@@ -305,6 +347,19 @@ export default function IslandGoldenHour({ compact = false }: { compact?: boolea
           <Hibiscus x={366} y={268} s={0.8} rot={-40} ids={ids} />
           <Frangipani x={200} y={330} s={0.75} rot={-8} ids={ids} />
         </svg>
+
+        {/* Frangipani petals adrift on the breeze, in front of everything. */}
+        <div className="ig-petals">
+          {PETALS.map(([x, sz, dur, d], i) => (
+            <svg
+              key={i}
+              viewBox="-34 -74 68 80"
+              style={{ left: `${x}%`, ['--s' as string]: sz, ['--t' as string]: `${dur}s`, ['--d' as string]: `${d}s` }}
+            >
+              <path d={FRANGI_PETAL} fill={`url(#${ids.frangi})`} stroke="#8A5320" strokeOpacity={0.25} strokeWidth={1.5} />
+            </svg>
+          ))}
+        </div>
 
         <div className="ig-grain" />
         <div className="ig-shade" />

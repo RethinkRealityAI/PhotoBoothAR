@@ -344,19 +344,112 @@
 @keyframes ig-bob { from { transform: translateY(0) rotate(0deg); } to { transform: translateY(0.8cqmin) rotate(0.8deg); } }
 @keyframes ig-glow { from { transform: scale(1); } to { transform: scale(1.025); } }
 @keyframes ig-glint { from { opacity: 0.35; } to { opacity: 1; } }
+@keyframes ig-petal {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(3cqw, 28cqh) rotate(80deg); }
+  50% { transform: translate(-2cqw, 56cqh) rotate(170deg); }
+  75% { transform: translate(4cqw, 84cqh) rotate(250deg); }
+  100% { transform: translate(0, 118cqh) rotate(340deg); }
+}
 @keyframes ig-twinkle { from { opacity: 0.3; transform: scale(0.8); } to { opacity: 0.95; transform: scale(1); } }
 
-/* Decorative motion holds still for reduced motion and in thumbnails. */
+/* Petals adrift: each falls the full height on its own clock, swaying. */
+[data-tp-backdrop] .ig-petals { inset: 0; overflow: hidden; }
+[data-tp-backdrop] .ig-petals svg {
+  position: absolute;
+  top: -8cqh;
+  width: calc(2.6cqmin * var(--s, 1));
+  height: calc(3cqmin * var(--s, 1));
+  overflow: visible;
+  opacity: 0.9;
+  filter: drop-shadow(0 0.4cqmin 0.5cqmin rgba(20, 8, 2, 0.35));
+  animation: ig-petal var(--t, 20s) linear infinite;
+  animation-delay: var(--d, 0s);
+}
+
+/* ── The entrance (IslandGoldenHour `intro`) ──────────────────────────────
+   `data-intro="pre"` is the first paint: every layer sits a little off its
+   place and transparent. Two frames later it flips to "play" and these
+   TRANSITIONS carry each layer home, staggered back to front. They move the
+   individual translate/scale/rotate properties, which compose with the idle
+   loops' `transform`, so nothing jumps when the loops take over.
+   --ig-m is the motion switch: 0 under reduced motion (a plain fade) unless
+   the guest pressed Replay (data-motion="full"). */
+[data-tp-backdrop] { --ig-m: 1; --ig-ease: cubic-bezier(0.16, 1, 0.3, 1); --ig-pop: cubic-bezier(0.34, 1.45, 0.64, 1); }
 @media (prefers-reduced-motion: reduce) {
-  [data-tp-backdrop] *,
-  [data-tp-backdrop] *::before,
-  [data-tp-backdrop] *::after { animation: none !important; }
+  [data-tp-backdrop]:not([data-motion="full"]) { --ig-m: 0; }
+}
+[data-tp-backdrop][data-intro] :is(.ig-sky, .ig-sea, .ig-stars, .ig-sun-wrap, .ig-ring, .ig-cloud, .ig-birds, .ig-far, .ig-glints, .ig-wave, .ig-headland, .ig-palm, .ig-flora, .ig-petals) {
+  transition-property: opacity, translate, scale, rotate;
+  transition-duration: 1.3s;
+  transition-timing-function: var(--ig-ease);
+  transition-delay: var(--in, 0s);
+}
+[data-tp-backdrop][data-intro="pre"] :is(.ig-sky, .ig-sea, .ig-stars, .ig-sun-wrap, .ig-ring, .ig-cloud, .ig-birds, .ig-far, .ig-glints, .ig-wave, .ig-headland, .ig-palm, .ig-flora, .ig-petals) {
+  opacity: 0;
+  transition: none;
+}
+/* Light first: the dusk sky, then the sea under it. */
+[data-tp-backdrop] .ig-sky { --in: 0s; }
+[data-tp-backdrop] .ig-sea { --in: 0.12s; }
+/* The sun rises from behind the sea (the sea paints over it), halos open. */
+[data-tp-backdrop] .ig-sun-wrap { --in: 0.2s; transition-duration: 2s; }
+[data-tp-backdrop][data-intro="pre"] .ig-sun-wrap { translate: -50% calc(var(--ig-sun) * 0.62 * var(--ig-m)); }
+[data-tp-backdrop] .ig-ring-1 { --in: 1s; }
+[data-tp-backdrop] .ig-ring-2 { --in: 1.15s; }
+[data-tp-backdrop] .ig-ring-3 { --in: 1.3s; }
+[data-tp-backdrop][data-intro="pre"] .ig-ring { scale: calc(1 - 0.45 * var(--ig-m)); }
+[data-tp-backdrop] .ig-far { --in: 0.45s; }
+[data-tp-backdrop][data-intro="pre"] .ig-far { translate: 0 calc(5cqh * var(--ig-m)); }
+[data-tp-backdrop] .ig-glints { --in: 1.5s; transition-duration: 1.6s; }
+[data-tp-backdrop][data-intro="pre"] .ig-glints { scale: calc(1 - var(--ig-m)) 1; }
+/* Waves roll in from the bottom, back to front. */
+[data-tp-backdrop] .ig-wave-1 { --in: 0.35s; }
+[data-tp-backdrop] .ig-wave-2 { --in: 0.5s; }
+[data-tp-backdrop] .ig-wave-3 { --in: 0.65s; }
+[data-tp-backdrop][data-intro="pre"] .ig-wave { translate: 0 calc(36cqh * var(--ig-m)); }
+/* Headlands slide in from their sides; the palms grow up out of them. */
+[data-tp-backdrop] .ig-headland { --in: 0.7s; transition-duration: 1.5s; }
+[data-tp-backdrop][data-intro="pre"] .ig-headland-l { translate: calc(-55cqw * var(--ig-m)) 0; }
+[data-tp-backdrop][data-intro="pre"] .ig-headland-r { translate: calc(55cqw * var(--ig-m)) 0; }
+[data-tp-backdrop] .ig-palm { --in: 1s; transition-duration: 1.6s; transition-timing-function: var(--ig-pop); transform-origin: 50% 100%; }
+[data-tp-backdrop] .ig-palm-r { --in: 1.12s; }
+[data-tp-backdrop][data-intro="pre"] .ig-palm-l { translate: 0 calc(26cqh * var(--ig-m)); rotate: calc(-14deg * var(--ig-m)); }
+[data-tp-backdrop][data-intro="pre"] .ig-palm-r { translate: 0 calc(26cqh * var(--ig-m)); rotate: calc(14deg * var(--ig-m)); }
+/* Clouds drift in, the gulls glide in after them, the first stars come out. */
+[data-tp-backdrop] .ig-cloud-1 { --in: 1.25s; transition-duration: 2.2s; }
+[data-tp-backdrop] .ig-cloud-2 { --in: 1.4s; transition-duration: 2.2s; }
+[data-tp-backdrop] .ig-cloud-3 { --in: 1.55s; transition-duration: 2.2s; }
+[data-tp-backdrop][data-intro="pre"] :is(.ig-cloud-1, .ig-cloud-3) { translate: calc(-16cqw * var(--ig-m)) 0; }
+[data-tp-backdrop][data-intro="pre"] .ig-cloud-2 { translate: calc(16cqw * var(--ig-m)) 0; }
+[data-tp-backdrop] .ig-birds { --in: 1.9s; transition-duration: 2.4s; }
+[data-tp-backdrop][data-intro="pre"] .ig-birds { translate: calc(-30cqw * var(--ig-m)) calc(7cqh * var(--ig-m)); }
+[data-tp-backdrop] .ig-stars { --in: 1.8s; transition-duration: 1.8s; }
+/* Last, the corner flowers unfold from their corners with a little spring. */
+[data-tp-backdrop] .ig-flora { transition-duration: 1.2s; transition-timing-function: var(--ig-pop); }
+[data-tp-backdrop] .ig-flora-bl { --in: 1.45s; transform-origin: 0 100%; }
+[data-tp-backdrop] .ig-flora-br { --in: 1.6s; transform-origin: 100% 100%; }
+[data-tp-backdrop] .ig-flora-tl { --in: 1.75s; transform-origin: 0 0; }
+[data-tp-backdrop] .ig-flora-tr { --in: 1.9s; transform-origin: 100% 0; }
+[data-tp-backdrop][data-intro="pre"] .ig-flora { scale: calc(1 - 0.7 * var(--ig-m)); }
+[data-tp-backdrop][data-intro="pre"] :is(.ig-flora-bl, .ig-flora-tr) { rotate: calc(-22deg * var(--ig-m)); }
+[data-tp-backdrop][data-intro="pre"] :is(.ig-flora-br, .ig-flora-tl) { rotate: calc(22deg * var(--ig-m)); }
+[data-tp-backdrop] .ig-petals { --in: 2.4s; transition-duration: 2s; }
+
+/* Decorative idle motion holds still for reduced motion, unless the guest
+   pressed Replay (data-motion="full"), and always in thumbnails. */
+@media (prefers-reduced-motion: reduce) {
+  [data-tp-backdrop]:not([data-motion="full"]) *,
+  [data-tp-backdrop]:not([data-motion="full"]) *::before,
+  [data-tp-backdrop]:not([data-motion="full"]) *::after { animation: none !important; }
+  [data-tp-backdrop]:not([data-motion="full"]) .ig-petals { display: none; }
 }
 [data-tp-backdrop][data-compact] *,
 [data-tp-backdrop][data-compact] *::before,
 [data-tp-backdrop][data-compact] *::after { animation: none !important; }
 [data-tp-backdrop][data-compact] .ig-stars,
-[data-tp-backdrop][data-compact] .ig-birds { display: none; }
+[data-tp-backdrop][data-compact] .ig-birds,
+[data-tp-backdrop][data-compact] .ig-petals { display: none; }
 
 /* ── Ways out + the privacy line (welcome cards, splash links) ─────────── */
 /* The event's own accent is the border: a solid rim, no travelling light. */
@@ -405,3 +498,28 @@
     linear-gradient(160deg, rgba(255, 240, 214, 0.08) 0%, rgba(0, 0, 0, 0.12) 100%),
     var(--tp-glass-strong);
 }
+
+/* ── The Replay chip (ThemePackBackdrop useBackdropReplay) ──────────────
+   A round glass button that waits out the entrance, then fades in. A press
+   spins its arrow once while the scene plays again. */
+.tp-replay {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--sc-hair, rgba(255, 255, 255, 0.2));
+  color: var(--sc-ink, #fff);
+  background: var(--sc-glass, rgba(20, 10, 6, 0.4));
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s ease, transform 0.2s ease;
+}
+.tp-replay[data-ready] { opacity: 0.9; pointer-events: auto; }
+.tp-replay[data-ready]:hover { opacity: 1; }
+.tp-replay:focus-visible { outline: 2px solid var(--color-accent-2, #f3d47a); outline-offset: 3px; opacity: 1; }
+.tp-replay:active svg { transform: rotate(-200deg); transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1); }

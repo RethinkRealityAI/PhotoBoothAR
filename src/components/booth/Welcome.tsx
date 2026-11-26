@@ -21,7 +21,7 @@ import LiveWallField from '../theme/LiveWallField';
 import { WALL_FIELD_SAMPLES } from '../theme/samplePhotos';
 import BoothViewfinder from '../theme/BoothViewfinder';
 import PageBorder from '../theme/PageBorder';
-import ThemePackBackdrop, { hasThemeBackdrop } from '../theme/ThemePackBackdrop';
+import ThemePackBackdrop, { hasThemeBackdrop, useBackdropReplay } from '../theme/ThemePackBackdrop';
 import { useBoothScreen } from '../theme/useBoothShot';
 import EventBackground from '../ui/EventBackground';
 import PostImage from '../ui/PostImage';
@@ -62,6 +62,7 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
   // A full theme pack (lib/themePacks): its paper-cut scene is the splash,
   // in place of the scene, the living wall and the frame.
   const theme = source === 'db' && hasThemeBackdrop(config.theme) ? config.theme : undefined;
+  const backdrop = useBackdropReplay();
   const scene = !theme && config.scene ? resolveScene(config.scene) : null;
   const tone = themeTone(theme) ?? scene?.tone ?? 'dark';
   const vars = { '--sc-accent': scene?.accent ?? 'var(--color-accent)' } as CSSProperties;
@@ -84,7 +85,10 @@ function SceneWelcome({ onStart }: { onStart: () => void }) {
     >
       {/* Opaque and full-bleed, so the booth's stage box never shows through. */}
       {theme ? (
-        <ThemePackBackdrop theme={theme} />
+        <>
+          <ThemePackBackdrop key={backdrop.key} theme={theme} intro fullMotion={backdrop.fullMotion} />
+          {backdrop.chip('absolute right-4 top-[calc(env(safe-area-inset-top)+14px)] z-50')}
+        </>
       ) : (
         <>
           {scene ? <SceneBackdrop scene={scene} /> : <EventBackground density={44} sparkle={0.7} />}

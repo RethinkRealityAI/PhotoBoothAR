@@ -89,7 +89,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       {
         id: 'paint',
         title: 'Paint',
-        line: 'Face paint that moves with every smile: tigers, butterflies, festive designs, or a logo on a cheek.',
+        line: 'Face paint that moves with every smile: tigers, butterflies, full-face flags, wedding designs, or a logo on a cheek.',
         icon: 'paint',
         image: 'guest-paint',
       },

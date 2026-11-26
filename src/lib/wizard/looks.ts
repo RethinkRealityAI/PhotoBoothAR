@@ -155,6 +155,9 @@ const PAINT_TAGS: Record<string, LookTag[]> = {
   butterfly: ['birthday', 'party'],
   unicorn: ['birthday', 'party'],
   'hero-mask': ['birthday', 'halloween'],
+  'wedding-rings': ['wedding'],
+  'gilded-lace': ['wedding', 'gala'],
+  'hibiscus-bloom': ['wedding', 'party', 'birthday'],
 };
 
 function seasonTags(season: string | undefined | null): LookTag[] {
