@@ -301,7 +301,7 @@ const EFFECTS: string[] = [
       // The words draw themselves in from the left, then keep a slow shimmer.
       float reveal = smoothstep(0.0, 0.12, uTime * 0.4 - tuv.x * 1.0 + 0.1);
       float spark = 0.75 + 0.25 * vnoise(vec2(tuv.x * 140.0, tuv.y * 40.0 + uTime * 1.5));
-      sky += (vec3(1.0, 0.97, 0.9) * ink * spark * 1.4 + mix(uA, vec3(1.0, 0.85, 0.6), 0.5) * soft * 1.1) * reveal;
+      sky += (vec3(1.0, 0.97, 0.9) * ink * spark * 1.4 + mix(uA, vec3(1.0, 0.85, 0.6), 0.5) * soft * 0.55) * reveal;
     }
   }
   keep = 0.0;
