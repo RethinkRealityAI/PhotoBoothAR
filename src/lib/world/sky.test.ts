@@ -160,6 +160,9 @@ describe('sky effects: colours, words and the hint', () => {
   });
   it('tidies the words and gives none for an empty name', () => {
     expect(skyText('  Mariba   &  Philip ')).toBe('Mariba & Philip');
+    expect(skyText('Mariba & Philip', '#ForeverWeDO')).toBe('Mariba & Philip');
+    expect(skyText('  ', '#ForeverWeDO')).toBe('#ForeverWeDO');
+    expect(skyText(null, null)).toBeNull();
     expect(skyText('')).toBeNull();
     expect(skyText(undefined)).toBeNull();
     const long = skyText('x'.repeat(80))!;

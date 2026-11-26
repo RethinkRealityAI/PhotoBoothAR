@@ -31,14 +31,17 @@ export interface SkyEffect {
   mark: string;
 }
 
+// Names are short on purpose: a tile's label is two lines of about eight
+// letters, and the strip drops a first word that neighbours share (the booth
+// already has a "Golden Hour" colour effect).
 export const SKY_EFFECTS: readonly SkyEffect[] = [
-  { id: 'golden', name: 'Golden Hour', blurb: 'Turns any sky into a warm sunset.', swatch: ['#6b4a9a', '#ffb45c'], mark: '☀' },
+  { id: 'golden', name: 'Sunset Sky', blurb: 'Turns any sky into a warm sunset.', swatch: ['#6b4a9a', '#ffb45c'], mark: '☀' },
   { id: 'stars', name: 'Starry Night', blurb: 'A night full of stars, with a shooting star now and then.', swatch: ['#050a22', '#1d2a66'], mark: '✦' },
   { id: 'aurora', name: 'Northern Lights', blurb: 'Green and violet lights rippling across the sky.', swatch: ['#06142a', '#2bd99a'], mark: '≋' },
-  { id: 'fireworks', name: 'Fireworks', blurb: 'Fireworks bursting overhead in the event colours.', swatch: ['#070b24', '#3a1d5c'], mark: '✺' },
+  { id: 'fireworks', name: 'Firework Sky', blurb: 'Fireworks bursting overhead in the event colours.', swatch: ['#070b24', '#3a1d5c'], mark: '✺' },
   { id: 'lanterns', name: 'Sky Lanterns', blurb: 'Glowing paper lanterns drifting up at dusk.', swatch: ['#1a1d4d', '#e07a45'], mark: '❍' },
   { id: 'hearts', name: 'Floating Hearts', blurb: 'Hearts floating up through a blushing sky.', swatch: ['#f7a8c4', '#ffd9cf'], mark: '♥' },
-  { id: 'names', name: 'Written in the Stars', blurb: 'The event name written in starlight.', swatch: ['#050a22', '#27306e'], mark: 'Aa' },
+  { id: 'names', name: 'Names in Stars', blurb: 'The event name written in starlight.', swatch: ['#050a22', '#27306e'], mark: 'Aa' },
 ];
 
 export function skyEffect(id: string | null | undefined): SkyEffect | null {
@@ -193,9 +196,14 @@ export function skyPalette(accentHexes: readonly string[] | undefined): [Rgb, Rg
 
 export const SKY_TEXT_MAX = 36;
 
-/** The words for "Written in the Stars": the event name, tidied, or null when there is none. */
-export function skyText(eventName: string | null | undefined): string | null {
-  const t = (eventName ?? '').replace(/\s+/g, ' ').trim();
+/**
+ * The words for "Names in Stars", tidied, or null when there are none:
+ * the event's full name (a wedding's is the couple, "Mariba & Philip") and
+ * only without one its short name (often a hashtag).
+ */
+export function skyText(fullName: string | null | undefined, eventName?: string | null): string | null {
+  const tidy = (v: string | null | undefined) => (v ?? '').replace(/\s+/g, ' ').trim();
+  const t = tidy(fullName) || tidy(eventName);
   if (t.length === 0) return null;
   return t.length <= SKY_TEXT_MAX ? t : `${t.slice(0, SKY_TEXT_MAX - 1).trimEnd()}…`;
 }

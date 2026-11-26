@@ -112,7 +112,7 @@ float sdHeart(vec2 p) {
 
 /** Each effect fills `sky` (the new sky colour), `keep` (how much real sky stays) and `scene` (the graded scene). */
 const EFFECTS: string[] = [
-  // 0 Golden Hour
+  // 0 Sunset Sky
   `
   vec3 horizon = vec3(1.0, 0.74, 0.36), coral = vec3(0.98, 0.47, 0.40), mauve = vec3(0.56, 0.36, 0.64), dusk = vec3(0.20, 0.24, 0.50);
   vec3 g = mix(horizon, coral, smoothstep(0.0, 0.22, el));
@@ -165,7 +165,7 @@ const EFFECTS: string[] = [
   keep = 0.0;
   scene = nightGrade(cam) + vec3(0.0, 0.035, 0.02);
   `,
-  // 3 Fireworks
+  // 3 Firework Sky
   `
   sky = nightSky(d, az, el, uTime) * 0.75;
   vec3 spill = vec3(0.0);
@@ -286,7 +286,7 @@ const EFFECTS: string[] = [
   keep = 0.0;
   scene = mix(cam, cam * vec3(1.06, 0.97, 0.98), 0.6);
   `,
-  // 6 Written in the Stars
+  // 6 Names in Stars
   `
   sky = nightSky(d, az, el, uTime);
   if (uHasText > 0.5) {
@@ -451,7 +451,7 @@ export class SkyPass {
     this.b = [b[0], b[1], b[2]];
   }
 
-  /** The words for "Written in the Stars": white on transparent, any size. null clears them. */
+  /** The words for "Names in Stars": white on transparent, any size. null clears them. */
   setText(image: HTMLCanvasElement | null): void {
     const gl = this.gl;
     if (image === null) {
@@ -625,7 +625,7 @@ export class SkyPass {
 }
 
 /**
- * The words for "Written in the Stars" as a white-on-clear picture (power-of-two
+ * The words for "Names in Stars" as a white-on-clear picture (power-of-two
  * sized, so WebGL 1 can mipmap it too). Italic serif, one line, fitted to width.
  */
 export function skyTextCanvas(text: string, fontFamily = '"Cormorant Garamond", "Instrument Serif", Georgia, serif'): HTMLCanvasElement {

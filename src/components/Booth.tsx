@@ -987,7 +987,7 @@ export default function Booth() {
     const id = skyIdOfShader(effectId);
     if (id === null || !worldSession.skyCapable) { worldSession.setSky(null); return; }
     const [a, b] = skyPalette(eventConfig.accentHexes);
-    worldSession.setSky({ id, a, b, text: skyText(eventConfig.copy.eventName) });
+    worldSession.setSky({ id, a, b, text: skyText(eventConfig.copy.fullName, eventConfig.copy.eventName) });
   }, [worldSession, effectId, eventConfig]);
   // 8th Wall could not run here (the booth fell back to its own motion
   // tracking, which has no sky layer): a sky effect has nothing to paint.
