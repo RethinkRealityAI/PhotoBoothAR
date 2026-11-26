@@ -21,10 +21,14 @@
  *    read it at any time. The pose of THAT picture is kept beside it, so the
  *    standing frame and the room are always drawn from the same moment: no
  *    swimming against the picture.
+ *  - The engine's camera position wobbles by millimetres between pictures,
+ *    which shows as a trembling frame from close up; it has no smoothing of
+ *    its own, so the position is steadied here (lib/world/poseSteady.ts).
  *  - World frame: floor at y = 0, camera starts at CAM_H, responsive scale
  *    (1 unit ≈ 1 m on a floor).
  */
 import { createSettleGate, settleRestart, settleStep, isSettled, type SettleGate } from './arSession';
+import { WorldPoseSteady, worldSteadyFrom, type WorldSteadyOptions } from './poseSteady';
 
 export const XR8_BINARY_VERSION = '1.0.0';
 export const XR8_BINARY_URL = `https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@${XR8_BINARY_VERSION}/dist/xr.js`;
@@ -126,12 +130,21 @@ export class WorldSession {
   private lastFrameMs = 0;
   private drawnMs = Number.NaN;
   private gate: SettleGate = createSettleGate();
+  private steady: WorldPoseSteady;
+  private rawPos: [number, number, number] = [0, 0, 0];
+  private rawQuat: [number, number, number, number] = [0, 0, 0, 1];
+  private steadyPos: [number, number, number] = [0, 0, 0];
+  private steadyQuat: [number, number, number, number] = [0, 0, 0, 1];
   tracking: WorldTracking = 'UNKNOWN';
   /** Bumped on any change the DOM shows (status, settled). */
   onChange: (() => void) | null = null;
   error: string | null = null;
 
-  constructor(private readonly camHeight: number) {
+  constructor(
+    private readonly camHeight: number,
+    steady: WorldSteadyOptions = worldSteadyFrom(typeof location !== 'undefined' ? location.search : ''),
+  ) {
+    this.steady = new WorldPoseSteady(steady);
     this.canvas = document.createElement('canvas');
     this.canvas.width = 720;
     this.canvas.height = 1280;
@@ -224,8 +237,13 @@ export class WorldSession {
           if (isSettled(this.gate) !== wasSettled) this.onChange?.();
           if (!r?.position || !r.rotation || !r.intrinsics || r.intrinsics.length < 16) return;
           const p = this.latest ?? { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, intrinsics: new Float32Array(16) };
-          p.position.x = r.position.x; p.position.y = r.position.y; p.position.z = r.position.z;
-          p.rotation.x = r.rotation.x; p.rotation.y = r.rotation.y; p.rotation.z = r.rotation.z; p.rotation.w = r.rotation.w;
+          // Steadied (poseSteady.ts): the raw position trembles from close up.
+          const rp = this.rawPos, rq = this.rawQuat, sp = this.steadyPos, sq = this.steadyQuat;
+          rp[0] = r.position.x; rp[1] = r.position.y; rp[2] = r.position.z;
+          rq[0] = r.rotation.x; rq[1] = r.rotation.y; rq[2] = r.rotation.z; rq[3] = r.rotation.w;
+          this.steady.step(rp, rq, gap, sp, sq);
+          p.position.x = sp[0]; p.position.y = sp[1]; p.position.z = sp[2];
+          p.rotation.x = sq[0]; p.rotation.y = sq[1]; p.rotation.z = sq[2]; p.rotation.w = sq[3];
           for (let i = 0; i < 16; i++) p.intrinsics[i] = r.intrinsics[i];
           this.latest = p;
         },
@@ -285,6 +303,7 @@ export class WorldSession {
   /** Re-anchor after real drift; re-arms the settle gate. */
   recenter(): void {
     try { this.XR8?.XrController.recenter(); } catch { /* not running */ }
+    this.steady.reset();
     this.gate = settleRestart(this.gate, performance.now());
     this.onChange?.();
   }
@@ -299,6 +318,7 @@ export class WorldSession {
     this.hasVideo = false;
     this.seq = 0;
     this.latest = this.drawn = null;
+    this.steady.reset();
     this.tracking = 'UNKNOWN';
     if (this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
     void this.host;
