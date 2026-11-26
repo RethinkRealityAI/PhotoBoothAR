@@ -13,47 +13,18 @@
  *
  * A fixed 720×1280 internal resolution (the stage's 9:16) keeps particle physics
  * independent of on-screen size; StageCanvas scales it to capture resolution.
- * `prefers-reduced-motion` swaps every style for a single subtle sparkle pop.
+ * Burst shapes live in lib/burstFx.ts (pure, tested). They are NOT reduced for
+ * prefers-reduced-motion: the guest fires them on purpose (see burstFx.ts).
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import type { BurstStyle } from '../../lib/studio/triggers';
+import { FX_W as W, FX_H as H, addParticles, burstParticles, stepParticles, type FxParticle } from '../../lib/burstFx';
 
 export interface TriggerEffectsHandle {
   /** Spawn a burst of the given style (no-op if the canvas isn't ready). */
   fire: (style: BurstStyle) => void;
   /** The live canvas element, for capture compositing (null before mount). */
   readonly canvas: HTMLCanvasElement | null;
-}
-
-const W = 720;
-const H = 1280;
-const MAX_PARTICLES = 120;
-
-type ParticleKind = 'rect' | 'heart' | 'dot' | 'spark';
-
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number;      // seconds remaining
-  maxLife: number;
-  size: number;
-  rot: number;
-  vrot: number;
-  gravity: number;   // px/s²
-  color: string;     // 'r,g,b'
-  kind: ParticleKind;
-  additive: boolean; // 'lighter' composite (glow) vs 'source-over'
-  trail: boolean;    // draw a short motion streak (fireworks)
-}
-
-const CONFETTI_COLORS = ['255,64,129', '124,77,255', '0,229,255', '255,215,64', '0,230,118', '255,109,64'];
-const HEART_COLORS = ['255,82,133', '255,133,162', '255,45,85'];
-const FIREWORK_COLORS = ['255,225,150', '255,170,90', '120,220,255', '255,120,200'];
-
-function rand(a: number, b: number): number {
-  return a + Math.random() * (b - a);
 }
 
 /** A heart outline centred on (x,y), radius ~s, via two bezier lobes. */
@@ -67,154 +38,103 @@ function heartPath(ctx: CanvasRenderingContext2D, s: number): void {
   ctx.closePath();
 }
 
+/** One soft radial glow per colour, drawn once and stamped with drawImage
+ *  (a gradient per particle per frame is what makes phones drop frames). */
+const glowCache = new Map<string, HTMLCanvasElement>();
+function glow(color: string): HTMLCanvasElement {
+  let c = glowCache.get(color);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  if (g) {
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, `rgba(${color},1)`);
+    grad.addColorStop(0.25, `rgba(${color},0.55)`);
+    grad.addColorStop(1, `rgba(${color},0)`);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+  }
+  glowCache.set(color, c);
+  return c;
+}
+
 const TriggerEffects = forwardRef<TriggerEffectsHandle, { className?: string }>(function TriggerEffects(
   { className },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const particlesRef = useRef<Particle[]>([]);
+  const particlesRef = useRef<FxParticle[]>([]);
   const rafRef = useRef<number>(0);
   const runningRef = useRef(false);
   const lastRef = useRef(0);
-
-  const spawn = (p: Particle) => {
-    const list = particlesRef.current;
-    if (list.length >= MAX_PARTICLES) return; // cap — drop the overflow
-    list.push(p);
-  };
-
-  const reducedMotion = (): boolean => {
-    try {
-      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    } catch {
-      return false;
-    }
-  };
-
-  const burst = (style: BurstStyle) => {
-    // Reduced motion: one small, gentle sparkle pop for ANY style — no flurry.
-    if (reducedMotion()) {
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        spawn({
-          x: W / 2 + Math.cos(a) * rand(4, 30), y: H * 0.42 + Math.sin(a) * rand(4, 30),
-          vx: Math.cos(a) * rand(4, 18), vy: Math.sin(a) * rand(4, 18),
-          life: rand(0.5, 0.8), maxLife: 0.8, size: rand(3, 6), rot: 0, vrot: 0,
-          gravity: 0, color: '255,240,190', kind: 'spark', additive: true, trail: false,
-        });
-      }
-      return;
-    }
-
-    if (style === 'confetti') {
-      for (let i = 0; i < 46; i++) {
-        const a = rand(-Math.PI * 0.85, -Math.PI * 0.15); // up-and-out arc
-        const sp = rand(260, 620);
-        spawn({
-          x: W / 2 + rand(-40, 40), y: H * 0.5,
-          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-          life: rand(1.4, 2.4), maxLife: 2.4, size: rand(8, 15),
-          rot: rand(0, Math.PI), vrot: rand(-9, 9), gravity: 780,
-          color: CONFETTI_COLORS[i % CONFETTI_COLORS.length], kind: 'rect', additive: false, trail: false,
-        });
-      }
-    } else if (style === 'hearts') {
-      for (let i = 0; i < 18; i++) {
-        spawn({
-          x: W / 2 + rand(-150, 150), y: H * 0.62 + rand(-20, 60),
-          vx: rand(-40, 40), vy: rand(-150, -260),
-          life: rand(1.6, 2.6), maxLife: 2.6, size: rand(22, 40),
-          rot: 0, vrot: rand(-1.2, 1.2), gravity: 60,
-          color: HEART_COLORS[i % HEART_COLORS.length], kind: 'heart', additive: false, trail: false,
-        });
-      }
-    } else if (style === 'sparkles') {
-      for (let i = 0; i < 34; i++) {
-        spawn({
-          x: W / 2 + rand(-220, 220), y: H * 0.45 + rand(-260, 260),
-          vx: rand(-40, 40), vy: rand(-40, 40),
-          life: rand(0.7, 1.5), maxLife: 1.5, size: rand(3, 9),
-          rot: 0, vrot: 0, gravity: 0,
-          color: Math.random() > 0.5 ? '255,236,170' : '255,250,232', kind: 'spark', additive: true, trail: false,
-        });
-      }
-    } else {
-      // fireworks — a couple of radial bursts with trailing streaks.
-      const bursts = 2;
-      for (let b = 0; b < bursts; b++) {
-        const cx = W / 2 + rand(-140, 140);
-        const cy = H * rand(0.3, 0.5);
-        const col = FIREWORK_COLORS[b % FIREWORK_COLORS.length];
-        for (let i = 0; i < 30; i++) {
-          const a = (i / 30) * Math.PI * 2 + rand(-0.1, 0.1);
-          const sp = rand(180, 420);
-          spawn({
-            x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-            life: rand(0.9, 1.6), maxLife: 1.6, size: rand(2.5, 5),
-            rot: 0, vrot: 0, gravity: 210, color: col, kind: 'dot', additive: true, trail: true,
-          });
-        }
-      }
-    }
-  };
+  const clockRef = useRef(0);
 
   const draw = (ctx: CanvasRenderingContext2D) => {
     ctx.clearRect(0, 0, W, H);
+    const t = clockRef.current;
     for (const p of particlesRef.current) {
-      const fade = Math.min(1, p.life / (p.maxLife * 0.6)); // fade over the last 60% of life
-      ctx.save();
+      if (p.delay > 0) continue;
+      let a = Math.min(1, p.life / (p.maxLife * 0.5)); // fade over the last half of life
+      if (p.flicker) a *= Math.sin(t * 40 + p.x * 0.7) > -0.2 ? 1 : 0.15;
+      if (a <= 0.01) continue;
       ctx.globalCompositeOperation = p.additive ? 'lighter' : 'source-over';
+      ctx.globalAlpha = a;
       if (p.kind === 'rect') {
+        ctx.save();
         ctx.translate(p.x, p.y);
         ctx.rotate(p.rot);
-        ctx.globalAlpha = fade;
+        // Flip the short side with the spin so a piece reads as tumbling paper.
+        ctx.scale(1, Math.cos(p.rot * 1.7));
         ctx.fillStyle = `rgb(${p.color})`;
-        ctx.fillRect(-p.size / 2, -p.size * 0.35, p.size, p.size * 0.7);
+        ctx.fillRect(-p.size / 2, -p.size * 0.3, p.size, p.size * 0.6);
+        ctx.restore();
       } else if (p.kind === 'heart') {
+        ctx.save();
         ctx.translate(p.x, p.y);
         ctx.rotate(p.rot);
-        ctx.globalAlpha = fade;
         ctx.fillStyle = `rgb(${p.color})`;
+        ctx.shadowColor = `rgba(${p.color},0.7)`;
+        ctx.shadowBlur = 14;
         heartPath(ctx, p.size);
         ctx.fill();
-      } else if (p.kind === 'dot') {
+        ctx.restore();
+      } else if (p.kind === 'flash') {
+        const life = p.life / p.maxLife; // 1 → 0
+        const s = p.size * (1.2 - life * 0.6);
+        ctx.globalAlpha = life * 0.85;
+        ctx.drawImage(glow(p.color), p.x - s / 2, p.y - s / 2, s, s);
+      } else {
+        // dot / rocket / spark: a streak (if any), a glow, and a white-hot core.
         if (p.trail) {
-          ctx.globalAlpha = fade * 0.5;
-          ctx.strokeStyle = `rgba(${p.color},${fade * 0.5})`;
-          ctx.lineWidth = p.size * 0.8;
+          const len = p.kind === 'rocket' ? 0.09 : 0.045;
+          ctx.strokeStyle = `rgba(${p.color},${a * 0.6})`;
+          ctx.lineWidth = p.size * (p.kind === 'rocket' ? 0.9 : 0.7);
+          ctx.lineCap = 'round';
           ctx.beginPath();
           ctx.moveTo(p.x, p.y);
-          ctx.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03);
+          ctx.lineTo(p.x - p.vx * len, p.y - p.vy * len);
           ctx.stroke();
         }
-        ctx.globalAlpha = fade;
-        ctx.fillStyle = `rgb(${p.color})`;
+        const gs = p.size * (p.kind === 'spark' ? 5 : 4.5);
+        ctx.drawImage(glow(p.color), p.x - gs / 2, p.y - gs / 2, gs, gs);
+        if (p.kind === 'spark') {
+          const gl = p.size * 2.2;
+          ctx.strokeStyle = `rgba(255,255,255,${a * 0.9})`;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(p.x - gl, p.y); ctx.lineTo(p.x + gl, p.y);
+          ctx.moveTo(p.x, p.y - gl); ctx.lineTo(p.x, p.y + gl);
+          ctx.stroke();
+        }
+        ctx.fillStyle = 'rgb(255,255,255)';
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.size * 0.45, 0, Math.PI * 2);
         ctx.fill();
-      } else {
-        // spark — soft twinkling core + 4-point glint
-        const tw = 0.55 + 0.45 * Math.sin(p.life * 18 + p.x);
-        const a = fade * tw;
-        const r = p.size * (0.7 + tw * 0.6);
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 2.2);
-        g.addColorStop(0, `rgba(${p.color},${a})`);
-        g.addColorStop(0.4, `rgba(${p.color},${a * 0.35})`);
-        g.addColorStop(1, `rgba(${p.color},0)`);
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r * 2.2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = `rgba(${p.color},${a * 0.9})`;
-        ctx.lineWidth = 1.2;
-        const gl = r * 2.4;
-        ctx.beginPath();
-        ctx.moveTo(p.x - gl, p.y); ctx.lineTo(p.x + gl, p.y);
-        ctx.moveTo(p.x, p.y - gl); ctx.lineTo(p.x, p.y + gl);
-        ctx.stroke();
       }
-      ctx.restore();
     }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
   };
 
   const tick = (now: number) => {
@@ -222,20 +142,11 @@ const TriggerEffects = forwardRef<TriggerEffectsHandle, { className?: string }>(
     if (!ctx) { runningRef.current = false; return; }
     const dt = Math.min(Math.max((now - lastRef.current) / 1000, 0.001), 0.05);
     lastRef.current = now;
+    clockRef.current += dt;
 
     const list = particlesRef.current;
-    let w = 0;
-    for (let i = 0; i < list.length; i++) {
-      const p = list[i];
-      p.life -= dt;
-      if (p.life <= 0) continue;
-      p.vy += p.gravity * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.rot += p.vrot * dt;
-      list[w++] = p; // compact live particles in place (no per-frame allocation)
-    }
-    list.length = w;
+    const born = stepParticles(list, dt, Math.random);
+    if (born.length > 0) addParticles(list, born);
 
     draw(ctx);
 
@@ -257,7 +168,7 @@ const TriggerEffects = forwardRef<TriggerEffectsHandle, { className?: string }>(
   useImperativeHandle(ref, () => ({
     fire(style: BurstStyle) {
       if (!canvasRef.current) return;
-      burst(style);
+      addParticles(particlesRef.current, burstParticles(style, Math.random));
       start();
     },
     get canvas() { return canvasRef.current; },

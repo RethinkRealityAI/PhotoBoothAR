@@ -144,6 +144,26 @@ describe('wink asymmetry', () => {
     ];
     expect(run(wink, winkFrames)).toEqual(['t-wink']);
   });
+
+  it('a real wink fires at the hybrid cadence even though the open eye half-closes', () => {
+    // MediaPipe on a phone: the open eye squints to ~0.4 with the cheek; the
+    // blendshape side path samples every 66ms, so a ~330ms wink is 5 samples.
+    const wink = createTriggerEngine([winkCfg]);
+    const frames = [
+      { scores: { eyeBlinkLeft: 0.08, eyeBlinkRight: 0.1 }, t: 0 },
+      ...[66, 132, 198, 264, 330].map((t) => ({ scores: { eyeBlinkLeft: 0.4, eyeBlinkRight: 0.82 }, t })),
+    ];
+    expect(run(wink, frames)).toEqual(['t-wink']);
+  });
+
+  it('an uneven blink (both eyes mostly closed) still never fires', () => {
+    const blink = createTriggerEngine([winkCfg]);
+    const frames = [
+      { scores: { eyeBlinkLeft: 0.05, eyeBlinkRight: 0.05 }, t: 0 },
+      ...[66, 132, 198, 264].map((t) => ({ scores: { eyeBlinkLeft: 0.9, eyeBlinkRight: 0.72 }, t })),
+    ];
+    expect(run(blink, frames)).toEqual([]);
+  });
 });
 
 describe('null / missing score robustness', () => {

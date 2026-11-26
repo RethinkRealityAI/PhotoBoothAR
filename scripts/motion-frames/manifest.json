@@ -269,7 +269,7 @@
         "action": {
           "type": "filterPulse",
           "shaderId": "neon-pulse",
-          "durationMs": 1200
+          "durationMs": 2000
         }
       }
     ],

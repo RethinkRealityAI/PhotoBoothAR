@@ -196,8 +196,15 @@ export function trackRest(rest: number, raw: number, dtMs: number): number {
 }
 
 const DEFAULT_COOLDOWN_MS = 2500;
-/** The other eye must be at/below this for a wink to count (rejects blinks). */
-const WINK_OTHER_MAX = 0.25;
+/**
+ * A wink counts while the OTHER eye stays at/below WINK_OTHER_MAX and the
+ * closed eye leads it by at least WINK_MIN_GAP. The old rule (other eye ≤ 0.25)
+ * never fired on a phone (Nov 2026): a real wink lifts the cheek and half-closes
+ * the open eye too, so MediaPipe reads it around 0.3-0.45. A blink closes both
+ * eyes together, so the gap rule still rejects it.
+ */
+export const WINK_OTHER_MAX = 0.45;
+export const WINK_MIN_GAP = 0.3;
 
 /** Per-source hysteresis band: fire when the smoothed signal crosses `enter`,
  *  re-arm only once it drops back to `exit`. jawOpen sits a touch lower; hand
@@ -233,9 +240,11 @@ export function sourceSignal(source: TriggerSource, scores: Record<string, numbe
     case 'wink': {
       // Asymmetry required: the winking eye's blink counts ONLY while the other
       // eye stays open (≤ WINK_OTHER_MAX). A normal blink closes both → 0.
-      const left = g('eyeBlinkRight') <= WINK_OTHER_MAX ? g('eyeBlinkLeft') : 0;
-      const right = g('eyeBlinkLeft') <= WINK_OTHER_MAX ? g('eyeBlinkRight') : 0;
-      return Math.max(left, right);
+      const l = g('eyeBlinkLeft');
+      const rr = g('eyeBlinkRight');
+      const closed = Math.max(l, rr);
+      const open = Math.min(l, rr);
+      return open <= WINK_OTHER_MAX && closed - open >= WINK_MIN_GAP ? closed : 0;
     }
     case 'browRaise': {
       const inner = g('browInnerUp');

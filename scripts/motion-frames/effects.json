@@ -3,5 +3,5 @@
   "confetti-cannon": {"name": "Confetti Cannon", "shaderId": "prismatic-holo", "category": "birthdays", "triggers": [{"source": "smile", "action": {"type": "burst", "style": "confetti"}}]},
   "sparkle-wink": {"name": "Sparkle Wink", "shaderId": "holo-bloom", "category": "birthdays", "triggers": [{"source": "wink", "action": {"type": "burst", "style": "sparkles"}}]},
   "brow-fireworks": {"name": "Brow Fireworks", "shaderId": "celestial-lens-flare", "category": "new-year", "triggers": [{"source": "browRaise", "action": {"type": "burst", "style": "fireworks"}}]},
-  "wink-flash": {"name": "Neon Flash", "shaderId": "velvet-film", "category": "birthdays", "triggers": [{"source": "mouthOpen", "action": {"type": "filterPulse", "shaderId": "neon-pulse", "durationMs": 1200}}]}
+  "wink-flash": {"name": "Neon Flash", "shaderId": "velvet-film", "category": "birthdays", "triggers": [{"source": "mouthOpen", "action": {"type": "filterPulse", "shaderId": "neon-pulse", "durationMs": 2000}}]}
 }
