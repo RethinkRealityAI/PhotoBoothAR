@@ -557,13 +557,16 @@ export const LIBRARY_EMPTY_MESSAGE =
  * Each is a template with NO paintable region: a floral or matte-black bake
  * cannot be tinted into a flag, so every swatch is a BAKED VARIANT of the same
  * mesh (same UVs; only the base colour and, on the wayfarer, the frame's
- * metal/roughness change). The booth's colour row swaps the model on a tap.
+ * nothing else changes). The booth's colour row swaps the model on a tap.
  *
  * These are the canonical copies of what is written into those rows'
  * `config.layers[0].template` (a row carries its template, so editing this
  * file changes nothing live until the rows are updated). Variants baked
  * 2026-11-26 by projecting each flag across the frame front in mesh space;
- * lenses keep their own bake, temples take one flag colour.
+ * lenses keep their own bake, temples take one flag colour. The wayfarer was
+ * REBUILT the same day as an HD Meshy model (2K glossy acetate, metal 0,
+ * same 14.5 cm width / +z front as the old library GLB) because the old
+ * 1K bake had ragged lens edges; all three wayfarer files share its UVs.
  */
 export const FLAG_COLOURWAY_TEMPLATES = {
   bashmentShades: {
@@ -583,11 +586,11 @@ export const FLAG_COLOURWAY_TEMPLATES = {
   wayfarer: {
     id: 'wayfarer-sunglasses',
     name: 'Wayfarer Sunglasses',
-    glbUrl: 'https://zrtftliozslrjomxbfrr.supabase.co/storage/v1/object/public/assets/_platform/library/9836bf04-7ab8-4a2b-aa16-49173f413921/model.glb',
-    fitCm: 14.77,
+    glbUrl: '/models/wayfarer-black.glb',
+    fitCm: 15.89,
     regions: [],
     guestSwatches: [
-      { hex: '#151515', name: 'Black', glbUrl: 'https://zrtftliozslrjomxbfrr.supabase.co/storage/v1/object/public/assets/_platform/library/9836bf04-7ab8-4a2b-aa16-49173f413921/model.glb' },
+      { hex: '#151515', name: 'Black', glbUrl: '/models/wayfarer-black.glb' },
       { hex: '#009b3a', name: 'Jamaica', glbUrl: '/models/wayfarer-jamaica.glb', dot: ['#009b3a', '#fed100', '#141414'] },
       { hex: '#008751', name: 'Nigeria', glbUrl: '/models/wayfarer-nigeria.glb', dot: ['#008751', '#f2efe6', '#008751'] },
     ],
