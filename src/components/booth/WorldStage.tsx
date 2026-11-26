@@ -29,6 +29,7 @@ import { buildStandeeWalls, gridFromImageData } from '../../lib/world/standeeMes
 import { haptic } from '../../lib/haptics';
 import { goodMatch, grabPatch, matchPatch, median, MIN_PATCH_STD, toGray, type Patch } from '../../lib/world/patchTrack';
 import type { WorldSession } from '../../lib/world/xr8World';
+import { easeLight, type Rgb } from '../../lib/world/lightEstimate';
 import type { ResolvedCover } from '../../lib/cover/spec';
 import type { CoverObject } from '../../lib/cover/build3d';
 
@@ -454,6 +455,7 @@ function WorldScene({
   const lockStarted = useRef(false);
   const corrQ = useMemo(() => new THREE.Quaternion(), []);
   const corrE = useMemo(() => new THREE.Euler(), []);
+  const lightNow = useMemo<Rgb>(() => [1, 1, 1], []);
 
   useFrame((_, dt) => {
     const now = performance.now();
@@ -499,6 +501,21 @@ function WorldScene({
     const g = store.gesture;
     hd.rotation.y = g.yaw;
     hd.scale.setScalar(g.scale);
+    // Room light (8th Wall only): the board takes the scene's brightness and a
+    // little of its colour, so it stands in the room instead of glowing on it.
+    if (engine) {
+      easeLight(lightNow, engine.light(), dt);
+      hd.traverse((o) => {
+        const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        if (!mat) return;
+        for (const m of Array.isArray(mat) ? mat : [mat]) {
+          const c = (m as THREE.Material & { color?: THREE.Color }).color;
+          if (!c) continue;
+          const base = (m.userData.roomBase ??= c.clone()) as THREE.Color;
+          c.setRGB(base.r * lightNow[0], base.g * lightNow[1], base.b * lightNow[2]);
+        }
+      });
+    }
 
     if (store.phase === 'placing') {
       tmp.set(AIM_NDC.x, AIM_NDC.y, 0.5).unproject(camera).sub(camera.position);
@@ -654,7 +671,7 @@ export interface WorldStageProps {
 }
 
 /** Ask for motion access (iPhone). MUST be the first, synchronous thing in a tap. */
-function askMotionAccess(): void {
+export function askMotionAccess(): void {
   const DOE = (typeof DeviceOrientationEvent !== 'undefined' ? DeviceOrientationEvent : undefined) as unknown as IOSPermission | undefined;
   const DME = (typeof DeviceMotionEvent !== 'undefined' ? DeviceMotionEvent : undefined) as unknown as IOSPermission | undefined;
   try { DOE?.requestPermission?.().catch(() => {}); } catch { /* not iOS */ }

@@ -735,6 +735,15 @@ const MAKE_A_FRAME: GuideDoc = {
       ],
     },
     {
+      kind: 'prose',
+      title: 'Sky effects: paint the sky behind your guests',
+      body: [
+        'Outdoor event? The Effects tab has seven sky effects, each marked AR: Golden Hour, Starry Night, Northern Lights, Fireworks, Sky Lanterns, Floating Hearts and Written in the Stars. A guest picks one, the booth switches to the back camera, and wherever the sky shows in the picture it is repainted, while buildings, trees and people stay in front and are tinted to match (a night sky dims the scene a little, a sunset warms it).',
+        'They are tied to your event without any setup. Fireworks and hearts use your event colours, and Written in the Stars writes your event name across the sky in starlight, so a wedding gets the couple’s names. Everything sits in the real sky, just above the rooftops or the horizon, and stays put as the phone turns. Photos and videos both keep it.',
+        'Good to know: they need open sky, so indoors the booth asks the guest to point the camera at the sky. They work on phones, and they can be combined with a standing 3D frame from Props. A 3D frame also now takes on the light of the room it stands in, dimmer in a dim room and warmer at sunset, so it looks like it is really there.',
+      ],
+    },
+    {
       kind: 'downloads',
       title: 'Start with a ready-made one',
       blurb: 'Fourteen finished frames, already the right size and already cut out — free to download for your own designs, or to hand to whoever runs your Studio. The chequered part is see-through — that is where your guest lands — and the dashed window shows how much room the design leaves them.',
