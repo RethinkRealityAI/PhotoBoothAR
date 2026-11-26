@@ -18,7 +18,7 @@
 export type FeatureIcon =
   | 'qr' | 'frame' | 'crown' | 'paint' | 'sparkles' | 'box' | 'camera' | 'trophy' | 'eye' | 'zap'
   | 'monitor' | 'shield' | 'mail' | 'film' | 'gift' | 'wand' | 'library' | 'wizard' | 'bot' | 'studio'
-  | 'handshake' | 'megaphone' | 'users' | 'smartphone';
+  | 'handshake' | 'megaphone' | 'users' | 'smartphone' | 'album' | 'music';
 
 /** Real product pictures. `phone` = a 9:16-ish phone screen, `wide` = desktop or a landscape still. */
 export type FeatureImageKey =
@@ -187,6 +187,23 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         line: 'Grid, gallery, 3D carousel or a wall + leaderboard split screen, with arrival effects styled to match the event.',
         icon: 'sparkles',
         image: 'wall-gallery',
+      },
+      {
+        id: 'wall-album',
+        title: 'Album mode',
+        line: 'The wall becomes a photo album: shots stamped on the pages at a slight tilt, and the book turns a page every few seconds.',
+        detail: 'New photos start new pages. The wall can also rotate between layouts on its own, with a crossfade, flip, wipe or spotlight.',
+        icon: 'album',
+        tag: 'New',
+        demo: { label: 'Open the album wall', path: '/e/guest-magic-test/wall' },
+      },
+      {
+        id: 'wall-music',
+        title: 'Music for the room',
+        line: 'Hosts pick a mood (ambient, chill, lounge or upbeat) and the venue screen plays it, crossfading song to song.',
+        detail: 'Every song is public domain (CC0): no licence fee, no credit needed, fine at paid events. Never plays on guests’ phones.',
+        icon: 'music',
+        tag: 'New',
       },
       {
         id: 'send',
