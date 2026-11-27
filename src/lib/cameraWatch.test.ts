@@ -107,8 +107,16 @@ describe('cameraWatch', () => {
 });
 
 describe('framesAdvanced', () => {
-  it('uses the frame counter when both samples have one', () => {
-    expect(framesAdvanced({ frames: 10, time: 1 }, { frames: 10, time: 2 })).toBe(false);
+  it('uses the frame counter once it has been seen to advance', () => {
+    expect(framesAdvanced({ frames: 10, time: 1 }, { frames: 10, time: 2 }, true)).toBe(false);
+    expect(framesAdvanced({ frames: 10, time: 1 }, { frames: 11, time: 1 }, true)).toBe(true);
+  });
+  it('does not trust a counter that never moved (iOS Chrome): currentTime decides', () => {
+    // iOS Chrome live camera: totalVideoFrames stuck, currentTime advancing.
+    expect(framesAdvanced({ frames: 0, time: 1 }, { frames: 0, time: 2 })).toBe(true);
+    // ...and a real freeze there still reads as frozen.
+    expect(framesAdvanced({ frames: 0, time: 2 }, { frames: 0, time: 2 })).toBe(false);
+    // A counter that moves counts even before it is proven.
     expect(framesAdvanced({ frames: 10, time: 1 }, { frames: 11, time: 1 })).toBe(true);
   });
   it('falls back to currentTime', () => {
