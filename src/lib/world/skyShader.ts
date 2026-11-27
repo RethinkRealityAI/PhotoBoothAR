@@ -410,7 +410,7 @@ const EFFECTS: string[] = [
   g += vec3(1.0, 0.92, 0.75) * stars(d, uTime) * smoothstep(0.3, 0.7, el) * 0.6;
   if (uHasText > 0.5) {
     float W = 0.60, H = W / uTextAspect;
-    vec2 tuv = vec2(az / W + 0.5, (el - uTextEl - 0.07) / H + 0.5);
+    vec2 tuv = vec2(az / W + 0.5, (el - uTextEl - 0.03) / H + 0.5);
     if (tuv.x > -0.1 && tuv.x < 1.1 && tuv.y > -0.3 && tuv.y < 1.3) {
       vec2 tc = vec2(tuv.x, 1.0 - tuv.y);
       float inb = step(0.0, tc.x) * step(tc.x, 1.0) * step(0.0, tc.y) * step(tc.y, 1.0);
