@@ -147,10 +147,47 @@ export function useBoothShowcase(max = 6): ShowcaseCard[] {
   return useMemo(() => boothShowcase(catalog, max), [catalog, max]);
 }
 
+/** Longest the phone screen waits for its pictures to decode before showing
+ *  them anyway (a slow image then paints in place rather than never). */
+const SCREEN_DECODE_TIMEOUT_MS = 3500;
+
+function decodeImage(url: string): Promise<void> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => { img.decode ? img.decode().then(resolve, () => resolve()) : resolve(); };
+    img.onerror = () => resolve(); // a broken image must not hold the screen
+    img.src = url;
+  });
+}
+
 /** The splash pages' phone screen: the event's frame on a stand-in guest,
- *  or a finished booth look (scenePage.boothScreen). Never a wall photo. */
-export function useBoothScreen(): BoothScreen {
+ *  or a finished booth look (scenePage.boothScreen). Never a wall photo.
+ *
+ *  null until the event's looks have loaded AND the screen's pictures have
+ *  decoded: before that the hero frame is unknown, and showing the no-frame
+ *  fallback, then the bare stand-in, then the framed shot made the phone
+ *  swap pictures three times on every load. The viewfinder shows its own
+ *  empty screen meanwhile, and the finished screen arrives once. */
+export function useBoothScreen(): BoothScreen | null {
   const { config } = useEvent();
   const frameUrl = useHeroFrameUrl();
-  return useMemo(() => boothScreen(frameUrl, BOOTH_STANDIN, config.boothScreen), [frameUrl, config.boothScreen]);
+  const experiencesLoaded = useStore((s) => s.experiencesLoaded);
+  const target = useMemo(
+    () => (experiencesLoaded ? boothScreen(frameUrl, BOOTH_STANDIN, config.boothScreen) : null),
+    [experiencesLoaded, frameUrl, config.boothScreen],
+  );
+  const [shown, setShown] = useState<BoothScreen | null>(null);
+  useEffect(() => {
+    if (!target) return;
+    let alive = true;
+    const urls = [target.photo, target.frame].filter((u): u is string => typeof u === 'string' && u !== '');
+    const timer = setTimeout(() => { if (alive) setShown(target); }, SCREEN_DECODE_TIMEOUT_MS);
+    void Promise.all(urls.map(decodeImage)).then(() => {
+      clearTimeout(timer);
+      if (alive) setShown(target);
+    });
+    return () => { alive = false; clearTimeout(timer); };
+  }, [target]);
+  return shown;
 }

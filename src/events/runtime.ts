@@ -20,6 +20,7 @@ import { isUntouchedTemplateTheme } from '../lib/eventTemplates';
 import { normalizeScene, resolveSceneImageUrl } from '../lib/sceneThemes';
 import { normalizeEventTheme, themePackById, themePackVars } from '../lib/themePacks';
 import { powerUpTriggers } from '../lib/wizard/powerUps';
+import { EVENT_ROW_SELECT, peekBootRowSync, takeBootRow } from '../lib/eventBoot';
 import { normalizeBoothIntro } from '../lib/boothIntro';
 
 export interface RuntimeEvent {
@@ -208,13 +209,45 @@ export type EventLoad =
  * Resolve a slug to a runtime event: coded registry first, then the `events`
  * table.
  */
+/** A raw events row (REST or supabase-js, same columns) → RuntimeEvent. */
+function eventFromRow(row: EventRow): RuntimeEvent {
+  return {
+    eventId: row.slug,
+    eventUuid: row.id,
+    status: row.status,
+    planTier: row.plan_tier ?? 'free',
+    config: buildRuntimeConfig(row),
+    source: 'db',
+    startsAt: typeof row.starts_at === 'string' ? row.starts_at : null,
+    keepsakes: row.config?.keepsakes,
+  };
+}
+
+/**
+ * The event, already resolved by index.html's boot request (lib/eventBoot.ts),
+ * or null when it has not arrived / found nothing. Lets EventProvider render
+ * the event on its very first frame instead of a loading screen. Not
+ * consumed (see peekBootRowSync); EventProvider discards it after commit.
+ */
+export function peekBootEvent(slug: string): RuntimeEvent | null {
+  if (getRegisteredEvent(slug)) return null;
+  const row = peekBootRowSync(slug);
+  return row ? eventFromRow(row as unknown as EventRow) : null;
+}
+
 export async function loadEventConfig(slug: string): Promise<EventLoad> {
   const code = getRegisteredEvent(slug);
   if (code) return { event: codeRuntimeEvent(slug, code), error: null };
 
+  // index.html started this request before the app bundle had even loaded.
+  // Only a found row is trusted: anything else asks again below, with the
+  // visitor's session (a host can see their own draft; anon cannot).
+  const boot = await takeBootRow(slug);
+  if (boot) return { event: eventFromRow(boot as unknown as EventRow), error: null };
+
   const { data, error } = await supabase
     .from('events')
-    .select('id, slug, name, event_type, status, config, plan_tier, starts_at')
+    .select(EVENT_ROW_SELECT)
     .eq('slug', slug)
     .maybeSingle();
   if (error) {
@@ -223,18 +256,5 @@ export async function loadEventConfig(slug: string): Promise<EventLoad> {
   }
   if (!data) return { event: null, error: 'missing' };
 
-  const row = data as EventRow;
-  return {
-    event: {
-      eventId: row.slug,
-      eventUuid: row.id,
-      status: row.status,
-      planTier: row.plan_tier ?? 'free',
-      config: buildRuntimeConfig(row),
-      source: 'db',
-      startsAt: typeof row.starts_at === 'string' ? row.starts_at : null,
-      keepsakes: row.config?.keepsakes,
-    },
-    error: null,
-  };
+  return { event: eventFromRow(data as EventRow), error: null };
 }

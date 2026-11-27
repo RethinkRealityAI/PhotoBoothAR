@@ -364,6 +364,11 @@ body {
   50%      { box-shadow: 0 0 55px -6px rgba(232,199,102,0.65); }
 }
 @keyframes slow-spin { to { transform: rotate(360deg); } }
+/* Loading spinners that should not appear at all on a fast load (event boot,
+   route chunks): invisible for a beat, then fade in. On a WRAPPER — the
+   spinner's own `animation` is the spin. */
+@keyframes bw-boot-in { from { opacity: 0; } to { opacity: 1; } }
+.bw-boot-delay { animation: bw-boot-in 0.3s ease-out 0.8s both; }
 @keyframes rise-in {
   from { opacity: 0; transform: translateY(16px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }

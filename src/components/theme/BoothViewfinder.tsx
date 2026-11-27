@@ -19,6 +19,9 @@ import { Camera } from 'lucide-react';
  *  the phone from a height divide by this. */
 export const VF_HEIGHT_PER_WIDTH = 2.098;
 
+/** The screen's pictures fade in (keyframes in index.css). */
+const SCREEN_IN = 'bw-boot-in 0.4s ease-out both';
+
 export default function BoothViewfinder({
   to,
   frameUrl,
@@ -111,10 +114,15 @@ export default function BoothViewfinder({
                     alt={previewAlt ?? ''}
                     decoding="async"
                     className="absolute inset-0 h-full w-full object-cover"
-                    style={previewCrop ? {
-                      transformOrigin: `${previewCrop.cx * 100}% ${previewCrop.cy * 100}%`,
-                      transform: `translate(${(0.5 - previewCrop.cx) * 100}%, ${(0.5 - previewCrop.cy) * 100}%) scale(${previewCrop.scale})`,
-                    } : undefined}
+                    style={{
+                      // The screen fills in once (useBoothScreen holds it until
+                      // its pictures decode): ease it in rather than pop.
+                      animation: SCREEN_IN,
+                      ...(previewCrop ? {
+                        transformOrigin: `${previewCrop.cx * 100}% ${previewCrop.cy * 100}%`,
+                        transform: `translate(${(0.5 - previewCrop.cx) * 100}%, ${(0.5 - previewCrop.cy) * 100}%) scale(${previewCrop.scale})`,
+                      } : {}),
+                    }}
                   />
                 </div>
               ) : (
@@ -134,7 +142,7 @@ export default function BoothViewfinder({
                 </div>
               )}
               {frameUrl && (
-                <img src={frameUrl} alt="" decoding="async" className="absolute inset-0 h-full w-full object-fill" />
+                <img src={frameUrl} alt="" decoding="async" className="absolute inset-0 h-full w-full object-fill" style={{ animation: SCREEN_IN }} />
               )}
               {/* Focus brackets (the miniature only: the full phone stays clean). */}
               {compact && (
