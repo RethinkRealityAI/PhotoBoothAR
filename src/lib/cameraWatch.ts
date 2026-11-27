@@ -162,14 +162,24 @@ export function stepCameraWatch(
 }
 
 /**
- * Has the picture moved since the last check? Uses the decoded-frame counter
- * where the browser has one, else currentTime. Pure.
+ * Has the picture moved since the last check? Pure.
+ *
+ * The decoded-frame counter (getVideoPlaybackQuality) is the better signal
+ * where it works: on Chrome a frozen MediaStream can keep advancing
+ * currentTime. But it is only trusted once it has been SEEN to advance on this
+ * stream (`counterProven`). Chrome on iOS reports a counter that never moves
+ * for a live camera, so trusting it from the start flagged every iOS Chrome
+ * booth as "frozen" 2 s after the camera opened (#144). Until the counter proves itself, currentTime decides.
  */
 export function framesAdvanced(
   prev: { frames: number | null; time: number } | null,
   cur: { frames: number | null; time: number },
+  counterProven = false,
 ): boolean {
   if (prev === null) return true;
-  if (cur.frames !== null && prev.frames !== null) return cur.frames > prev.frames;
+  if (cur.frames !== null && prev.frames !== null) {
+    if (cur.frames > prev.frames) return true;
+    if (counterProven) return false;
+  }
   return cur.time !== prev.time;
 }

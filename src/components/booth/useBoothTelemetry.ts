@@ -119,6 +119,10 @@ export function useBoothTelemetry(input: BoothTelemetryInput): void {
     let prev: { frames: number | null; time: number } | null = null;
     let frozenChecks = 0;
     let blankChecks = 0;
+    // The frame counter is trusted only after it has moved on THIS stream
+    // (iOS Chrome reports one that never does; see framesAdvanced).
+    let counterSrc: MediaProvider | null = null;
+    let counterProven = false;
     const id = window.setInterval(() => {
       try {
         const v = videoRef.current;
@@ -126,7 +130,9 @@ export function useBoothTelemetry(input: BoothTelemetryInput): void {
         if (v && watching && v.srcObject) {
           const q = typeof v.getVideoPlaybackQuality === 'function' ? v.getVideoPlaybackQuality() : null;
           const cur = { frames: q ? q.totalVideoFrames : null, time: v.currentTime };
-          if (framesAdvanced(prev, cur)) {
+          if (v.srcObject !== counterSrc) { counterSrc = v.srcObject; counterProven = false; }
+          if (prev && cur.frames !== null && prev.frames !== null && cur.frames > prev.frames) counterProven = true;
+          if (framesAdvanced(prev, cur, counterProven)) {
             if (frozenChecks >= FROZEN_CHECKS) feedRef.current({ type: 'frames_flowing' });
             frozenChecks = 0;
           } else if (++frozenChecks === FROZEN_CHECKS) {
