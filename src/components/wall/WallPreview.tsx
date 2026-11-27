@@ -22,6 +22,7 @@ import {
   type WallLook,
 } from '../../lib/sceneThemes';
 import GridWall from './GridWall';
+import AlbumView from './AlbumView';
 import WallBackdrop from './WallBackdrop';
 import { usePrefersReducedMotion } from './wallHooks';
 import { samplePosts } from '../theme/samplePhotos';
@@ -204,7 +205,7 @@ export default function WallPreview({ look, eventScene, posts }: Props) {
         </div>
         <div className="flex justify-center" style={{ marginTop: u(14) }}>
           <div className="wall-glass flex items-center" style={{ ...pill, gap: u(18), paddingInline: u(18) }}>
-            {(['grid', 'masonry', 'marquee', 'carousel', 'slideshow'] as const).map((l) => (
+            {(['grid', 'masonry', 'marquee', 'carousel', 'slideshow', 'album'] as const).map((l) => (
               <span key={l} style={bar(56, l === look.layout)} />
             ))}
           </div>
@@ -228,6 +229,7 @@ export default function WallPreview({ look, eventScene, posts }: Props) {
         {look.layout === 'marquee' && <MarqueeSketch posts={posts} />}
         {look.layout === 'carousel' && <CarouselSketch posts={posts} width={width} />}
         {look.layout === 'slideshow' && <SlideshowSketch posts={posts} />}
+        {look.layout === 'album' && <AlbumView posts={posts} compact tone={tone} captions={false} />}
       </div>
 
       {/* QR rail. */}

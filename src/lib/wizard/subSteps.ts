@@ -27,7 +27,7 @@ export interface SubStepDef<T extends string = string> {
 
 export type WelcomeSubStep = 'background' | 'border' | 'words';
 export type PowerUpsSubStep = 'gestures' | 'gear';
-export type WallSubStep = 'style' | 'layout' | 'background' | 'photos' | 'arrival' | 'screen';
+export type WallSubStep = 'style' | 'layout' | 'background' | 'photos' | 'arrival' | 'music' | 'screen';
 
 export const WELCOME_SUBSTEPS: readonly SubStepDef<WelcomeSubStep>[] = [
   { id: 'background', label: 'Background', hint: 'A template, a colour or your own photo behind your welcome page.' },
@@ -46,6 +46,7 @@ export const WALL_SUBSTEPS: readonly SubStepDef<WallSubStep>[] = [
   { id: 'background', label: 'Background', hint: 'What sits behind the photos.' },
   { id: 'photos', label: 'Photos', hint: 'How each photo card looks.' },
   { id: 'arrival', label: 'Arrival', hint: 'How a new photo lands on the wall.' },
+  { id: 'music', label: 'Music', hint: 'Background music for the room, from a free library.' },
   { id: 'screen', label: 'Screen', hint: 'What else the wall shows beside the photos.' },
 ];
 
@@ -88,7 +89,7 @@ export const STEP_ORGANISATION: Record<WizardStepId, StepClassification> = {
   booth: {
     kind: 'guided',
     subSteps: WALL_SUBSTEPS,
-    why: 'A style, then the layout, background, photo cards, arrival and screen extras are each their own decision about the live wall.',
+    why: 'A style, then the layout, background, photo cards, arrival, music and screen extras are each their own decision about the live wall.',
   },
   keepsake: { kind: 'own-guided', why: 'The keepsake editor brings its own guided steps (Look, Greeting, Take-home, Music, Sending, Review).' },
   launch: { kind: 'single', why: 'A checklist, Go live and the share kit on one screen.' },

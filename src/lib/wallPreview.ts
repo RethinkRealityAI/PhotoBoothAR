@@ -41,7 +41,7 @@ export function isWallPreviewFrame(): boolean {
 /** The settings a preview may set (display only). */
 export type PreviewSettings = Pick<
   WallSettings,
-  'showQR' | 'qrOnWall' | 'showLeaderboard' | 'showChallenges' | 'featuredSpotlight' | 'wallLook'
+  'showQR' | 'qrOnWall' | 'showLeaderboard' | 'showChallenges' | 'featuredSpotlight' | 'wallLook' | 'show'
 >;
 
 export type WallPreviewMessage =
@@ -71,6 +71,8 @@ export function parseWallPreviewMessage(data: unknown): WallPreviewMessage | nul
     if (typeof raw[k] === 'boolean') settings[k] = raw[k] as boolean;
   }
   if (isRecord(raw.wallLook)) settings.wallLook = raw.wallLook as PreviewSettings['wallLook'];
+  // Raw too: the wall reads it through normalizeWallShow.
+  if (isRecord(raw.show)) settings.show = raw.show as PreviewSettings['show'];
   return { type: 'beamwall:wall-preview:settings', settings };
 }
 

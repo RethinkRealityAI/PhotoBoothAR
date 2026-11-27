@@ -339,8 +339,8 @@ export function resolveScene(scene: EventScene | undefined): ResolvedScene {
 /* ── Wall look (the projected live wall) ────────────────────────────── */
 
 /** How the feed is laid out. 'grid' = an N×N wall of live tiles. */
-export type WallLayout = 'grid' | 'masonry' | 'marquee' | 'carousel' | 'slideshow';
-export const WALL_LAYOUTS: readonly WallLayout[] = ['grid', 'masonry', 'marquee', 'carousel', 'slideshow'];
+export type WallLayout = 'grid' | 'masonry' | 'marquee' | 'carousel' | 'slideshow' | 'album';
+export const WALL_LAYOUTS: readonly WallLayout[] = ['grid', 'masonry', 'marquee', 'carousel', 'slideshow', 'album'];
 
 export type WallGridSize = 3 | 4 | 5;
 export const WALL_GRID_SIZES: readonly WallGridSize[] = [3, 4, 5];
@@ -491,6 +491,7 @@ export const WALL_LAYOUT_META: Readonly<Record<WallLayout, { label: string; blur
   marquee: { label: 'Scrolling', blurb: 'Rows of photos gliding past in opposite directions.' },
   carousel: { label: 'Carousel', blurb: 'A slow turning ring of photos in 3D.' },
   slideshow: { label: 'Slideshow', blurb: 'One photo at a time, full screen, with a gentle drift.' },
+  album: { label: 'Album', blurb: 'Photos stamped onto the pages of an album that turns a page every few seconds.' },
 };
 
 export const WALL_TRANSITION_META: Readonly<Record<WallTransition, { label: string }>> = {

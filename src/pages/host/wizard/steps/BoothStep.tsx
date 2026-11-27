@@ -13,7 +13,7 @@
  * kept (the look is read, edited and written whole).
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ImageUp, LayoutGrid, Loader2, Monitor, Palette, QrCode, Sparkles, Square, Trophy, Wand2, Zap } from 'lucide-react';
+import { ImageUp, LayoutGrid, Loader2, Monitor, Music2, Pause, Play, Palette, QrCode, Sparkles, Square, Trophy, Wand2, Zap } from 'lucide-react';
 import { getWallSettingsResult, setWallSettings, uploadAsset } from '../../../../lib/db';
 import {
   SCENE_PALETTES,
@@ -50,6 +50,24 @@ import {
   type WallLook,
 } from '../../../../lib/sceneThemes';
 import type { WallSettings } from '../../../../types';
+import {
+  WALL_MUSIC_PLAYLISTS,
+  WALL_PLAYLIST_META,
+  normalizeWallMusic,
+  tracksFor,
+  type WallMusic,
+  type WallTrack,
+} from '../../../../lib/wallMusic';
+import {
+  WALL_CYCLE_STEPS,
+  WALL_MODE_TRANSITIONS,
+  WALL_MODE_TRANSITION_META,
+  cycleActive,
+  cycleLabel,
+  normalizeWallShow,
+  toggleCycleLayout,
+  type WallShow,
+} from '../../../../lib/wallShow';
 import { wallImageProblem } from '../../../../components/admin/WallDesignPanel';
 import { StepShell } from '../chrome';
 import { stepDef } from '../../../../lib/wizard/wizardModel';
@@ -61,6 +79,8 @@ import LiveWallFrame from '../LiveWallFrame';
 
 interface WallDraft {
   look: WallLook;
+  music: WallMusic;
+  show: WallShow;
   qrOnWall: boolean;
   showLeaderboard: boolean;
   showChallenges: boolean;
@@ -69,7 +89,7 @@ interface WallDraft {
 
 /** A style, then each part of the wall: separate decisions, so they are
  *  guided sub-steps (lib/wizard/subSteps WALL_SUBSTEPS). */
-const SUB_ICONS = { style: Wand2, layout: LayoutGrid, background: Palette, photos: Square, arrival: Sparkles, screen: Monitor } as const;
+const SUB_ICONS = { style: Wand2, layout: LayoutGrid, background: Palette, photos: Square, arrival: Sparkles, music: Music2, screen: Monitor } as const;
 
 /** Plain colours first (black, white), then a few deep and soft tones. */
 const PLAIN_COLORS = ['#0B0B12', '#FFFFFF', '#1A1740', '#2B1E3F', '#0F2E3A', '#F4EFE6', '#EDE9FF', '#FBE7EC'];
@@ -106,6 +126,20 @@ function LayoutGlyph({ layout }: { layout: WallLayout }) {
       );
     case 'slideshow':
       return <span className="flex w-full h-full p-2"><span className={`${cell} flex-1`} /></span>;
+    case 'album':
+      return (
+        <span className="flex w-full h-full items-center justify-center p-1.5">
+          <span className="flex h-full w-[86%] rounded-[3px] bg-white/18 p-[3px] gap-[2px]">
+            {[0, 1].map((pg) => (
+              <span key={pg} className="relative flex-1 rounded-[2px] bg-white/12">
+                <span className={`${cell} absolute left-[14%] top-[12%] h-[36%] w-[30%] -rotate-6`} />
+                <span className={`${cell} absolute right-[14%] top-[16%] h-[36%] w-[30%] rotate-3`} />
+                <span className={`${cell} absolute left-[30%] bottom-[10%] h-[36%] w-[30%] rotate-2`} />
+              </span>
+            ))}
+          </span>
+        </span>
+      );
   }
 }
 
@@ -227,7 +261,45 @@ function Toggle({ label, hint, Icon, checked, disabled, onChange }: {
   );
 }
 
-const SCREEN_TOGGLES: { key: Exclude<keyof WallDraft, 'look'>; label: string; hint: string; Icon: typeof QrCode }[] = [
+/** One shared <audio> for auditioning the music library: one song at a
+ *  time, stopped on unmount. HANDLED FAILURES: `new Audio` throwing or the
+ *  file failing (that song's button shows it cannot play) · play() rejected
+ *  (AbortError from the next tap is not a failure). */
+function useSongPreview() {
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [broken, setBroken] = useState<Record<string, true>>({});
+  useEffect(() => () => {
+    const a = audio.current;
+    if (a !== null) { a.pause(); a.removeAttribute('src'); a.load(); }
+    audio.current = null;
+  }, []);
+  const stop = () => { audio.current?.pause(); setPlaying(null); };
+  const toggle = (t: WallTrack) => {
+    if (playing === t.id) { stop(); return; }
+    audio.current?.pause();
+    let a: HTMLAudioElement;
+    try { a = new Audio(t.file); } catch { setBroken((b) => ({ ...b, [t.id]: true })); return; }
+    a.volume = 0.8;
+    audio.current = a;
+    const fail = () => { setBroken((b) => ({ ...b, [t.id]: true })); setPlaying((c) => (c === t.id ? null : c)); };
+    a.addEventListener('ended', () => setPlaying((c) => (c === t.id ? null : c)));
+    a.addEventListener('error', fail);
+    setPlaying(t.id);
+    a.play().catch((err: unknown) => {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      fail();
+    });
+  };
+  return { playing, broken, toggle, stop };
+}
+
+function formatLength(sec: number): string {
+  const m = Math.floor(sec / 60);
+  return `${m}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
+}
+
+const SCREEN_TOGGLES: { key: Exclude<keyof WallDraft, 'look' | 'music' | 'show'>; label: string; hint: string; Icon: typeof QrCode }[] = [
   { key: 'qrOnWall', label: 'QR codes on the live wall', hint: 'Off by default. Guests scan to open the booth.', Icon: QrCode },
   { key: 'featuredSpotlight', label: 'Spotlight a photo now and then', hint: 'One shot fills the screen for a few seconds.', Icon: Sparkles },
   { key: 'showLeaderboard', label: 'Leaderboard tab', hint: 'Points for photos and challenges.', Icon: Trophy },
@@ -254,6 +326,8 @@ export default function BoothStep() {
       loaded.current = r.settings;
       setDraft({
         look: normalizeWallLook(r.settings.wallLook, r.settings.galleryScroll),
+        music: normalizeWallMusic(r.settings.music),
+        show: normalizeWallShow(r.settings.show),
         qrOnWall: r.settings.qrOnWall === true,
         showLeaderboard: r.settings.showLeaderboard,
         showChallenges: r.settings.showChallenges,
@@ -279,6 +353,8 @@ export default function BoothStep() {
         showChallenges: d.showChallenges,
         featuredSpotlight: d.featuredSpotlight,
         wallLook: d.look,
+        music: d.music,
+        show: d.show,
       }, { strict: true });
       w.reportSave('saved');
       return true;
@@ -299,6 +375,9 @@ export default function BoothStep() {
     pending.current = next;
     return next;
   });
+  const patchMusic = (p: Partial<WallMusic>) => update(draft ? { music: { ...draft.music, ...p } } : {});
+  const patchShow = (p: Partial<WallShow>) => update(draft ? { show: { ...draft.show, ...p } } : {});
+  const songs = useSongPreview();
   /** Replace the whole look (a style drops keys, e.g. its own glow colour). */
   const setLook = (next: WallLook) => setDraft((prev) => {
     if (!prev) return prev;
@@ -323,6 +402,7 @@ export default function BoothStep() {
     showChallenges: draft.showChallenges,
     featuredSpotlight: draft.featuredSpotlight,
     wallLook: draft.look,
+    show: draft.show,
   }), [draft]);
 
   const beam = () => setBeamSignal((n) => n + 1);
@@ -377,7 +457,7 @@ export default function BoothStep() {
       case 'layout':
         return (
           <Section>
-            <div className="wz-sq-5 grid grid-cols-3 sm:grid-cols-5 gap-2.5" role="radiogroup" aria-label="Live wall layout">
+            <div className="wz-sq-6 grid grid-cols-3 sm:grid-cols-6 gap-2.5" role="radiogroup" aria-label="Live wall layout">
               {WALL_LAYOUTS.map((l) => (
                 <button key={l} type="button" role="radio" aria-checked={look.layout === l} className="wz-tile" onClick={() => patchLook({ layout: l })} title={WALL_LAYOUT_META[l].blurb}>
                   <span className="wz-tile-art aspect-video flex"><LayoutGlyph layout={l} /></span>
@@ -392,6 +472,31 @@ export default function BoothStep() {
                 <Pills label="New photo turns in with" value={look.transition} options={WALL_TRANSITIONS.map((t) => ({ id: t, label: WALL_TRANSITION_META[t].label }))} onPick={(transition) => patchLook({ transition })} />
               </div>
             )}
+            <div>
+              <p className="wz-label">Switch layouts on its own</p>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Layouts to rotate through">
+                {WALL_LAYOUTS.map((l) => (
+                  <button key={l} type="button" className="wz-pill" aria-pressed={draft.show.cycle.includes(l)} onClick={() => patchShow({ cycle: toggleCycleLayout(draft.show.cycle, l) })}>
+                    {WALL_LAYOUT_META[l].label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[13px] text-white/70">
+                {cycleActive(draft.show)
+                  ? `The wall moves through ${draft.show.cycle.map((l) => WALL_LAYOUT_META[l].label).join(', ')}. Every screen in the room changes together.`
+                  : 'Pick two or more and the wall takes turns with them, so the room always has something new to look at.'}
+              </p>
+            </div>
+            {cycleActive(draft.show) && (
+              <Pills label="How often" value={draft.show.cycleSec} options={WALL_CYCLE_STEPS.map((sec) => ({ id: sec, label: cycleLabel(sec) }))} onPick={(cycleSec) => patchShow({ cycleSec })} />
+            )}
+            <div>
+              <Pills label="Change layouts with" value={draft.show.transition} options={WALL_MODE_TRANSITIONS.map((t) => ({ id: t, label: WALL_MODE_TRANSITION_META[t].label }))} onPick={(transition) => patchShow({ transition, cycle: draft.show.cycle })} />
+              <p className="mt-2 text-[13px] text-white/70">
+                {WALL_MODE_TRANSITION_META[draft.show.transition].blurb}
+                {cycleActive(draft.show) ? ' The preview switches every few seconds so you can watch it.' : ''}
+              </p>
+            </div>
           </Section>
         );
       case 'background':
@@ -483,7 +588,7 @@ export default function BoothStep() {
             </div>
             <p className="-mt-2 text-[13px] text-white/70">
               {WALL_CARD_META[look.card].blurb}
-              {(look.layout === 'carousel' || look.layout === 'slideshow') && ` Photo cards show on the Grid, Gallery and Scrolling layouts. Your ${WALL_LAYOUT_META[look.layout].label} layout shows each photo on its own.`}
+              {(look.layout === 'carousel' || look.layout === 'slideshow' || look.layout === 'album') && ` Photo cards show on the Grid, Gallery and Scrolling layouts. Your ${WALL_LAYOUT_META[look.layout].label} layout shows each photo on its own.`}
             </p>
             <div className="flex flex-wrap gap-x-8 gap-y-5">
               <Pills label="Glow" value={look.glow} options={WALL_GLOWS.map((g) => ({ id: g, label: WALL_GLOW_META[g].label }))} onPick={(glow) => patchLook({ glow })} />
@@ -524,6 +629,75 @@ export default function BoothStep() {
             </div>
           </Section>
         );
+      case 'music': {
+        const m = draft.music;
+        const list = tracksFor(m.playlist);
+        return (
+          <Section>
+            <Toggle
+              label="Play music on the live wall"
+              hint="Only on the big screen, never on guests’ phones. Each screen can mute itself."
+              Icon={Music2}
+              checked={m.enabled}
+              onChange={(enabled) => { patchMusic({ enabled }); if (!enabled) songs.stop(); }}
+            />
+            <div className={m.enabled ? '' : 'opacity-55'}>
+              <p className="wz-label">The mood</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Music mood">
+                {WALL_MUSIC_PLAYLISTS.map((pl) => (
+                  <button
+                    key={pl}
+                    type="button"
+                    role="radio"
+                    aria-checked={m.playlist === pl}
+                    className="wz-tile items-start text-left px-3 py-2.5 min-h-[64px]"
+                    onClick={() => patchMusic({ playlist: pl, enabled: true })}
+                  >
+                    <span className="block text-[14px] font-semibold">{WALL_PLAYLIST_META[pl].label}</span>
+                    <span className="block text-[12px] leading-snug text-white/65">{WALL_PLAYLIST_META[pl].blurb}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="wz-label">Songs in this mix ({list.length})</p>
+              <ul className="flex flex-col">
+                {list.map((t) => {
+                  const on = songs.playing === t.id;
+                  const bad = songs.broken[t.id] === true;
+                  return (
+                    <li key={t.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-2xl px-2 min-h-12 text-left hover:bg-white/6 disabled:opacity-50"
+                        onClick={() => songs.toggle(t)}
+                        disabled={bad}
+                        aria-label={`${on ? 'Stop' : 'Listen to'} ${t.title} by ${t.artist}`}
+                      >
+                        <span className="grid place-items-center h-9 w-9 rounded-full bg-white/12 shrink-0">
+                          {on ? <Pause className="h-4 w-4" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block truncate text-[14.5px] font-medium">{t.title}</span>
+                          <span className="block truncate text-[12.5px] text-white/65">{bad ? 'Can’t play this one right now' : `${t.artist} · ${WALL_PLAYLIST_META[t.mood].label}`}</span>
+                        </span>
+                        <span className="text-[12.5px] tabular-nums text-white/60">{formatLength(t.durationSec)}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+            <label className="block">
+              <span className="wz-label">Volume on the wall</span>
+              <input type="range" min={0.1} max={1} step={0.05} value={m.volume} className="w-full accent-white" aria-label="Music volume" onChange={(e) => patchMusic({ volume: Number(e.target.value) })} />
+            </label>
+            <p className="text-[12.5px] text-white/60">
+              Every song is in the public domain (CC0), so it is free to play at paid events with no licence and no credit needed. If the screen’s browser holds the sound back, the wall shows a “Tap to start the music” button.
+            </p>
+          </Section>
+        );
+      }
       case 'screen':
         return (
           <div className="-mx-2 flex flex-col">

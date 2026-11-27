@@ -98,6 +98,18 @@ function SlideshowGlyph() {
   );
 }
 
+function AlbumGlyph() {
+  return (
+    <div className="wall-glyph wall-glyph-album" style={BOX} aria-hidden>
+      <i style={{ left: '10%', top: '12%', width: '39.5%', height: '76%', background: 'rgba(255,255,255,0.16)', borderRadius: 3 }} />
+      <i style={{ left: '50.5%', top: '12%', width: '39.5%', height: '76%', background: 'rgba(255,255,255,0.16)', borderRadius: 3 }} />
+      {[[16, 18, -6], [32, 22, 4], [22, 54, 3], [57, 18, 5], [73, 24, -4], [64, 54, -3]].map(([l, t, r], i) => (
+        <i key={i} style={{ left: `${l}%`, top: `${t}%`, width: '12%', height: '28%', transform: `rotate(${r}deg)` }} />
+      ))}
+    </div>
+  );
+}
+
 export default function LayoutGlyph({ layout, gridSize = 4 }: { layout: WallLayout; gridSize?: WallGridSize }) {
   switch (layout) {
     case 'grid':
@@ -110,5 +122,7 @@ export default function LayoutGlyph({ layout, gridSize = 4 }: { layout: WallLayo
       return <CarouselGlyph />;
     case 'slideshow':
       return <SlideshowGlyph />;
+    case 'album':
+      return <AlbumGlyph />;
   }
 }
