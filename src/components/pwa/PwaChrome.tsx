@@ -13,8 +13,10 @@
  */
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { Download, X } from 'lucide-react';
 import { useStore } from '../../store';
-import { applyEventManifest, parseInstallPath, restorePlatformManifest } from '../../lib/pwa/install';
+import { applyEventManifest, installRequested, parseInstallPath, restorePlatformManifest } from '../../lib/pwa/install';
+import { useInstallApp } from './InstallApp';
 import { clearSavedFiles, readCacheStats, type CacheStats } from '../../lib/pwa/client';
 
 const DEBUG_KEY = 'bw.cachedebug';
@@ -91,11 +93,39 @@ function CacheReadout() {
   );
 }
 
+/** `?install`: one button that installs this page as an app. Sits at the top
+ *  so it never covers the booth's shutter. */
+function InstallChip() {
+  const { offer, install, dialog } = useInstallApp();
+  const [shown, setShown] = useState(true);
+  if (!shown) return null;
+  return (
+    <>
+      {offer && (
+        <div
+          data-testid="install-chip"
+          className="fixed right-2 z-[2147483000] flex items-center gap-1 rounded-full bg-black/85 p-1 text-white shadow-lg"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
+        >
+          <button type="button" onClick={install} className="flex min-h-[44px] items-center gap-2 rounded-full bg-white px-4 text-[14px] font-semibold text-black">
+            <Download className="h-4 w-4" aria-hidden /> Install app
+          </button>
+          <button type="button" aria-label="Hide" onClick={() => setShown(false)} className="flex h-11 w-11 items-center justify-center rounded-full">
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      )}
+      {dialog}
+    </>
+  );
+}
+
 export default function PwaChrome() {
   const { pathname } = useLocation();
   const eventId = useStore((s) => s.eventId);
   const eventName = useStore((s) => s.eventConfig.copy.fullName);
   const [debug] = useState(debugEnabled);
+  const [wantInstall] = useState(() => installRequested(window.location.search));
 
   useEffect(() => {
     const at = parseInstallPath(pathname);
@@ -110,5 +140,10 @@ export default function PwaChrome() {
     return () => cancelAnimationFrame(raf);
   }, [pathname, eventId, eventName]);
 
-  return debug ? <CacheReadout /> : null;
+  return (
+    <>
+      {debug && <CacheReadout />}
+      {wantInstall && <InstallChip />}
+    </>
+  );
 }

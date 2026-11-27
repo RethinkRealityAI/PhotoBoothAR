@@ -24,15 +24,19 @@ export interface InstallFacts {
   standalone: boolean;
   /** iPhone/iPad: no prompt API — installing is Share → Add to Home Screen. */
   ios: boolean;
+  /** Android: every browser there can add a page to the Home screen from its
+   *  menu, but not all hand over a prompt (Samsung Internet often does not). */
+  android?: boolean;
 }
 
-export type InstallOffer = 'prompt' | 'ios-steps' | null;
+export type InstallOffer = 'prompt' | 'ios-steps' | 'android-steps' | null;
 
 /** What an install control should do here — null means show no control. */
 export function installOffer(f: InstallFacts): InstallOffer {
   if (f.standalone) return null;
   if (f.canPrompt) return 'prompt';
   if (f.ios) return 'ios-steps';
+  if (f.android === true) return 'android-steps';
   return null; // a browser that cannot install: never show a dead button
 }
 
@@ -40,6 +44,16 @@ export function installOffer(f: InstallFacts): InstallOffer {
 export function isIos(userAgent: string, maxTouchPoints: number): boolean {
   if (/iPad|iPhone|iPod/.test(userAgent)) return true;
   return /Macintosh/.test(userAgent) && maxTouchPoints > 1;
+}
+
+export function isAndroid(userAgent: string): boolean {
+  return /Android/i.test(userAgent);
+}
+
+/** `?install` on a page: a host's link for staff setting up a kiosk phone or
+ *  tablet (and for testers). Guests never get that link, so never the chip. */
+export function installRequested(search: string): boolean {
+  try { return new URLSearchParams(search).has('install'); } catch { return false; }
 }
 
 /* ── per-event manifest ───────────────────────────────────────────────── */

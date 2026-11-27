@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLATFORM_COLOR, eventManifest, installOffer, isIos, manifestColor, parseInstallPath } from './install';
+import { PLATFORM_COLOR, eventManifest, installOffer, installRequested, isAndroid, isIos, manifestColor, parseInstallPath } from './install';
 
 describe('the install offer', () => {
   it('offers the browser prompt only when the browser gave one', () => {
@@ -8,6 +8,19 @@ describe('the install offer', () => {
   });
   it('shows the manual steps on iPhone and iPad', () => {
     expect(installOffer({ canPrompt: false, standalone: false, ios: true })).toBe('ios-steps');
+  });
+  it('shows the menu steps on Android when the browser gave no prompt', () => {
+    expect(installOffer({ canPrompt: false, standalone: false, ios: false, android: true })).toBe('android-steps');
+    expect(installOffer({ canPrompt: true, standalone: false, ios: false, android: true })).toBe('prompt');
+    expect(installOffer({ canPrompt: false, standalone: true, ios: false, android: true })).toBeNull();
+    expect(isAndroid('Mozilla/5.0 (Linux; Android 15; SM-F966B) AppleWebKit/537.36 SamsungBrowser/28.0 Chrome/130.0 Mobile Safari/537.36')).toBe(true);
+    expect(isAndroid('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')).toBe(false);
+  });
+  it('the install chip shows only on a link that asks for it', () => {
+    expect(installRequested('?install')).toBe(true);
+    expect(installRequested('?cachedebug&install=1')).toBe(true);
+    expect(installRequested('')).toBe(false);
+    expect(installRequested('?reinstall=1')).toBe(false);
   });
   it('offers nothing once installed', () => {
     expect(installOffer({ canPrompt: true, standalone: true, ios: false })).toBeNull();

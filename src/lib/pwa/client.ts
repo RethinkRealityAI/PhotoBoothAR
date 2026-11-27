@@ -12,7 +12,7 @@
  * Kill switch: build with VITE_SW=off and every visitor's worker and caches
  * are removed on their next page load.
  */
-import { installOffer, isIos, type InstallOffer } from './install';
+import { installOffer, isAndroid, isIos, type InstallOffer } from './install';
 
 const LEGACY = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim() !== '';
 const SWITCHED_OFF = ((import.meta.env.VITE_SW as string | undefined) ?? '').trim().toLowerCase() === 'off';
@@ -118,7 +118,7 @@ function standalone(): boolean {
 }
 
 function recompute(): void {
-  const next = installOffer({ canPrompt: deferred !== null, standalone: standalone(), ios: isIos(navigator.userAgent, navigator.maxTouchPoints ?? 0) });
+  const next = installOffer({ canPrompt: deferred !== null, standalone: standalone(), ios: isIos(navigator.userAgent, navigator.maxTouchPoints ?? 0), android: isAndroid(navigator.userAgent) });
   if (next === offer) return;
   offer = next;
   listeners.forEach((l) => l());
