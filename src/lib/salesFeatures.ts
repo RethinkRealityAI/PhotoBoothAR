@@ -133,6 +133,14 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         tag: 'New',
       },
       {
+        id: 'sky',
+        title: 'Sky effects for outdoor events',
+        line: 'Point the back camera up and the sky becomes fireworks, a sunset, northern lights or the couple’s names in stars.',
+        detail: 'Seven effects in the Effects tab, in the event colours. The sky is repainted; people and buildings stay in front.',
+        icon: 'sparkles',
+        tag: 'New',
+      },
+      {
         id: 'modes',
         title: 'Photos, videos and strips',
         line: 'Photos, short videos with sound, and 2-, 3- or 4-shot photo strips laid out in the event’s colours.',
