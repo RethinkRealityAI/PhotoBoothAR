@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { Download, Share2, X, Check } from 'lucide-react';
+import { Download, Share2, X, Check, Trash2 } from 'lucide-react';
 import { Post } from '../../types';
 import { useEvent } from '../../events/EventContext';
 import { useDialog } from '../../lib/useDialog';
@@ -15,6 +15,7 @@ import { useStore } from '../../store';
 import { getSavedPhotos } from '../../lib/session';
 import { isMp4Type, shareableVideo, withExtension } from '../../lib/mp4Export';
 import { canShareFiles } from '../../lib/bulkSave';
+import { isDeleteToken } from '../../lib/postDelete';
 import { REACTION_EMOJIS, REACTION_LABELS, type Point, type ReactionEmoji } from '../../lib/wallReactions';
 
 /** Extension for a fetched blob's real type (storage sets it at upload). */
@@ -25,7 +26,7 @@ function extForType(type: string, isVideo: boolean): string {
   return 'jpg';
 }
 
-export default function WallLightbox({ post, onClose, platform = false, onReact }: {
+export default function WallLightbox({ post, onClose, platform = false, onReact, onRemove }: {
   post: Post;
   onClose: () => void;
   /** Platform walls only: Share hands over the real file, not a link. Legacy
@@ -34,11 +35,16 @@ export default function WallLightbox({ post, onClose, platform = false, onReact 
   /** Platform walls only: the emoji reaction row. `at` is the tapped button's
    *  centre, so this phone's own burst starts under the guest's finger. */
   onReact?: (emoji: ReactionEmoji, at: Point) => void;
+  /** Platform phones only: take THIS device's own post down (with Undo). Shown
+   *  only when this device holds the post's delete token. */
+  onRemove?: (post: Post, deleteToken: string) => void;
 }) {
   const { panelRef, dialogProps } = useDialog<HTMLDivElement>(onClose, 'Moment');
   const { config, eventId } = useEvent();
   /** This device took it (booth saves post ids locally at send time). */
-  const isMine = getSavedPhotos(eventId).some((p) => p.id === post.id);
+  const mine = getSavedPhotos(eventId).find((p) => p.id === post.id);
+  const isMine = mine !== undefined;
+  const removeToken = onRemove && isDeleteToken(mine?.deleteToken) ? mine.deleteToken : null;
   const copy = useStore((s) => s.copy);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -184,6 +190,17 @@ export default function WallLightbox({ post, onClose, platform = false, onReact 
             </button>
           )}
         </div>
+
+        {removeToken !== null && onRemove && (
+          <button
+            type="button"
+            onClick={() => onRemove(post, removeToken)}
+            className="mt-2 inline-flex items-center gap-1.5 min-h-11 px-4 rounded-xl font-label uppercase tracking-luxe text-[10px] text-champagne/60 hover:text-red-300 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" aria-hidden />
+            Remove from wall
+          </button>
+        )}
 
         {onReact && (
           <div

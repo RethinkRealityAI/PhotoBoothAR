@@ -362,6 +362,36 @@ export async function deleteMyPost(
   }
 }
 
+/**
+ * Last-chance send of a guest removal while the page is closing (`pagehide`).
+ * `supabase.functions.invoke` is cancelled with the page; a `keepalive` fetch
+ * is allowed to finish. Fire-and-forget by design: the pending removal is also
+ * persisted and replayed on the next visit, where a delete that DID land answers
+ * `post_not_found`, which counts as done.
+ */
+export function sendDeleteMyPostOnExit(eventId: string, postId: string, deleteToken: string): void {
+  if (!isDeleteToken(deleteToken)) return;
+  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!url || !key) return;
+  try {
+    void fetch(`${url}/functions/v1/submit-post`, {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'content-type': 'application/json', apikey: key, authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        action: 'delete_post',
+        eventSlug: eventId,
+        postId,
+        deleteToken,
+        sessionId: getSessionId(eventId),
+      }),
+    }).catch(() => { /* replayed next visit */ });
+  } catch {
+    /* replayed next visit */
+  }
+}
+
 export async function setPostHidden(eventId: string, id: string, hidden: boolean): Promise<boolean> {
   const { error } = await supabase.from('posts').update({ hidden }).eq('id', id).eq('event_id', eventId);
   if (error) {
