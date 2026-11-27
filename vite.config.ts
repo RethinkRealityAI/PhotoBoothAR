@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig, loadEnv, type Plugin, type Rollup} from 'vite';
 import {bootScript, bootStyle, type BootRoute} from './src/lib/eventBoot';
+import {beamwallPwa} from './scripts/vitePwa';
 
 /**
  * index.html carries the PLATFORM head (brand v2 font preloads, dusk
@@ -14,6 +15,9 @@ import {bootScript, bootStyle, type BootRoute} from './src/lib/eventBoot';
  */
 const LEGACY_HEAD: ReadonlyArray<readonly [string, string]> = [
   ['<meta name="theme-color" content="#262566" />', '<meta name="theme-color" content="#05060B" />'],
+  // The installable app manifest (standalone, opens /host) is the platform's;
+  // the frozen sites keep the plain browser-display manifest they shipped with.
+  ['<link rel="manifest" href="/app.webmanifest" />', '<link rel="manifest" href="/manifest.webmanifest" />'],
   // "Virtual photo booth" positioning (2026-11-25) is platform copy only.
   ['choose ready-made Looks (frames, 3D props and effects); guests', 'choose ready-made frames and filters; guests'],
   ['choose ready-made Looks (frames, 3D props and effects), and', 'choose ready-made frames and filters, and'],
@@ -122,7 +126,8 @@ export default defineConfig(({mode}) => {
   const viteEnv = {...loadEnv(mode, process.cwd(), 'VITE_'), ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('VITE_')))} as Record<string, string>;
   const legacy = (process.env.VITE_EVENT ?? viteEnv.VITE_EVENT ?? '').trim() !== '';
   return {
-    plugins: [react(), tailwindcss(), legacyFrozenHead(legacy), eventBoot(legacy, viteEnv)],
+    // beamwallPwa: service worker + cache versioning (scripts/vitePwa.ts), platform builds only.
+    plugins: [react(), tailwindcss(), legacyFrozenHead(legacy), eventBoot(legacy, viteEnv), beamwallPwa(legacy, viteEnv)],
     // Workers are created as `{ type: 'module' }` (frameKey, mp4Export), and
     // the MP4 one loads its converter on demand, which IIFE cannot split.
     worker: { format: 'es' },

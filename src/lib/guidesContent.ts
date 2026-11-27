@@ -1268,7 +1268,7 @@ const RUN_THE_NIGHT: GuideDoc = {
         },
         {
           title: 'Open it on the screen itself',
-          body: 'The wall has its own link. Open it in a browser on the machine driving the projector or TV, go full screen, and leave it. It updates itself as photos arrive.',
+          body: 'The wall has its own link. Open it in a browser on the machine driving the projector or TV, go full screen, and leave it. It updates itself as photos arrive. Running it all night? In Chrome or Edge, open the wall’s display menu and choose Install this wall as an app: it then opens full screen from its own icon, with no browser bars to hide.',
           tip: 'Turn off the screensaver and sleep timer on that machine before you walk away from it.',
         },
         {

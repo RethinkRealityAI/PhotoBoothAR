@@ -29,10 +29,11 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, Ref } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, ChevronDown, Maximize, Music2, QrCode, SkipForward } from 'lucide-react';
+import { Check, ChevronDown, Download, Maximize, Music2, QrCode, SkipForward } from 'lucide-react';
 import { Wordmark } from '../ui/EventLogo';
 import GuestNav, { useGuestDests } from '../ui/GuestNav';
 import ShareButton from '../ui/ShareButton';
+import { useInstallApp } from '../pwa/InstallApp';
 import { haptic } from '../../lib/haptics';
 
 export interface WallTab<Id extends string> {
@@ -236,6 +237,9 @@ export default function WallHeader<Id extends string>({
   barRef, tabs, active, onSelect, count, socket, showQR, onToggleQR, onProject, driftStyle, extra, music,
 }: Props<Id>) {
   const current = tabs.find((t) => t.id === active) ?? tabs[0];
+  /** Install this wall as its own full-screen app (venue laptop, kiosk
+   *  tablet). null where the browser cannot install, so no dead item. */
+  const installApp = useInstallApp();
 
   const display = (
     <Popover
@@ -320,6 +324,19 @@ export default function WallHeader<Id extends string>({
             <Maximize className="h-[18px] w-[18px] text-champagne" aria-hidden />
             Project full screen
           </button>
+          {/* Same audience as Project (whoever runs the venue screen), so the
+              same sm+ gate: a guest's phone never shows an install option. */}
+          {installApp.offer && (
+            <button
+              type="button"
+              onClick={() => { close(); installApp.install(); }}
+              className="wall-menu-item pressable hidden sm:flex w-full items-center gap-3 rounded-2xl px-3 min-h-12 font-sans font-medium text-ivory"
+              style={px(14)}
+            >
+              <Download className="h-[18px] w-[18px] text-champagne" aria-hidden />
+              Install this wall as an app
+            </button>
+          )}
         </div>
       )}
     </Popover>
@@ -367,6 +384,7 @@ export default function WallHeader<Id extends string>({
         </div>
       </div>
       {extra}
+      {installApp.dialog}
     </motion.header>
   );
 }

@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { ALargeSmall, BookOpen, CalendarRange, Coins, CreditCard, LifeBuoy, LogOut, MoreHorizontal, Plus, Sparkles } from 'lucide-react';
+import { ALargeSmall, BookOpen, CalendarRange, Coins, CreditCard, Download, LifeBuoy, LogOut, MoreHorizontal, Plus, Sparkles } from 'lucide-react';
 import { useSession, signOut } from '../../lib/auth';
 import { fetchMyOrg, fetchCreditBalance } from '../../lib/host';
 import { fetchMyUnreadCount } from '../../lib/support';
@@ -24,6 +24,7 @@ import Tooltip from '../../components/ui/Tooltip';
 import RailToggle from '../../components/ui/RailToggle';
 import { useRailCollapsed } from '../../lib/useRailCollapsed';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import { useInstallApp } from '../../components/pwa/InstallApp';
 
 /** Per-path /host titles, set from the layout: a child page adopting
  *  usePageTitle would NOT reliably override the layout's — child effects run
@@ -77,6 +78,8 @@ export default function HostLayout() {
    *  bar ignores it (its labels already hide below sm). */
   const rail = useRailCollapsed('host');
   const c = rail.collapsed;
+  /** "Install app": null when this browser cannot install or already has. */
+  const installApp = useInstallApp();
   usePageTitle(hostTitle(pathname));
 
   // Close on navigation, on a tap outside, and focus the first item on open.
@@ -356,6 +359,16 @@ export default function HostLayout() {
               <span className={lbl}>Larger text</span>
             </button>
             </Tooltip>
+            {/* A control, not a destination (like Larger text): shown only
+                where the browser can actually install the app. */}
+            {installApp.offer && (
+              <Tooltip label="Install app" side="right" disabled={!c}>
+              <button type="button" onClick={installApp.install} aria-label="Install app" className={`${deskOnly} ${railState(false)}`}>
+                <Download className="w-[18px] h-[18px] shrink-0" />
+                <span className={lbl}>Install app</span>
+              </button>
+              </Tooltip>
+            )}
             <Tooltip label="Sign out" side="right" disabled={!c}>
             <button onClick={() => setConfirmingSignOut(true)} aria-label="Sign out" className={`${deskOnly} ${railState(false)}`}>
               <LogOut className="w-[18px] h-[18px] shrink-0" />
@@ -414,6 +427,17 @@ export default function HostLayout() {
               <ALargeSmall className="w-[18px] h-[18px]" aria-hidden /> Larger text
               <span className="ml-auto text-[12px] text-brand-muted">{textSize === 'lg' ? 'On' : 'Off'}</span>
             </button>
+            {installApp.offer && (
+              <button
+                role="menuitem"
+                tabIndex={-1}
+                type="button"
+                onClick={() => { setMoreOpen(false); installApp.install(); }}
+                className={menuItem}
+              >
+                <Download className="w-[18px] h-[18px]" aria-hidden /> Install app
+              </button>
+            )}
             <div role="separator" className="my-1 h-px bg-white/10" />
             <button
               role="menuitem"
@@ -439,6 +463,7 @@ export default function HostLayout() {
         </ToastProvider>
       </main>
 
+      {installApp.dialog}
       {confirmingSignOut && (
         <ConfirmModal
           title="Sign out?"

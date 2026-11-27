@@ -47,6 +47,20 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains"
 
+# Service worker (scripts/vitePwa.ts emits it; src/sw/sw.ts). Never cached by
+# the browser or a proxy: a deploy must be noticed on the very next page load,
+# which is what makes the worker's own caches safe. The app manifest gets its real
+# media type (Netlify guessed application/octet-stream).
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/app.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+
 # Vite emits content-hashed filenames under /assets — safe to cache forever.
 [[headers]]
   for = "/assets/*"
