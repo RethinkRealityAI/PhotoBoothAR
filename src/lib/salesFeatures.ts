@@ -71,6 +71,14 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         demo: { label: 'Open the demo booth', path: `/e/${DEMO_EVENT}/welcome` },
       },
       {
+        id: 'fast-return',
+        title: 'Quick to reopen',
+        line: 'After a guest’s first visit the booth is saved on their phone, so it reopens fast and leans far less on venue wifi.',
+        detail: 'The camera tracking, Looks and event art stay on the phone. Updates arrive on their own, so nobody is left on an old version.',
+        icon: 'zap',
+        tag: 'New',
+      },
+      {
         id: 'frames',
         title: 'Frames',
         line: 'Branded 2D frames around every shot, so the event’s name, colours and logo travel with every photo.',
@@ -188,6 +196,14 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         icon: 'monitor',
         image: 'wall-grid',
         demo: { label: 'Open the demo wall', path: `/e/${DEMO_EVENT}/wall` },
+      },
+      {
+        id: 'install-wall',
+        title: 'Install the wall as an app',
+        line: 'Staff can install the live wall on the venue laptop or tablet, so it opens full screen from its own icon, like an app.',
+        detail: 'Hosts can install their dashboard the same way. Guests are never asked to install anything: they just open the link.',
+        icon: 'smartphone',
+        tag: 'New',
       },
       {
         id: 'wall-styles',

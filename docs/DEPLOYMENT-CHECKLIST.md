@@ -391,6 +391,18 @@ hosts/admins are identified by account id + email. The live wall never
 records a replay. Find a session in Supabase with
 `select created_at, message, context from client_errors where session_id = '<telemetry_session>'`.
 
+## 4f. Return-visit caching — service worker (added 2026-11-27)
+
+Nothing to provision: the worker ships with the platform build (`/sw.js`,
+`netlify.toml` serves it uncached). To check it on a deploy, open any booth
+with `?cachedebug` and reload: the chip shows files "From this device" on the
+second load.
+
+**Switching it off** (if a deploy ever misbehaves because of it): in Netlify →
+Environment variables add `VITE_SW` = `off` (builds scope) and redeploy. Every
+visitor's worker and saved files are removed on their next page load. Delete
+the variable and redeploy to turn it back on.
+
 ## 5. Keepsake MP4 film — HeyGen HyperFrames (Deluxe add-on)
 
 Ships **disabled** by default (`card-render` returns `render_not_configured`,

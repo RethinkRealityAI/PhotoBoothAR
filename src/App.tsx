@@ -25,6 +25,7 @@ import { EVENT_ID } from './events/active';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import { lazyRoute } from './lib/lazyRoute';
 import { setRoute } from './lib/telemetry';
+import PwaChrome from './components/pwa/PwaChrome';
 import { useNoIndex } from './pages/sales/components/pageMeta';
 
 /** The previous homepage (/classic) keeps its pre-rollout look: brand v2's
@@ -494,6 +495,12 @@ export default function App() {
             pages included, so a failed Copilot chunk (e.g. a tab left open
             across a deploy) must never replace a guest's booth with the
             app-wide error screen. */}
+        {/* Per-event install manifest + the ?cachedebug readout (lib/pwa). */}
+        {!LEGACY_EVENT && (
+          <ErrorBoundary label="pwa" silent>
+            <PwaChrome />
+          </ErrorBoundary>
+        )}
         {!LEGACY_EVENT && (
           <ErrorBoundary label="copilot" silent>
             <Suspense fallback={null}>

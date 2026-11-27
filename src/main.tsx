@@ -47,6 +47,14 @@ if (!((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim()) {
   });
 }
 
+// ── Service worker + install (lib/pwa/client.ts). Keeps what a visit loaded
+// on the device so the next visit is quick, and holds the browser's install
+// banner back so guests are never asked to install anything. Platform
+// production builds only; it cannot throw or reload a page.
+import { initPwa } from './lib/pwa/client';
+
+initPwa();
+
 // ── Global error telemetry (keep this block isolated at the end of the file).
 // reportError never throws, rate-limits itself, and its insert promise handles
 // both outcomes, so these handlers can't feed errors back into themselves.
