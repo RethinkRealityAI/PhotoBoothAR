@@ -265,8 +265,8 @@ function SceneGuestWelcome() {
               // The booth skips its own "Step inside" splash for this tap,
               // so the camera line that splash carried is shown below.
               linkState={FROM_WELCOME_STATE}
-              frameUrl={screen.frame}
-              previewUrl={screen.photo}
+              frameUrl={screen?.frame}
+              previewUrl={screen?.photo}
               widthClass="w-[min(80vw,330px)] lg:w-full"
             />
             {/* Desktop carries this line in the footer, so the phone's bottom
