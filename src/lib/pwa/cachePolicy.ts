@@ -58,7 +58,7 @@ const PASS: Strategy = { type: 'pass' };
 const VENDOR_PREFIXES = ['/mediapipe/', '/xr8/', '/three/'] as const;
 
 /** Same-origin paths the worker never answers, whatever their extension. */
-const NEVER_PREFIXES = ['/ingest/', '/.netlify/', '/sw.js', '/app.webmanifest', '/manifest.webmanifest'] as const;
+const NEVER_PREFIXES = ['/ingest/', '/.netlify/', '/sw.js', '/app.webmanifest', '/manifest.webmanifest', '/event.webmanifest'] as const;
 
 /** Standalone files worth keeping. Video is absent on purpose: it is fetched
  *  in ranges, and a partial response must never be stored as the whole file. */

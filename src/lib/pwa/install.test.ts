@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLATFORM_COLOR, eventManifest, installOffer, installRequested, isAndroid, isIos, manifestColor, parseInstallPath } from './install';
+import { PLATFORM_COLOR, browserInstallAllowed, eventManifest, eventManifestFromQuery, eventManifestHref, installOffer, installRequested, isAndroid, isIos, manifestColor, parseInstallPath } from './install';
 
 describe('the install offer', () => {
   it('offers the browser prompt only when the browser gave one', () => {
@@ -60,6 +60,31 @@ describe('event pages', () => {
     expect(m.display).toBe('standalone');
     expect(m.background_color).toBe('#1a0f0b');
     expect(m.theme_color).toBe('#1a0f0b');
+  });
+
+  it('the manifest has a real https address, and serving it gives the same manifest back', () => {
+    const input = { origin: 'https://beamwall.app', slug: 'foreverwedo', wall: true, name: 'Mariba & Philip', background: 'rgb(26, 15, 11)' };
+    const href = eventManifestHref(input);
+    expect(href.startsWith('https://beamwall.app/event.webmanifest?')).toBe(true);
+    const u = new URL(href);
+    expect(eventManifestFromQuery(u.origin, u.searchParams)).toEqual(eventManifest(input));
+    const booth = new URL(eventManifestHref({ ...input, wall: false, background: null }));
+    expect(eventManifestFromQuery(booth.origin, booth.searchParams)).toEqual(eventManifest({ ...input, wall: false, background: null }));
+  });
+
+  it('refuses a slug no event can have, and paints a bad colour as the platform', () => {
+    expect(eventManifestFromQuery('https://beamwall.app', new URLSearchParams('slug=../host'))).toBeNull();
+    expect(eventManifestFromQuery('https://beamwall.app', new URLSearchParams(''))).toBeNull();
+    const m = eventManifestFromQuery('https://beamwall.app', new URLSearchParams('slug=x&bg=javascript:1'));
+    expect(m?.background_color).toBe(PLATFORM_COLOR);
+    expect(m?.start_url).toBe('https://beamwall.app/e/x');
+  });
+
+  it("the browser's own install button is off only on a guest's plain event link", () => {
+    expect(browserInstallAllowed('/e/foreverwedo/booth', false)).toBe(false);
+    expect(browserInstallAllowed('/e/foreverwedo/wall', false)).toBe(false);
+    expect(browserInstallAllowed('/e/foreverwedo/booth', true)).toBe(true);
+    for (const p of ['/', '/host', '/host/events/x', '/admin', '/login']) expect(browserInstallAllowed(p, false)).toBe(true);
   });
 
   it('any other event page reopens the event, and every URL is absolute', () => {

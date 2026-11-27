@@ -98,8 +98,8 @@ export interface EventManifestInput {
 export const PLATFORM_COLOR = '#262566';
 
 /**
- * A manifest for one event. Every URL is absolute: it is handed to the
- * browser as a blob, which has no base URL to resolve "/…" against.
+ * A manifest for one event. Every URL is absolute, so it reads the same
+ * wherever it is served from.
  */
 export function eventManifest(i: EventManifestInput): Record<string, unknown> {
   const name = (i.name.trim() || 'Photo Booth').slice(0, 60);
@@ -124,9 +124,35 @@ export function eventManifest(i: EventManifestInput): Record<string, unknown> {
   };
 }
 
+/** Where an event's manifest is served (netlify/edge-functions/event-manifest.ts). */
+export const EVENT_MANIFEST_PATH = '/event.webmanifest';
+
+/** The https address of one event's manifest. Android only installs a web
+ *  app whose manifest has one; a blob: manifest is refused there. */
+export function eventManifestHref(i: EventManifestInput): string {
+  const q = new URLSearchParams({ slug: i.slug, name: i.name.trim().slice(0, 60), bg: manifestColor(i.background, PLATFORM_COLOR) });
+  if (i.wall) q.set('wall', '1');
+  return `${i.origin}${EVENT_MANIFEST_PATH}?${q.toString()}`;
+}
+
+/** The serving half: the query back into a manifest, or null when the slug
+ *  is not one an event can have. */
+export function eventManifestFromQuery(origin: string, q: URLSearchParams): Record<string, unknown> | null {
+  const slug = q.get('slug') ?? '';
+  if (!/^[a-z0-9][a-z0-9-]{0,79}$/i.test(slug)) return null;
+  return eventManifest({ origin, slug, wall: q.get('wall') === '1', name: q.get('name') ?? '', background: q.get('bg') });
+}
+
+/** May the browser show its OWN install button here? Everywhere except a
+ *  guest's plain event link: guests are never asked to install anything. A
+ *  host's `?install` link for staff lifts that. */
+export function browserInstallAllowed(pathname: string, requested: boolean): boolean {
+  return requested || !/^\/e\//.test(pathname);
+}
+
 /* ── DOM ──────────────────────────────────────────────────────────────── */
 
-let liveBlobUrl: string | null = null;
+let eventManifestLive = false;
 
 function manifestLink(): HTMLLinkElement | null {
   return typeof document === 'undefined' ? null : (document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null);
@@ -137,10 +163,9 @@ export function applyEventManifest(input: EventManifestInput): void {
   try {
     const link = manifestLink();
     if (!link) return;
-    const url = URL.createObjectURL(new Blob([JSON.stringify(eventManifest(input))], { type: 'application/manifest+json' }));
-    link.href = url;
-    if (liveBlobUrl) URL.revokeObjectURL(liveBlobUrl);
-    liveBlobUrl = url;
+    const url = eventManifestHref(input);
+    if (link.href !== url) link.href = url;
+    eventManifestLive = true;
   } catch { /* the static manifest stands */ }
 }
 
@@ -148,9 +173,8 @@ export function applyEventManifest(input: EventManifestInput): void {
 export function restorePlatformManifest(): void {
   try {
     const link = manifestLink();
-    if (!link || !liveBlobUrl) return;
+    if (!link || !eventManifestLive) return;
     link.href = STATIC_MANIFEST_HREF;
-    URL.revokeObjectURL(liveBlobUrl);
-    liveBlobUrl = null;
+    eventManifestLive = false;
   } catch { /* nothing to restore */ }
 }

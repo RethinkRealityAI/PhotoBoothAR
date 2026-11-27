@@ -39,6 +39,7 @@ describe('what the worker never touches', () => {
     expect(get('https://beamwall.app/sw.js')).toEqual({ type: 'pass' });
     expect(get('https://beamwall.app/manifest.webmanifest')).toEqual({ type: 'pass' });
     expect(get('https://beamwall.app/app.webmanifest')).toEqual({ type: 'pass' });
+    expect(get('https://beamwall.app/event.webmanifest')).toEqual({ type: 'pass' });
   });
 
   it('leaves other origins, odd schemes and variant (query) requests alone', () => {

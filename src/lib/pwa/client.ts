@@ -12,7 +12,7 @@
  * Kill switch: build with VITE_SW=off and every visitor's worker and caches
  * are removed on their next page load.
  */
-import { installOffer, isAndroid, isIos, type InstallOffer } from './install';
+import { browserInstallAllowed, installOffer, installRequested, isAndroid, isIos, type InstallOffer } from './install';
 
 const LEGACY = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim() !== '';
 const SWITCHED_OFF = ((import.meta.env.VITE_SW as string | undefined) ?? '').trim().toLowerCase() === 'off';
@@ -125,11 +125,15 @@ function recompute(): void {
 }
 
 function watchInstallPrompt(): void {
-  // Cancelling the event is what keeps the browser's own install banner off
-  // every page — guests are never asked to install anything. The prompt is
-  // kept for the host-side controls (InstallApp.tsx).
+  // Cancelling the event keeps the browser's own install button and banner
+  // off a guest's event link: guests are never asked to install anything.
+  // Everywhere else (and on a host's `?install` link) the browser shows its
+  // own, as any installable app does. The prompt is kept either way for our
+  // own controls (InstallApp.tsx).
+  let requested = false;
+  try { requested = installRequested(window.location.search); } catch { /* not asked */ }
   window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
+    if (!browserInstallAllowed(window.location.pathname, requested)) e.preventDefault();
     deferred = e as InstallPromptEvent;
     recompute();
   });
