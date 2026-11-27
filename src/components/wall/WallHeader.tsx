@@ -29,7 +29,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, Ref } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, ChevronDown, Maximize, QrCode } from 'lucide-react';
+import { Check, ChevronDown, Maximize, Music2, QrCode, SkipForward } from 'lucide-react';
 import { Wordmark } from '../ui/EventLogo';
 import GuestNav, { useGuestDests } from '../ui/GuestNav';
 import ShareButton from '../ui/ShareButton';
@@ -58,6 +58,14 @@ interface Props<Id extends string> {
   /** An optional last row (the phone-only Mine chip). Inside the header so
    *  the measured header height pushes the wall down instead of covering it. */
   extra?: ReactNode;
+  /** Background music on this screen (only when the host turned music on). */
+  music?: {
+    on: boolean;
+    onToggle: () => void;
+    /** "Title · Artist", or null before the first track starts. */
+    nowPlaying: string | null;
+    onSkip?: () => void;
+  };
 }
 
 const px = (n: number): CSSProperties => ({ fontSize: `calc(${n}px * var(--wall-scale, 1))` });
@@ -225,7 +233,7 @@ function SwitchRow({ on, onToggle, title, hint, Icon }: {
 }
 
 export default function WallHeader<Id extends string>({
-  barRef, tabs, active, onSelect, count, socket, showQR, onToggleQR, onProject, driftStyle, extra,
+  barRef, tabs, active, onSelect, count, socket, showQR, onToggleQR, onProject, driftStyle, extra, music,
 }: Props<Id>) {
   const current = tabs.find((t) => t.id === active) ?? tabs[0];
 
@@ -274,6 +282,28 @@ export default function WallHeader<Id extends string>({
             hint="Guests scan to join the booth"
             Icon={QrCode}
           />
+          {music !== undefined && (
+            <>
+              <SwitchRow
+                on={music.on}
+                onToggle={music.onToggle}
+                title="Music"
+                hint={music.on && music.nowPlaying ? `Now playing: ${music.nowPlaying}` : 'Background music the host picked'}
+                Icon={Music2}
+              />
+              {music.on && music.onSkip !== undefined && (
+                <button
+                  type="button"
+                  onClick={() => { haptic('tap'); music.onSkip?.(); }}
+                  className="wall-menu-item pressable flex w-full items-center gap-3 rounded-2xl px-3 min-h-12 font-sans font-medium text-ivory"
+                  style={px(14)}
+                >
+                  <SkipForward className="h-[18px] w-[18px] text-champagne" aria-hidden />
+                  Next song
+                </button>
+              )}
+            </>
+          )}
           <ShareButton
             label="Share the wall"
             iconSize={18}

@@ -18,7 +18,7 @@
 export type FeatureIcon =
   | 'qr' | 'frame' | 'crown' | 'paint' | 'sparkles' | 'box' | 'camera' | 'trophy' | 'eye' | 'zap'
   | 'monitor' | 'shield' | 'mail' | 'film' | 'gift' | 'wand' | 'library' | 'wizard' | 'bot' | 'studio'
-  | 'handshake' | 'megaphone' | 'users' | 'smartphone';
+  | 'handshake' | 'megaphone' | 'users' | 'smartphone' | 'album' | 'music';
 
 /** Real product pictures. `phone` = a 9:16-ish phone screen, `wide` = desktop or a landscape still. */
 export type FeatureImageKey =
@@ -133,6 +133,14 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         tag: 'New',
       },
       {
+        id: 'sky',
+        title: 'Sky effects for outdoor events',
+        line: 'Point the back camera up and the sky becomes fireworks, a sunset, northern lights or the couple’s names in stars.',
+        detail: 'Seven effects in the Effects tab, in the event colours. The sky is repainted; people and buildings stay in front.',
+        icon: 'sparkles',
+        tag: 'New',
+      },
+      {
         id: 'modes',
         title: 'Photos, videos and strips',
         line: 'Photos, short videos with sound, and 2-, 3- or 4-shot photo strips laid out in the event’s colours.',
@@ -198,6 +206,23 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         image: 'wall-gallery',
       },
       {
+        id: 'wall-album',
+        title: 'Album mode',
+        line: 'The wall becomes a photo album: shots stamped on the pages at a slight tilt, and the book turns a page every few seconds.',
+        detail: 'New photos start new pages. The wall can also rotate between layouts on its own, with a crossfade, flip, wipe or spotlight.',
+        icon: 'album',
+        tag: 'New',
+        demo: { label: 'Open the album wall', path: '/e/guest-magic-test/wall' },
+      },
+      {
+        id: 'wall-music',
+        title: 'Music for the room',
+        line: 'Hosts pick a mood (ambient, chill, lounge or upbeat) and the venue screen plays it, crossfading song to song.',
+        detail: 'Every song is public domain (CC0): no licence fee, no credit needed, fine at paid events. Never plays on guests’ phones.',
+        icon: 'music',
+        tag: 'New',
+      },
+      {
         id: 'send',
         title: 'One tap to send',
         line: 'Guests add a name or note and send in one tap; they keep a copy on their phone too.',
@@ -225,6 +250,14 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         title: 'Moderation',
         line: 'Hosts approve or hide any photo from their phone, so nothing lands on the wall they would not want there.',
         icon: 'shield',
+      },
+      {
+        id: 'guest-remove',
+        title: 'Guests control their own photos',
+        line: 'Guests can take their own photos off the wall, one or all at once, with a few seconds to undo.',
+        detail: 'Only the phone that took a photo can remove it, so nobody can delete someone else’s.',
+        icon: 'smartphone',
+        tag: 'New',
       },
     ],
   },

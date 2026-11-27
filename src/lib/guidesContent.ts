@@ -735,6 +735,15 @@ const MAKE_A_FRAME: GuideDoc = {
       ],
     },
     {
+      kind: 'prose',
+      title: 'Sky effects: paint the sky behind your guests',
+      body: [
+        'Outdoor event? The Effects tab has seven sky effects, each marked AR: Sunset Sky, Starry Night, Northern Lights, Firework Sky, Sky Lanterns, Floating Hearts and Names in Stars. A guest picks one, the booth switches to the back camera, and wherever the sky shows in the picture it is repainted, while buildings, trees and people stay in front and are tinted to match (a night sky dims the scene a little, a sunset warms it).',
+        'They are tied to your event without any setup. Fireworks and hearts use your event colours, and Names in Stars writes your event name across the sky in starlight, so a wedding gets the couple’s names. Everything sits in the real sky, just above the rooftops or the horizon, and stays put as the phone turns. Photos and videos both keep it.',
+        'An event dressed in the Island Golden Hour theme gets three more at the front of the row, made for a beach wedding: Hibiscus Rain (flowers drifting down through a sunset), Heart Bursts (fireworks that open into hearts) and Forever Sky (the couple’s names in gold with the hashtag beneath). Good to know: they need open sky, so indoors the booth asks the guest to point the camera at the sky. They work on phones, and they can be combined with a standing 3D frame from Props. A 3D frame also now takes on the light of the room it stands in, dimmer in a dim room and warmer at sunset, so it looks like it is really there.',
+      ],
+    },
+    {
       kind: 'downloads',
       title: 'Start with a ready-made one',
       blurb: 'Fourteen finished frames, already the right size and already cut out — free to download for your own designs, or to hand to whoever runs your Studio. The chequered part is see-through — that is where your guest lands — and the dashed window shows how much room the design leaves them.',
@@ -1137,7 +1146,7 @@ const FIRST_EVENT: GuideDoc = {
         },
         {
           title: 'Style your live wall',
-          body: 'The live wall is the photo wall on a TV or projector at the event. Start from a style (Beamwall, Aurora, Neon night, Gallery and more), then make it yours: the layout (Grid, Gallery, Scrolling, Carousel or Slideshow), the background (your welcome page, a gradient, a plain colour or your own photo), the photo cards (liquid glass, clean, polaroid or neon, with a glow in any colour), how a new photo arrives (a beam, a sparkle or a reveal) and whether it shows the QR code, a spotlight, the leaderboard and the challenges. The preview beside it is your real live wall with sample photos — press Beam a photo to watch one land.',
+          body: 'The live wall is the photo wall on a TV or projector at the event. Start from a style (Beamwall, Aurora, Neon night, Gallery and more), then make it yours: the layout (Grid, Gallery, Scrolling, Carousel, Slideshow or Album, where photos are stamped onto album pages that turn on their own), whether the wall rotates between layouts and how it changes (a crossfade, slide, zoom, flip, wipe or spotlight), the background (your welcome page, a gradient, a plain colour or your own photo), the photo cards (liquid glass, clean, polaroid or neon, with a glow in any colour), how a new photo arrives (a beam, a sparkle or a reveal), background music for the room (ambient, chill, lounge or upbeat, all free to play at paid events) and whether it shows the QR code, a spotlight, the leaderboard and the challenges. The preview beside it is your real live wall with sample photos — press Beam a photo to watch one land.',
           screen: 'setup-livewall',
         },
         {
@@ -1278,7 +1287,7 @@ const RUN_THE_NIGHT: GuideDoc = {
       title: 'What guests can do from their phones',
       body: [
         'Not sure what to wear? The Surprise me tile at the start of the Looks row puts a random frame, prop and effect on in one tap, always a combination that works together.',
-        'After a photo is sent, one Save or share button hands guests the real photo or clip. On an iPhone that opens the share sheet, where Save to Photos, Instagram and WhatsApp all sit, and every share carries your event’s name. Find it on the wall opens the live wall on their own photo, and a Mine chip shows just theirs.',
+        'After a photo is sent, one Save or share button hands guests the real photo or clip. On an iPhone that opens the share sheet, where Save to Photos, Instagram and WhatsApp all sit, and every share carries your event’s name. Find it on the wall opens the live wall on their own photo, and a Mine chip shows just theirs. Guests can take their own photos down too: Remove from wall on one of theirs, or Select to remove in My photos for several at once, with a few seconds to undo. Only the phone that took a photo can remove it.',
         'Anyone looking at a photo on the wall from their phone can send it a reaction: a heart, a laugh, fire, heart eyes, applause or a party popper. It floats up from that photo on the big screen, so the person in it sees the room cheering.',
       ],
     },

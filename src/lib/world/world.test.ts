@@ -13,6 +13,9 @@ import {
 } from './arSession';
 import { isPhoneUa } from './xr8World';
 import { buildStandeeWalls, contourSegments, gridFromImageData, type StandeeGrid } from './standeeMesh';
+import {
+  STEADY_GAP_RESET_MS, STEADY_JUMP_RESET_M, WORLD_STEADY_DEFAULT, WorldPoseSteady, worldSteadyFrom,
+} from './poseSteady';
 
 const forwardOf = (q: Quaternion) => new Vector3(0, 0, -1).applyQuaternion(q);
 
@@ -404,5 +407,110 @@ describe('AR switch screen note', () => {
     expect(arSwitchDirFor('/e/x/experience/abc?cam=1')).toBe('leave');
     expect(arSwitchDirFor('/e/x/booth')).toBe('leave');
     expect(arSwitchCopy('enter').title).toBe('Switching to AR mode');
+  });
+});
+
+describe('WorldPoseSteady (8th Wall camera pose, steadied)', () => {
+  type V3 = [number, number, number];
+  type Q4 = [number, number, number, number];
+  const Q: Q4 = [0, 0, 0, 1];
+  // Seeded noise, so the numbers below are the same on every run.
+  const noise = (seed: number) => {
+    let s = seed >>> 0;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    return () => { let t = 0; for (let i = 0; i < 6; i++) t += rnd(); return (t - 3) / Math.sqrt(0.5); };
+  };
+  /** RMS frame-to-frame change of the error (what the eye sees as shake), raw and steadied, in metres. */
+  const shake = (truth: (t: number) => V3, sigma: number, opts = WORLD_STEADY_DEFAULT) => {
+    const g = noise(7);
+    const f = new WorldPoseSteady(opts);
+    const out: V3 = [0, 0, 0];
+    const q: Q4 = [0, 0, 0, 1];
+    let jr = 0, jf = 0, worst = 0, n = 0;
+    let pr: V3 | null = null, pf: V3 | null = null;
+    for (let k = 0; k < 240; k++) {
+      const t = k / 30;
+      const tr = truth(t);
+      const raw: V3 = [tr[0] + sigma * g(), tr[1] + sigma * g(), tr[2] + sigma * g()];
+      f.step(raw, Q, k === 0 ? 0 : 1000 / 30, out, q);
+      const er: V3 = [raw[0] - tr[0], raw[1] - tr[1], raw[2] - tr[2]];
+      const ef: V3 = [out[0] - tr[0], out[1] - tr[1], out[2] - tr[2]];
+      if (k > 30) {
+        worst = Math.max(worst, Math.hypot(ef[0], ef[1], ef[2]));
+        if (pr && pf) {
+          jr += Math.hypot(er[0] - pr[0], er[1] - pr[1], er[2] - pr[2]) ** 2;
+          jf += Math.hypot(ef[0] - pf[0], ef[1] - pf[1], ef[2] - pf[2]) ** 2;
+          n++;
+        }
+      }
+      pr = er; pf = ef;
+    }
+    return { raw: Math.sqrt(jr / n), steady: Math.sqrt(jf / n), worst };
+  };
+
+  it('a still phone: the wobble drops to under a quarter', () => {
+    const r = shake(() => [0, 1.4, 0], 0.001);
+    expect(r.raw).toBeGreaterThan(0.002);
+    expect(r.steady).toBeLessThan(r.raw / 4);
+  });
+  it("a hand's slow sway: still less than half the shake, and never far from the truth", () => {
+    const r = shake((t) => [0.004 * Math.sin(2 * Math.PI * 0.7 * t), 1.4 + 0.002 * Math.sin(2 * Math.PI * 1.1 * t), 0.003 * Math.sin(Math.PI * t + 1)], 0.001);
+    expect(r.steady).toBeLessThan(r.raw / 2);
+    expect(r.worst).toBeLessThan(0.004);
+  });
+  it('walking at 0.5 m/s: the frame trails the room by well under a centimetre', () => {
+    const r = shake((t) => [0, 1.4, -0.5 * t], 0.001);
+    expect(r.worst).toBeLessThan(0.008);
+  });
+  it('the first sample, a long gap and a jump are shown as they are', () => {
+    const f = new WorldPoseSteady();
+    const out: V3 = [0, 0, 0];
+    const q: Q4 = [0, 0, 0, 1];
+    f.step([1, 1.4, 2], Q, 0, out, q);
+    expect(out).toEqual([1, 1.4, 2]);
+    f.step([1.01, 1.4, 2], Q, 33, out, q);
+    expect(out[0]).toBeGreaterThan(1);
+    expect(out[0]).toBeLessThan(1.01); // gliding, not snapping
+    f.step([1.05, 1.4, 2], Q, STEADY_GAP_RESET_MS + 1, out, q);
+    expect(out).toEqual([1.05, 1.4, 2]);
+    f.step([1.05 + STEADY_JUMP_RESET_M + 0.01, 1.4, 2], Q, 33, out, q);
+    expect(out[0]).toBeCloseTo(1.05 + STEADY_JUMP_RESET_M + 0.01, 9);
+  });
+  it('the rotation is passed through untouched unless asked for', () => {
+    const f = new WorldPoseSteady();
+    const out: V3 = [0, 0, 0];
+    const q: Q4 = [0, 0, 0, 1];
+    const a: Q4 = [0, Math.sin(0.1), 0, Math.cos(0.1)];
+    const b: Q4 = [0, Math.sin(0.2), 0, Math.cos(0.2)];
+    f.step([0, 1.4, 0], a, 0, out, q);
+    f.step([0, 1.4, 0], b, 33, out, q);
+    expect(q).toEqual(b);
+    const g = new WorldPoseSteady({ ...WORLD_STEADY_DEFAULT, rotMinCutoff: 1 });
+    g.step([0, 1.4, 0], a, 0, out, q);
+    g.step([0, 1.4, 0], b, 33, out, q);
+    expect(q[1]).toBeGreaterThan(a[1]);
+    expect(q[1]).toBeLessThan(b[1]);
+    expect(Math.hypot(q[0], q[1], q[2], q[3])).toBeCloseTo(1, 6);
+  });
+  it('off (`?wsteady=0`) and a non-finite sample pass straight through', () => {
+    const off = new WorldPoseSteady(worldSteadyFrom('?wsteady=0'));
+    const out: V3 = [0, 0, 0];
+    const q: Q4 = [0, 0, 0, 1];
+    off.step([0, 1.4, 0], Q, 0, out, q);
+    off.step([0.01, 1.4, 0], Q, 33, out, q);
+    expect(out).toEqual([0.01, 1.4, 0]);
+    const on = new WorldPoseSteady();
+    on.step([0, 1.4, 0], Q, 0, out, q);
+    on.step([Number.NaN, 1.4, 0], Q, 33, out, q);
+    expect(Number.isNaN(out[0])).toBe(true);
+    on.step([0.02, 1.4, 0], Q, 33, out, q); // and the filter starts again cleanly
+    expect(out).toEqual([0.02, 1.4, 0]);
+  });
+  it('reads the tester knobs and ignores nonsense', () => {
+    expect(worldSteadyFrom('')).toEqual(WORLD_STEADY_DEFAULT);
+    expect(worldSteadyFrom('?wsteady=0').enabled).toBe(false);
+    expect(worldSteadyFrom('?wsteadyhz=2&wsteadyrot=4')).toEqual({ enabled: true, posMinCutoff: 2, rotMinCutoff: 4 });
+    expect(worldSteadyFrom('?wsteadyhz=abc&wsteadyrot=999')).toEqual(WORLD_STEADY_DEFAULT);
+    expect(worldSteadyFrom('?wsteadyhz=0')).toEqual(WORLD_STEADY_DEFAULT);
   });
 });

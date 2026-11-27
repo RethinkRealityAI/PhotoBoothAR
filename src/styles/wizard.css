@@ -636,6 +636,7 @@
 .wz-sheet-body .wz-styles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .wz-sheet-body .wz-sq { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; gap: 8px !important; }
 .wz-sheet-body .wz-sq-5 { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; gap: 6px !important; }
+.wz-sheet-body .wz-sq-6 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 8px !important; }
 .wz-sheet-body .wz-sq .wz-tile-art, .wz-sheet-body .wz-sq-5 .wz-tile-art { aspect-ratio: 1 / 1 !important; }
 @media (prefers-reduced-motion: reduce) {
   .wz-sheet, .wz-sheet-preview { transition: none; }
