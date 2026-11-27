@@ -1283,7 +1283,7 @@ const RUN_THE_NIGHT: GuideDoc = {
       title: 'What guests can do from their phones',
       body: [
         'Not sure what to wear? The Surprise me tile at the start of the Looks row puts a random frame, prop and effect on in one tap, always a combination that works together.',
-        'After a photo is sent, one Save or share button hands guests the real photo or clip. On an iPhone that opens the share sheet, where Save to Photos, Instagram and WhatsApp all sit, and every share carries your event’s name. Find it on the wall opens the live wall on their own photo, and a Mine chip shows just theirs.',
+        'After a photo is sent, one Save or share button hands guests the real photo or clip. On an iPhone that opens the share sheet, where Save to Photos, Instagram and WhatsApp all sit, and every share carries your event’s name. Find it on the wall opens the live wall on their own photo, and a Mine chip shows just theirs. Guests can take their own photos down too: Remove from wall on one of theirs, or Select to remove in My photos for several at once, with a few seconds to undo. Only the phone that took a photo can remove it.',
         'Anyone looking at a photo on the wall from their phone can send it a reaction: a heart, a laugh, fire, heart eyes, applause or a party popper. It floats up from that photo on the big screen, so the person in it sees the room cheering.',
       ],
     },

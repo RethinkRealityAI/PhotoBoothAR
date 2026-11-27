@@ -78,6 +78,23 @@ export function savePhoto(eventId: string, photo: SavedPhoto): void {
   }
 }
 
+/**
+ * Drop these ids from this device's gallery in ONE write and one
+ * `gallery:changed` (a bulk removal used to rewrite the list once per photo).
+ */
+export function forgetSavedPhotos(eventId: string, ids: readonly string[]): void {
+  try {
+    const drop = new Set(ids);
+    const all = getSavedPhotos(eventId);
+    const kept = all.filter((p) => !drop.has(p.id));
+    if (kept.length === all.length) return;
+    localStorage.setItem(scopedKey(eventId, 'gallery'), JSON.stringify(kept));
+    window.dispatchEvent(new CustomEvent('gallery:changed'));
+  } catch {
+    /* non-fatal */
+  }
+}
+
 export function clearGallery(eventId: string): void {
   try {
     localStorage.removeItem(scopedKey(eventId, 'gallery'));
