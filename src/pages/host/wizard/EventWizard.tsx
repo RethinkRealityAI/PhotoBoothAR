@@ -37,6 +37,7 @@ import LooksStep from './steps/LooksStep';
 import PowerUpsStep from './steps/PowerUpsStep';
 import ChallengesStep from './steps/ChallengesStep';
 import KeepsakeStep from './steps/KeepsakeStep';
+import IntroStep from './steps/IntroStep';
 import LaunchStep from './steps/LaunchStep';
 
 /* ── The wizard ────────────────────────────────────────────────────── */
@@ -48,6 +49,7 @@ const STEP_COMPONENTS: Record<Exclude<WizardStepId, 'basics'>, () => ReactNode> 
   powerups: () => <PowerUpsStep />,
   challenges: () => <ChallengesStep />,
   keepsake: () => <KeepsakeStep />,
+  intro: () => <IntroStep />,
   launch: () => <LaunchStep />,
 };
 

@@ -11,12 +11,13 @@
  * that used to be hard-wired to the build-time active event.
  */
 import { isWallPreviewFrame } from '../lib/wallPreview';
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { CalendarCheck, Clock3, SearchX, WifiOff } from 'lucide-react';
 import type { EventConfig } from './types';
 import { getRegisteredEvent } from './registry';
-import { codeRuntimeEvent, loadEventConfig, type EventLoad, type RuntimeEvent } from './runtime';
+import { codeRuntimeEvent, loadEventConfig, peekBootEvent, type EventLoad, type RuntimeEvent } from './runtime';
+import { discardBootRow, endEventBoot, rememberBootLook } from '../lib/eventBoot';
 import { subscribeToBranding } from '../lib/db';
 import { isEventMember } from '../lib/host';
 import { MANAGED_CSS_VARS } from '../lib/branding';
@@ -216,6 +217,31 @@ function CenterScreen({
   );
 }
 
+/**
+ * The guest's wait before an event resolves (runtime /e/:slug routes only).
+ * Deliberately says nothing and wears no Beamwall styling: the guest came for
+ * THIS event, so they see its remembered background (index.html's boot
+ * script, lib/eventBoot.ts) or plain near-black, and a quiet spinner in the
+ * event's accent only if the wait runs past a beat.
+ */
+function EventBootScreen() {
+  return (
+    <div
+      className="absolute inset-0 flex items-center justify-center"
+      style={{ background: 'var(--bw-boot-bg, #0b0a10)' }}
+      role="status"
+      aria-label="Loading"
+    >
+      <div aria-hidden className="bw-boot-delay">
+        <div
+          className="h-7 w-7 animate-spin rounded-full border-2 border-white/10"
+          style={{ borderTopColor: 'var(--bw-boot-accent, rgba(255,255,255,0.55))' }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /* ── Provider ───────────────────────────────────────────────────────── */
 
 type LoadState =
@@ -251,6 +277,16 @@ export default function EventProvider({ slug: slugProp, basePath, previewBanner 
       const event = codeRuntimeEvent(slug, code);
       bootstrapEvent(event);
       return { phase: 'ready', event };
+    }
+    // index.html's boot request may already hold the row (it runs while the
+    // app downloads). Live events only: a members-only status still needs
+    // the membership check the resolve effect performs.
+    if (slugProp === undefined) {
+      const boot = peekBootEvent(slug);
+      if (boot && !needsMemberCheck(boot.status)) {
+        bootstrapEvent(boot);
+        return { phase: 'ready', event: boot };
+      }
     }
     return { phase: 'loading' };
   });
@@ -363,8 +399,24 @@ export default function EventProvider({ slug: slugProp, basePath, previewBanner 
     return subscribeToBranding(readyEventId, applyBranding);
   }, [readyEventId]);
 
+  // Once anything but the boot screen renders (the event, or an honest error
+  // screen), the page's own CSS takes the background back. Layout effect: the
+  // swap lands before paint. A DB event's settled look is remembered so the
+  // next visit boots in its colours.
+  const settledSlug = state.phase === 'ready' ? state.event.eventId : null;
+  const settledSource = state.phase === 'ready' ? state.event.source : null;
+  useLayoutEffect(() => {
+    if (state.phase === 'loading') return;
+    endEventBoot();
+    if (slugProp === undefined) discardBootRow();
+    if (slugProp !== undefined || settledSource !== 'db' || !settledSlug) return;
+    const raf = requestAnimationFrame(() => rememberBootLook(settledSlug));
+    return () => cancelAnimationFrame(raf);
+  }, [state.phase, settledSlug, settledSource, slugProp]);
+
   if (state.phase === 'loading') {
-    return <CenterScreen eyebrow="Photo Booth" title="Setting the stage…" />;
+    // Host studio previews keep their own screen; a guest route boots quietly.
+    return slugProp === undefined ? <EventBootScreen /> : <CenterScreen eyebrow="Photo Booth" title="Setting the stage…" />;
   }
   if (state.phase === 'unreachable') {
     return (

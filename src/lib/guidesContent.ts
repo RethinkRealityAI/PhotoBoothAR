@@ -1146,13 +1146,17 @@ const FIRST_EVENT: GuideDoc = {
         },
         {
           title: 'Style your live wall',
-          body: 'The live wall is the photo wall on a TV or projector at the event. Start from a style (Beamwall, Aurora, Neon night, Gallery and more), then make it yours: the layout (Grid, Gallery, Scrolling, Carousel or Slideshow), the background (your welcome page, a gradient, a plain colour or your own photo), the photo cards (liquid glass, clean, polaroid or neon, with a glow in any colour), how a new photo arrives (a beam, a sparkle or a reveal) and whether it shows the QR code, a spotlight, the leaderboard and the challenges. The preview beside it is your real live wall with sample photos — press Beam a photo to watch one land.',
+          body: 'The live wall is the photo wall on a TV or projector at the event. Start from a style (Beamwall, Aurora, Neon night, Gallery and more), then make it yours: the layout (Grid, Gallery, Scrolling, Carousel, Slideshow or Album, where photos are stamped onto album pages that turn on their own), whether the wall rotates between layouts and how it changes (a crossfade, slide, zoom, flip, wipe or spotlight), the background (your welcome page, a gradient, a plain colour or your own photo), the photo cards (liquid glass, clean, polaroid or neon, with a glow in any colour), how a new photo arrives (a beam, a sparkle or a reveal), background music for the room (ambient, chill, lounge or upbeat, all free to play at paid events) and whether it shows the QR code, a spotlight, the leaderboard and the challenges. The preview beside it is your real live wall with sample photos — press Beam a photo to watch one land.',
           screen: 'setup-livewall',
         },
         {
           title: 'Set up the keepsake',
           body: 'The keepsake is the album every guest gets the morning after. Choose its look, greeting, what guests can save, the music and when it is sent, ending on a Review where Save puts it on your guests’ album.',
           screen: 'setup-keepsake',
+        },
+        {
+          title: 'Let Beamy show guests around',
+          body: 'Booth intro is the short walk-through guests see the first time they open the booth: Beamy says hello, points at the flip, Looks and Photo · Video · Strip controls, and only mentions what your event actually has, such as AR, power-ups or challenges. Keep Beamy’s intro, choose Make it your own to change any step’s words or picture (pick one of your own Looks or upload one), or turn it off for a one-line tip instead. The phone beside it is the real booth intro and changes as you type.',
         },
         {
           title: 'Launch: check it over and go live',
@@ -1283,7 +1287,7 @@ const RUN_THE_NIGHT: GuideDoc = {
       title: 'What guests can do from their phones',
       body: [
         'Not sure what to wear? The Surprise me tile at the start of the Looks row puts a random frame, prop and effect on in one tap, always a combination that works together.',
-        'After a photo is sent, one Save or share button hands guests the real photo or clip. On an iPhone that opens the share sheet, where Save to Photos, Instagram and WhatsApp all sit, and every share carries your event’s name. Find it on the wall opens the live wall on their own photo, and a Mine chip shows just theirs.',
+        'After a photo is sent, one Save or share button hands guests the real photo or clip. On an iPhone that opens the share sheet, where Save to Photos, Instagram and WhatsApp all sit, and every share carries your event’s name. Find it on the wall opens the live wall on their own photo, and a Mine chip shows just theirs. Guests can take their own photos down too: Remove from wall on one of theirs, or Select to remove in My photos for several at once, with a few seconds to undo. Only the phone that took a photo can remove it.',
         'Anyone looking at a photo on the wall from their phone can send it a reaction: a heart, a laugh, fire, heart eyes, applause or a party popper. It floats up from that photo on the big screen, so the person in it sees the room cheering.',
       ],
     },
