@@ -15,6 +15,7 @@ import FilterThumb from './FilterThumb';
 import type { LookItem } from '../../lib/lookStrip';
 import type { LookTab } from '../../lib/lookTerms';
 import { isWorldLook } from '../../lib/world/worldLooks';
+import { skyEffect, skyIdOfShader, type SkyEffect } from '../../lib/world/skyFx';
 
 /** One icon per tab (lib/lookTerms) — chips, sheet headings, fallbacks. */
 export const TAB_ICON: Record<LookTab, typeof Square> = {
@@ -28,6 +29,8 @@ export const TAB_ICON: Record<LookTab, typeof Square> = {
 export default function LookThumb({ item }: { item: LookItem }) {
   const { exp, category } = item;
   if (category === 'effect') {
+    const sky = skyEffect(skyIdOfShader(item.shaderId));
+    if (sky) return <SkyThumb sky={sky} />;
     return (
       <FilterThumb shaderId={item.shaderId ?? 'none'}>
         <span
@@ -85,6 +88,29 @@ function WorldThumb({ exp }: { exp: LookItem['exp'] }) {
           style={{ aspectRatio: '9 / 16', boxShadow: '0 0 0 1px rgba(255,255,255,0.55), 0 3px 6px rgba(0,0,0,0.6)' }}
         />
       )}
+      <span
+        className="absolute left-1/2 top-[9%] -translate-x-1/2 rounded-full px-1.5 py-[1px] font-sans text-[10px] font-bold leading-[1.3] tracking-wide"
+        style={{ background: 'var(--color-accent)', color: 'var(--on-accent)' }}
+      >
+        AR
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A sky effect's tile: a little picture of its sky with its mark, and the same
+ * "AR" badge as the standing Frames (it opens the back camera too).
+ */
+function SkyThumb({ sky }: { sky: SkyEffect }) {
+  return (
+    <span
+      className="relative flex h-full w-full items-center justify-center overflow-hidden"
+      style={{ background: `linear-gradient(180deg, ${sky.swatch[0]} 0%, ${sky.swatch[1]} 100%)` }}
+    >
+      <span className="mt-[18%] font-sans text-[19px] leading-none text-white" style={{ textShadow: '0 0 8px rgba(255,255,255,0.75)' }} aria-hidden>
+        {sky.mark}
+      </span>
       <span
         className="absolute left-1/2 top-[9%] -translate-x-1/2 rounded-full px-1.5 py-[1px] font-sans text-[10px] font-bold leading-[1.3] tracking-wide"
         style={{ background: 'var(--color-accent)', color: 'var(--on-accent)' }}

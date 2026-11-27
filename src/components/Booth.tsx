@@ -38,6 +38,11 @@ import BoothTopBar from './booth/BoothTopBar';
 import BoothLookDeck from './booth/BoothLookDeck';
 import LooksSheet from './booth/LooksSheet';
 import WorldStage from './booth/WorldStage';
+import SkyStage from './booth/SkyStage';
+import {
+  isSkyShaderId, skyEffect, skyExperiences, skyIdFrom, skyIdOfShader, skyPalette, skyQuery, skyWords,
+  stageShaderId, SKY_ONLY_AR_ID, SKY_PARAM, SKY_SHADER_PREFIX,
+} from '../lib/world/skyFx';
 import { isWorldLook, withWorldLooks, worldLookFrameUrl, WORLD_LOOK_PREFIX } from '../lib/world/worldLooks';
 import {
   arFrameIdFrom, enterArUrl, leaveArUrl, worldTrackerFrom, CAMERA_ON_PARAM,
@@ -64,6 +69,7 @@ import {
   challengeFromRouterState, nextChallenge,
 } from '../lib/guestFlow';
 import { shouldShowOnboarding } from '../lib/boothCameraGate';
+import { DEFAULT_BOOTH_INTRO, introGestures, introLooksFrom, introSeen, markIntroSeen, type IntroContext } from '../lib/boothIntro';
 import ChallengeSelector from './booth/ChallengeSelector';
 
 // Foundation APIs
@@ -363,8 +369,12 @@ export default function Booth() {
   const { showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
   // Platform events replace the five-slide intro with ONE dismissible line
   // over the live camera (cameraHint below); legacy keeps the intro as shipped.
-  const [onboardingVisible, setOnboardingVisible] = useState(source === 'db' ? false : showOnboarding);
-  const [cameraHint, setCameraHint] = useState(() => source === 'db' && !cameraHintSeen(safeLocalStorage()));
+  // Platform events: Beamy's booth intro (lib/boothIntro), once per device per
+  // event, unless the host turned it off in setup — then the one-line tip.
+  const introCfg = useMemo(() => eventConfig.boothIntro ?? DEFAULT_BOOTH_INTRO, [eventConfig.boothIntro]);
+  const [introOwed] = useState(() => source === 'db' && introCfg.enabled && !introSeen(safeLocalStorage(), eventId));
+  const [onboardingVisible, setOnboardingVisible] = useState(source === 'db' ? introOwed : showOnboarding);
+  const [cameraHint, setCameraHint] = useState(() => source === 'db' && !introOwed && !cameraHintSeen(safeLocalStorage()));
   const dismissCameraHint = useCallback(() => {
     setCameraHint(false);
     markCameraHintSeen(safeLocalStorage());
@@ -408,10 +418,29 @@ export default function Booth() {
     return Number.isFinite(v) && v >= 0.8 && v <= 2.2 ? v : 1.4;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const worldSession = useMemo(
-    () => (arFrameId !== null && arTracker === 'xr8' && typeof document !== 'undefined' ? new WorldSession(worldCamH) : null),
-    [arFrameId, arTracker, worldCamH],
+  // Sky effects (lib/world/skyFx.ts) run on this same AR page: `&sky=<id>`,
+  // with a standing Frame or on their own (`?ar=sky`). 8th Wall's sky layer
+  // can only be started WITH the run, so whether this page load has it is
+  // decided here, from the URL.
+  const arSkyId = useMemo(
+    () => (arFrameId !== null ? skyIdFrom(location.search) : null),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+    [arFrameId],
   );
+  const worldSession = useMemo(
+    () => (arFrameId !== null && arTracker === 'xr8' && typeof document !== 'undefined'
+      ? new WorldSession(worldCamH, undefined, { skyLayer: arSkyId !== null })
+      : null),
+    [arFrameId, arTracker, worldCamH, arSkyId],
+  );
+  /** Sky effects show as tiles: platform booths on phones, where 8th Wall's world engine runs. */
+  const skyTiles = useMemo(() => {
+    if (source !== 'db' || typeof navigator === 'undefined') return false;
+    const phone = isPhoneUa(navigator.userAgent, navigator.platform, navigator.maxTouchPoints ?? 0)
+      || new URLSearchParams(location.search).has('desktop');
+    return phone && arTracker === 'xr8';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, arTracker]);
   const [arTapped, setArTapped] = useState(false);
   const arHostRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -585,7 +614,7 @@ export default function Booth() {
   }, [source]);
 
   // ── Picker state ──────────────────────────────────────────────────────
-  const [effectId, setEffectId] = useState<string>('none');
+  const [effectId, setEffectId] = useState<string>(() => (arSkyId !== null ? `${SKY_SHADER_PREFIX}${arSkyId}` : 'none'));
   // The filter's own Experience. A shader is applied as a bare shaderId, so its
   // Experience used to be discarded at the call site — and with it any
   // config.triggers, which is why a filter-only scene could never fire one.
@@ -786,15 +815,20 @@ export default function Booth() {
     const covers = coverExperiences(coverSettings, coverArt);
     // A look that is ONLY hand-held gear shows nothing without hand tracking,
     // which guest booths don't run (GUEST_HAND_TRACKING): leave it out.
-    return [...covers, ...(GUEST_HAND_TRACKING || source !== 'db' ? all : all.filter((e) => !isHandOnlyLook(e)))];
-  }, [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides, source, coverSettings, coverArt]);
+    // Sky effects: AR tiles in the Effects tab (hosts can hide them like any built-in).
+    const sky = skyTiles ? skyExperiences(presetOverrides?.hidden, eventConfig.theme?.pack ?? null) : [];
+    return [...covers, ...(GUEST_HAND_TRACKING || source !== 'db' ? all : all.filter((e) => !isHandOnlyLook(e))), ...sky];
+  }, [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides, source, coverSettings, coverArt, skyTiles]);
 
   // Pre-select from route param
   useEffect(() => {
     if (!routeExperienceId || !experiencesLoaded) return;
     const exp = catalog.find((e) => e.id === routeExperienceId);
     if (exp) {
-      if (exp.kind === 'shader') {
+      if (exp.kind === 'shader' && isSkyShaderId(exp.config?.shader?.shaderId)) {
+        // A link to a sky effect opens the AR page it lives on.
+        selectEffect(exp.config!.shader!.shaderId, exp);
+      } else if (exp.kind === 'shader') {
         setEffectId(exp.config?.shader?.shaderId ?? 'none');
         setEffectExp(exp);
       } else if (exp.kind === 'border' || exp.kind === '2d_filter') {
@@ -829,6 +863,8 @@ export default function Booth() {
     if (!id) return;
     const exp = catalog.find((e) => e.id === id);
     if (!exp) return;
+    // A sky effect cannot be the opening look: it would send every guest to the back camera.
+    if (exp.kind === 'shader' && isSkyShaderId(exp.config?.shader?.shaderId)) { appliedDefaultRef.current = true; return; }
     if (exp.kind === 'shader') {
       setEffectId(exp.config?.shader?.shaderId ?? 'none');
       setEffectExp(exp);
@@ -895,6 +931,12 @@ export default function Booth() {
         const p = new URLSearchParams(location.search);
         p.set('ar', id);
         window.history.replaceState(window.history.state, '', `${location.pathname}?${p.toString()}`);
+      } else if (exp === null && isSkyShaderId(effectId)) {
+        // Taking the Frame away under a sky effect leaves the sky on its own.
+        setAttachExp(null);
+        const p = new URLSearchParams(window.location.search);
+        p.set('ar', SKY_ONLY_AR_ID);
+        window.history.replaceState(window.history.state, '', `${location.pathname}?${p.toString()}`);
       } else {
         goTo(leaveArUrl(basePath, location.search, exp?.id ?? null));
       }
@@ -906,7 +948,60 @@ export default function Booth() {
     }
     setAttachExp(exp);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arFrameId, recording, basePath, goTo]);
+  }, [arFrameId, recording, basePath, goTo, effectId]);
+
+  /**
+   * Picking an Effect. A sky effect (lib/world/skyFx.ts) lives on the AR page:
+   * from the selfie booth it opens that page; on it, sky effects swap in
+   * place. The first sky effect on an AR page that started without the sky
+   * layer reloads the page with it (8th Wall cannot add the layer mid-run).
+   * Every other Effect is exactly applyEffect, as before.
+   */
+  const selectEffect = useCallback((shaderId: string, exp: Experience | null = null) => {
+    const sky = skyIdOfShader(shaderId);
+    const wasSky = isSkyShaderId(effectId);
+    if (arFrameId === null) {
+      if (sky === null) { applyEffect(shaderId, exp); return; }
+      if (recording) return;
+      const p = new URLSearchParams(location.search);
+      p.set(SKY_PARAM, sky);
+      goTo(enterArUrl(basePath, `?${p.toString()}`, SKY_ONLY_AR_ID));
+      return;
+    }
+    if (sky === null && !wasSky) { applyEffect(shaderId, exp); return; }
+    // The AR page, and the sky is changing.
+    const standing = isWorldLook(attachExp);
+    const arId = standing ? attachExp!.id.slice(WORLD_LOOK_PREFIX.length) : SKY_ONLY_AR_ID;
+    const query = skyQuery(window.location.search, arId, sky);
+    if (query === null) {
+      // The sky was all this page showed: back to the selfie booth, with the new Effect if one was picked.
+      if (!recording) goTo(leaveArUrl(basePath, location.search, shaderId === 'none' ? null : exp?.id ?? null));
+      return;
+    }
+    if (sky !== null && worldSession?.skyCapable !== true) {
+      if (!recording) goTo(`${basePath}/booth?${query}`);
+      return;
+    }
+    applyEffect(shaderId, exp);
+    window.history.replaceState(window.history.state, '', `${location.pathname}?${query}`);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arFrameId, effectId, attachExp, recording, basePath, goTo, applyEffect, worldSession]);
+  // The effect in the slot is what 8th Wall's canvas paints.
+  useEffect(() => {
+    if (!worldSession) return;
+    const id = skyIdOfShader(effectId);
+    if (id === null || !worldSession.skyCapable) { worldSession.setSky(null); return; }
+    const [a, b] = skyPalette(eventConfig.accentHexes);
+    worldSession.setSky({ id, a, b, text: skyWords(id, eventConfig.copy.fullName, eventConfig.copy.eventName) });
+  }, [worldSession, effectId, eventConfig]);
+  // 8th Wall could not run here (the booth fell back to its own motion
+  // tracking, which has no sky layer): a sky effect has nothing to paint.
+  useEffect(() => {
+    if (arFrameId === null || arTracker !== 'sensors' || !isSkyShaderId(effectId)) return;
+    if (arFrameId === SKY_ONLY_AR_ID) goTo(leaveArUrl(basePath, location.search, null));
+    else applyEffect('none');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arFrameId, arTracker, effectId]);
 
   /**
    * Picking a face paint: its own slot, so the guest's prop stays on. In world
@@ -1302,6 +1397,10 @@ export default function Booth() {
   const worldSelected = arFrameId !== null && isWorldLook(attachExp);
   const worldFrameUrl: string | null = worldSelected ? worldLookFrameUrl(attachExp) : null;
   const worldMode = worldFrameUrl !== null;
+  /** A sky effect is on, on the AR page (with or without a standing Frame). */
+  const skyOn = arFrameId !== null && worldSession !== null && isSkyShaderId(effectId);
+  /** The stage shows 8th Wall's own canvas: a Frame stands in it, or the sky is painted in it. */
+  const arStage = worldMode || skyOn;
 
   // The cover in use (a selfie Frame or its standing 3D tile), and the cover
   // that stands up in world mode, printed with this group's names.
@@ -1326,7 +1425,7 @@ export default function Booth() {
   // The switch screen lifts once this booth can show something real: the AR
   // intro (its frame picked) or the live selfie camera. Never under 0.45 s (no
   // flicker), never over 4.5 s (a slow camera has its own screen).
-  const arrivalReady = arrival !== null && (arrival.dir === 'enter' ? worldMode : ready);
+  const arrivalReady = arrival !== null && (arrival.dir === 'enter' ? arStage : ready);
   useEffect(() => {
     if (arrival === null) return;
     const since = performance.now() - arrivalSinceRef.current;
@@ -1344,6 +1443,7 @@ export default function Booth() {
     const tile = withWorldLooks(catalog).find((e) => e.id === `${WORLD_LOOK_PREFIX}${arFrameId}`);
     arAppliedRef.current = true;
     if (tile) setAttachExp(tile);
+    else if (arFrameId === SKY_ONLY_AR_ID && arSkyId !== null) { /* the sky on its own: nothing to stand up */ }
     else goTo(leaveArUrl(basePath, location.search, null)); // unknown frame: plain booth
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arFrameId, experiencesLoaded, catalog, coverArt]);
@@ -2177,7 +2277,8 @@ export default function Booth() {
   // Taken from the catalog rather than the deck sections, which are built
   // further down — the swipe must work whichever tab the deck happens to show.
   const filterOptions = useMemo(
-    () => catalog.filter((e) => e.kind === 'shader' && !!e.config?.shader?.shaderId),
+    // Sky effects are not part of the swipe: they open the AR page.
+    () => catalog.filter((e) => e.kind === 'shader' && !!e.config?.shader?.shaderId && !isSkyShaderId(e.config.shader.shaderId)),
     [catalog],
   );
   const stepFilter = useCallback((dir: 'left' | 'right') => {
@@ -2185,14 +2286,14 @@ export default function Booth() {
     const cur = filterOptions.findIndex((e) => e.config?.shader?.shaderId === effectId);
     const next = cycleIndex(cur, filterOptions.length, dir);
     haptic('select');
-    if (next < 0) applyEffect('none');
-    else applyEffect(filterOptions[next].config!.shader!.shaderId, filterOptions[next]);
-  }, [filterOptions, effectId, applyEffect]);
+    if (next < 0) selectEffect('none');
+    else selectEffect(filterOptions[next].config!.shader!.shaderId, filterOptions[next]);
+  }, [filterOptions, effectId, selectEffect]);
 
   const onStagePointerDown = useCallback((e: React.PointerEvent) => {
-    if (phase !== 'camera' || worldMode) return;
+    if (phase !== 'camera' || arStage) return;
     gestureStartRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
-  }, [phase, worldMode]);
+  }, [phase, arStage]);
 
   const onStagePointerUp = useCallback((e: React.PointerEvent) => {
     const start = gestureStartRef.current;
@@ -2272,6 +2373,20 @@ export default function Booth() {
     () => buildDeck(source === 'db' ? withWorldLooks(catalog) : catalog),
     [catalog, source],
   );
+  // What Beamy's intro shows: only what this booth really has (lib/boothIntro).
+  const introCtx: IntroContext = useMemo(() => {
+    const { looks, worldFrames } = introLooksFrom(catalog);
+    return {
+      eventName: copy.eventName,
+      looks,
+      worldFrames,
+      video: videoAllowed,
+      strip: true,
+      canFlip,
+      gestures: introGestures((eventConfig.powerUps ?? []).map((t) => t.id)),
+      challenges: wallSettings.showChallenges !== false ? challenges.filter((c) => c.active).length : 0,
+    };
+  }, [catalog, copy.eventName, videoAllowed, canFlip, eventConfig.powerUps, wallSettings.showChallenges, challenges]);
   // Memoized: a fresh object literal per render made this a new prop identity
   // on every single re-render of the booth, defeating any memo downstream.
   const deckSelection: DeckSelection = useMemo(() => ({
@@ -2430,8 +2545,13 @@ export default function Booth() {
           <Onboarding
             key="onboarding"
             withChallengesStep={wallSettings.showChallenges !== false && challenges.some((c) => c.active)}
+            intro={source === 'db' ? { ctx: introCtx, cfg: introCfg } : undefined}
             onDismiss={() => {
-              dismissOnboarding();
+              if (source === 'db') {
+                markIntroSeen(safeLocalStorage(), eventId);
+                // The intro taught everything the one-line tip says.
+                markCameraHintSeen(safeLocalStorage());
+              } else dismissOnboarding();
               setOnboardingVisible(false);
             }}
           />
@@ -2601,7 +2721,7 @@ export default function Booth() {
                 <StageCanvas
                   ref={stageRef}
                   videoRef={videoRef}
-                  effectId={effectId}
+                  effectId={stageShaderId(effectId)}
                   sparkles={sparkles}
                   mirror={isFront}
                   overlayUrl={worldMode || stageOverlays ? null : (is2DOverlay ? frameArt : null)}
@@ -2626,7 +2746,7 @@ export default function Booth() {
                   watermark={entitlements.watermark}
                   effectsCanvas={triggerFxCanvas}
                   lettering={worldMode ? null : stageLettering}
-                  frameSource={worldMode && worldSession ? worldFrameSource : null}
+                  frameSource={arStage && worldSession ? worldFrameSource : null}
                   // The recorded clip IS this canvas (captureStream below), and
                   // the preview pass skips the signature — so every video used
                   // to ship unsigned while every photo shipped signed. On only
@@ -2692,6 +2812,20 @@ export default function Booth() {
                     if (worldSession && arHostRef.current) {
                       worldSession.start(arHostRef.current).catch(() => { /* acquire handles it */ });
                     }
+                    setArTapped(true);
+                  }}
+                />
+              )}
+              {skyOn && !worldMode && worldSession !== null && phase === 'camera' && skyEffect(skyIdOfShader(effectId)) !== null && (
+                <SkyStage
+                  effect={skyEffect(skyIdOfShader(effectId))!}
+                  engine={worldSession}
+                  started={arTapped}
+                  recording={recording}
+                  onExit={leaveWorld}
+                  onStartTap={() => {
+                    // Synchronous, inside the tap (the same start as a standing Frame's).
+                    if (arHostRef.current) worldSession.start(arHostRef.current).catch(() => { /* acquire handles it */ });
                     setArTapped(true);
                   }}
                 />
@@ -2891,7 +3025,7 @@ export default function Booth() {
                 selection={deckSelection}
                 sparkles={sparkles}
                 onToggleSparkles={setSparkles}
-                onSelectEffect={applyEffect}
+                onSelectEffect={selectEffect}
                 onSelectFrame={handleSelectFrame}
                 onSelectAttachment={handleSelectAttachment}
                 onSelectPaint={handleSelectPaint}
@@ -2924,7 +3058,7 @@ export default function Booth() {
                 onCategory={chooseDeckCategory}
                 sparkles={sparkles}
                 onToggleSparkles={setSparkles}
-                onSelectEffect={applyEffect}
+                onSelectEffect={selectEffect}
                 onSelectFrame={handleSelectFrame}
                 onSelectAttachment={handleSelectAttachment}
                 onClearAll={() => {
@@ -3029,7 +3163,7 @@ export default function Booth() {
           selection={deckSelection}
           sparkles={sparkles}
           onToggleSparkles={setSparkles}
-          onSelectEffect={applyEffect}
+          onSelectEffect={selectEffect}
           onSelectFrame={handleSelectFrame}
           onSelectAttachment={handleSelectAttachment}
           onSelectPaint={handleSelectPaint}
@@ -3052,7 +3186,7 @@ export default function Booth() {
               sparkles={sparkles}
               frameId={frameExp?.id ?? null}
               attachmentId={attachExp?.id ?? null}
-              onSelectEffect={applyEffect}
+              onSelectEffect={selectEffect}
               onToggleSparkles={setSparkles}
               onSelectFrame={handleSelectFrame}
               onSelectAttachment={handleSelectAttachment}

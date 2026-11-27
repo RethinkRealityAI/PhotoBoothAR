@@ -34,8 +34,8 @@
  */
 import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Columns2, GalleryHorizontal, LayoutDashboard, LayoutGrid, MonitorPlay, Orbit, QrCode, Trophy, UserRound, X } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { BookOpen, Columns2, GalleryHorizontal, LayoutDashboard, LayoutGrid, MonitorPlay, Orbit, QrCode, Trash2, Trophy, UserRound, X } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { fetchPostsResult, subscribeToPosts, subscribeToSettings } from '../lib/db';
@@ -55,10 +55,16 @@ import LeaderboardView from './wall/LeaderboardView';
 import WallQRCodes, { QRPanel } from './wall/WallQRCodes';
 import ChallengesTicker from './wall/ChallengesTicker';
 import WallLightbox from './wall/WallLightbox';
+import RemovalUndoBar from './ui/RemovalUndoBar';
+import { removals, usePendingRemovalIds } from '../lib/guestRemovalsStore';
 import FeaturedSpotlight from './wall/FeaturedSpotlight';
 import EmptyWall from './wall/EmptyWall';
 import GridWall from './wall/GridWall';
 import ScrollingGridWall from './wall/ScrollingGridWall';
+import AlbumView from './wall/AlbumView';
+import { WallMusicChip, useWallMusic } from './wall/WallMusicPlayer';
+import { normalizeWallMusic } from '../lib/wallMusic';
+import { cycleActive, cycleIndexAt, msUntilNextCycle, normalizeWallShow, transitionSpec } from '../lib/wallShow';
 import WallBackdrop, { WallTwinkles } from './wall/WallBackdrop';
 import { samplePosts } from './theme/samplePhotos';
 import {
@@ -120,7 +126,7 @@ type ViewMode = 'mosaic' | 'slideshow' | 'leaderboard' | 'carousel';
 /** Platform walls: the host's layouts (lib/sceneThemes) plus the leaderboard,
  *  and 'split' — the host's layout beside a live leaderboard panel. */
 type PlatformView = WallLayout | 'leaderboard' | 'split';
-const PLATFORM_VIEWS: readonly PlatformView[] = ['grid', 'masonry', 'marquee', 'carousel', 'slideshow', 'leaderboard', 'split'];
+const PLATFORM_VIEWS: readonly PlatformView[] = ['grid', 'masonry', 'marquee', 'carousel', 'slideshow', 'album', 'leaderboard', 'split'];
 /** Narrower than this, a side panel leaves the wall too thin to read. */
 const SPLIT_MIN_WIDTH = 1024;
 /** Split view columns (and rows): 3×3 minimum, more on big screens. */
@@ -151,6 +157,7 @@ const PLATFORM_TAB_ICONS: Record<PlatformView, WallTab<PlatformView>['Icon']> = 
   marquee: GalleryHorizontal,
   carousel: Orbit,
   slideshow: MonitorPlay,
+  album: BookOpen,
   leaderboard: Trophy,
   split: Columns2,
 };
@@ -295,6 +302,21 @@ export default function Wall() {
     () => normalizeWallLook(wallSettings.wallLook, wallSettings.galleryScroll),
     [wallSettings.wallLook, wallSettings.galleryScroll],
   );
+  /** Transitions + rotation between layouts (lib/wallShow). */
+  // The host's preview rotates every few seconds so the choice can be seen.
+  const show = useMemo(() => {
+    const v = normalizeWallShow(wallSettings.show);
+    return preview ? { ...v, cycleSec: 6 } : v;
+  }, [wallSettings.show, preview]);
+  const [cycleNow, setCycleNow] = useState(() => Date.now());
+  useEffect(() => { setCycleNow(Date.now()); }, [show]);
+  useEffect(() => {
+    if (!platform || !cycleActive(show)) return;
+    // One timer to the next boundary of the shared wall-clock rotation.
+    const t = setTimeout(() => setCycleNow(Date.now()), msUntilNextCycle(show, Date.now()) + 50);
+    return () => clearTimeout(t);
+  }, [platform, show, cycleNow]);
+  const cycleIndex = platform ? cycleIndexAt(show, cycleNow) : -1;
   const [viewOverride, setViewOverride] = useState<PlatformView | null>(
     () => (platform && !preview ? readPersistedPlatformView(eventId) : null),
   );
@@ -332,6 +354,16 @@ export default function Wall() {
   // we stop the projector laptop going to sleep mid-gala?
   const visible = usePageVisible();
   const viewport = useWallViewport(projectionMode);
+  /** Background music (lib/wallMusic). Never in the host's preview frame. */
+  const music = useMemo(() => normalizeWallMusic(wallSettings.music), [wallSettings.music]);
+  // Venue screens only: a guest scrolling the wall on their phone must never
+  // have music start under them. A big, mouse-driven screen or projection
+  // mode is the venue screen.
+  const [coarsePointer] = useState(() => typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches);
+  const venueScreen = projectionMode || (!coarsePointer && viewport.width >= 1024);
+  const musicCtl = useWallMusic(music, platform && !preview && venueScreen, eventId);
+  const musicOn = platform && !preview && venueScreen && music.enabled;
   useWakeLock(!preview);
   // The preview never opens a socket; it is a faithful 'live' wall.
   const [socketStatus, setSocketStatus] = useState<SocketStatus>(preview ? 'live' : 'connecting');
@@ -403,7 +435,9 @@ export default function Wall() {
         const prev = useStore.getState().wallSettings;
         const before = normalizeWallLook(prev.wallLook, prev.galleryScroll);
         const after = normalizeWallLook(s.wallLook, s.galleryScroll);
-        if (!sameWallArrangement(before, after)) setViewOverride(null);
+        const cycleBefore = normalizeWallShow(prev.show).cycle.join(',');
+        const cycleAfter = normalizeWallShow(s.show).cycle.join(',');
+        if (!sameWallArrangement(before, after) || cycleBefore !== cycleAfter) setViewOverride(null);
       }
       setWallSettings(s);
     });
@@ -544,7 +578,7 @@ export default function Wall() {
       if (!sameWallArrangement(
         normalizeWallLook(prev.wallLook, prev.galleryScroll),
         normalizeWallLook(next.wallLook, next.galleryScroll),
-      )) setViewOverride(null);
+      ) || normalizeWallShow(prev.show).cycle.join(',') !== normalizeWallShow(next.show).cycle.join(',')) setViewOverride(null);
       setWallSettings(next);
     };
     window.addEventListener('message', onMessage);
@@ -707,11 +741,24 @@ export default function Wall() {
     return () => clearTimeout(t);
   }, [findNote]);
 
+  // ── A guest removing their own photos (platform phones) ──
+  // Ids on their way out (undo window or in flight) leave THIS device's wall at
+  // once; every other screen loses them when the real delete lands (realtime).
+  const removingIds = usePendingRemovalIds(eventId);
+  const guestPosts = useMemo(
+    () => (platform && !preview && removingIds.size > 0 ? posts.filter((p) => !removingIds.has(p.id)) : posts),
+    [platform, preview, removingIds, posts],
+  );
+  const removeFromWall = useCallback((post: Post, deleteToken: string) => {
+    removals.schedule(eventId, [{ id: post.id, origin: 'db', deleteToken }]);
+    setLightboxPost(null);
+  }, [eventId]);
+
   // ── Mine: phones only, this device's own posts ──
   const [mineOnly, setMineOnly] = useState(false);
   const mineCount = useMemo(
-    () => posts.reduce((n, p) => n + (savedIds.has(p.id) ? 1 : 0), 0),
-    [posts, savedIds],
+    () => guestPosts.reduce((n, p) => n + (savedIds.has(p.id) ? 1 : 0), 0),
+    [guestPosts, savedIds],
   );
   const mineChip = platform && !preview
     && mineChipVisible({ width: viewport.width, projecting: projectionMode, mineCount });
@@ -721,8 +768,8 @@ export default function Wall() {
   }, [mineChip, mineOnly]);
   /** What the gallery views draw: everything, or (Mine on) this guest's own. */
   const wallPosts = useMemo(
-    () => (filterMine ? minePosts(posts, savedIds) : posts),
-    [filterMine, posts, savedIds],
+    () => (filterMine ? minePosts(guestPosts, savedIds) : guestPosts),
+    [filterMine, guestPosts, savedIds],
   );
   const toggleMine = useCallback(() => {
     setMineOnly((on) => !on);
@@ -836,6 +883,7 @@ export default function Wall() {
 
   // ── Platform view, tabs, backdrop and tone ──
   const reducedMotion = usePrefersReducedMotion();
+  const viewMotion = transitionSpec(show.transition, reducedMotion);
 
   // ── Live emoji reactions (platform only; never in the host's preview) ──
   // An anonymous broadcast channel per event: no table, nothing stored. The
@@ -876,11 +924,14 @@ export default function Wall() {
   /** A layout this machine can actually draw (no WebGL = no carousel). */
   const drawable = (v: PlatformView): PlatformView => (v === 'carousel' && !carouselUsable ? 'masonry' : v);
   const splitFits = viewport.width >= SPLIT_MIN_WIDTH;
-  const requestedView: PlatformView = viewOverride ?? hostLook.layout;
+  /** The host's layout, or the one the host's rotation is on right now (the
+   *  wall clock decides, so every screen in the room agrees). */
+  const hostLayout: WallLayout = cycleIndex >= 0 ? (show.cycle[cycleIndex] ?? hostLook.layout) : hostLook.layout;
+  const requestedView: PlatformView = viewOverride ?? hostLayout;
   const platformView: PlatformView = drawable(
     (requestedView === 'leaderboard' || requestedView === 'split') && !wallSettings.showLeaderboard
-      ? hostLook.layout
-      : requestedView === 'split' && !splitFits ? hostLook.layout : requestedView,
+      ? hostLayout
+      : requestedView === 'split' && !splitFits ? hostLayout : requestedView,
   );
   /** The wall half of the split is always a fitted grid (Dapo, 2026-11-25:
    *  "wall should be 3x3 at minimum, on large screens can even be 4x4 or
@@ -898,8 +949,8 @@ export default function Wall() {
     }));
   /** Picking the host's own layout means "follow the host" again. */
   const selectPlatformView = useCallback((v: PlatformView) => {
-    setViewOverride(v === hostLook.layout ? null : v);
-  }, [hostLook.layout]);
+    setViewOverride(v === hostLayout ? null : v);
+  }, [hostLayout]);
 
   const backdrop = platform ? resolveWallBackdrop(hostLook) : null;
   // A theme pack (lib/themePacks) is the event's scene on the wall too.
@@ -1099,6 +1150,24 @@ export default function Wall() {
             stage
           />
         );
+      case 'album':
+        // `absolute inset-0` resolves against the padding box: this wrapper
+        // keeps the book inside the room between the header and the footer.
+        return (
+          <div className="relative h-full w-full">
+          <AlbumView
+            posts={wallPosts}
+            freshIds={freshIds}
+            beamingIds={beamingIds}
+            onTileRect={handleTileRect}
+            onSelect={setLightboxPost}
+            paused={ceremony !== null || lightboxPost !== null || !visible}
+            tone={tone}
+            captions={hostLook.captions}
+            memoryKey={eventId}
+          />
+          </div>
+        );
       case 'slideshow':
         return (
           <SlideshowView
@@ -1116,7 +1185,7 @@ export default function Wall() {
   const platformAreaStyle: React.CSSProperties =
     platformView === 'slideshow'
       ? { paddingRight: modeAreaStyle.paddingRight }
-      : platformView === 'grid' || platformView === 'marquee' || platformView === 'carousel' || platformView === 'leaderboard' || platformView === 'split'
+      : platformView === 'grid' || platformView === 'marquee' || platformView === 'carousel' || platformView === 'album' || platformView === 'leaderboard' || platformView === 'split'
         ? gridAreaStyle
         : modeAreaStyle;
 
@@ -1177,11 +1246,12 @@ export default function Wall() {
           <motion.div
             key={platformView === 'grid' ? `grid-${hostLook.gridSize}` : platformView}
             className="absolute inset-0"
-            style={platformAreaStyle}
-            initial={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.985 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 1.01 }}
-            transition={{ duration: reducedMotion ? 0.25 : 0.55, ease: [0.22, 1, 0.36, 1] }}
+            // The host's transition (lib/wallShow); a flip needs depth.
+            style={{ ...platformAreaStyle, transformPerspective: 2200 }}
+            initial={viewMotion.initial}
+            animate={viewMotion.animate}
+            exit={viewMotion.exit}
+            transition={{ duration: viewMotion.duration, ease: [0.22, 1, 0.36, 1] }}
           >
             {renderPlatformView()}
           </motion.div>
@@ -1306,7 +1376,14 @@ export default function Wall() {
             onToggleQR={toggleQR}
             onProject={() => setProjectionMode(true)}
             driftStyle={driftStyle}
+            music={musicOn ? {
+              on: !musicCtl.muted,
+              onToggle: () => musicCtl.setMuted(!musicCtl.muted),
+              nowPlaying: musicCtl.track ? `${musicCtl.track.title} · ${musicCtl.track.artist}` : null,
+              onSkip: musicCtl.status === 'playing' ? musicCtl.skip : undefined,
+            } : undefined}
             extra={mineChip && galleryState === 'ready' && platformView !== 'leaderboard' ? (
+              <div className="flex items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={toggleMine}
@@ -1319,6 +1396,18 @@ export default function Wall() {
                 <UserRound className="h-4 w-4" aria-hidden />
                 {filterMine ? `Yours (${mineCount}) · Show all` : `Mine (${mineCount})`}
               </button>
+              {/* Showing only theirs: the way to take some down, in bulk. */}
+              {filterMine && (
+                <Link
+                  to={`${basePath}/me?select=1`}
+                  className="wall-tab wall-glass pressable flex items-center gap-1.5 rounded-full px-4 min-h-11 font-sans font-medium text-champagne hover:text-ivory transition-colors"
+                  style={{ fontSize: 'calc(12px * var(--wall-scale, 1))' }}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                  Remove…
+                </Link>
+              )}
+              </div>
             ) : undefined}
           />
         )}
@@ -1564,6 +1653,10 @@ export default function Wall() {
         )}
       </AnimatePresence>
 
+      {/* ── Background music: "tap to start" when the browser holds the
+             sound back, otherwise a few seconds of Now playing. ── */}
+      {musicOn && <WallMusicChip control={musicCtl} projection={projectionMode} />}
+
       {/* ── Arrival ceremony — the guest's real photo, in flight ── */}
       <AnimatePresence>
         {ceremony !== null && (
@@ -1589,9 +1682,12 @@ export default function Wall() {
             onClose={() => setLightboxPost(null)}
             platform={platform}
             onReact={reactionsOn ? (emoji, at) => handleReact(lightboxPost.id, emoji, at) : undefined}
+            onRemove={platform && !preview ? removeFromWall : undefined}
           />
         )}
       </AnimatePresence>
+
+      {platform && !preview && !projectionMode && <RemovalUndoBar eventId={eventId} />}
 
       {/* ── Find yours: a polite note while this guest's photo waits for the
              host (only ever opened from a `?post=` link, so never on a venue

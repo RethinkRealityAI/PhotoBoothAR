@@ -15,8 +15,8 @@
  */
 import { useMemo, useRef, useState } from 'react';
 import {
-  ArrowUpRight, Bot, Box, Camera, Crown, Eye, Film, Frame, Gift, Handshake, Layers, Library, Mail, Maximize2,
-  Megaphone, Monitor, Palette, QrCode, Search, ShieldCheck, Smartphone, Sparkles, Trophy, Users, Wand2, X, Zap,
+  ArrowUpRight, BookOpen, Bot, Box, Camera, Crown, Eye, Film, Frame, Gift, Handshake, Layers, Library, Mail, Maximize2,
+  Megaphone, Monitor, Music2, Palette, QrCode, Search, ShieldCheck, Smartphone, Sparkles, Trophy, Users, Wand2, X, Zap,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -38,7 +38,7 @@ const ICONS: Record<FeatureIcon, LucideIcon> = {
   qr: QrCode, frame: Frame, crown: Crown, paint: Palette, sparkles: Sparkles, box: Box, camera: Camera,
   trophy: Trophy, eye: Eye, zap: Zap, monitor: Monitor, shield: ShieldCheck, mail: Mail, film: Film, gift: Gift,
   wand: Wand2, library: Library, wizard: Layers, bot: Bot, studio: Box, handshake: Handshake, megaphone: Megaphone,
-  users: Users, smartphone: Smartphone,
+  users: Users, smartphone: Smartphone, album: BookOpen, music: Music2,
 };
 
 interface Pic {

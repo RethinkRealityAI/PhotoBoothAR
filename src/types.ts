@@ -8,6 +8,8 @@ import type { OnboardingStep } from './events/types';
 import type { GuestLetteringStyle } from './lib/letteringFit';
 import type { FaceTrackingMode } from './lib/faceEngine/types';
 import type { WallLook } from './lib/sceneThemes';
+import type { WallMusic } from './lib/wallMusic';
+import type { WallShow } from './lib/wallShow';
 
 /** Categories of AR experience that can be authored in the studio. */
 export type ExperienceKind =
@@ -383,6 +385,13 @@ export interface WallSettings {
    *  stored raw: always read through lib/sceneThemes.normalizeWallLook, which
    *  maps an absent value to the gallery this wall already had. Platform only. */
   wallLook?: Partial<WallLook>;
+  /** Background music on the wall (lib/wallMusic). Stored raw, read through
+   *  normalizeWallMusic; absent = no music. Platform only. */
+  music?: Partial<WallMusic>;
+  /** How the wall moves between layouts: the transition and an optional
+   *  rotation (lib/wallShow). Stored raw, read through normalizeWallShow;
+   *  absent = a soft crossfade and no rotation. Platform only. */
+  show?: Partial<WallShow>;
 }
 
 /** A single step shown on the "Join the Photo Booth" landing page. */
