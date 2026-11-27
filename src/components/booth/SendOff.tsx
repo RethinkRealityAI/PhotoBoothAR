@@ -33,6 +33,7 @@ import { sendOffFooterLines, pointsLabel } from '../../lib/guestFlow';
 import { isPlatformBooth } from '../../lib/boothViewport';
 import type { Challenge } from '../../types';
 import KeepShotButton from './KeepShotButton';
+import { isPrivateTry } from '../../lib/privateTry';
 
 interface Props {
   dataUrl: string;
@@ -294,7 +295,8 @@ export default function SendOff({
 
   // Legacy coded events are frozen: the whole card is gated on a DB-backed
   // event, so their booths render exactly what they rendered before.
-  const canOptIn = source === 'db' && !optedInAlready;
+  // The private demo keeps nothing, so there is no album to email.
+  const canOptIn = source === 'db' && !optedInAlready && !isPrivateTry(eventId);
 
   async function handleOptIn(e: React.FormEvent) {
     e.preventDefault();

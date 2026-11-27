@@ -27,6 +27,7 @@ import EventBackground from '../ui/EventBackground';
 import PostImage from '../ui/PostImage';
 import { recentWallPhotos, wallFieldPhotos } from '../../lib/scenePage';
 import { BOOTH_KIND, BOOTH_PITCH } from '../../lib/boothPitch';
+import { isPrivateTry } from '../../lib/privateTry';
 
 /** Platform legal routes (/privacy, /terms) only exist in runtime multi-tenant
  *  builds — legacy single-event builds (VITE_EVENT set) keep their microcopy
@@ -234,7 +235,24 @@ function SplashLinks({ basePath }: { basePath: string }) {
  *  album at /r/<slug>, which anyone holding the link can open — guests should
  *  hear that before their first shot, not discover it afterwards. Also shown
  *  by the welcome page beside its booth CTA, which skips this splash. */
+/** The private demo's promise, said once on the welcome page and the booth. */
+export const PRIVATE_TRY_LINE =
+  'This is a private demo. Your photos stay on this phone, nobody else sees them, and they are gone when you close the page.';
+
 export function PrivacyLine() {
+  const { eventId } = useEvent();
+  if (!IS_LEGACY_BUILD && isPrivateTry(eventId)) {
+    // The private demo (lib/privateTry): nothing leaves the phone at all.
+    return (
+      <p className="sc-privacy max-w-[40ch] font-sans text-[12px] leading-relaxed sc-faint">
+        {PRIVATE_TRY_LINE}{' '}
+        <Link to="/privacy" className="underline underline-offset-2 sc-muted">
+          Privacy policy
+        </Link>
+        .
+      </p>
+    );
+  }
   return (
     <p className="sc-privacy max-w-[40ch] font-sans text-[12px] leading-relaxed sc-faint">
       The camera runs on your device. Your photo only leaves it when you send it to the wall.

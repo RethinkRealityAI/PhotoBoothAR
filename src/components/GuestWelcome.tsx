@@ -32,6 +32,7 @@ import { wallFieldPhotos } from '../lib/scenePage';
 import { subscribeToPosts } from '../lib/db';
 import { FROM_WELCOME_STATE } from '../lib/guestFlow';
 import { PrivacyLine } from './booth/Welcome';
+import { isPrivateTry } from '../lib/privateTry';
 import { isPlatformBooth, useViewportLock } from '../lib/boothViewport';
 import type { Post } from '../types';
 
@@ -198,9 +199,10 @@ function SceneGuestWelcome() {
       )}
       <div className="relative z-10 mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 sm:px-8 pt-safe-top [--safe-top:1.25rem] pb-safe-bottom [--safe-bottom:1.5rem]">
 
-        {fromLanding && (
+        {(fromLanding || isPrivateTry(eventId)) && (
           <p role="status" className="sc-glass mt-3 rounded-2xl px-4 py-3 text-center font-sans text-[14px] leading-relaxed sc-ink lg:mt-5">
-            Oh, you scanned it for real. Thanks for trying it out! This is a live demo event: step into the booth, then watch your shot land on the wall.
+            {fromLanding ? 'Oh, you scanned it for real. Thanks for trying it out! ' : ''}
+            Step into the booth, then watch your shot land on the wall. It’s private: only you see your photos, and they stay on this phone.
           </p>
         )}
 

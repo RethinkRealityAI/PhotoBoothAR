@@ -31,6 +31,7 @@ import { useEvent } from '../../events/EventContext';
 import { useStore } from '../../store';
 import { isPlatformBooth } from '../../lib/boothViewport';
 import KeepShotButton from './KeepShotButton';
+import { isPrivateTry } from '../../lib/privateTry';
 
 interface Props {
   dataUrl: string;             // JPEG data-url for image; object URL for video
@@ -232,7 +233,9 @@ export default function ReviewPanel({
         <p className="text-center font-sans text-[11px] leading-snug text-champagne/45">
           {nameMissing
             ? 'Add your name below to send your challenge entry'
-            : `Everyone at ${copy.eventName} will see it on the live wall.`}
+            : isPrivateTry(eventId)
+              ? 'It lands on your own private wall. Only you can see it.'
+              : `Everyone at ${copy.eventName} will see it on the live wall.`}
         </p>
 
         {/* Everything optional, behind one control. */}
