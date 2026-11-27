@@ -28,6 +28,7 @@ import {
 } from '../types';
 import { getSessionId } from './session';
 import { isDeleteToken } from './postDelete';
+import { isPrivateTry, addPrivatePost, listPrivatePosts, removePrivatePost, subscribePrivatePosts } from './privateTry';
 import type { ChallengeCheckRow } from './challengeChecks';
 import { normalizeStudioSettings, DEFAULT_STUDIO_SETTINGS, type StudioSettings } from './studio/occluder';
 
@@ -232,6 +233,12 @@ export async function fetchPostsResult(
   eventId: string,
   opts?: { includeHidden?: boolean; limit?: number },
 ): Promise<ListResult<Post>> {
+  // The private demo (lib/privateTry): guest surfaces see only this device's
+  // shots. Host surfaces (includeHidden) still read the real table.
+  if (!opts?.includeHidden && isPrivateTry(eventId)) {
+    const rows = listPrivatePosts(eventId);
+    return { rows: opts?.limit ? rows.slice(0, opts.limit) : rows, failed: false };
+  }
   let q = supabase.from('posts').select('*').eq('event_id', eventId).order('created_at', { ascending: false });
   if (!opts?.includeHidden) q = q.eq('hidden', false).eq('approved', true);
   if (opts?.limit) q = q.limit(opts.limit);
@@ -271,6 +278,7 @@ export async function fetchPosts(eventId: string, opts?: { includeHidden?: boole
 }
 
 export async function fetchMyPostsResult(eventId: string): Promise<ListResult<Post>> {
+  if (isPrivateTry(eventId)) return { rows: listPrivatePosts(eventId), failed: false };
   const sid = getSessionId(eventId);
   const { data, error } = await supabase
     .from('posts')
@@ -339,6 +347,11 @@ export async function deleteMyPost(
   if (!isDeleteToken(deleteToken)) {
     return { deleted: false, error: 'invalid_delete_token' };
   }
+  if (isPrivateTry(eventId)) {
+    // Already gone counts as done, the same rule the server's post_not_found has.
+    removePrivatePost(eventId, postId);
+    return { deleted: true, error: null };
+  }
   try {
     const { data, error } = await supabase.functions.invoke('submit-post', {
       body: {
@@ -371,6 +384,10 @@ export async function deleteMyPost(
  */
 export function sendDeleteMyPostOnExit(eventId: string, postId: string, deleteToken: string): void {
   if (!isDeleteToken(deleteToken)) return;
+  if (isPrivateTry(eventId)) {
+    removePrivatePost(eventId, postId);
+    return;
+  }
   const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
   if (!url || !key) return;
@@ -440,6 +457,17 @@ export function subscribeToPosts(eventId: string, handlers: {
   onStatus?: (status: PostsStreamStatus) => void;
 }, opts?: { visibleOnly?: boolean }): () => void {
   const visibleOnly = opts?.visibleOnly === true;
+  // Guest walls on the private demo hear only this device's own shots.
+  if (visibleOnly && isPrivateTry(eventId)) {
+    const off = subscribePrivatePosts(eventId, (e) => {
+      if (e.kind === 'insert') handlers.onInsert?.(e.post);
+      else handlers.onDelete?.(e.id);
+    });
+    // Nothing to connect to, so the stream is up at once (the wall's
+    // "reconnecting" chip must not show).
+    queueMicrotask(() => handlers.onStatus?.('SUBSCRIBED'));
+    return off;
+  }
   const isVisible = (p: Post) => p.approved && !p.hidden;
   const channel = supabase
     // Topic must be unique PER SUBSCRIBER: supabase-js reuses the channel
@@ -687,6 +715,29 @@ export async function submitPostDetailed(eventId: string, input: SubmitPostInput
   const ext = extFor(input.blob, isVideo ? 'webm' : 'jpg');
   const contentType = input.blob.type || (isVideo ? 'video/webm' : 'image/jpeg');
   const sessionId = getSessionId(eventId);
+
+  if (isPrivateTry(eventId)) {
+    // The private demo: the shot stays on this device (an object URL that
+    // lives as long as the page). Nothing is uploaded, nothing is posted.
+    try {
+      const { post, deleteToken } = addPrivatePost(eventId, {
+        url: URL.createObjectURL(input.blob),
+        mediaType,
+        durationMs: input.durationMs,
+        message: input.message,
+        guestName: input.guestName,
+        experienceId: input.experienceId ?? null,
+        challengeId: input.challengeId ?? null,
+        width: input.width,
+        height: input.height,
+        sessionId,
+      });
+      return { post, deleteToken };
+    } catch (e) {
+      console.error('[db] submitPost (private demo)', e);
+      return { post: null, error: 'network' };
+    }
+  }
 
   try {
     const { data: init, error: initErr } = await supabase.functions.invoke('submit-post', {
@@ -1110,7 +1161,11 @@ export async function setPresetOverrides(eventId: string, patch: Partial<PresetO
  */
 export async function fetchLeaderboard(eventId: string, limit = 20): Promise<LeaderboardEntry[]> {
   const [{ data: posts, error }, challenges] = await Promise.all([
-    supabase
+    // The private demo ranks only this device's shots: other visitors' names
+    // must never show on it.
+    isPrivateTry(eventId)
+      ? Promise.resolve({ data: listPrivatePosts(eventId), error: null })
+      : supabase
       .from('posts')
       .select('session_id, guest_name, challenge_id, created_at')
       .eq('hidden', false)
