@@ -34,8 +34,8 @@
  */
 import { useEffect, useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { BookOpen, Columns2, GalleryHorizontal, LayoutDashboard, LayoutGrid, MonitorPlay, Orbit, QrCode, Trophy, UserRound, X } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { BookOpen, Columns2, GalleryHorizontal, LayoutDashboard, LayoutGrid, MonitorPlay, Orbit, QrCode, Trash2, Trophy, UserRound, X } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useEvent } from '../events/EventContext';
 import { fetchPostsResult, subscribeToPosts, subscribeToSettings } from '../lib/db';
@@ -55,6 +55,8 @@ import LeaderboardView from './wall/LeaderboardView';
 import WallQRCodes, { QRPanel } from './wall/WallQRCodes';
 import ChallengesTicker from './wall/ChallengesTicker';
 import WallLightbox from './wall/WallLightbox';
+import RemovalUndoBar from './ui/RemovalUndoBar';
+import { removals, usePendingRemovalIds } from '../lib/guestRemovalsStore';
 import FeaturedSpotlight from './wall/FeaturedSpotlight';
 import EmptyWall from './wall/EmptyWall';
 import GridWall from './wall/GridWall';
@@ -739,11 +741,24 @@ export default function Wall() {
     return () => clearTimeout(t);
   }, [findNote]);
 
+  // ── A guest removing their own photos (platform phones) ──
+  // Ids on their way out (undo window or in flight) leave THIS device's wall at
+  // once; every other screen loses them when the real delete lands (realtime).
+  const removingIds = usePendingRemovalIds(eventId);
+  const guestPosts = useMemo(
+    () => (platform && !preview && removingIds.size > 0 ? posts.filter((p) => !removingIds.has(p.id)) : posts),
+    [platform, preview, removingIds, posts],
+  );
+  const removeFromWall = useCallback((post: Post, deleteToken: string) => {
+    removals.schedule(eventId, [{ id: post.id, origin: 'db', deleteToken }]);
+    setLightboxPost(null);
+  }, [eventId]);
+
   // ── Mine: phones only, this device's own posts ──
   const [mineOnly, setMineOnly] = useState(false);
   const mineCount = useMemo(
-    () => posts.reduce((n, p) => n + (savedIds.has(p.id) ? 1 : 0), 0),
-    [posts, savedIds],
+    () => guestPosts.reduce((n, p) => n + (savedIds.has(p.id) ? 1 : 0), 0),
+    [guestPosts, savedIds],
   );
   const mineChip = platform && !preview
     && mineChipVisible({ width: viewport.width, projecting: projectionMode, mineCount });
@@ -753,8 +768,8 @@ export default function Wall() {
   }, [mineChip, mineOnly]);
   /** What the gallery views draw: everything, or (Mine on) this guest's own. */
   const wallPosts = useMemo(
-    () => (filterMine ? minePosts(posts, savedIds) : posts),
-    [filterMine, posts, savedIds],
+    () => (filterMine ? minePosts(guestPosts, savedIds) : guestPosts),
+    [filterMine, guestPosts, savedIds],
   );
   const toggleMine = useCallback(() => {
     setMineOnly((on) => !on);
@@ -1368,6 +1383,7 @@ export default function Wall() {
               onSkip: musicCtl.status === 'playing' ? musicCtl.skip : undefined,
             } : undefined}
             extra={mineChip && galleryState === 'ready' && platformView !== 'leaderboard' ? (
+              <div className="flex items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={toggleMine}
@@ -1380,6 +1396,18 @@ export default function Wall() {
                 <UserRound className="h-4 w-4" aria-hidden />
                 {filterMine ? `Yours (${mineCount}) · Show all` : `Mine (${mineCount})`}
               </button>
+              {/* Showing only theirs: the way to take some down, in bulk. */}
+              {filterMine && (
+                <Link
+                  to={`${basePath}/me?select=1`}
+                  className="wall-tab wall-glass pressable flex items-center gap-1.5 rounded-full px-4 min-h-11 font-sans font-medium text-champagne hover:text-ivory transition-colors"
+                  style={{ fontSize: 'calc(12px * var(--wall-scale, 1))' }}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                  Remove…
+                </Link>
+              )}
+              </div>
             ) : undefined}
           />
         )}
@@ -1654,9 +1682,12 @@ export default function Wall() {
             onClose={() => setLightboxPost(null)}
             platform={platform}
             onReact={reactionsOn ? (emoji, at) => handleReact(lightboxPost.id, emoji, at) : undefined}
+            onRemove={platform && !preview ? removeFromWall : undefined}
           />
         )}
       </AnimatePresence>
+
+      {platform && !preview && !projectionMode && <RemovalUndoBar eventId={eventId} />}
 
       {/* ── Find yours: a polite note while this guest's photo waits for the
              host (only ever opened from a `?post=` link, so never on a venue
