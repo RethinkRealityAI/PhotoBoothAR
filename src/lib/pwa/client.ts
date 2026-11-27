@@ -12,6 +12,7 @@
  * Kill switch: build with VITE_SW=off and every visitor's worker and caches
  * are removed on their next page load.
  */
+import { track } from '../telemetry';
 import { browserInstallAllowed, installOffer, installRequested, isAndroid, isIos, type InstallOffer } from './install';
 
 const LEGACY = ((import.meta.env.VITE_EVENT as string | undefined) ?? '').trim() !== '';
@@ -106,6 +107,30 @@ interface InstallPromptEvent extends Event {
 }
 
 let deferred: InstallPromptEvent | null = null;
+/** ms after page start when the browser offered an install; null = not yet. */
+let offeredAtMs: number | null = null;
+
+/** What this device says about installing, for the `?install` check. Never throws. */
+export async function installCheck(): Promise<Record<string, unknown>> {
+  const facts: Record<string, unknown> = { offer, offeredAtMs, standalone: standalone(), pageMs: Math.round(performance.now()) };
+  try {
+    facts.secure = window.isSecureContext;
+    facts.workerInControl = navigator.serviceWorker?.controller != null;
+    const href = (document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null)?.href ?? '';
+    facts.manifest = href.slice(0, 200);
+    if (href !== '') {
+      const res = await fetch(href, { cache: 'no-store' });
+      facts.manifestStatus = res.status;
+      facts.manifestType = res.headers.get('content-type');
+      const m = (await res.json()) as { name?: string; start_url?: string; scope?: string; display?: string; icons?: unknown[] };
+      facts.manifestName = m.name; facts.manifestStart = m.start_url; facts.manifestScope = m.scope;
+      facts.manifestDisplay = m.display; facts.manifestIcons = Array.isArray(m.icons) ? m.icons.length : 0;
+    }
+  } catch (err) {
+    facts.checkError = err instanceof Error ? err.message : String(err);
+  }
+  return facts;
+}
 let offer: InstallOffer = null;
 const listeners = new Set<() => void>();
 
@@ -133,11 +158,16 @@ function watchInstallPrompt(): void {
   let requested = false;
   try { requested = installRequested(window.location.search); } catch { /* not asked */ }
   window.addEventListener('beforeinstallprompt', (e) => {
-    if (!browserInstallAllowed(window.location.pathname, requested)) e.preventDefault();
+    const allowed = browserInstallAllowed(window.location.pathname, requested);
+    if (!allowed) e.preventDefault();
     deferred = e as InstallPromptEvent;
+    offeredAtMs = Math.round(performance.now());
+    // Which browsers really hand over an install offer, and how long after
+    // the page opened, is only knowable from real phones.
+    track('install_offer', { afterMs: offeredAtMs, browserUi: allowed });
     recompute();
   });
-  window.addEventListener('appinstalled', () => { deferred = null; recompute(); });
+  window.addEventListener('appinstalled', () => { deferred = null; track('app_installed'); recompute(); });
   recompute();
 }
 
@@ -157,6 +187,7 @@ export async function promptInstall(): Promise<boolean> {
   try {
     await e.prompt();
     const { outcome } = await e.userChoice;
+    track('install_prompt_result', { outcome });
     deferred = null; // a prompt can be used once
     recompute();
     return outcome === 'accepted';

@@ -17,7 +17,8 @@ import { Download, X } from 'lucide-react';
 import { useStore } from '../../store';
 import { applyEventManifest, installRequested, parseInstallPath, restorePlatformManifest } from '../../lib/pwa/install';
 import { useInstallApp } from './InstallApp';
-import { clearSavedFiles, readCacheStats, type CacheStats } from '../../lib/pwa/client';
+import { clearSavedFiles, installCheck, readCacheStats, type CacheStats } from '../../lib/pwa/client';
+import { track } from '../../lib/telemetry';
 
 const DEBUG_KEY = 'bw.cachedebug';
 
@@ -98,6 +99,14 @@ function CacheReadout() {
 function InstallChip() {
   const { offer, install, dialog } = useInstallApp();
   const [shown, setShown] = useState(true);
+  // What this phone says about installing, sent three times: browsers hand
+  // over their install offer late (after some seconds and a tap or two).
+  useEffect(() => {
+    const ids = [8000, 35000, 75000].map((ms) => window.setTimeout(() => {
+      void installCheck().then((facts) => track('install_check', facts));
+    }, ms));
+    return () => ids.forEach((id) => window.clearTimeout(id));
+  }, []);
   if (!shown) return null;
   return (
     <>
