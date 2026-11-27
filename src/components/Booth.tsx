@@ -2895,7 +2895,6 @@ export default function Booth() {
                 onSelectFrame={handleSelectFrame}
                 onSelectAttachment={handleSelectAttachment}
                 onSelectPaint={handleSelectPaint}
-                onClearAll={clearAllLooks}
                 onOpenAll={() => setMoreOpen(true)}
                 sheetOpen={moreOpen}
                 mediaMode={mediaMode}

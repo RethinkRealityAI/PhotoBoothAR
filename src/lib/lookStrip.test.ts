@@ -5,6 +5,7 @@ import {
   buildLookStrip,
   categoryBreaks,
   clearTabAction,
+  deckNoneTile,
   defaultLookTab,
   isPaintLook,
   isSwipeUp,
@@ -286,6 +287,31 @@ describe('per-tab None', () => {
     expect(tabIsClear('props', STRIP, sel)).toBe(false);
     expect(tabIsClear('effects', STRIP, sel)).toBe(false);
     expect(tabIsClear('effects', STRIP, NONE)).toBe(true);
+  });
+});
+
+describe('deck strip None (one tab only)', () => {
+  const sel: DeckSelection = { effectId: 'aurora-lumina', frameId: 'f1', attachmentId: 'p1' };
+
+  it('None on Effects keeps the frame and the prop on', () => {
+    const t = deckNoneTile('effects', STRIP, sel, false);
+    expect(t.action).toEqual({ category: 'effect', shaderId: 'none', exp: null });
+    expect(t.sparklesOff).toBe(false);
+    expect(t.lit).toBe(false);
+  });
+
+  it('None on Frames takes only the frame off', () => {
+    expect(deckNoneTile('frames', STRIP, sel, true)).toEqual({ lit: false, action: { category: 'frame', exp: null }, sparklesOff: false });
+  });
+
+  it('None on Effects also switches Sparkle off, and lights only when both are off', () => {
+    const onlySparkle: DeckSelection = { effectId: 'none', frameId: 'f1', attachmentId: null };
+    expect(deckNoneTile('effects', STRIP, onlySparkle, true)).toEqual({ lit: false, action: null, sparklesOff: true });
+    expect(deckNoneTile('effects', STRIP, onlySparkle, false)).toEqual({ lit: true, action: null, sparklesOff: false });
+  });
+
+  it('a tab with nothing on is lit and does nothing, even with other tabs on', () => {
+    expect(deckNoneTile('frames', STRIP, { ...sel, frameId: null }, true)).toEqual({ lit: true, action: null, sparklesOff: false });
   });
 });
 

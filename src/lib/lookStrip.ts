@@ -338,6 +338,21 @@ export function clearTabAction(tab: LookTab, strip: readonly LookItem[], sel: De
 }
 
 /**
+ * The deck strip's "None" tile, scoped to the tab it sits in (Dapo,
+ * 2026-11-27: None on Effects used to clear the frame and prop too). It takes
+ * off only that tab's look. On Effects it also switches Sparkle off, because
+ * Sparkle sits beside it as an effect and a guest tapping "None" there expects
+ * the screen effects gone. `lit` = nothing of this tab is on.
+ */
+export function deckNoneTile(
+  tab: LookTab, strip: readonly LookItem[], sel: DeckSelection, sparkles: boolean,
+): { lit: boolean; action: LookAction | null; sparklesOff: boolean } {
+  const sparklesOff = tab === 'effects' && sparkles;
+  const action = clearTabAction(tab, strip, sel);
+  return { lit: action === null && !sparklesOff, action, sparklesOff };
+}
+
+/**
  * Ids of the strip tiles that START a new category after the first one — the
  * strip draws a quiet divider before each, so frames / 3D / effects read as
  * groups while staying one swipe.
