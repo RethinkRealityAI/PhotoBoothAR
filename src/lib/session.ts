@@ -11,6 +11,7 @@
  * so existing guests keep their session id, gallery and progress.
  */
 import { SavedPhoto } from '../types';
+import { isPrivateTry, privateGallery, setPrivateGallery } from './privateTry';
 
 const LEGACY_EVENT_IDS = new Set(['hope-gala', 'jenna-jake', 'detola-wuyi']);
 
@@ -58,6 +59,9 @@ export function getSessionId(eventId: string): string {
 }
 
 export function getSavedPhotos(eventId: string): SavedPhoto[] {
+  // The private demo keeps its gallery in memory: its object URLs die with the
+  // page, so a stored copy would come back as broken photos (lib/privateTry).
+  if (isPrivateTry(eventId)) return privateGallery(eventId);
   try {
     const raw = readKey(eventId, 'gallery');
     return raw ? (JSON.parse(raw) as SavedPhoto[]) : [];
@@ -71,7 +75,8 @@ export function savePhoto(eventId: string, photo: SavedPhoto): void {
     const all = getSavedPhotos(eventId);
     if (all.some((p) => p.id === photo.id)) return;
     all.unshift(photo);
-    localStorage.setItem(scopedKey(eventId, 'gallery'), JSON.stringify(all.slice(0, 100)));
+    if (isPrivateTry(eventId)) setPrivateGallery(eventId, all.slice(0, 100));
+    else localStorage.setItem(scopedKey(eventId, 'gallery'), JSON.stringify(all.slice(0, 100)));
     window.dispatchEvent(new CustomEvent('gallery:changed'));
   } catch {
     /* storage may be unavailable in private mode; non-fatal */
@@ -88,7 +93,8 @@ export function forgetSavedPhotos(eventId: string, ids: readonly string[]): void
     const all = getSavedPhotos(eventId);
     const kept = all.filter((p) => !drop.has(p.id));
     if (kept.length === all.length) return;
-    localStorage.setItem(scopedKey(eventId, 'gallery'), JSON.stringify(kept));
+    if (isPrivateTry(eventId)) setPrivateGallery(eventId, kept);
+    else localStorage.setItem(scopedKey(eventId, 'gallery'), JSON.stringify(kept));
     window.dispatchEvent(new CustomEvent('gallery:changed'));
   } catch {
     /* non-fatal */
@@ -97,7 +103,8 @@ export function forgetSavedPhotos(eventId: string, ids: readonly string[]): void
 
 export function clearGallery(eventId: string): void {
   try {
-    localStorage.removeItem(scopedKey(eventId, 'gallery'));
+    if (isPrivateTry(eventId)) setPrivateGallery(eventId, []);
+    else localStorage.removeItem(scopedKey(eventId, 'gallery'));
     window.dispatchEvent(new CustomEvent('gallery:changed'));
   } catch {
     /* non-fatal */
