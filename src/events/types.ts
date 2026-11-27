@@ -6,6 +6,7 @@
  * event-specific branding, theming, copy, and AR content flows from it.
  */
 import type { ComponentType } from 'react';
+import type { BoothIntroConfig } from '../lib/boothIntro';
 import type { EventBrief } from '../lib/eventBrief';
 import type { EventScene } from '../lib/sceneThemes';
 import type { EventTheme } from '../lib/themePacks';
@@ -112,6 +113,9 @@ export interface EventConfig {
    *  already resolved to booth triggers. Absent = none — merged after the
    *  selected filter's own triggers (lib/wizard/powerUps). */
   powerUps?: TriggerConfig[];
+  /** Beamy's booth intro settings (events.config.boothIntro, lib/boothIntro).
+   *  DB events only; absent = the default intro, on. */
+  boothIntro?: BoothIntroConfig;
   /** CSS custom-property values for this event's theme (mirrors theme.css for
    *  the legacy coded events; sourced from events.config for DB events). The
    *  EventProvider applies these at runtime so themes no longer require a
