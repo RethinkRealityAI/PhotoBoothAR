@@ -27,6 +27,11 @@ describe('wall preview', () => {
     // Non-boolean toggles, unknown keys and array looks are dropped.
     expect(parseWallPreviewMessage({ type: 'beamwall:wall-preview:settings', settings: { showQR: 'yes', defaultExperienceId: 'x', wallLook: [] } }))
       .toEqual({ type: 'beamwall:wall-preview:settings', settings: {} });
+    // The rotation + transition ride it raw (the wall normalizes them).
+    expect(parseWallPreviewMessage({ type: 'beamwall:wall-preview:settings', settings: { show: { transition: 'iris' } } }))
+      .toEqual({ type: 'beamwall:wall-preview:settings', settings: { show: { transition: 'iris' } } });
+    expect(parseWallPreviewMessage({ type: 'beamwall:wall-preview:settings', settings: { show: [] } }))
+      .toEqual({ type: 'beamwall:wall-preview:settings', settings: {} });
     expect(parseWallPreviewMessage({ type: 'other' })).toBeNull();
     expect(parseWallPreviewMessage('beam')).toBeNull();
     expect(parseWallPreviewMessage({ type: 'beamwall:wall-preview:settings' })).toBeNull();

@@ -34,6 +34,7 @@ export function enterArUrl(basePath: string, search: string, frameId: string): s
 export function leaveArUrl(basePath: string, search: string, lookId: string | null): string {
   const p = new URLSearchParams(search);
   p.delete(AR_PARAM);
+  p.delete('sky'); // a sky effect (skyFx.ts SKY_PARAM) only exists on the AR page
   p.set(CAMERA_ON_PARAM, '1');
   const path = lookId ? `${basePath}/experience/${encodeURIComponent(lookId)}` : `${basePath}/booth`;
   return `${path}?${p.toString()}`;

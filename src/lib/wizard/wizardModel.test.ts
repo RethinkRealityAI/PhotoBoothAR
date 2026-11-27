@@ -13,7 +13,9 @@ describe('wizard step order', () => {
     expect(COUNTED_STEPS).not.toContain('launch');
     // The keepsake (the morning after) follows the live wall and precedes Launch.
     expect(nextStepId('booth')).toBe('keepsake');
-    expect(nextStepId('keepsake')).toBe('launch');
+    expect(nextStepId('keepsake')).toBe('intro');
+    // Beamy's booth intro is the last thing set up, so it can show the event's own looks.
+    expect(nextStepId('intro')).toBe('launch');
     expect(COUNTED_STEPS).toContain('keepsake');
     expect(nextStepId('basics')).toBe('invite');
     expect(nextStepId('launch')).toBeNull();
@@ -72,7 +74,7 @@ describe('dashboard chip', () => {
   it('shows only for events mid-setup', () => {
     expect(setupChip({})).toBeNull();
     expect(setupChip(null)).toBeNull();
-    expect(setupChip({ wizard: startProgress(NOW) })).toEqual({ label: 'Welcome page', step: 'invite', done: 1, total: 7 });
+    expect(setupChip({ wizard: startProgress(NOW) })).toEqual({ label: 'Welcome page', step: 'invite', done: 1, total: 8 });
   });
   it('builds the route', () => {
     expect(setupPath('abc')).toBe('/host/setup/abc');
@@ -104,9 +106,9 @@ describe('new event seed', () => {
   });
   it('setup percent starts ahead: the account is the first step done', () => {
     const t = '2026-11-20T00:00:00.000Z';
-    expect(setupPercent(null)).toBe(13); // 1 of 8 (the account + 7 counted steps)
-    expect(setupPercent(startProgress(t))).toBe(25); // basics is done once the draft exists
-    expect(setupPercent(completeStep(startProgress(t), 'invite', t))).toBe(38);
+    expect(setupPercent(null)).toBe(11); // 1 of 9 (the account + 8 counted steps)
+    expect(setupPercent(startProgress(t))).toBe(22); // basics is done once the draft exists
+    expect(setupPercent(completeStep(startProgress(t), 'invite', t))).toBe(33);
     const all = COUNTED_STEPS.reduce((p, id) => completeStep(p, id, t), startProgress(t));
     expect(setupPercent(all)).toBe(100);
     expect(setupPercent({ ...startProgress(t), completedAt: t })).toBe(100);

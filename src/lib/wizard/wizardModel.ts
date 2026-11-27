@@ -18,7 +18,7 @@
  * thrown.
  */
 
-export type WizardStepId = 'basics' | 'invite' | 'booth' | 'looks' | 'powerups' | 'challenges' | 'keepsake' | 'launch';
+export type WizardStepId = 'basics' | 'invite' | 'booth' | 'looks' | 'powerups' | 'challenges' | 'keepsake' | 'intro' | 'launch';
 
 export interface WizardStepDef {
   id: WizardStepId;
@@ -44,6 +44,10 @@ export const WIZARD_STEPS: readonly WizardStepDef[] = [
   // then the album), and it sits before Launch so going live is still the
   // last thing a host does. It has working defaults, so it can be skipped.
   { id: 'keepsake', label: 'Keepsake', title: 'Keepsake', blurb: 'The album every guest gets the morning after.', optional: true },
+  // Near the end on purpose (Dapo, 2026-11-26): by now the event has its
+  // frames, props and challenges, so the intro can show the host's own looks.
+  // Beamy's default works untouched, so it can be skipped.
+  { id: 'intro', label: 'Booth intro', title: 'Booth intro', blurb: 'Beamy shows guests around the booth the first time they open it.', optional: true },
   { id: 'launch', label: 'Launch', title: 'Ready when you are', blurb: 'Check it over, go live and share your QR.', optional: false },
 ] as const;
 
