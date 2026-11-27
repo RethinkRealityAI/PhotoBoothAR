@@ -154,8 +154,18 @@ export function browserInstallAllowed(pathname: string, requested: boolean): boo
 
 let eventManifestLive = false;
 
+/** The page's manifest link. One real phone (Samsung Internet 31) reported a
+ *  page with none, though index.html ships it, so a missing link is put back. */
 function manifestLink(): HTMLLinkElement | null {
-  return typeof document === 'undefined' ? null : (document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null);
+  if (typeof document === 'undefined') return null;
+  const found = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
+  if (found) return found;
+  const made = document.createElement('link');
+  made.rel = 'manifest';
+  made.href = STATIC_MANIFEST_HREF;
+  made.setAttribute('data-bw-restored', '1');
+  document.head.appendChild(made);
+  return made;
 }
 
 /** Point the page at an event's manifest. Never throws. */

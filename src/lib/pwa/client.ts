@@ -116,8 +116,13 @@ export async function installCheck(): Promise<Record<string, unknown>> {
   try {
     facts.secure = window.isSecureContext;
     facts.workerInControl = navigator.serviceWorker?.controller != null;
-    const href = (document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null)?.href ?? '';
+    const links = Array.from(document.querySelectorAll('link[rel="manifest"]')) as HTMLLinkElement[];
+    facts.manifestLinks = links.length;
+    facts.manifestRestored = links.some((l) => l.hasAttribute('data-bw-restored'));
+    facts.headLinkRels = Array.from(document.head.querySelectorAll('link')).map((l) => l.rel).join(',').slice(0, 200);
+    const href = links[0]?.href ?? '';
     facts.manifest = href.slice(0, 200);
+    facts.manifestAttr = (links[0]?.getAttribute('href') ?? '').slice(0, 120);
     if (href !== '') {
       const res = await fetch(href, { cache: 'no-store' });
       facts.manifestStatus = res.status;
