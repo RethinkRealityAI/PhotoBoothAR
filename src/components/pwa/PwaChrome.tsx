@@ -36,28 +36,14 @@ function debugEnabled(): boolean {
 
 const mb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
 
-/** API calls, analytics and uploads are not "loading the page". */
-const NOT_A_FILE = /\/(?:ingest|rest\/v1|auth\/v1|functions\/v1|realtime\/v1)\//;
-
-/** When the last file of this page load finished arriving (seconds). */
-function lastFileAt(): number {
-  let end = 0;
-  for (const e of performance.getEntriesByType('resource') as PerformanceResourceTiming[]) {
-    if (!NOT_A_FILE.test(e.name) && e.responseEnd > end) end = e.responseEnd;
-  }
-  return end / 1000;
-}
-
 function CacheReadout() {
   const [stats, setStats] = useState<CacheStats | null>(null);
-  const [loadedAt, setLoadedAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(true);
 
   useEffect(() => {
     let alive = true;
     const tick = () => {
-      setLoadedAt(lastFileAt());
       void readCacheStats().then((s) => { if (alive) setStats(s); });
     };
     tick();
@@ -89,7 +75,6 @@ function CacheReadout() {
       <div className="font-semibold">{title}</div>
       <div>From this device: {stats ? `${stats.hitFiles} files · ${mb(stats.hitBytes)}` : '0 files'}</div>
       <div>Downloaded: {stats ? `${stats.netFiles} files · ${mb(stats.netBytes)}` : 'everything so far'}</div>
-      <div>Last file arrived: {loadedAt.toFixed(1)} s</div>
       <div className="mt-1.5 flex gap-1.5">
         <button type="button" className={btn} onClick={() => setOpen(false)}>Hide</button>
         <button type="button" className={btn} onClick={() => window.location.reload()}>Reload</button>

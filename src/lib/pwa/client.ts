@@ -47,12 +47,18 @@ export function initPwa(): void {
     if (SWITCHED_OFF) { void removeWorker().catch(() => undefined); return; }
 
     const firstVisit = navigator.serviceWorker.controller === null;
+    // The browser keeps only the last 250 resource entries by default; a first
+    // booth visit can pass that before the list is handed to the worker.
+    if (firstVisit) { try { performance.setResourceTimingBufferSize(1000); } catch { /* the default stands */ } }
     hello();
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       hello();
       // First visit: the worker took over after the page had already loaded
       // its files. Hand it that list once things are quiet.
-      if (firstVisit) window.setTimeout(warmFromThisVisit, 4000);
+      // Twice: a large file that was still downloading when the worker took
+      // over is only listed once it has finished. The worker skips whatever
+      // it already holds, so the second pass costs nothing when all is kept.
+      if (firstVisit) { window.setTimeout(warmFromThisVisit, 4000); window.setTimeout(warmFromThisVisit, 20000); }
     });
     // updateViaCache 'none': the browser never answers /sw.js (or anything it
     // would import) from its HTTP cache, so a deploy is seen on the next load.

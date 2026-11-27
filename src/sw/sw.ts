@@ -261,11 +261,16 @@ sw.addEventListener('fetch', (event) => {
 
 /* ── messages from pages (src/lib/pwa/client.ts) ──────────────────────── */
 
+/** Most files one page may hand over to be kept. A booth's first visit loads
+ *  ~150 before the worker takes over; a cap of 80 left the second visit
+ *  fetching the rest again. */
+const WARM_LIMIT = 500;
+
 /** Files a page loaded before this worker controlled it (the very first
  *  visit): keep them too, so the second visit is already complete. They come
  *  straight from the browser's own cache, so this costs no real download. */
 async function warm(urls: string[]): Promise<void> {
-  for (const url of urls.slice(0, 80)) {
+  for (const url of urls.slice(0, WARM_LIMIT)) {
     try {
       const s = strategyFor({ method: 'GET', url, mode: 'cors', hasRange: false }, ENV);
       if (s.type !== 'cacheFirst' && s.type !== 'refresh') continue;
