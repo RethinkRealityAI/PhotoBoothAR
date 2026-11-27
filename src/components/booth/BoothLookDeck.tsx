@@ -34,11 +34,12 @@ import { ArrowLeftRight, Ban, Dices, LayoutGrid, Sparkles } from 'lucide-react';
 import FilterThumb from './FilterThumb';
 import LookThumb from './LookThumb';
 import { CaptureModePill } from './BoothCaptureControls';
-import { isPristine, type DeckSection, type DeckSelection } from '../../lib/boothDeck';
+import type { DeckSection, DeckSelection } from '../../lib/boothDeck';
 import {
   activeLookIds,
   buildLookStrip,
   centeredScrollLeft,
+  deckNoneTile,
   defaultLookTab,
   isSwipeUp,
   changedLook,
@@ -53,6 +54,7 @@ import {
   LOOK_HINT_DELAY_MS,
   LOOK_HINT_MS,
   LOOK_NAME_MS,
+  LOOK_NONE_LABEL,
   type LookHandlers,
 } from '../../lib/lookStrip';
 import { LOOK_TAB_SHORT, type LookTab } from '../../lib/lookTerms';
@@ -162,7 +164,6 @@ export interface BoothLookDeckProps extends LookHandlers {
   selection: DeckSelection;
   sparkles: boolean;
   onToggleSparkles: (v: boolean) => void;
-  onClearAll: () => void;
   /** Opens the full "More looks" sheet. */
   onOpenAll: () => void;
   sheetOpen: boolean;
@@ -186,7 +187,7 @@ export interface BoothLookDeckProps extends LookHandlers {
 
 export default function BoothLookDeck({
   sections, selection, sparkles, onToggleSparkles,
-  onSelectEffect, onSelectFrame, onSelectAttachment, onSelectPaint, onClearAll, onOpenAll, sheetOpen,
+  onSelectEffect, onSelectFrame, onSelectAttachment, onSelectPaint, onOpenAll, sheetOpen,
   mediaMode, onMediaMode, videoAllowed, recording, shutter, pendingIds,
   stripMode = false, onStripMode, stripShots, onOpenStripPicker,
   colorSlot = null, guestHex = null, onGuestHex, hintEnabled,
@@ -316,7 +317,7 @@ export default function BoothLookDeck({
   }, [hint]);
   useEffect(() => { if (sheetOpen) setHint(false); }, [sheetOpen]);
 
-  const pristine = isPristine(selection, sparkles);
+  const none = deckNoneTile(tab, strip, selection, sparkles);
 
   // ── Surprise me: one tap, a random combination that works together
   // (lib/lookSurprise — same slot rules as the tiles).
@@ -518,11 +519,19 @@ export default function BoothLookDeck({
               </span>
             </Tile>
           )}
+          {/* "None" takes off only THIS tab's look; the rest of the combined
+              look stays on (lib/lookStrip deckNoneTile). Clearing everything
+              lives in the "More looks" sheet. */}
           <Tile
-            active={pristine}
+            active={none.lit}
             label="None"
-            ariaLabel="No look — the plain camera"
-            onClick={() => { haptic('select'); onClearAll(); }}
+            ariaLabel={`${LOOK_NONE_LABEL[tab]} — keep your other looks`}
+            onClick={() => {
+              haptic('select');
+              setHint(false);
+              if (none.action !== null) runLookAction(none.action, handlers);
+              if (none.sparklesOff) onToggleSparkles(false);
+            }}
           >
             <FilterThumb shaderId="none">
               <Ban className="h-4 w-4 text-brand-muted/70" />

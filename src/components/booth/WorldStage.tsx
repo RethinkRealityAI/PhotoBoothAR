@@ -26,6 +26,7 @@ import {
   type GestureState,
 } from '../../lib/world/placement';
 import { buildStandeeWalls, gridFromImageData } from '../../lib/world/standeeMesh';
+import { PromiseLru } from '../../lib/world/boardCache';
 import { haptic } from '../../lib/haptics';
 import { goodMatch, grabPatch, matchPatch, median, MIN_PATCH_STD, toGray, type Patch } from '../../lib/world/patchTrack';
 import type { WorldSession } from '../../lib/world/xr8World';
@@ -158,9 +159,24 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-async function buildBoard(url: string, maxAniso: number): Promise<BoardParts> {
+/** The CPU half of a board: outline walls + size. No image, no GPU objects. */
+interface BoardShape {
+  wall: ReturnType<typeof buildStandeeWalls>;
+  w: number;
+  h: number;
+}
+
+/** Shapes worked out ahead (lib/world/boardCache): a mid-clip swap skips the
+ *  pixel read and the outline trace, so the clip does not stutter. */
+const boardShapes = new PromiseLru<BoardShape>(12);
+
+async function loadDecoded(url: string): Promise<HTMLImageElement> {
   const img = await loadImage(url);
   if (img.decode) await img.decode().catch(() => { /* already decoded */ });
+  return img;
+}
+
+function shapeOf(img: HTMLImageElement): BoardShape {
   const { w, h } = standeeSize(img.naturalWidth, img.naturalHeight);
   const cv = document.createElement('canvas');
   cv.width = img.naturalWidth;
@@ -171,6 +187,23 @@ async function buildBoard(url: string, maxAniso: number): Promise<BoardParts> {
   const data = ctx.getImageData(0, 0, cv.width, cv.height).data; // throws if the art is cross-origin without CORS
   const grid = gridFromImageData(data, cv.width, cv.height, GRID_FACTOR);
   const wall = buildStandeeWalls(grid, { width: w, height: h, depth: BOARD_DEPTH });
+  return { wall, w, h };
+}
+
+/**
+ * Work out a standing Frame's board ahead of time (the booth calls this for the
+ * event's other world Looks while the guest is not recording). Never rejects:
+ * a failed preload just builds on the tap, as before.
+ */
+export function preloadWorldBoard(url: string): Promise<void> {
+  return boardShapes.get(url, async () => shapeOf(await loadDecoded(url))).then(() => undefined, () => undefined);
+}
+
+async function buildBoard(url: string, maxAniso: number): Promise<BoardParts> {
+  // The image is loaded either way (the texture needs it); a preloaded shape
+  // comes from the cache, so only the texture upload is left for this frame.
+  const img = await loadDecoded(url);
+  const { wall, w, h } = await boardShapes.get(url, async () => shapeOf(img));
   const walls = new THREE.BufferGeometry();
   walls.setAttribute('position', new THREE.BufferAttribute(wall.positions, 3));
   walls.setAttribute('normal', new THREE.BufferAttribute(wall.normals, 3));

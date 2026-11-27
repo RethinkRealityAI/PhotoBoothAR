@@ -37,7 +37,7 @@ import BoothControlDeck from './booth/BoothControlDeck';
 import BoothTopBar from './booth/BoothTopBar';
 import BoothLookDeck from './booth/BoothLookDeck';
 import LooksSheet from './booth/LooksSheet';
-import WorldStage from './booth/WorldStage';
+import WorldStage, { preloadWorldBoard } from './booth/WorldStage';
 import SkyStage from './booth/SkyStage';
 import {
   isSkyShaderId, skyEffect, skyExperiences, skyIdFrom, skyIdOfShader, skyPalette, skyQuery, skyWords,
@@ -217,6 +217,11 @@ const WARM_TIMEOUT_MS = 12_000;
  *  long between models so parsing never stacks up on the main thread. */
 const PRELOAD_START_MS = 2_500;
 const PRELOAD_GAP_MS = 600;
+/** World mode, mid-clip: why a tap that would change page did nothing yet. */
+const WORLD_REC_HINT_LEAVE = 'Stop recording to switch to a selfie Look';
+const WORLD_REC_HINT_ENTER = 'Stop recording to stand a Frame up in the room';
+const WORLD_REC_HINT_REMOVE = 'Stop recording to take the Frame away';
+const WORLD_REC_HINT_SKY = 'Stop recording to change the sky';
 
 /**
  * Pull an experience's asset into the browser cache and resolve when it is
@@ -894,7 +899,8 @@ export default function Booth() {
     // In world mode a 2D Frame (drawn on the selfie view, not in the room)
     // leaves it: back to the normal booth with that Frame on.
     if (arFrameId !== null) {
-      if (exp !== null && !recording) goTo(leaveArUrl(basePath, location.search, exp.id));
+      if (exp !== null && recording) { showBoothHint(WORLD_REC_HINT_LEAVE); return; }
+      if (exp !== null) goTo(leaveArUrl(basePath, location.search, exp.id));
       return;
     }
     if (frameExp?.kind === 'composite' && attachExp === frameExp) {
@@ -914,7 +920,7 @@ export default function Booth() {
       if (outgoingAmbient) setEffectId((cur) => (cur === outgoingAmbient ? 'none' : cur));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frameExp, attachExp, arFrameId, recording, basePath, goTo]);
+  }, [frameExp, attachExp, arFrameId, recording, basePath, goTo, showBoothHint]);
 
   /**
    * Picking a Prop. A "3D" standing Frame opens world mode (its own page
@@ -923,7 +929,14 @@ export default function Booth() {
    * every other Prop is exactly setAttachExp, as before.
    */
   const handleSelectAttachment = useCallback((exp: Experience | null) => {
-    if (recording && (arFrameId !== null || isWorldLook(exp))) return;
+    // While a clip records, standing Frames swap in place (same camera, same
+    // page). Anything that would change page (into or out of world mode)
+    // waits for the clip, and says so instead of silently doing nothing.
+    if (recording && arFrameId === null && isWorldLook(exp)) { showBoothHint(WORLD_REC_HINT_ENTER); return; }
+    if (recording && arFrameId !== null && !isWorldLook(exp)) {
+      showBoothHint(exp === null ? WORLD_REC_HINT_REMOVE : WORLD_REC_HINT_LEAVE);
+      return;
+    }
     if (arFrameId !== null) {
       if (isWorldLook(exp)) {
         setAttachExp(exp);
@@ -948,7 +961,7 @@ export default function Booth() {
     }
     setAttachExp(exp);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arFrameId, recording, basePath, goTo, effectId]);
+  }, [arFrameId, recording, basePath, goTo, effectId, showBoothHint]);
 
   /**
    * Picking an Effect. A sky effect (lib/world/skyFx.ts) lives on the AR page:
@@ -962,7 +975,7 @@ export default function Booth() {
     const wasSky = isSkyShaderId(effectId);
     if (arFrameId === null) {
       if (sky === null) { applyEffect(shaderId, exp); return; }
-      if (recording) return;
+      if (recording) { showBoothHint(WORLD_REC_HINT_SKY); return; }
       const p = new URLSearchParams(location.search);
       p.set(SKY_PARAM, sky);
       goTo(enterArUrl(basePath, `?${p.toString()}`, SKY_ONLY_AR_ID));
@@ -975,17 +988,19 @@ export default function Booth() {
     const query = skyQuery(window.location.search, arId, sky);
     if (query === null) {
       // The sky was all this page showed: back to the selfie booth, with the new Effect if one was picked.
-      if (!recording) goTo(leaveArUrl(basePath, location.search, shaderId === 'none' ? null : exp?.id ?? null));
+      if (recording) showBoothHint(WORLD_REC_HINT_SKY);
+      else goTo(leaveArUrl(basePath, location.search, shaderId === 'none' ? null : exp?.id ?? null));
       return;
     }
     if (sky !== null && worldSession?.skyCapable !== true) {
-      if (!recording) goTo(`${basePath}/booth?${query}`);
+      if (recording) showBoothHint(WORLD_REC_HINT_SKY);
+      else goTo(`${basePath}/booth?${query}`);
       return;
     }
     applyEffect(shaderId, exp);
     window.history.replaceState(window.history.state, '', `${location.pathname}?${query}`);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arFrameId, effectId, attachExp, recording, basePath, goTo, applyEffect, worldSession]);
+  }, [arFrameId, effectId, attachExp, recording, basePath, goTo, applyEffect, worldSession, showBoothHint]);
   // The effect in the slot is what 8th Wall's canvas paints.
   useEffect(() => {
     if (!worldSession) return;
@@ -1010,12 +1025,13 @@ export default function Booth() {
    */
   const handleSelectPaint = useCallback((exp: Experience | null) => {
     if (arFrameId !== null) {
-      if (exp !== null && !recording) goTo(leaveArUrl(basePath, location.search, exp.id));
+      if (exp !== null && recording) { showBoothHint(WORLD_REC_HINT_LEAVE); return; }
+      if (exp !== null) goTo(leaveArUrl(basePath, location.search, exp.id));
       return;
     }
     setPaintExp(exp);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arFrameId, recording, basePath, goTo]);
+  }, [arFrameId, recording, basePath, goTo, showBoothHint]);
 
   // ── Reveal moment ─────────────────────────────────────────────────────
   // A transient ~600ms "magically appears" entrance whenever the guest's
@@ -1401,6 +1417,31 @@ export default function Booth() {
   const skyOn = arFrameId !== null && worldSession !== null && isSkyShaderId(effectId);
   /** The stage shows 8th Wall's own canvas: a Frame stands in it, or the sky is painted in it. */
   const arStage = worldMode || skyOn;
+
+  // World mode: work out the event's other standing Frames ahead, one at a
+  // time while the guest is not recording, so swapping Frames mid-clip only
+  // uploads a texture (no pixel read, no outline trace = no stutter).
+  useEffect(() => {
+    if (!worldMode || recording || phase !== 'camera') return;
+    const queue = withWorldLooks(catalog)
+      .map((e) => worldLookFrameUrl(e))
+      .filter((u): u is string => u !== null && u !== worldFrameUrl);
+    if (queue.length === 0) return;
+    let alive = true;
+    let timer = 0;
+    const next = () => {
+      const url = queue.shift();
+      if (!alive || url === undefined) return;
+      void preloadWorldBoard(url).then(() => {
+        if (alive) timer = window.setTimeout(next, PRELOAD_GAP_MS);
+      });
+    };
+    timer = window.setTimeout(next, PRELOAD_START_MS);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [worldMode, worldFrameUrl, recording, phase, catalog]);
 
   // The cover in use (a selfie Frame or its standing 3D tile), and the cover
   // that stands up in world mode, printed with this group's names.
@@ -3029,7 +3070,6 @@ export default function Booth() {
                 onSelectFrame={handleSelectFrame}
                 onSelectAttachment={handleSelectAttachment}
                 onSelectPaint={handleSelectPaint}
-                onClearAll={clearAllLooks}
                 onOpenAll={() => setMoreOpen(true)}
                 sheetOpen={moreOpen}
                 mediaMode={mediaMode}
