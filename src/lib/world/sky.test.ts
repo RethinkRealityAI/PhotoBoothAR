@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SKY_EFFECTS, SKY_EFFECT_IDS, SKY_ONLY_AR_ID, SKY_PROBE_H, SKY_PROBE_W, SKY_TEXT_MAX,
   domeRotation, easeSkyline, elevationAt, headingOf, isSkyShaderId, skyExperiences, skyIdFrom,
-  skyIdOfShader, skylineElevation, skyPalette, skyQuery, skyText, stageShaderId, wantsSkyHint,
+  skyIdOfShader, skylineElevation, skyPalette, skyQuery, skyText, skyWords, stageShaderId, wantsSkyHint,
   type SkyView,
 } from './skyFx';
 import { boardLight, easeLight, meanOfRow, worldLightFrom, LIGHT_MAX_GAIN, LIGHT_MIN_GAIN, type Rgb } from './lightEstimate';
@@ -43,10 +43,28 @@ describe('sky effects: the registry and the Effects slot', () => {
   });
   it('builds Effects tiles with built-in ids, and honours the host hiding one', () => {
     const all = skyExperiences();
-    expect(all).toHaveLength(SKY_EFFECTS.length);
+    expect(all).toHaveLength(SKY_EFFECTS.filter((e) => !e.packs).length);
     expect(all[0]).toMatchObject({ id: 'builtin:shader:sky:golden', kind: 'shader', asset_url: null, is_published: true });
     expect(all[0].config.shader?.shaderId).toBe('sky:golden');
     expect(skyExperiences(['builtin:shader:sky:hearts']).some((e) => e.id.endsWith('hearts'))).toBe(false);
+  });
+  it('shows an effect made for a theme pack only in events wearing it, leading the row', () => {
+    const ids = (pack: string | null) => skyExperiences([], pack).map((e) => e.id.replace('builtin:shader:sky:', ''));
+    expect(ids(null)).toEqual(['golden', 'stars', 'aurora', 'fireworks', 'lanterns', 'hearts', 'names']);
+    expect(ids('some-other-pack')).toEqual(ids(null));
+    expect(ids('island-golden-hour')).toEqual(['petals', 'heartbursts', 'vows', ...ids(null)]);
+    // Sort order follows the row, so the pack's own effects come first in the tab.
+    const orders = skyExperiences([], 'island-golden-hour').map((e) => e.sort_order);
+    expect(orders).toEqual([...orders].sort((a, b) => a - b));
+    expect(skyExperiences(['builtin:shader:sky:vows'], 'island-golden-hour').some((e) => e.id.endsWith('vows'))).toBe(false);
+  });
+  it('writes the names, and for the vows the hashtag on a second line', () => {
+    expect(skyWords('stars', 'Mariba & Philip', '#ForeverWeDO')).toBeNull();
+    expect(skyWords('names', 'Mariba & Philip', '#ForeverWeDO')).toBe('Mariba & Philip');
+    expect(skyWords('vows', 'Mariba & Philip', '#ForeverWeDO')).toBe('Mariba & Philip\n#ForeverWeDO');
+    expect(skyWords('vows', 'Gala Night', 'Gala Night')).toBe('Gala Night');
+    expect(skyWords('vows', '', '#OnlyTag')).toBe('#OnlyTag');
+    expect(skyWords('vows', null, null)).toBeNull();
   });
 });
 

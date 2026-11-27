@@ -17,7 +17,7 @@
  */
 import type { Experience } from '../../types';
 
-export const SKY_EFFECT_IDS = ['golden', 'stars', 'aurora', 'fireworks', 'lanterns', 'hearts', 'names'] as const;
+export const SKY_EFFECT_IDS = ['golden', 'stars', 'aurora', 'fireworks', 'lanterns', 'hearts', 'names', 'petals', 'heartbursts', 'vows'] as const;
 export type SkyEffectId = typeof SKY_EFFECT_IDS[number];
 
 export interface SkyEffect {
@@ -29,6 +29,13 @@ export interface SkyEffect {
   swatch: readonly [string, string];
   /** A small mark on the tile. */
   mark: string;
+  /** Writes words in the sky: 'name' = the event's name, 'vows' = the name with the hashtag under it. */
+  text?: 'name' | 'vows';
+  /**
+   * Made for one kind of event: the tile shows only in events dressed in one
+   * of these theme packs (lib/themePacks). Absent = every platform event.
+   */
+  packs?: readonly string[];
 }
 
 // Names are short on purpose: a tile's label is two lines of about eight
@@ -41,7 +48,11 @@ export const SKY_EFFECTS: readonly SkyEffect[] = [
   { id: 'fireworks', name: 'Firework Sky', blurb: 'Fireworks bursting overhead in the event colours.', swatch: ['#070b24', '#3a1d5c'], mark: '✺' },
   { id: 'lanterns', name: 'Sky Lanterns', blurb: 'Glowing paper lanterns drifting up at dusk.', swatch: ['#1a1d4d', '#e07a45'], mark: '❍' },
   { id: 'hearts', name: 'Floating Hearts', blurb: 'Hearts floating up through a blushing sky.', swatch: ['#f7a8c4', '#ffd9cf'], mark: '♥' },
-  { id: 'names', name: 'Names in Stars', blurb: 'The event name written in starlight.', swatch: ['#050a22', '#27306e'], mark: 'Aa' },
+  { id: 'names', name: 'Names in Stars', blurb: 'The event name written in starlight.', swatch: ['#050a22', '#27306e'], mark: 'Aa', text: 'name' },
+  // The island wedding set (ForeverWeDO, Jamaica): golden hour, hibiscus, gold and teal.
+  { id: 'petals', name: 'Hibiscus Rain', blurb: 'Hibiscus and frangipani drifting down through an island sunset.', swatch: ['#2f7f73', '#ffb85c'], mark: '✿', packs: ['island-golden-hour'] },
+  { id: 'heartbursts', name: 'Heart Bursts', blurb: 'Fireworks that open into hearts, in the event colours.', swatch: ['#071a2a', '#1f5a5c'], mark: '♡', packs: ['island-golden-hour'] },
+  { id: 'vows', name: 'Forever Sky', blurb: 'The couple’s names in gold across an island sunset, with the hashtag beneath.', swatch: ['#c85a5a', '#ffd27a'], mark: '∞', text: 'vows', packs: ['island-golden-hour'] },
 ];
 
 export function skyEffect(id: string | null | undefined): SkyEffect | null {
@@ -71,10 +82,16 @@ export function stageShaderId(effectId: string): string {
 
 const NOW = '2026-01-01T00:00:00Z';
 
-/** The sky effects as Effects-tab tiles (ids `builtin:shader:sky:<id>`, like every built-in effect). */
-export function skyExperiences(hidden: readonly string[] = []): Experience[] {
+/**
+ * The sky effects as Effects-tab tiles (ids `builtin:shader:sky:<id>`, like
+ * every built-in effect). `themePack` is the event's theme pack, if it wears
+ * one: effects made for a pack show only there, and lead the row.
+ */
+export function skyExperiences(hidden: readonly string[] = [], themePack: string | null = null): Experience[] {
   const off = new Set(hidden);
-  return SKY_EFFECTS.map((e, i): Experience => ({
+  const shown = SKY_EFFECTS.filter((e) => !e.packs || (themePack !== null && e.packs.includes(themePack)));
+  const ordered = [...shown.filter((e) => e.packs), ...shown.filter((e) => !e.packs)];
+  return ordered.map((e, i): Experience => ({
     id: `builtin:shader:${SKY_SHADER_PREFIX}${e.id}`,
     name: e.name,
     created_at: NOW,
@@ -206,6 +223,20 @@ export function skyText(fullName: string | null | undefined, eventName?: string 
   const t = tidy(fullName) || tidy(eventName);
   if (t.length === 0) return null;
   return t.length <= SKY_TEXT_MAX ? t : `${t.slice(0, SKY_TEXT_MAX - 1).trimEnd()}…`;
+}
+
+/**
+ * The words an effect writes, or null: 'name' is skyText(); 'vows' is the
+ * full name with the short name (the hashtag) on a second line, when the
+ * event has both and they differ.
+ */
+export function skyWords(id: SkyEffectId, fullName: string | null | undefined, eventName?: string | null): string | null {
+  const kind = skyEffect(id)?.text;
+  if (!kind) return null;
+  const first = skyText(fullName, eventName);
+  if (kind === 'name' || first === null) return first;
+  const second = skyText(eventName);
+  return second !== null && second !== first && skyText(fullName) !== null ? `${first}\n${second}` : first;
 }
 
 /* ------------------------------------------------------------------ */

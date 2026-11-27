@@ -17,7 +17,7 @@
 import { SKY_PROBE_H, SKY_PROBE_W, type SkyEffectId } from './skyFx';
 
 const FX_INDEX: Record<SkyEffectId, number> = {
-  golden: 0, stars: 1, aurora: 2, fireworks: 3, lanterns: 4, hearts: 5, names: 6,
+  golden: 0, stars: 1, aurora: 2, fireworks: 3, lanterns: 4, hearts: 5, names: 6, petals: 7, heartbursts: 8, vows: 9,
 };
 
 const VERT = `
@@ -98,6 +98,21 @@ vec3 nightSky(vec3 d, float az, float el, float t) {
 vec3 nightGrade(vec3 c) {
   float l = lum(c);
   return mix(vec3(l), c, 0.7) * vec3(0.36, 0.44, 0.70) * (0.75 + 0.5 * l);
+}
+
+/** An island golden hour: gold at the horizon, coral, then rose into deep teal overhead. */
+vec3 islandSky(float az, float el, float t) {
+  vec3 horizon = vec3(1.0, 0.80, 0.42), coral = vec3(0.99, 0.52, 0.38), rose = vec3(0.72, 0.40, 0.54), teal = vec3(0.11, 0.33, 0.40);
+  vec3 g = mix(horizon, coral, smoothstep(0.0, 0.2, el));
+  g = mix(g, rose, smoothstep(0.14, 0.46, el));
+  g = mix(g, teal, smoothstep(0.38, 1.0, el));
+  vec2 sunAt = vec2(-0.30, 0.05);
+  float sd = length(vec2((az - sunAt.x) * cos(el), el - sunAt.y));
+  g += vec3(1.0, 0.84, 0.5) * (0.6 * exp(-sd * 3.0) + 0.9 * exp(-sd * sd * 240.0));
+  float cl = fbm(vec2(az * 2.4 + t * 0.012, el * 9.0));
+  float cm = smoothstep(0.52, 0.80, cl) * smoothstep(0.03, 0.2, el) * smoothstep(0.95, 0.4, el);
+  vec3 cloud = mix(vec3(0.45, 0.27, 0.40), vec3(1.0, 0.68, 0.42), smoothstep(0.55, 0.9, cl + 0.3 * exp(-sd * 2.0)));
+  return mix(g, cloud, cm * 0.8);
 }
 
 float sdHeart(vec2 p) {
@@ -306,6 +321,114 @@ const EFFECTS: string[] = [
   }
   keep = 0.0;
   scene = nightGrade(cam);
+  `,
+  // 7 Hibiscus Rain
+  `
+  vec3 g = islandSky(az, el, uTime) * (0.80 + 0.32 * lum(cam));
+  for (int i = 0; i < 3; i++) {
+    float fi = float(i);
+    float s = 2.8 + 2.3 * fi;
+    vec2 p = vec2(az * s + fi * 4.1, (el + uTime * (0.030 - 0.006 * fi)) * s * 0.85);
+    vec2 cell = floor(p);
+    vec2 h = hash22(cell + fi * 29.0);
+    if (h.x > 0.40) {
+      vec2 f = fract(p) - 0.5;
+      f.x += 0.10 * sin(uTime * 0.7 + h.y * TAU);
+      f -= (h - 0.5) * 0.36;
+      float sz = 0.16 + 0.07 * h.y;
+      float rot = uTime * (0.25 + 0.5 * h.x) * (h.y > 0.5 ? 1.0 : -1.0) + h.x * 30.0;
+      vec2 b = mat2(cos(rot), -sin(rot), sin(rot), cos(rot)) * f / sz;
+      // A flower tumbling as it falls: it turns edge-on now and then.
+      b.y /= 0.55 + 0.45 * abs(cos(uTime * 0.8 + h.x * 20.0));
+      float r = length(b), a = atan(b.y, b.x);
+      float petal = 0.42 + 0.50 * pow(abs(cos(2.5 * a)), 0.55);
+      float inside = smoothstep(petal, petal - 0.10, r);
+      vec3 col = h.y < 0.45 ? vec3(0.95, 0.17, 0.28) : h.y < 0.75 ? mix(uA, vec3(1.0, 0.80, 0.30), 0.35) : vec3(1.0, 0.94, 0.86);
+      // A darker throat, light veins along each petal, a gold stamen.
+      col *= 0.62 + 0.38 * smoothstep(0.05, 0.6, r);
+      col *= 0.93 + 0.07 * cos(10.0 * a);
+      col = mix(col, vec3(1.0, 0.82, 0.25), smoothstep(0.13, 0.07, r));
+      float depth = 1.0 - 0.2 * fi;
+      g += col * exp(-max(r - petal, 0.0) * 7.0) * 0.12 * (1.0 - inside);
+      g = mix(g, col, inside * 0.95 * depth);
+    }
+  }
+  sky = g;
+  keep = 0.0;
+  float l = lum(cam);
+  scene = mix(cam, cam * vec3(1.14, 0.95, 0.76) + vec3(0.05, 0.02, 0.0) * l, 0.75);
+  `,
+  // 8 Heart Bursts
+  `
+  sky = nightSky(d, az, el, uTime) * 0.75 + vec3(0.0, 0.022, 0.03) * smoothstep(0.6, 0.0, el);
+  vec3 spill = vec3(0.0);
+  for (int i = 0; i < 4; i++) {
+    float fi = float(i);
+    float period = 3.1 + 0.5 * fi;
+    float tt = uTime / period + fi * 0.41;
+    float k = floor(tt), lt = fract(tt);
+    float seed = k * 5.77 + fi * 23.9;
+    vec2 c0 = vec2((hash11(seed) - 0.5) * 0.52, 0.16 + 0.24 * hash11(seed + 1.7));
+    vec2 q = vec2((az - c0.x) * cos(el), el - c0.y);
+    float hsel = hash11(seed + 4.2);
+    vec3 col = hsel < 0.36 ? uA : hsel < 0.68 ? uB : vec3(1.0, 0.40, 0.55);
+    float launch = 0.15;
+    if (lt < launch) {
+      float u = lt / launch;
+      vec2 r = q - vec2(0.0, -(1.0 - u) * 0.2);
+      float tr = smoothstep(-0.07, 0.0, r.y) * step(r.y, 0.0);
+      sky += vec3(1.0, 0.85, 0.6) * (exp(-dot(r, r) * 30000.0) + 0.5 * tr * exp(-r.x * r.x * 90000.0));
+    } else {
+      float u = (lt - launch) / (1.0 - launch);
+      float R = (0.11 + 0.06 * hash11(seed + 2.9)) * (1.0 - exp(-4.0 * u));
+      float fade = pow(1.0 - u, 1.5);
+      float tilt = (hash11(seed + 6.1) - 0.5) * 0.5;
+      vec2 qq = mat2(cos(tilt), -sin(tilt), sin(tilt), cos(tilt)) * (q + vec2(0.0, 0.04 * u * u));
+      float ang = atan(qq.y, qq.x);
+      float glow = 0.0;
+      // Two hearts of sparks, one inside the other.
+      for (int ring = 0; ring < 2; ring++) {
+        float rr = ring == 0 ? 1.0 : 0.56;
+        float sdh = sdHeart(qq / max(R * rr, 0.001) * 0.56);
+        float n = ring == 0 ? 30.0 : 16.0;
+        float dots = pow(0.5 + 0.5 * cos(ang * n + seed * 3.0 + float(ring)), 3.0);
+        float tw = u > 0.5 ? 0.55 + 0.45 * sin(uTime * 20.0 + ang * 9.0) : 1.0;
+        glow += (0.25 + 1.1 * dots * tw) * exp(-sdh * sdh * (ring == 0 ? 1500.0 : 900.0)) * (ring == 0 ? 1.0 : 0.7);
+      }
+      sky += (col * 1.3 + vec3(0.3)) * glow * fade;
+      float rad = length(qq);
+      sky += col * exp(-rad * rad * 55.0) * pow(1.0 - u, 3.0) * 0.45;
+      spill += col * pow(1.0 - u, 3.0) * 0.10;
+    }
+  }
+  keep = 0.0;
+  scene = nightGrade(cam) * (1.0 + 0.5 * lum(spill)) + spill * (0.25 + lum(cam));
+  `,
+  // 9 Forever Sky
+  `
+  vec3 g = islandSky(az, el, uTime) * (0.80 + 0.32 * lum(cam));
+  g += vec3(1.0, 0.92, 0.75) * stars(d, uTime) * smoothstep(0.3, 0.7, el) * 0.6;
+  if (uHasText > 0.5) {
+    float W = 0.60, H = W / uTextAspect;
+    vec2 tuv = vec2(az / W + 0.5, (el - uTextEl - 0.07) / H + 0.5);
+    if (tuv.x > -0.1 && tuv.x < 1.1 && tuv.y > -0.3 && tuv.y < 1.3) {
+      vec2 tc = vec2(tuv.x, 1.0 - tuv.y);
+      float inb = step(0.0, tc.x) * step(tc.x, 1.0) * step(0.0, tc.y) * step(tc.y, 1.0);
+      float ink = texture2D(uText, tc).a * inb;
+      vec2 e = smoothstep(vec2(0.0), vec2(0.04, 0.10), tc) * smoothstep(vec2(0.0), vec2(0.04, 0.10), 1.0 - tc);
+      float soft = texture2D(uText, clamp(tc, 0.0, 1.0), 3.5).a * e.x * e.y;
+      float reveal = smoothstep(0.0, 0.12, uTime * 0.4 - tuv.x + 0.1);
+      float shine = 0.82 + 0.18 * sin(tuv.x * 9.0 - uTime * 1.3);
+      // A soft shade behind the letters so gold reads on a bright sky.
+      g *= 1.0 - 0.60 * soft * reveal;
+      g = mix(g, vec3(1.0, 0.95, 0.78) * shine * 1.2, ink * reveal);
+      g += vec3(1.0, 0.72, 0.30) * soft * 0.22 * reveal;
+    }
+  }
+  sky = g;
+  keep = 0.0;
+  float l = lum(cam);
+  scene = mix(cam, cam * vec3(1.14, 0.95, 0.76) + vec3(0.05, 0.02, 0.0) * l, 0.75);
   `,
 ];
 
@@ -625,24 +748,37 @@ export class SkyPass {
 }
 
 /**
- * The words for "Names in Stars" as a white-on-clear picture (power-of-two
- * sized, so WebGL 1 can mipmap it too). Italic serif, one line, fitted to width.
+ * The words an effect writes, as a white-on-clear picture (power-of-two sized,
+ * so WebGL 1 can mipmap it too). Italic serif, fitted to width. A second line
+ * (after "\n", the hashtag under the names) is set small and spaced beneath.
  */
 export function skyTextCanvas(text: string, fontFamily = '"Cormorant Garamond", "Instrument Serif", Georgia, serif'): HTMLCanvasElement {
+  const [first, second] = text.split('\n');
   const c = document.createElement('canvas');
   c.width = 1024;
-  c.height = 256;
+  c.height = second ? 512 : 256;
   const g = c.getContext('2d');
   if (!g) return c;
-  let px = 150;
+  let px = second ? 190 : 150;
   const font = () => `italic 500 ${px}px ${fontFamily}`;
   g.font = font();
   const maxW = c.width - 80;
-  const w = g.measureText(text).width;
+  const w = g.measureText(first).width;
   if (w > maxW) { px = Math.max(40, Math.floor(px * maxW / w)); g.font = font(); }
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillStyle = '#fff';
-  g.fillText(text, c.width / 2, c.height / 2 + px * 0.04);
+  if (!second) {
+    g.fillText(first, c.width / 2, c.height / 2 + px * 0.04);
+    return c;
+  }
+  g.fillText(first, c.width / 2, c.height * 0.40);
+  let small = Math.round(px * 0.40);
+  const smallFont = () => `600 ${small}px ${fontFamily}`;
+  g.font = smallFont();
+  try { (g as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${Math.round(small * 0.18)}px`; } catch { /* older browsers: unspaced */ }
+  const w2 = g.measureText(second).width;
+  if (w2 > maxW) { small = Math.max(24, Math.floor(small * maxW / w2)); g.font = smallFont(); }
+  g.fillText(second, c.width / 2, c.height * 0.40 + px * 0.62);
   return c;
 }

@@ -40,7 +40,7 @@ import LooksSheet from './booth/LooksSheet';
 import WorldStage from './booth/WorldStage';
 import SkyStage from './booth/SkyStage';
 import {
-  isSkyShaderId, skyEffect, skyExperiences, skyIdFrom, skyIdOfShader, skyPalette, skyQuery, skyText,
+  isSkyShaderId, skyEffect, skyExperiences, skyIdFrom, skyIdOfShader, skyPalette, skyQuery, skyWords,
   stageShaderId, SKY_ONLY_AR_ID, SKY_PARAM, SKY_SHADER_PREFIX,
 } from '../lib/world/skyFx';
 import { isWorldLook, withWorldLooks, worldLookFrameUrl, WORLD_LOOK_PREFIX } from '../lib/world/worldLooks';
@@ -811,7 +811,7 @@ export default function Booth() {
     // A look that is ONLY hand-held gear shows nothing without hand tracking,
     // which guest booths don't run (GUEST_HAND_TRACKING): leave it out.
     // Sky effects: AR tiles in the Effects tab (hosts can hide them like any built-in).
-    const sky = skyTiles ? skyExperiences(presetOverrides?.hidden) : [];
+    const sky = skyTiles ? skyExperiences(presetOverrides?.hidden, eventConfig.theme?.pack ?? null) : [];
     return [...covers, ...(GUEST_HAND_TRACKING || source !== 'db' ? all : all.filter((e) => !isHandOnlyLook(e))), ...sky];
   }, [eventConfig, experiences, linkedGlobals, experiencesLoaded, presetOverrides, source, coverSettings, coverArt, skyTiles]);
 
@@ -987,7 +987,7 @@ export default function Booth() {
     const id = skyIdOfShader(effectId);
     if (id === null || !worldSession.skyCapable) { worldSession.setSky(null); return; }
     const [a, b] = skyPalette(eventConfig.accentHexes);
-    worldSession.setSky({ id, a, b, text: skyText(eventConfig.copy.fullName, eventConfig.copy.eventName) });
+    worldSession.setSky({ id, a, b, text: skyWords(id, eventConfig.copy.fullName, eventConfig.copy.eventName) });
   }, [worldSession, effectId, eventConfig]);
   // 8th Wall could not run here (the booth fell back to its own motion
   // tracking, which has no sky layer): a sky effect has nothing to paint.

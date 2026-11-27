@@ -40,7 +40,7 @@ import { createSettleGate, settleRestart, settleStep, isSettled, type SettleGate
 import { WorldPoseSteady, worldSteadyFrom, type WorldSteadyOptions } from './poseSteady';
 import { boardLight, meanOfRow, worldLightFrom, type Rgb } from './lightEstimate';
 import {
-  domeRotation, easeSkyline, headingOf, skylineElevation, SKY_MIN_SHARE, type SkyEffectId,
+  domeRotation, easeSkyline, headingOf, skyEffect, skylineElevation, SKY_MIN_SHARE, type SkyEffectId,
 } from './skyFx';
 import { SkyPass, skyTextCanvas } from './skyShader';
 
@@ -390,7 +390,7 @@ export class WorldSession {
     this.skyDirty = true;
     if (spec === null || was?.id !== spec.id) { this.skyOnMs = Number.NaN; this.skyHeading = null; }
     this.skyText = null;
-    if (spec?.id === 'names' && spec.text) {
+    if (spec && skyEffect(spec.id)?.text && spec.text) {
       const text = spec.text;
       const build = () => { if (this.skySpec === spec) { this.skyText = skyTextCanvas(text); this.skyDirty = true; } };
       build();
@@ -413,7 +413,7 @@ export class WorldSession {
       if (this.skyDirty) {
         this.skyDirty = false;
         pass.use(spec.id, spec.a, spec.b);
-        pass.setText(spec.id === 'names' ? this.skyText : null);
+        pass.setText(skyEffect(spec.id)?.text ? this.skyText : null);
       }
       if (!Number.isFinite(this.skyOnMs)) this.skyOnMs = now;
       // The effect is laid out in front of where the guest was looking when it came on.
