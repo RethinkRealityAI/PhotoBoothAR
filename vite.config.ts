@@ -1,7 +1,8 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv, type Plugin} from 'vite';
+import {defineConfig, loadEnv, type Plugin, type Rollup} from 'vite';
+import {bootScript, bootStyle, type BootRoute} from './src/lib/eventBoot';
 
 /**
  * index.html carries the PLATFORM head (brand v2 font preloads, dusk
@@ -59,10 +60,69 @@ function legacyFrozenHead(legacy: boolean): Plugin {
   };
 }
 
-export default defineConfig(({mode}) => {
-  const legacy = (process.env.VITE_EVENT ?? loadEnv(mode, process.cwd(), 'VITE_').VITE_EVENT ?? '').trim() !== '';
+/** Where the boot tags go: right after the theme-color meta, i.e. BEFORE the
+ *  stylesheet links, so the script never waits on CSS (a script after a
+ *  stylesheet does) and its theme-color swap finds the tag already parsed. */
+const BOOT_ANCHOR = '<meta name="theme-color" content="#262566" />';
+
+/** A route chunk plus every chunk it statically imports that the entry has
+ *  not already loaded — the set Vite's own preload helper would fetch. */
+function routeChunkUrls(bundle: Rollup.OutputBundle | undefined, source: string): string[] {
+  if (!bundle) return [];
+  const chunks = Object.values(bundle).filter((c): c is Rollup.OutputChunk => c.type === 'chunk');
+  const byName = new Map(chunks.map((c) => [c.fileName, c]));
+  const eager = new Set<string>();
+  const walk = (name: string, into: Set<string>, stop?: Set<string>) => {
+    if (into.has(name) || stop?.has(name)) return;
+    into.add(name);
+    for (const dep of byName.get(name)?.imports ?? []) walk(dep, into, stop);
+  };
+  for (const c of chunks) if (c.isEntry) walk(c.fileName, eager);
+  const route = chunks.find((c) => c.facadeModuleId?.replace(/\\/g, '/').endsWith(source));
+  if (!route) throw new Error(`event-boot: no chunk for ${source} — was the route renamed?`);
+  const out = new Set<string>();
+  walk(route.fileName, out, eager);
+  return [...out].map((f) => `/${f}`);
+}
+
+/**
+ * Event boot (src/lib/eventBoot.ts): an inline style + script that make
+ * /e/<slug>/* paint the event's look (never the platform's) from the first
+ * frame, and start the event row + the route's chunk from the HTML.
+ * Platform builds only: the frozen legacy sites never get it.
+ */
+function eventBoot(legacy: boolean, env: Record<string, string>): Plugin {
+  const routes: Record<BootRoute, string> = {
+    welcome: 'src/components/GuestWelcome.tsx',
+    booth: 'src/components/Booth.tsx',
+  };
   return {
-    plugins: [react(), tailwindcss(), legacyFrozenHead(legacy)],
+    name: 'event-boot',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        if (legacy) return html;
+        if (!html.includes(BOOT_ANCHOR)) throw new Error('event-boot: index.html no longer has the theme-color meta it anchors on');
+        const chunks: Partial<Record<BootRoute, string[]>> = {};
+        for (const [k, src] of Object.entries(routes) as [BootRoute, string][]) chunks[k] = routeChunkUrls(ctx.bundle, src);
+        const tags =
+          `\n    <style id="bw-event-boot-style">${bootStyle()}</style>` +
+          `\n    <script>${bootScript({
+            supabaseUrl: env.VITE_SUPABASE_URL ?? '',
+            anonKey: env.VITE_SUPABASE_ANON_KEY ?? '',
+            chunks,
+          })}</script>`;
+        return html.replace(BOOT_ANCHOR, BOOT_ANCHOR + tags);
+      },
+    },
+  };
+}
+
+export default defineConfig(({mode}) => {
+  const viteEnv = {...loadEnv(mode, process.cwd(), 'VITE_'), ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('VITE_')))} as Record<string, string>;
+  const legacy = (process.env.VITE_EVENT ?? viteEnv.VITE_EVENT ?? '').trim() !== '';
+  return {
+    plugins: [react(), tailwindcss(), legacyFrozenHead(legacy), eventBoot(legacy, viteEnv)],
     // Workers are created as `{ type: 'module' }` (frameKey, mp4Export), and
     // the MP4 one loads its converter on demand, which IIFE cannot split.
     worker: { format: 'es' },

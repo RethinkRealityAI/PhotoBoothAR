@@ -352,7 +352,13 @@ export default function App() {
         <Suspense
           fallback={
             <div role="status" aria-label="Loading" className="flex h-full w-full items-center justify-center app-bg">
-              <div aria-hidden className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-[color:var(--color-accent)]" />
+              {/* Waits a beat: a route chunk that arrives quickly (the event
+                  pages preload theirs from index.html) shows only the page's
+                  background, never a spinner blink. Frozen legacy builds keep
+                  the immediate spinner they shipped with. */}
+              <div aria-hidden className={LEGACY_EVENT ? undefined : 'bw-boot-delay'}>
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 border-t-[color:var(--color-accent)]" />
+              </div>
             </div>
           }
         >
