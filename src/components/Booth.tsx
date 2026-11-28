@@ -12,7 +12,7 @@
  *   • Golden-disintegration send-off animation
  */
 import {
-  useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo, useSyncExternalStore,
+  useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo, useSyncExternalStore, type CSSProperties,
 } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -83,7 +83,7 @@ import { parseFaceTrackingMode } from '../lib/faceEngine/engineSelect';
 import TrackingReadout from './ar/TrackingReadout';
 import LightingTuner from './booth/LightingTuner';
 import { getHandTrackerError, initializeHandLandmarker } from '../lib/handTracking';
-import { fitStageBox, type StageBox } from '../lib/studio/stageLayout';
+import { fitStageBox, fillStageBox, stageBleed, MAX_STAGE_TRIM, type StageBox } from '../lib/studio/stageLayout';
 import ReportIssueButton from './support/ReportIssueButton';
 import { getLatestBlendshapes, detectFaceNow, getHeadFitEstimate } from '../lib/faceRig';
 import { detectHandsNow, getLatestHandFrame, resetHandRig } from '../lib/handRig';
@@ -1869,8 +1869,36 @@ export default function Booth() {
   // present = this never runs and the inline style is unchanged.
   const stageAreaRef = useRef<HTMLDivElement | null>(null);
   const [fallbackStage, setFallbackStage] = useState<StageBox | null>(null);
+  // Platform booths: the stage FILLS the screen (Dapo, Nov 28 2026: "extend
+  // the camera full-screen and the frame, no more black and controls cutting
+  // it off"). On a phone the 9:16 box covers the screen and its left/right
+  // edges run off it (about 9% a side on a 390x844 phone); the deck and top
+  // bar float over it. Too square a screen (a Fold opened, a tablet, a laptop)
+  // would hide too much of the Frame, so it keeps the fitted box. The capture
+  // never changes: StageCanvas still writes the whole 9:16 frame. `bleed` is
+  // how far the box runs past each edge, so the stage's own chips and sheets
+  // stay on-screen (--stage-bleed-x / --stage-bleed-y).
+  const [fillStage, setFillStage] = useState<{ w: number; h: number; bx: number; by: number } | null>(null);
   useEffect(() => {
-    if (HAS_CONTAINER_UNITS) return;
+    if (!platformBooth) return;
+    const el = stageAreaRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (!r) return;
+      // Phones only: from `sm` up the booth keeps its framed, inset stage.
+      const box = fillStageBox(r.width, r.height, r.width < 640 ? MAX_STAGE_TRIM : 0);
+      if (box.w <= 0) { setFillStage(null); return; }
+      const bleed = stageBleed(box, r.width, r.height);
+      setFillStage((prev) => (prev && prev.w === box.w && prev.h === box.h ? prev : { w: box.w, h: box.h, bx: bleed.x, by: bleed.y }));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [phase, platformBooth]);
+  /** The stage runs off the screen's edges (so it has no rounded corners or ring). */
+  const stageCovers = fillStage !== null && (fillStage.bx > 0.5 || fillStage.by > 0.5);
+  useEffect(() => {
+    if (HAS_CONTAINER_UNITS || platformBooth) return;
     const el = stageAreaRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver((entries) => {
@@ -1881,7 +1909,7 @@ export default function Booth() {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [phase]);
+  }, [phase, platformBooth]);
 
   // ── Shutter / countdown ───────────────────────────────────────────────
   const handleShutterPress = useCallback(() => {
@@ -2823,18 +2851,25 @@ export default function Booth() {
             // the bottom, under the deck, instead of two dead bands top and
             // bottom. From `sm` up it is centred and inset as before.
             className={platformBooth
-              ? 'flex-1 relative min-h-0 flex items-start justify-center sm:items-center sm:px-2 sm:pb-1'
+              ? 'flex-1 relative min-h-0 flex items-center justify-center overflow-hidden sm:px-2 sm:pb-1'
               : 'flex-1 relative min-h-0 flex items-center justify-center px-2 pb-1'}
             style={{ containerType: 'size' }}
           >
             <div
               className={platformBooth
-                ? 'relative h-full aspect-[9/16] max-w-full rounded-b-[1.6rem] sm:rounded-[1.4rem] overflow-hidden sm:ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900 touch-pan-y'
+                ? `relative shrink-0 overflow-hidden bg-noir-900 touch-pan-y ${stageCovers ? '' : 'h-full aspect-[9/16] max-w-full rounded-[1.4rem] sm:ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)]'}`
                 : 'relative h-full aspect-[9/16] max-w-full rounded-[1.4rem] overflow-hidden ring-1 ring-gold-700/25 shadow-[0_10px_50px_rgba(0,0,0,0.6)] bg-noir-900 touch-pan-y'}
               style={
-                HAS_CONTAINER_UNITS || fallbackStage === null
-                  ? { height: 'min(100cqh, calc(100cqw * 16 / 9))' }
-                  : { width: fallbackStage.w, height: fallbackStage.h }
+                platformBooth && fillStage !== null
+                  ? {
+                      width: fillStage.w,
+                      height: fillStage.h,
+                      ['--stage-bleed-x' as string]: `${fillStage.bx}px`,
+                      ['--stage-bleed-y' as string]: `${fillStage.by}px`,
+                    } as CSSProperties
+                  : HAS_CONTAINER_UNITS || fallbackStage === null
+                    ? { height: 'min(100cqh, calc(100cqw * 16 / 9))' }
+                    : { width: fallbackStage.w, height: fallbackStage.h }
               }
               // Swipe sideways = next/previous filter; double-tap = flip camera.
               // Scoped to the stage box, so the control deck below keeps its own
@@ -2990,7 +3025,11 @@ export default function Booth() {
                 className="absolute top-4 inset-x-0 z-30 flex flex-col items-center gap-2 pointer-events-none"
                 // The platform stage now starts at the top of the screen, so
                 // the hints clear the floating top bar (safe area + 44px row).
-                style={platformBooth ? { top: 'calc(env(safe-area-inset-top, 0px) + 4.25rem)' } : undefined}
+                style={platformBooth ? {
+                  top: 'calc(var(--stage-bleed-y, 0px) + env(safe-area-inset-top, 0px) + 4.25rem)',
+                  left: 'var(--stage-bleed-x, 0px)',
+                  right: 'var(--stage-bleed-x, 0px)',
+                } : undefined}
               >
                 {/* A name-wearing prop is on: say whose name it shows, and let
                     the guest set or change it at any time (the one-time prompt
@@ -3129,7 +3168,7 @@ export default function Booth() {
               )}
               {phase === 'camera' && ready && !uiHidden && (frameHasIntro || (coach && !coachOpen)) && (
                 <div
-                  className="absolute right-3 top-1/2 z-20 flex -translate-y-1/2 flex-col gap-2.5"
+                  className="absolute right-[calc(var(--stage-bleed-x,0px)+0.75rem)] top-1/2 z-20 flex -translate-y-1/2 flex-col gap-2.5"
                   // Taps here are not stage taps (a double tap on the stage flips the camera).
                   onPointerDown={(e) => e.stopPropagation()}
                   onPointerUp={(e) => e.stopPropagation()}

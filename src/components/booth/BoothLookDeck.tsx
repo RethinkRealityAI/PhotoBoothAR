@@ -370,8 +370,11 @@ export default function BoothLookDeck({
       className="pb-safe-bottom [--safe-bottom:0.9rem] flex flex-col items-center gap-2.5 pt-12"
       style={{
         // A fade, not a panel: the frame stays visible right down to the
-        // shutter, which is what makes it feel like a camera.
-        background: 'linear-gradient(to top, rgba(5,6,11,0.9) 30%, rgba(5,6,11,0.45) 68%, transparent)',
+        // shutter, which is what makes it feel like a camera. Light enough
+        // that the full-screen stage reads through it (the controls are glass
+        // and carry their own contrast); it was 0.9 black and read as a bar
+        // cutting the Frame off.
+        background: 'linear-gradient(to top, rgba(5,6,11,0.55) 0%, rgba(5,6,11,0.28) 45%, transparent)',
       }}
     >
       {/* Guest colour row — only when the applied 3D piece invites it. */}
