@@ -148,6 +148,7 @@ import {
 } from '../lib/photoStrip';
 import StripPicker from './booth/StripPicker';
 import { ShutterFace } from './ui/BrandShutter';
+import { holdStep, HOLD_TO_RECORD_MS, type HoldEvent, type HoldState } from '../lib/shutterHold';
 import type { Transform2D, Experience, ExperienceLayer, AnchorConfig, Challenge } from '../types';
 import { layerToPiece } from '../lib/studio/draftMapping';
 import { applyGuestColor, guestColorSlot } from '../lib/guestPalette';
@@ -510,11 +511,11 @@ export default function Booth() {
     skipBoothSplash(source === 'db', location.state)
     || arFrameId !== null
     || (source === 'db' && new URLSearchParams(location.search).get(CAMERA_ON_PARAM) === '1'));
-  // `?mode=video` opens a platform booth straight in Video mode (tester and
-  // preview links; the entitlement effect below still snaps it back to photo
-  // when the plan has no video). Legacy builds ignore it.
-  const [mediaMode, setMediaMode] = useState<MediaMode>(() =>
-    source === 'db' && new URLSearchParams(location.search).get('mode') === 'video' ? 'video' : 'photo');
+  // Legacy booths switch Photo / Video with a pill. Platform booths have no
+  // switch: the shutter takes a photo on a tap and records while held
+  // (lib/shutterHold), so their mode stays 'photo' and `recording` says when a
+  // clip is running.
+  const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
 
   // Video capture is entitlement-gated. If the flag resolves after the guest
   // already toggled, snap back to photo mode.
@@ -538,8 +539,12 @@ export default function Booth() {
     });
   }, [source, eventId]);
 
-  // Audio is only needed in video mode: the microphone joins the running
-  // camera stream then (no camera restart), and `micTrack` says when it is on.
+  // Audio is only needed for video: the microphone joins the running camera
+  // stream (no camera restart), and `micTrack` says when it is on. A platform
+  // booth with video can start a clip on any press of the shutter, so its
+  // microphone stays open while the booth is open (it was granted at entry);
+  // that is what lets a hold start recording at once, lip-synced.
+  const audioWanted = mediaMode === 'video' || (source === 'db' && entitlements.videoEnabled);
   const {
     videoRef, stream, micTrack, ready, error, retry,
     facingMode, flipCamera, canFlip,
@@ -548,7 +553,7 @@ export default function Booth() {
   } = useCameraStream(
     // World mode on 8th Wall: the camera opens from the Start placing tap.
     started && (worldSession === null || arTapped),
-    mediaMode === 'video',
+    audioWanted,
     source === 'db' && entitlements.videoEnabled,
     { initialFacing: arFrameId !== null ? 'environment' : 'user', source: worldCamera, onIncident: onCameraIncident },
   );
@@ -588,7 +593,7 @@ export default function Booth() {
   const audioSyncRef = useRef<AudioSync | null>(null);
   const recordingNowRef = useRef(false);
   useEffect(() => {
-    if (!avSync.on || mediaMode !== 'video' || !stream) return;
+    if (!avSync.on || !audioWanted || !stream) return;
     const mic = liveAudioTrack(stream.getAudioTracks());
     if (!mic) return; // no microphone yet: this clip records whatever the record tap opens, undelayed
     const wanted = () => {
@@ -612,7 +617,7 @@ export default function Booth() {
       if (audioSyncRef.current === sync) audioSyncRef.current = null;
       sync.dispose();
     };
-  }, [avSync, mediaMode, stream, micTrack]);
+  }, [avSync, audioWanted, stream, micTrack]);
   // Ask once which video encoder this phone runs in hardware (lib/recorder.ts).
   useEffect(() => {
     if (source === 'db') void primeEncoderInfo(PREVIEW_W, PREVIEW_H);
@@ -1914,6 +1919,60 @@ export default function Booth() {
     }
   }, [phase, mediaMode, recording, timerSec, needsGuestName, askName, stripMode, resetStrip, cameraHint, dismissCameraHint]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Platform shutter: tap = photo, press and hold = video ─────────────
+  const holdStateRef = useRef<HoldState>('idle');
+  const holdTimerRef = useRef<number | null>(null);
+  /** Drives the press-down squeeze only. */
+  const [shutterPressed, setShutterPressed] = useState(false);
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current !== null) { window.clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
+  };
+  /** A hold crossed the threshold: record now, with no countdown. The same
+   *  guards as a tap (handleShutterPress), minus the timer and the strip. */
+  function startHeldRecording() {
+    if (phase !== 'camera' || recorderRef.current) return;
+    if (cameraHint) dismissCameraHint();
+    primeAudio();
+    if (needsGuestName && !askName) {
+      setNameDraft('');
+      setAskName(true);
+      return;
+    }
+    haptic('capture');
+    startRecording();
+  }
+  function shutterEvent(ev: HoldEvent) {
+    const step = holdStep(holdStateRef.current, ev, {
+      videoAllowed,
+      recording: recorderRef.current !== null || micCheckPendingRef.current,
+    });
+    holdStateRef.current = step.state;
+    if (step.state !== 'pressed') clearHoldTimer();
+    setShutterPressed(step.state !== 'idle');
+    if (step.effect === 'photo') {
+      haptic('capture');
+      handleShutterPress();
+    } else if (step.effect === 'startVideo') {
+      startHeldRecording();
+    } else if (step.effect === 'stopVideo' && recorderRef.current) {
+      haptic('toggle');
+      void stopRecording();
+    }
+    // stopVideo while the microphone is still opening: the clip starts and
+    // keeps going, and the next tap on the shutter stops it.
+  }
+  function onShutterPointerDown(e: React.PointerEvent<HTMLButtonElement>) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // Keep the release even if the finger drifts off the button mid-hold.
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not capturable: up still fires on the button */ }
+    shutterEvent('down');
+    if (holdStateRef.current === 'pressed' && videoAllowed) {
+      clearHoldTimer();
+      holdTimerRef.current = window.setTimeout(() => shutterEvent('timer'), HOLD_TO_RECORD_MS);
+    }
+  }
+  useEffect(() => () => clearHoldTimer(), []);
+
   const handleCountdownComplete = useCallback(() => {
     if (mediaMode === 'video') {
       startRecording();
@@ -2397,6 +2456,7 @@ export default function Booth() {
   // is the same answer for the life of the screen.
   const reducedMotionPref = useMemo(prefersReducedMotion, []);
   const ringCircumference = 2 * Math.PI * 28; // r=28 for a 60px button
+  const holdRingCircumference = 2 * Math.PI * 41; // the platform shutter's record ring
 
   // ── Control deck ──────────────────────────────────────────────────────
   // Platform (db) events get the look strip + "More looks" sheet + compact
@@ -2467,17 +2527,57 @@ export default function Booth() {
      the SAME control rather than two copies that drift apart. */
   const shutterNode = (
     <div className="relative flex items-center justify-center">
-      {mediaMode === 'photo' && source === 'db' ? (
+      {source === 'db' ? (
         // Platform booths: the brand shutter (purple glass core, white ring,
-        // soft brand-hued inner glow). Coded legacy events keep their own.
-        <motion.button
-          onClick={() => { haptic('capture'); handleShutterPress(); }}
-          whileTap={reducedMotionPref ? undefined : { scale: 0.9 }}
-          className="bw-shutter"
-          aria-label="Take photo"
-        >
-          <ShutterFace />
-        </motion.button>
+        // soft brand-hued inner glow). TAP = photo, PRESS AND HOLD = video,
+        // let go to stop (lib/shutterHold). Coded legacy events keep their own
+        // shutter and Photo / Video pill.
+        <div className="relative">
+          {recording && (
+            <svg className="pointer-events-none absolute -inset-[7px] z-10 -rotate-90" width="88" height="88" viewBox="0 0 88 88" aria-hidden>
+              <circle cx="44" cy="44" r="41" fill="none" stroke="rgba(239,68,68,0.25)" strokeWidth="4" />
+              <RecordingClock subs={recordingMsSubsRef}>
+                {(ms) => (
+                  <circle
+                    cx="44" cy="44" r="41" fill="none" stroke="#ef4444" strokeWidth="4" strokeLinecap="round"
+                    strokeDasharray={holdRingCircumference}
+                    strokeDashoffset={holdRingCircumference * (1 - Math.min(ms / VIDEO_MAX_MS, 1))}
+                    style={{ transition: 'stroke-dashoffset 0.1s linear' }}
+                  />
+                )}
+              </RecordingClock>
+            </svg>
+          )}
+          <motion.button
+            type="button"
+            onPointerDown={onShutterPointerDown}
+            onPointerUp={() => shutterEvent('up')}
+            onPointerCancel={() => shutterEvent('cancel')}
+            onContextMenu={(e) => e.preventDefault()}
+            onKeyDown={(e) => {
+              // Keyboards tap: Enter / Space take a photo, or stop a clip.
+              if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) {
+                e.preventDefault();
+                if (recorderRef.current) { haptic('toggle'); void stopRecording(); }
+                else { haptic('capture'); handleShutterPress(); }
+              }
+            }}
+            animate={{ scale: recording ? 1.12 : shutterPressed && !reducedMotionPref ? 0.9 : 1 }}
+            transition={{ type: 'spring', stiffness: 520, damping: 26 }}
+            className="bw-shutter select-none"
+            style={{ touchAction: 'none', WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
+            aria-label={recording
+              ? 'Recording — let go, or tap, to stop'
+              : videoAllowed ? 'Take photo. Press and hold to record a video' : 'Take photo'}
+          >
+            <ShutterFace />
+            {recording && (
+              <span aria-hidden className="absolute inset-0 z-10 flex items-center justify-center">
+                <span className="h-7 w-7 rounded-lg bg-red-500 glow-soft" />
+              </span>
+            )}
+          </motion.button>
+        </div>
       ) : mediaMode === 'photo' ? (
         <motion.button
           onClick={() => { haptic('capture'); handleShutterPress(); }}
@@ -2523,8 +2623,10 @@ export default function Booth() {
           <span className="h-6 w-6 rounded-full bg-red-500" />
         </motion.button>
       )}
-      {mediaMode === 'video' && recording && (
-        <span className="absolute -bottom-5 font-label text-[8px] uppercase tracking-wide text-brand-muted/60">
+      {(mediaMode === 'video' || source === 'db') && recording && (
+        <span className={source === 'db'
+          ? 'pointer-events-none absolute -top-7 rounded-full bg-black/45 px-2 py-0.5 font-label text-[10px] uppercase tracking-wide text-white/85'
+          : 'absolute -bottom-5 font-label text-[8px] uppercase tracking-wide text-brand-muted/60'}>
           <RecordingClock subs={recordingMsSubsRef}>
             {(ms) => <>{Math.ceil((VIDEO_MAX_MS - ms) / 1000)}s left</>}
           </RecordingClock>
@@ -2675,7 +2777,7 @@ export default function Booth() {
                     backTo: `${basePath}/welcome`,
                     // The timer moves up here on platform booths, camera-app
                     // style, so the shutter row has room for "More looks".
-                    extra: mediaMode === 'photo' ? (
+                    extra: mediaMode === 'photo' && !recording ? (
                       <TimerControl
                         className="relative"
                         variant="circle"
@@ -3072,14 +3174,12 @@ export default function Booth() {
                 onSelectPaint={handleSelectPaint}
                 onOpenAll={() => setMoreOpen(true)}
                 sheetOpen={moreOpen}
-                mediaMode={mediaMode}
-                onMediaMode={setMediaMode}
-                videoAllowed={videoAllowed}
+                holdForVideo={videoAllowed}
                 recording={recording}
                 shutter={shutterNode}
+                onHideControls={() => setUiHidden(true)}
                 pendingIds={pendingExperienceIds}
                 stripMode={stripMode}
-                onStripMode={setStripMode}
                 stripShots={stripCount}
                 onOpenStripPicker={() => setStripPickerOpen(true)}
                 colorSlot={colorSlot}

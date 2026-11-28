@@ -13,7 +13,7 @@
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { Camera, ChevronLeft, Film, LayoutGrid, SwitchCamera, Trophy, Video } from 'lucide-react';
+import { Camera, ChevronLeft, EyeOff, Film, LayoutGrid, SwitchCamera, Trophy, Video } from 'lucide-react';
 import type { IntroArt as Art, IntroLook } from '../../../lib/boothIntro';
 import type { LookTab } from '../../../lib/lookTerms';
 import beamyHello from '../../../assets/sales/v2/beamy-hello.webp';
@@ -240,8 +240,8 @@ export function ControlsArt({ flip, video, strip, tabs, looks }: Extract<Art, { 
   const items: { id: ControlId; label: string; Icon: typeof Camera }[] = [
     ...(flip ? [{ id: 'flip' as const, label: 'Flip camera', Icon: SwitchCamera }] : []),
     { id: 'looks', label: 'Switch looks', Icon: LayoutGrid },
-    { id: 'modes', label: ['Photo', ...(video ? ['Video'] : []), ...(strip ? ['Strip'] : [])].join(' · '), Icon: video ? Video : Film },
-    { id: 'snap', label: 'Snap!', Icon: Camera },
+    { id: 'modes', label: strip ? 'Strip · hide buttons' : 'Hide buttons', Icon: strip ? Film : EyeOff },
+    { id: 'snap', label: video ? 'Tap: photo · hold: video' : 'Snap!', Icon: video ? Video : Camera },
   ];
   const [active, setActive] = useState(0);
   useEffect(() => {
@@ -286,11 +286,10 @@ export function ControlsArt({ flip, video, strip, tabs, looks }: Extract<Art, { 
               );
             })}
           </div>
-          {/* Mode pill · shutter · more */}
-          <div className="absolute left-[6px] top-[165px] flex h-[12px] items-center gap-[2px] rounded-full bg-white/20 px-[2px]">
-            <span className="flex h-[9px] w-[9px] items-center justify-center rounded-full" style={{ background: 'var(--sc-accent)' }}><Camera className="h-[5px] w-[5px] text-white" /></span>
-            {video && <Video className="h-[5px] w-[5px] text-white/80" />}
-            {strip && <Film className="h-[5px] w-[5px] text-white/80" />}
+          {/* Strip + hide controls · shutter (tap / hold) · more */}
+          <div className="absolute left-[6px] top-[165px] flex h-[12px] items-center gap-[3px] rounded-full bg-white/20 px-[3px]">
+            {strip && <Film className="h-[6px] w-[6px] text-white/85" />}
+            <EyeOff className="h-[6px] w-[6px] text-white/85" />
           </div>
           <span className="absolute left-1/2 top-[160px] h-[22px] w-[22px] -translate-x-1/2 rounded-full border-2 border-white/90" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--sc-accent) 85%, white) 0 55%, transparent 58%)' }} />
           <span className="absolute right-[6px] top-[165px] flex h-[12px] w-[20px] items-center justify-center rounded-full bg-white/20"><LayoutGrid className="h-[6px] w-[6px] text-white" /></span>
