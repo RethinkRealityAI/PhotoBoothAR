@@ -50,6 +50,53 @@ describe('cameraWatch', () => {
     expect(names).not.toContain('camera_stuck');
   });
 
+  it('time in the background never counts: coming back to a lost camera gets a fresh 5 s to heal', () => {
+    // Real iOS Safari timeline (client_errors, Nov 28): lost, hidden for hours,
+    // back in front → camera_stuck fired 770 ms later, before the self-heal ran.
+    const lostAt = 1000;
+    const back = 7_000_000;
+    const early = run([
+      [{ type: 'stream_start' }, 0],
+      [{ type: 'track_ended' }, lostAt],
+      [{ type: 'hidden' }, 2000],
+      [{ type: 'visible' }, back],
+      [{ type: 'tick' }, back + 770],
+      [{ type: 'tick' }, back + STUCK_AFTER_MS - 1],
+    ]);
+    expect(early.names).not.toContain('camera_stuck');
+
+    const late = run([[{ type: 'tick' }, back + STUCK_AFTER_MS]], early.s);
+    const stuck = late.all.find((e) => e.name === 'camera_stuck')!;
+    expect(stuck).toBeDefined();
+    expect(stuck.props.visible_ms).toBe(STUCK_AFTER_MS);
+    expect(stuck.props.lost_ms).toBe(back + STUCK_AFTER_MS - lostAt);
+  });
+
+  it('a camera the self-heal brings back within 5 s of returning is never stuck', () => {
+    const { names } = run([
+      [{ type: 'stream_start' }, 0],
+      [{ type: 'hidden' }, 1000],
+      [{ type: 'track_muted' }, 1500], // ignored while hidden
+      [{ type: 'visible' }, 400_000],
+      [{ type: 'track_muted' }, 400_050],
+      [{ type: 'tick' }, 401_000],
+      [{ type: 'track_unmuted' }, 403_000],
+      [{ type: 'tick' }, 420_000],
+    ]);
+    expect(names).not.toContain('camera_stuck');
+    expect(names).toContain('camera_regained');
+  });
+
+  it('still reports stuck when lost in plain view for 5 s', () => {
+    const { names } = run([
+      [{ type: 'stream_start' }, 0],
+      [{ type: 'frames_stalled' }, 1000],
+      [{ type: 'tick' }, 1000 + STUCK_AFTER_MS - 1],
+      [{ type: 'tick' }, 1000 + STUCK_AFTER_MS],
+    ]);
+    expect(names.filter((n) => n === 'camera_stuck')).toHaveLength(1);
+  });
+
   it('a recovery reports the outage length', () => {
     const { all, s } = run([
       [{ type: 'stream_start' }, 0],

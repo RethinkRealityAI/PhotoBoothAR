@@ -6,7 +6,9 @@
  *
  * What it is built to catch (Dapo, Nov 25 2026):
  *   - the feed going dark after a tab switch and never coming back
- *     (`camera_stuck`: lost for STUCK_AFTER_MS while the page is visible);
+ *     (`camera_stuck`: lost for STUCK_AFTER_MS of VISIBLE time — the clock
+ *     restarts when the page comes back to the front, so time spent in the
+ *     background never counts and the self-heal gets its chance first);
  *   - the feed flashing in and out while switching looks
  *     (`camera_flapping`: FLAP_STARTS camera (re)starts within FLAP_WINDOW_MS,
  *     not counting starts the guest asked for, like a camera flip).
@@ -46,6 +48,10 @@ export interface CameraWatchState {
   lostAt: number | null;
   lostReason: LostReason | null;
   lostWhileHidden: boolean;
+  /** Since when the guest has been LOOKING at the lost camera: the later of
+   *  the loss and the last return to the front. camera_stuck is timed from
+   *  here, never from lostAt (#150). */
+  stuckClockFrom: number | null;
   /** Unrequested (re)starts inside the flap window (ms timestamps). */
   starts: number[];
   totalStarts: number;
@@ -62,7 +68,7 @@ export const STUCK_AFTER_MS = 5_000;
 export function initialCameraWatch(): CameraWatchState {
   return {
     status: 'idle', hidden: false, lostAt: null, lostReason: null, lostWhileHidden: false,
-    starts: [], totalStarts: 0, totalLosses: 0, stuckReported: false, lastFlapAt: null,
+    stuckClockFrom: null, starts: [], totalStarts: 0, totalLosses: 0, stuckReported: false, lastFlapAt: null,
   };
 }
 
@@ -76,7 +82,7 @@ export function stepCameraWatch(
     if (st.status !== 'live') return;
     st = {
       ...st, status: 'lost', lostAt: now, lostReason: reason, lostWhileHidden: st.hidden,
-      totalLosses: st.totalLosses + 1, stuckReported: false,
+      stuckClockFrom: now, totalLosses: st.totalLosses + 1, stuckReported: false,
     };
     emits.push({
       name: 'camera_lost',
@@ -92,7 +98,10 @@ export function stepCameraWatch(
       props: { how, reason: st.lostReason, outage_ms: outageMs, while_hidden: st.lostWhileHidden },
       incident: false,
     });
-    st = { ...st, status: 'live', lostAt: null, lostReason: null, lostWhileHidden: false, stuckReported: false };
+    st = {
+      ...st, status: 'live', lostAt: null, lostReason: null, lostWhileHidden: false,
+      stuckClockFrom: null, stuckReported: false,
+    };
   };
 
   switch (sig.type) {
@@ -138,19 +147,22 @@ export function stepCameraWatch(
     case 'frames_flowing': regain('frames'); break;
     case 'hidden': st = { ...st, hidden: true }; break;
     case 'visible':
-      st = { ...st, hidden: false };
+      // Back in front: a camera lost in (or across) the background gets a
+      // fresh STUCK_AFTER_MS to heal before it counts as stuck.
+      st = { ...st, hidden: false, stuckClockFrom: st.status === 'lost' ? now : st.stuckClockFrom };
       emits.push({ name: 'camera_page_visible', props: { status: st.status }, incident: false });
       break;
     case 'tick':
       if (
         st.status === 'lost' && !st.hidden && !st.stuckReported &&
-        st.lostAt !== null && now - st.lostAt >= STUCK_AFTER_MS
+        st.lostAt !== null && st.stuckClockFrom !== null &&
+        now - st.stuckClockFrom >= STUCK_AFTER_MS
       ) {
         st = { ...st, stuckReported: true };
         emits.push({
           name: 'camera_stuck',
           props: {
-            reason: st.lostReason, lost_ms: now - st.lostAt,
+            reason: st.lostReason, lost_ms: now - st.lostAt, visible_ms: now - st.stuckClockFrom,
             while_hidden: st.lostWhileHidden, losses: st.totalLosses, starts: st.totalStarts,
           },
           incident: true,
