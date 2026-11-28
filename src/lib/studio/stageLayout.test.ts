@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fitStageBox, STAGE_ASPECT } from './stageLayout';
+import { fitStageBox, fillStageBox, stageBleed, STAGE_ASPECT } from './stageLayout';
 
 describe('fitStageBox', () => {
   it('keeps 9:16 when the width binds — the case the CSS got wrong', () => {
@@ -47,5 +47,46 @@ describe('fitStageBox', () => {
       }
     }
     expect(fitStageBox(100, 100, 0)).toEqual({ w: 0, h: 0 });
+  });
+});
+
+describe('fillStageBox (booth phones: fill the screen)', () => {
+  it('covers a typical phone edge to edge, trimming the sides', () => {
+    const b = fillStageBox(390, 844);
+    expect(b.w / b.h).toBeCloseTo(STAGE_ASPECT, 6);
+    expect(b.h).toBeCloseTo(844, 6);
+    expect(b.w).toBeGreaterThan(390);
+    const bleed = stageBleed(b, 390, 844);
+    expect(bleed.y).toBe(0);
+    expect(bleed.x).toBeCloseTo((474.75 - 390) / 2, 6);
+  });
+
+  it('covers a 21:9 Fold outer screen', () => {
+    const b = fillStageBox(412, 961);
+    expect(b.h).toBeCloseTo(961, 6);
+    expect(b.w).toBeGreaterThan(412);
+  });
+
+  it('letterboxes a near-square screen (Fold opened) instead of hiding a third of the frame', () => {
+    expect(fillStageBox(720, 800)).toEqual(fitStageBox(720, 800));
+  });
+
+  it('covers a screen a little wider than 9:16 by trimming top and bottom', () => {
+    const b = fillStageBox(500, 820);
+    expect(b.w).toBeCloseTo(500, 6);
+    expect(b.h).toBeGreaterThan(820);
+    expect(stageBleed(b, 500, 820).x).toBe(0);
+  });
+
+  it('a screen already 9:16 is the fitted box with no bleed', () => {
+    const b = fillStageBox(360, 640);
+    expect(b.w).toBeCloseTo(360, 6);
+    expect(b.h).toBeCloseTo(640, 6);
+    expect(stageBleed(b, 360, 640)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('bad input is a zero box, never NaN', () => {
+    expect(fillStageBox(0, 800)).toEqual({ w: 0, h: 0 });
+    expect(fillStageBox(Number.NaN, 800)).toEqual({ w: 0, h: 0 });
   });
 });

@@ -5,13 +5,15 @@
  * LookThumb — one look's picture, shared by the platform strip and the
  * "More looks" sheet so the two can never show the same look differently.
  *
- * Frames and 3D pieces show their real thumbnail; effects show the guest's own
- * face through the actual shader (FilterThumb), over a quiet brand-tinted
- * fallback for when the live engine cannot run. No gradient fills: the brand
- * keeps gradients off controls, and the live preview carries the identity.
+ * Frames and 3D pieces show their real thumbnail; effects show a STILL of a
+ * sample portrait through the actual shader (effectStills), drawn once per
+ * visit. They used to be live camera previews, which cost the booth frame rate
+ * (Dapo, Nov 28 2026). A quiet brand-tinted icon shows until the still exists,
+ * and stays if it can't be drawn.
  */
+import { useEffect, useState } from 'react';
 import { Box, Palette, Square, Wand2 } from 'lucide-react';
-import FilterThumb from './FilterThumb';
+import { effectStill, requestEffectStill } from './effectStills';
 import type { LookItem } from '../../lib/lookStrip';
 import type { LookTab } from '../../lib/lookTerms';
 import { isWorldLook } from '../../lib/world/worldLooks';
@@ -31,16 +33,10 @@ export default function LookThumb({ item }: { item: LookItem }) {
   if (category === 'effect') {
     const sky = skyEffect(skyIdOfShader(item.shaderId));
     if (sky) return <SkyThumb sky={sky} />;
-    return (
-      <FilterThumb shaderId={item.shaderId ?? 'none'}>
-        <span
-          className="flex h-full w-full items-center justify-center"
-          style={{ background: 'rgba(var(--accent-rgb), 0.16)' }}
-        >
-          <Wand2 className="h-5 w-5 text-brand-fg/70" />
-        </span>
-      </FilterThumb>
-    );
+    if (exp.thumbnail_url) {
+      return <img src={exp.thumbnail_url} alt="" draggable={false} className="h-full w-full object-cover" />;
+    }
+    return <EffectStill shaderId={item.shaderId ?? 'none'} />;
   }
   if (isWorldLook(exp)) return <WorldThumb exp={item.exp} />;
   const src = exp.thumbnail_url ?? (category === 'frame' ? exp.asset_url : null);
@@ -118,5 +114,27 @@ function SkyThumb({ sky }: { sky: SkyEffect }) {
         AR
       </span>
     </span>
+  );
+}
+
+/** An effect's still (effectStills) over its icon fallback. */
+function EffectStill({ shaderId }: { shaderId: string }) {
+  const [src, setSrc] = useState<string | null>(() => effectStill(shaderId));
+  useEffect(() => {
+    setSrc(effectStill(shaderId));
+    return requestEffectStill(shaderId, setSrc);
+  }, [shaderId]);
+  return (
+    <>
+      <span
+        className="flex h-full w-full items-center justify-center"
+        style={{ background: 'rgba(var(--accent-rgb), 0.16)' }}
+      >
+        <Wand2 className="h-5 w-5 text-brand-fg/70" />
+      </span>
+      {src !== null && (
+        <img src={src} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />
+      )}
+    </>
   );
 }

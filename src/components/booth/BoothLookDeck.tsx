@@ -30,10 +30,8 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowLeftRight, Ban, Dices, LayoutGrid, Sparkles } from 'lucide-react';
-import FilterThumb from './FilterThumb';
+import { ArrowLeftRight, Ban, Circle, Dices, EyeOff, Film, LayoutGrid, Sparkles } from 'lucide-react';
 import LookThumb from './LookThumb';
-import { CaptureModePill } from './BoothCaptureControls';
 import type { DeckSection, DeckSelection } from '../../lib/boothDeck';
 import {
   activeLookIds,
@@ -62,6 +60,16 @@ import { deckLabels } from '../../lib/lookLabels';
 import { canSurprise, pickSurprise, surpriseAnnouncement } from '../../lib/lookSurprise';
 import { haptic } from '../../lib/haptics';
 import type { GuestColorSlot } from '../../lib/guestPalette';
+
+const HOLD_TIP_KEY = 'bw.booth.holdTip.v1';
+const HOLD_TIP_DELAY_MS = 1800;
+const HOLD_TIP_MS = 4200;
+function holdTipSeen(storage: Storage | null): boolean {
+  try { return storage?.getItem(HOLD_TIP_KEY) === '1'; } catch { return false; }
+}
+function markHoldTipSeen(storage: Storage | null): void {
+  try { storage?.setItem(HOLD_TIP_KEY, '1'); } catch { /* private mode: shows again next visit */ }
+}
 
 function safeStorage(): Storage | null {
   try {
@@ -167,14 +175,16 @@ export interface BoothLookDeckProps extends LookHandlers {
   /** Opens the full "More looks" sheet. */
   onOpenAll: () => void;
   sheetOpen: boolean;
-  mediaMode: 'photo' | 'video';
-  onMediaMode: (m: 'photo' | 'video') => void;
-  videoAllowed: boolean;
+  /** The shutter records while held (the plan allows video): a one-time hint
+   *  says so. There is no Photo / Video switch any more (Dapo, Nov 28 2026). */
+  holdForVideo: boolean;
   recording: boolean;
   shutter: ReactNode;
+  /** Hides the deck and top bar to show the whole frame (bottom-left, beside
+   *  the strip button, so it is one tap rather than inside the menu). */
+  onHideControls: () => void;
   pendingIds?: ReadonlySet<string>;
   stripMode?: boolean;
-  onStripMode?: (on: boolean) => void;
   stripShots?: number;
   onOpenStripPicker?: () => void;
   colorSlot?: GuestColorSlot | null;
@@ -188,8 +198,8 @@ export interface BoothLookDeckProps extends LookHandlers {
 export default function BoothLookDeck({
   sections, selection, sparkles, onToggleSparkles,
   onSelectEffect, onSelectFrame, onSelectAttachment, onSelectPaint, onOpenAll, sheetOpen,
-  mediaMode, onMediaMode, videoAllowed, recording, shutter, pendingIds,
-  stripMode = false, onStripMode, stripShots, onOpenStripPicker,
+  holdForVideo, recording, shutter, onHideControls, pendingIds,
+  stripMode = false, stripShots, onOpenStripPicker,
   colorSlot = null, guestHex = null, onGuestHex, hintEnabled,
 }: BoothLookDeckProps) {
   const reduced = useReducedMotion() ?? false;
@@ -317,6 +327,27 @@ export default function BoothLookDeck({
   }, [hint]);
   useEffect(() => { if (sheetOpen) setHint(false); }, [sheetOpen]);
 
+  // ── "Hold for video": once per device, after the swipe hint has had its turn.
+  const [holdTip, setHoldTip] = useState(false);
+  const holdTipDoneRef = useRef(false);
+  useEffect(() => {
+    if (!holdForVideo || !hintEnabled || hint || recording || holdTipDoneRef.current) return;
+    const storage = safeStorage();
+    if (holdTipSeen(storage)) { holdTipDoneRef.current = true; return; }
+    const t = window.setTimeout(() => {
+      holdTipDoneRef.current = true;
+      markHoldTipSeen(storage);
+      setHoldTip(true);
+    }, HOLD_TIP_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [holdForVideo, hintEnabled, hint, recording]);
+  useEffect(() => {
+    if (!holdTip) return;
+    const t = window.setTimeout(() => setHoldTip(false), HOLD_TIP_MS);
+    return () => window.clearTimeout(t);
+  }, [holdTip]);
+  useEffect(() => { if (recording || sheetOpen) setHoldTip(false); }, [recording, sheetOpen]);
+
   const none = deckNoneTile(tab, strip, selection, sparkles);
 
   // ── Surprise me: one tap, a random combination that works together
@@ -339,8 +370,11 @@ export default function BoothLookDeck({
       className="pb-safe-bottom [--safe-bottom:0.9rem] flex flex-col items-center gap-2.5 pt-12"
       style={{
         // A fade, not a panel: the frame stays visible right down to the
-        // shutter, which is what makes it feel like a camera.
-        background: 'linear-gradient(to top, rgba(5,6,11,0.9) 30%, rgba(5,6,11,0.45) 68%, transparent)',
+        // shutter, which is what makes it feel like a camera. Light enough
+        // that the full-screen stage reads through it (the controls are glass
+        // and carry their own contrast); it was 0.9 black and read as a bar
+        // cutting the Frame off.
+        background: 'linear-gradient(to top, rgba(5,6,11,0.55) 0%, rgba(5,6,11,0.28) 45%, transparent)',
       }}
     >
       {/* Guest colour row — only when the applied 3D piece invites it. */}
@@ -403,6 +437,18 @@ export default function BoothLookDeck({
               >
                 <ArrowLeftRight className="h-3.5 w-3.5 text-[color:var(--color-accent)]" />
                 Swipe for more looks
+              </motion.span>
+            ) : holdTip ? (
+              <motion.span
+                key="hold"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: reduced ? 0 : 0.3 }}
+                className="liquid-glass-raised flex items-center gap-2 rounded-full px-3.5 py-1.5 font-sans text-[13px] text-brand-fg"
+              >
+                <Circle className="h-3 w-3 fill-red-500 text-red-500" />
+                Tap for a photo · hold for video
               </motion.span>
             ) : null}
           </AnimatePresence>
@@ -533,9 +579,9 @@ export default function BoothLookDeck({
               if (none.sparklesOff) onToggleSparkles(false);
             }}
           >
-            <FilterThumb shaderId="none">
-              <Ban className="h-4 w-4 text-brand-muted/70" />
-            </FilterThumb>
+            {/* A plain icon: this used to be a live camera preview, which cost
+                the booth frame rate (Dapo, Nov 28 2026). */}
+            <Ban className="h-4 w-4 text-brand-muted/70" />
           </Tile>
           {tab === 'effects' && (
           <Tile
@@ -583,23 +629,47 @@ export default function BoothLookDeck({
         </div>
       </div>
 
-      {/* Shutter row: capture mode · SHUTTER · More looks. */}
+      {/* Shutter row: strip + hide controls · SHUTTER (tap = photo, hold =
+          video) · More looks. The Photo / Video switch is gone. */}
       <div className="relative flex min-h-[76px] w-full max-w-md items-center justify-center px-3">
         {/* Wrapped like More looks: the glass classes set `position:
             relative`, which would put the pill back in flow. */}
-        <div className="absolute left-3">
-        <CaptureModePill
-          className="liquid-glass-raised flex items-center gap-0.5 rounded-full p-0.5"
-          mediaMode={mediaMode}
-          onMediaMode={onMediaMode}
-          videoAllowed={videoAllowed}
-          recording={recording}
-          stripMode={stripMode}
-          onStripMode={onStripMode}
-          stripShots={stripShots}
-          onOpenStripPicker={onOpenStripPicker}
-        />
-        </div>
+        {!recording && (
+          <div className="absolute left-3">
+            <div className="liquid-glass-raised flex items-center gap-0.5 rounded-full p-0.5">
+              {onOpenStripPicker && (
+                <button
+                  type="button"
+                  onClick={() => { haptic('tap'); onOpenStripPicker(); }}
+                  aria-label={stripMode ? `Photo strip on, ${stripShots ?? ''} shots — change or turn off` : 'Photo strip — choose how many shots'}
+                  aria-pressed={stripMode}
+                  className={`pressable relative flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
+                    stripMode ? 'is-selected bg-foil text-[color:var(--on-accent)]' : 'text-brand-fg/85'
+                  }`}
+                >
+                  <Film className="h-[18px] w-[18px]" />
+                  {stripMode && stripShots != null && (
+                    <span
+                      className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full font-label text-[10px] font-bold"
+                      style={{ background: 'var(--color-accent)', color: 'var(--on-accent)', boxShadow: '0 0 6px rgba(var(--accent-rgb),0.8)' }}
+                    >
+                      {stripShots}
+                    </span>
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { haptic('toggle'); onHideControls(); }}
+                aria-label="Hide controls — see the full frame"
+                title="Hide controls"
+                className="pressable flex h-10 w-10 items-center justify-center rounded-full text-brand-fg/85"
+              >
+                <EyeOff className="h-[18px] w-[18px]" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {shutter}
 

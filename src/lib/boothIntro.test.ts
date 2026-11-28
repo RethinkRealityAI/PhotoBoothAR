@@ -36,10 +36,10 @@ describe('booth intro: dynamic steps', () => {
   });
   it('the controls step only names the capture modes the plan allows', () => {
     const [, controls] = buildIntroSteps(bare, DEFAULT_BOOTH_INTRO);
-    expect(controls.body).not.toMatch(/Video/);
-    expect(controls.body).toMatch(/Photo and a photo Strip/);
+    expect(controls.body).not.toMatch(/video/i);
+    expect(controls.body).toMatch(/tap the big button to snap\. The film button makes a photo strip/);
     const c2 = buildIntroSteps(full, DEFAULT_BOOTH_INTRO)[1];
-    expect(c2.body).toMatch(/Photo, Video and a photo Strip/);
+    expect(c2.body).toMatch(/tap the big button to snap, or hold it to record a video/);
     expect(c2.art).toMatchObject({ kind: 'controls', video: true, tabs: ['frames', 'props', 'effects'] });
   });
   it('a phone that cannot flip is not told to flip', () => {

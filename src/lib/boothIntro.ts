@@ -266,9 +266,10 @@ export function availableIntroSteps(ctx: IntroContext): IntroStepId[] {
 
 const TAB_WORD: Record<LookTab, string> = { frames: 'Frames', props: 'Props', paint: 'Paint', effects: 'Effects' };
 
-function modeWords(ctx: IntroContext): string {
-  const modes = ['Photo', ...(ctx.video ? ['Video'] : []), ...(ctx.strip ? ['a photo Strip'] : [])];
-  return listWords(modes);
+/** How the one capture button works: tap = photo, hold = video (no switch). */
+function captureWords(ctx: IntroContext): string {
+  const snap = ctx.video ? 'tap the big button to snap, or hold it to record a video' : 'tap the big button to snap';
+  return `${snap}.${ctx.strip ? ' The film button makes a photo strip.' : ''}`;
 }
 
 /** Beamy's default step, built from what the booth has. */
@@ -288,7 +289,7 @@ export function defaultIntroStep(id: IntroStepId, ctx: IntroContext): IntroStep 
       return {
         id, eyebrow: 'Your controls',
         title: 'Everything is one tap away',
-        body: `${flip} your look, then choose ${modeWords(ctx)}. The big button snaps.`,
+        body: `${flip} your look, then ${captureWords(ctx)}`,
         art: { kind: 'controls', flip: ctx.canFlip, video: ctx.video, strip: ctx.strip, tabs, looks: showcaseLooks(ctx.looks, 4) },
       };
     }

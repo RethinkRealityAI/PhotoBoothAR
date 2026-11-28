@@ -152,7 +152,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         id: 'modes',
         title: 'Photos, videos and strips',
         line: 'Photos, short videos with sound, and 2-, 3- or 4-shot photo strips laid out in the event’s colours.',
-        detail: 'Videos run up to 30 seconds on Free and Essentials, 60 on Premium and 90 on Deluxe.',
+        detail: 'One button does both: tap for a photo, press and hold to record a video. Videos run up to 30 seconds on Free and Essentials, 60 on Premium and 90 on Deluxe.',
         icon: 'camera',
         image: 'photo-strips',
       },

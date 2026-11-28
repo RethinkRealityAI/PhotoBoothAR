@@ -882,7 +882,7 @@ export default function WorldStage({
       {/* Hint pill: the booth's own pill style, top of the stage. */}
       <div
         className="absolute inset-x-0 z-30 flex justify-center pointer-events-none"
-        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 4.25rem)' }}
+        style={{ top: 'calc(var(--stage-bleed-y, 0px) + env(safe-area-inset-top, 0px) + 4.25rem)' }}
         role="status"
         aria-live="polite"
       >
@@ -904,7 +904,7 @@ export default function WorldStage({
 
       {/* Place / Move: small, above the booth's deck, never over the shutter. */}
       {phase === 'placing' && !recording && (
-        <div className="absolute inset-x-0 bottom-[17%] z-30 flex justify-center pointer-events-none">
+        <div className="absolute inset-x-0 bottom-[calc(var(--stage-bleed-y,0px)+17%)] z-30 flex justify-center pointer-events-none">
           <button
             type="button"
             onClick={place}
@@ -916,7 +916,7 @@ export default function WorldStage({
         </div>
       )}
       {phase === 'placed' && !recording && (
-        <div className="absolute right-3 bottom-[17%] z-30">
+        <div className="absolute right-[calc(var(--stage-bleed-x,0px)+0.75rem)] bottom-[calc(var(--stage-bleed-y,0px)+17%)] z-30">
           <button
             type="button"
             onClick={move}
@@ -934,7 +934,7 @@ export default function WorldStage({
         {phase === 'intro' && (
           <motion.div
             key="world-intro"
-            className="absolute inset-0 z-40 flex items-end sm:items-center justify-center p-4 pointer-events-auto"
+            className="absolute inset-0 z-40 flex items-end sm:items-center justify-center px-[calc(var(--stage-bleed-x,0px)+1rem)] py-[calc(var(--stage-bleed-y,0px)+1rem)] pointer-events-auto"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

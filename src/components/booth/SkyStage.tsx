@@ -60,7 +60,7 @@ export default function SkyStage({ effect, engine, started, recording, onStartTa
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25 }}
-            className="absolute left-1/2 top-[14%] flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full glass-strong border border-gold-400/30 px-4 py-2 font-sans text-[13px] text-ivory"
+            className="absolute left-1/2 top-[calc(var(--stage-bleed-y,0px)+14%)] flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full glass-strong border border-gold-400/30 px-4 py-2 font-sans text-[13px] text-ivory"
           >
             <CloudSun className="h-4 w-4 text-gold-300" aria-hidden />
             Point your camera at the sky
@@ -71,7 +71,7 @@ export default function SkyStage({ effect, engine, started, recording, onStartTa
         {!started && (
           <motion.div
             key="sky-intro"
-            className="absolute inset-0 z-40 flex items-end sm:items-center justify-center p-4 pointer-events-auto"
+            className="absolute inset-0 z-40 flex items-end sm:items-center justify-center px-[calc(var(--stage-bleed-x,0px)+1rem)] py-[calc(var(--stage-bleed-y,0px)+1rem)] pointer-events-auto"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
